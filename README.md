@@ -26,11 +26,12 @@ resilient agency). On host B: (can be the same as A):
 
     arangodb --join A
 
-This will contact A:4000 and register. On host C: (can be same as A or B):
+This will contact A on port 4000 and register. On host C: (can be same
+as A or B):
 
     arangodb --join A
 
-will contact A:4000 and register.
+This will contact A on port 4000 and register.
 
 From the moment on when 3 have joined, each will fire up an agent, a 
 coordinator and a dbserver and the cluster is up. Ports are shown on
@@ -137,7 +138,6 @@ of the process in the Docker container.
 Future plans
 ------------
 
-* allow to run Docker images for the instances on Linux
 * deploy this program as a Docker image
 * bundle this program with the usual distribution
 * make port usage configurable
@@ -166,3 +166,12 @@ the `arangodb` instances. The ports used (4001 for the agent, 8530 for
 the coordinator, 8629 for the DBserver) need to be free. If more than
 one instance of an `arangodb` are started on the same machine, the
 second will increase all these port numbers by 1 and so on.
+
+Feedback
+--------
+
+Feedback is very welcome in the form of github issues, pull requests
+or simply emails to me:
+
+  `Max Neunhöffer <max@arangodb.com>`
+
