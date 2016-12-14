@@ -1,0 +1,11 @@
+    Article
+
+Docker:
+    Use docker image if on Linux
+    test in Docker container: Docker in Docker?
+
+future:
+    configurable base ports
+    free port testing?
+    SSL
+    authentication
