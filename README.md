@@ -78,6 +78,12 @@ that `--agencySize` is set to 1 (see below), the master has to know
 under which address it can be reached from the outside. If you specify
 `localhost` here, then all instances must run on the local machine.
 
+* `--docker image`
+
+`image` is the name of a Docker image to run instead of the normal
+executable. For each started instance a Docker container is launched.
+Usually one would use the Docker image `arangodb/arangodb`.
+
 Esoteric options
 ----------------
 
@@ -120,6 +126,13 @@ debugging only.
 * `--verbose bool`
 
 show more information (default false).
+
+* `--dockerUser user`
+
+`user` is an expression to be used for `docker run` with the `--user` 
+option. One can give a user id or a user id and a group id, separated
+by a colon. The purpose of this option is to limit the access rights
+of the process in the Docker container.
 
 Future plans
 ------------

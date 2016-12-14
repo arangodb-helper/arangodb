@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -32,6 +33,9 @@ var dataDir = "./"
 var ownAddress = ""
 var masterAddress = ""
 var verbose = false
+var docker = ""
+var dockerPath = ""
+var dockerUser = ""
 
 // Overall state:
 
@@ -207,14 +211,32 @@ func makeBaseArgs(myDir string, myAddress string, myPort string,
 		out.Close()
 	}
 	args = make([]string, 0, 40)
+	executable := arangodExecutable
+	jsStartup := arangodJSstartup
 	if rrPath != "" {
 		args = append(args, rrPath)
+	} else if docker != "" {
+    executable = "/usr/sbin/arangod"
+		jsStartup = "/usr/share/arangodb3/js"
+		args = append(args,
+		  dockerPath,
+			"run", "-d",
+			"--net=host",
+			"-v", myDir + ":/data",
+			"--name", mode + myPort,
+		)
+		if dockerUser != "" {
+			args = append(args, "--user", dockerUser)
+		}
+		args = append(args, docker)
+		myDir = "/data/"
+		confFileName = myDir + "arangod.conf"
 	}
 	args = append(args,
-		arangodExecutable,
+		executable,
 		"-c", slasher(confFileName),
 		"--database.directory", slasher(myDir+"data"),
-		"--javascript.startup-directory", slasher(arangodJSstartup),
+		"--javascript.startup-directory", slasher(jsStartup),
 		"--javascript.app-path", slasher(myDir+"apps"),
 		"--log.file", slasher(myDir+"arangod.log"),
 		"--log.force-direct", "false",
@@ -293,6 +315,8 @@ func startRunning() {
 	var executable string
 	if rrPath != "" {
 		executable = rrPath
+	} else if docker != "" {
+		executable = dockerPath
 	} else {
 		executable = arangodExecutable
 	}
@@ -305,11 +329,13 @@ func startRunning() {
 		args = makeBaseArgs(myDir, myAddress, myPort, "agent")
 		writeCommand(myDir+"arangod_command.txt", executable, args)
 		agentProc, err = os.StartProcess(executable, args,
-			&os.ProcAttr{"", nil, []*os.File{os.Stdin, nil, nil}, nil})
+			&os.ProcAttr{"", nil, []*os.File{os.Stdin, os.Stdout, os.Stderr}, nil})
 		if err != nil {
 			fmt.Println("Error whilst starting agent:", err)
 		}
 	}
+
+	time.Sleep(1000000000)
 
 	// Start DBserver:
 	var dbserverProc *os.Process
@@ -322,11 +348,13 @@ func startRunning() {
 		args = makeBaseArgs(myDir, myAddress, myPort, "dbserver")
 		writeCommand(myDir+"arangod_command.txt", executable, args)
 		dbserverProc, err = os.StartProcess(executable, args,
-			&os.ProcAttr{"", nil, []*os.File{os.Stdin, nil, nil}, nil})
+			&os.ProcAttr{"", nil, []*os.File{os.Stdin, os.Stdout, os.Stderr}, nil})
 		if err != nil {
 			fmt.Println("Error whilst starting dbserver:", err)
 		}
 	}
+
+	time.Sleep(1000000000)
 
 	// Start Coordinator:
 	var coordinatorProc *os.Process
@@ -339,7 +367,7 @@ func startRunning() {
 		args = makeBaseArgs(myDir, myAddress, myPort, "coordinator")
 		writeCommand(myDir+"arangod_command.txt", executable, args)
 		coordinatorProc, err = os.StartProcess(executable, args,
-			&os.ProcAttr{"", nil, []*os.File{os.Stdin, nil, nil}, nil})
+			&os.ProcAttr{"", nil, []*os.File{os.Stdin, os.Stdout, os.Stderr}, nil})
 		if err != nil {
 			fmt.Println("Error whilst starting coordinator:", err)
 		}
@@ -365,6 +393,19 @@ func startRunning() {
 		fmt.Println("Coordinator not ready after 5min!")
 	}
 
+	if docker != "" {
+		if coordinatorProc != nil {
+			coordinatorProc.Wait()
+		}
+		if dbserverProc != nil {
+			dbserverProc.Wait()
+		}
+		time.Sleep(3000000000)
+		if agentProc != nil {
+			agentProc.Wait()
+		}
+	}
+
 	for {
 		time.Sleep(1000000000)
 		if stop {
@@ -373,15 +414,55 @@ func startRunning() {
 	}
 
 	fmt.Println("Shutting down services...")
-	if coordinatorProc != nil {
-		coordinatorProc.Kill()
-	}
-	if dbserverProc != nil {
-		dbserverProc.Kill()
-	}
-	time.Sleep(3000000000)
-	if agentProc != nil {
-		agentProc.Kill()
+	if docker == "" {
+		if coordinatorProc != nil {
+			coordinatorProc.Kill()
+		}
+		if dbserverProc != nil {
+			dbserverProc.Kill()
+		}
+		time.Sleep(3000000000)
+		if agentProc != nil {
+			agentProc.Kill()
+		}
+	} else {
+		// Docker case
+    args = []string{dockerPath, "rm", "-fv", "coordinator" +
+		                strconv.Itoa(8530 + myPeers.PortOffsets[myPeers.MyIndex])}
+		proc, err := os.StartProcess(args[0], args,
+			&os.ProcAttr{"", nil, []*os.File{os.Stdin, nil, nil}, nil})
+		if err != nil {
+			fmt.Println("Error shutting down coordinator:", err)
+		} else {
+			if proc != nil {
+				proc.Wait()
+			}
+		}
+
+    args = []string{dockerPath, "rm", "-fv", "dbserver" +
+		                strconv.Itoa(8629 + myPeers.PortOffsets[myPeers.MyIndex])}
+		proc, err = os.StartProcess(args[0], args,
+			&os.ProcAttr{"", nil, []*os.File{os.Stdin, nil, nil}, nil})
+		if err != nil {
+			fmt.Println("Error shutting down DBserver:", err)
+		} else {
+			if proc != nil {
+				proc.Wait()
+			}
+		}
+
+		time.Sleep(3000000000)
+    args = []string{dockerPath, "rm", "-fv", "agent" +
+		                strconv.Itoa(4001 + myPeers.PortOffsets[myPeers.MyIndex])}
+		proc, err = os.StartProcess(args[0], args,
+			&os.ProcAttr{"", nil, []*os.File{os.Stdin, nil, nil}, nil})
+		if err != nil {
+			fmt.Println("Error shutting down agent:", err)
+		} else {
+			if proc != nil {
+				proc.Wait()
+			}
+		}
 	}
 }
 
@@ -557,6 +638,11 @@ func usage() {
   --ownAddress addr
         address under which this server is reachable, needed for 
         the case of --agencySize 1 in the master
+  --docker imagename
+	      name of the Docker image to use to launch arangod instances
+				(default "", which means do not use Docker
+  --dockerUser name
+        use the given name as user to run the Docker container (default "")
   --masterPort int
         port for arangodb master (default %d)
   --arangod path
@@ -649,7 +735,12 @@ func main() {
 			if b, e := parseBool(os.Args[i], os.Args[i+1]); e == nil {
 				verbose = b
 			}
+		case "--docker":
+			docker = os.Args[i+1]
+		case "--dockerUser":
+			dockerUser = os.Args[i+1]
 		default:
+			fmt.Println("Error: Wrong option", os.Args[i])
 			usage()
 			return
 		}
@@ -664,9 +755,26 @@ func main() {
 		fmt.Println("Error: if agencySize==1, ownAddress must be given.")
 		return
 	}
+	if docker != "" && runtime.GOOS != "linux" {
+		fmt.Println("Error: --docker is only possible on Linux.")
+		return
+	}
+	if docker != "" && rrPath != "" {
+		fmt.Println("Error: using --docker and --rr is not possible.")
+		return
+	}
 	if verbose {
 		fmt.Println("Using", arangodExecutable, "as default arangod executable.")
 		fmt.Println("Using", arangodJSstartup, "as default JS dir.")
+	}
+
+	// Find docker executable:
+	if docker != "" {
+		var e error
+		dockerPath, e = exec.LookPath("docker")
+		if e != nil {
+			dockerPath = "/usr/bin/docker"
+		}
 	}
 
 	// Sort out work directory:

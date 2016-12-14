@@ -39,7 +39,7 @@ testServer 8532
 $CURL POST http://localhost:8530/_api/collection -d '{"name":"c","replicationFactor":2,"numberOfShards":3}' >/dev/null 2>&1
 if [ "$?" != "0" ] ; then
   echo Could not create collection!
-  kill -2 ${PID1} ${PID2} ${PID3}
+  kill ${PID1} ${PID2} ${PID3}
   wait
   exit 1
 fi
@@ -47,7 +47,7 @@ fi
 $CURL POST http://localhost:8530/_api/collection/c -d '{"name":"Max"}' >/dev/null 2>&1
 if [ "$?" != "0" ] ; then
   echo Could not create document!
-  kill -2 ${PID1} ${PID2} ${PID3}
+  kill ${PID1} ${PID2} ${PID3}
   wait
   exit 1
 fi
@@ -55,7 +55,7 @@ fi
 $CURL DELETE http://localhost:8530/_api/collection/c >/dev/null 2>&1
 if [ "$?" != "0" ] ; then
   echo Could not drop collection!
-  kill -2 ${PID1} ${PID2} ${PID3}
+  kill ${PID1} ${PID2} ${PID3}
   wait
   exit 1
 fi
@@ -63,7 +63,7 @@ fi
 echo Cluster seems to work... Sleeping for 15s...
 sleep 15
 
-kill -2 ${PID1} ${PID2} ${PID3}
+kill ${PID1} ${PID2} ${PID3}
 wait
 
 echo Test successful

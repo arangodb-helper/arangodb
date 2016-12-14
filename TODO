@@ -1,10 +1,10 @@
     Article
 
 Docker:
-    Use docker image if on Linux
     test in Docker container: Docker in Docker?
 
 future:
+    shutdown via API instead of Kill
     configurable base ports
     free port testing?
     SSL
