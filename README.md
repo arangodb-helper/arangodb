@@ -148,14 +148,14 @@ Technical explanation as to what happens
 ----------------------------------------
 
 The procedure is essentially that the first instance of `arangodb` (aka
-the "master" offers an HTTP service on port 4000 for peers to register.
-Every instance that registeres becomes a slave. As soon as there are
+the "master") offers an HTTP service on port 4000 for peers to register.
+Every instance that registers becomes a slave. As soon as there are
 `agencySize` peers, every instance of `arangodb` starts up an agent (if
 it is one of the first 3), a DBserver, and a coordinator. The necessary
 command line options to link the `arangod` instances up are generated
 automatically. The cluster bootstraps and can be used.
 
-Whenever an `arangodb` instances shuts down, it shuts down the `arangod`
+Whenever an `arangodb` instance shuts down, it shuts down the `arangod`
 instances under its control as well. When the `arangodb` is started
 again, it recalls the old configuration from the `setup.json` file in
 its data directory, starts up its `arangod` instances again (with their
