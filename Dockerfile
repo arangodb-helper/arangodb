@@ -24,6 +24,7 @@ WORKDIR /
 
 # exposing all ports
 EXPOSE 4000
+EXPOSE 4001
 EXPOSE 8529
 
 # reset entrypoint
