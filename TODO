@@ -1,10 +1,9 @@
-    Article
-
 Docker:
     test in Docker container: Docker in Docker?
 
 future:
     shutdown via API instead of Kill
+    observe subprocesses and potentially restart them as long as we are running
     configurable base ports
     free port testing?
     SSL
