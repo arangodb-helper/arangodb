@@ -329,8 +329,7 @@ func startRunning() {
 		args = makeBaseArgs(myDir, myAddress, myPort, "agent")
 		writeCommand(myDir+"arangod_command.txt", executable, args)
 		agentProc, err = os.StartProcess(executable, args,
-			&os.ProcAttr{Dir: "", Env: nil,
-				Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}, Sys: nil})
+			&os.ProcAttr{Files: []*os.File{os.Stdin, nil, nil}})
 		if err != nil {
 			fmt.Println("Error whilst starting agent:", err)
 		}
@@ -349,8 +348,7 @@ func startRunning() {
 		args = makeBaseArgs(myDir, myAddress, myPort, "dbserver")
 		writeCommand(myDir+"arangod_command.txt", executable, args)
 		dbserverProc, err = os.StartProcess(executable, args,
-			&os.ProcAttr{Dir: "", Env: nil,
-				Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}, Sys: nil})
+			&os.ProcAttr{Files: []*os.File{os.Stdin, nil, nil}})
 		if err != nil {
 			fmt.Println("Error whilst starting dbserver:", err)
 		}
@@ -369,8 +367,7 @@ func startRunning() {
 		args = makeBaseArgs(myDir, myAddress, myPort, "coordinator")
 		writeCommand(myDir+"arangod_command.txt", executable, args)
 		coordinatorProc, err = os.StartProcess(executable, args,
-			&os.ProcAttr{Dir: "", Env: nil,
-				Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}, Sys: nil})
+			&os.ProcAttr{Files: []*os.File{os.Stdin, nil, nil}})
 		if err != nil {
 			fmt.Println("Error whilst starting coordinator:", err)
 		}
@@ -433,8 +430,7 @@ func startRunning() {
 		args = []string{dockerPath, "rm", "-fv", "coordinator" +
 			strconv.Itoa(8530+myPeers.PortOffsets[myPeers.MyIndex])}
 		proc, err := os.StartProcess(args[0], args,
-			&os.ProcAttr{Dir: "", Env: nil,
-				Files: []*os.File{os.Stdin, nil, nil}, Sys: nil})
+			&os.ProcAttr{Files: []*os.File{os.Stdin, nil, nil}})
 		if err != nil {
 			fmt.Println("Error shutting down coordinator:", err)
 		} else {
@@ -446,8 +442,7 @@ func startRunning() {
 		args = []string{dockerPath, "rm", "-fv", "dbserver" +
 			strconv.Itoa(8629+myPeers.PortOffsets[myPeers.MyIndex])}
 		proc, err = os.StartProcess(args[0], args,
-			&os.ProcAttr{Dir: "", Env: nil,
-				Files: []*os.File{os.Stdin, nil, nil}, Sys: nil})
+			&os.ProcAttr{Files: []*os.File{os.Stdin, nil, nil}})
 		if err != nil {
 			fmt.Println("Error shutting down DBserver:", err)
 		} else {
@@ -460,8 +455,7 @@ func startRunning() {
 		args = []string{dockerPath, "rm", "-fv", "agent" +
 			strconv.Itoa(4001+myPeers.PortOffsets[myPeers.MyIndex])}
 		proc, err = os.StartProcess(args[0], args,
-			&os.ProcAttr{Dir: "", Env: nil,
-				Files: []*os.File{os.Stdin, nil, nil}, Sys: nil})
+			&os.ProcAttr{Files: []*os.File{os.Stdin, nil, nil}})
 		if err != nil {
 			fmt.Println("Error shutting down agent:", err)
 		} else {
