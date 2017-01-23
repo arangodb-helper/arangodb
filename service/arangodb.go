@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -25,9 +26,11 @@ type ServiceConfig struct {
 	MasterAddress     string
 	Verbose           bool
 
-	DockerEndpoint string // Where to reach the docker daemon
-	DockerImage    string // Name of Arangodb docker image
-	DockerUser     string
+	DockerHostIP    string // IP address of the docker host
+	DockerContainer string // Name of the container running this process
+	DockerEndpoint  string // Where to reach the docker daemon
+	DockerImage     string // Name of Arangodb docker image
+	DockerUser      string
 }
 
 type Service struct {
@@ -63,11 +66,13 @@ const (
 // State of peers:
 
 type peers struct {
-	Hosts       []string
-	PortOffsets []int
-	Directories []string
-	MyIndex     int
-	AgencySize  int
+	Hosts        []string
+	PortOffsets  []int
+	Directories  []string
+	MyIndex      int
+	AgencySize   int
+	MasterHostIP string
+	MasterPort   int
 }
 
 // A helper function:
@@ -119,9 +124,17 @@ level = %s
 v8-contexts = %d
 `
 
-func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, mode string) (args []string) {
+func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, mode string) (args []string, configVolumes []Volume) {
 	hostConfFileName := filepath.Join(myHostDir, "arangod.conf")
 	containerConfFileName := filepath.Join(myContainerDir, "arangod.conf")
+
+	if runtime.GOOS != "linux" {
+		configVolumes = append(configVolumes, Volume{
+			HostPath:      hostConfFileName,
+			ContainerPath: containerConfFileName,
+			ReadOnly:      true,
+		})
+	}
 
 	if _, err := os.Stat(hostConfFileName); os.IsNotExist(err) {
 		out, e := os.Create(hostConfFileName)
@@ -241,6 +254,19 @@ func (s *Service) startRunning(runner Runner) {
 		executable = s.ArangodExecutable
 	}
 
+	addDataVolumes := func(configVolumes []Volume, hostPath, containerPath string) []Volume {
+		if runtime.GOOS == "linux" {
+			return []Volume{
+				Volume{
+					HostPath:      hostPath,
+					ContainerPath: containerPath,
+					ReadOnly:      false,
+				},
+			}
+		}
+		return configVolumes
+	}
+
 	// Start agent:
 	var agentProc Process
 	if s.myPeers.MyIndex < s.AgencySize {
@@ -250,10 +276,11 @@ func (s *Service) startRunning(runner Runner) {
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
 		myContainerDir := runner.GetContainerDir(myHostDir)
-		args := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "agent")
+		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "agent")
+		vols = addDataVolumes(vols, myHostDir, myContainerDir)
 		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
 		containerName := fmt.Sprintf("agent-%s-%s", myAddress, myPort)
-		if p, err := runner.Start(executable, args, myHostDir, myContainerDir, containerName); err != nil {
+		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
 			fmt.Println("Error whilst starting agent:", err)
 		} else {
 			agentProc = p
@@ -271,10 +298,11 @@ func (s *Service) startRunning(runner Runner) {
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
 		myContainerDir := runner.GetContainerDir(myHostDir)
-		args := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "dbserver")
+		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "dbserver")
+		vols = addDataVolumes(vols, myHostDir, myContainerDir)
 		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
 		containerName := fmt.Sprintf("dbserver-%s-%s", myAddress, myPort)
-		if p, err := runner.Start(executable, args, myHostDir, myContainerDir, containerName); err != nil {
+		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
 			fmt.Println("Error whilst starting dbserver:", err)
 		} else {
 			dbserverProc = p
@@ -292,10 +320,11 @@ func (s *Service) startRunning(runner Runner) {
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
 		myContainerDir := runner.GetContainerDir(myHostDir)
-		args := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "coordinator")
+		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "coordinator")
+		vols = addDataVolumes(vols, myHostDir, myContainerDir)
 		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
 		containerName := fmt.Sprintf("coordinator-%s-%s", myAddress, myPort)
-		if p, err := runner.Start(executable, args, myHostDir, myContainerDir, containerName); err != nil {
+		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
 			fmt.Println("Error whilst starting coordinator:", err)
 		} else {
 			coordinatorProc = p
@@ -376,6 +405,24 @@ func (s *Service) Run(stopChan chan bool) {
 			s.stop = true
 		}
 	}()
+
+	// Find the port mapping if running in a docker container
+	if s.DockerContainer != "" {
+		if s.DockerHostIP == "" {
+			fmt.Printf("Docker Host IP must be specified\n")
+			return
+		}
+		hostPort, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainer, s.MasterPort)
+		if err != nil {
+			fmt.Printf("Failed to detect port mapping: %#v\n", err)
+			return
+		}
+		s.myPeers.MasterHostIP = s.DockerHostIP
+		s.myPeers.MasterPort = hostPort
+	} else {
+		s.myPeers.MasterHostIP = s.OwnAddress
+		s.myPeers.MasterPort = s.MasterPort
+	}
 
 	// Create a runner
 	var runner Runner

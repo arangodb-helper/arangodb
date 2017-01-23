@@ -36,7 +36,7 @@ func (r *dockerRunner) GetContainerDir(hostDir string) string {
 	return "/data"
 }
 
-func (r *dockerRunner) Start(command string, args []string, hostVolume, containerVolume, containerName string) (Process, error) {
+func (r *dockerRunner) Start(command string, args []string, volumes []Volume, containerName string) (Process, error) {
 	containerName = strings.Replace(containerName, ":", "", -1)
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
@@ -49,10 +49,14 @@ func (r *dockerRunner) Start(command string, args []string, hostVolume, containe
 		},
 		HostConfig: &docker.HostConfig{
 			NetworkMode: "host",
-			Binds: []string{
-				fmt.Sprintf("%s:%s", hostVolume, containerVolume),
-			},
 		},
+	}
+	for _, v := range volumes {
+		bind := fmt.Sprintf("%s:%s", v.HostPath, v.ContainerPath)
+		if v.ReadOnly {
+			bind = bind + ":ro"
+		}
+		opts.HostConfig.Binds = append(opts.HostConfig.Binds, bind)
 	}
 	c, err := r.client.CreateContainer(opts)
 	if err != nil {

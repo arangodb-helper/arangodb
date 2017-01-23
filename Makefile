@@ -59,9 +59,8 @@ $(BIN): $(GOBUILDDIR) $(SOURCES)
 		golang:$(GOVERSION) \
 		go build -a -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/$(BINNAME) $(REPOPATH)
 
-buildi:
-	cd arangodb/ ; CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build .
-	sudo docker build -t arangodb-starter .
+buildi: $(BIN)
+	docker build -t arangodb-starter .
 
 docker:
 	sudo docker build -t arangodb/arangodb-starter .

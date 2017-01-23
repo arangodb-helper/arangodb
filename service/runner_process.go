@@ -19,7 +19,7 @@ func (r *processRunner) GetContainerDir(hostDir string) string {
 	return hostDir
 }
 
-func (r *processRunner) Start(command string, args []string, hostVolume, containerVolume, containerName string) (Process, error) {
+func (r *processRunner) Start(command string, args []string, volumes []Volume, containerName string) (Process, error) {
 	c := exec.Command(command, args...)
 	if err := c.Start(); err != nil {
 		return nil, maskAny(err)

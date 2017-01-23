@@ -9,6 +9,10 @@ import (
 	"strconv"
 )
 
+type SlaveRequest struct {
+	DataDir string
+}
+
 // HTTP service function:
 
 func (s *Service) hello(w http.ResponseWriter, r *http.Request) {
@@ -16,7 +20,7 @@ func (s *Service) hello(w http.ResponseWriter, r *http.Request) {
 	if s.state == stateSlave {
 		header := w.Header()
 		if len(s.myPeers.Hosts) > 0 {
-			header.Add("Location", fmt.Sprintf("http://%s:%d/hello", s.myPeers.Hosts[0], s.MasterPort))
+			header.Add("Location", fmt.Sprintf("http://%s:%d/hello", s.myPeers.MasterHostIP, s.myPeers.MasterPort))
 			w.WriteHeader(http.StatusTemporaryRedirect)
 		} else {
 			w.WriteHeader(http.StatusBadRequest)
@@ -25,19 +29,21 @@ func (s *Service) hello(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(s.myPeers.Hosts) == 0 {
+		// Learn my own address
 		myself := findHost(r.Host)
 		s.myPeers.Hosts = append(s.myPeers.Hosts, myself)
 		s.myPeers.PortOffsets = append(s.myPeers.PortOffsets, 0)
 		s.myPeers.Directories = append(s.myPeers.Directories, s.DataDir)
 		s.myPeers.AgencySize = s.AgencySize
 		s.myPeers.MyIndex = 0
+		s.myPeers.MasterHostIP = myself
 	}
 	if r.Method == "POST" {
-		var newPeer peers
+		var req SlaveRequest
 		defer r.Body.Close()
 		body, _ := ioutil.ReadAll(r.Body)
-		json.Unmarshal(body, &newPeer)
-		peerDir := newPeer.Directories[0]
+		json.Unmarshal(body, &req)
+		peerDir := req.DataDir
 
 		newGuy := findHost(r.RemoteAddr)
 		found := false
@@ -57,7 +63,7 @@ func (s *Service) hello(w http.ResponseWriter, r *http.Request) {
 		s.myPeers.Hosts = append(s.myPeers.Hosts, newGuy)
 		if !found {
 			s.myPeers.PortOffsets = append(s.myPeers.PortOffsets, 0)
-			s.myPeers.Directories = append(s.myPeers.Directories, newPeer.Directories[0])
+			s.myPeers.Directories = append(s.myPeers.Directories, peerDir)
 		}
 		fmt.Println("New peer:", newGuy+", portOffset: "+strconv.Itoa(s.myPeers.PortOffsets[len(s.myPeers.PortOffsets)-1]))
 		if len(s.myPeers.Hosts) == s.AgencySize {

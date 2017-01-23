@@ -28,9 +28,11 @@ var dataDir = "./"
 var ownAddress = ""
 var masterAddress = ""
 var verbose = false
-var dockerEndpoint string
+var dockerEndpoint = "unix:///var/run/docker.sock"
 var dockerImage string
 var dockerUser string
+var dockerContainer string
+var dockerHostIP string
 
 // Stuff for the signal handling:
 
@@ -121,6 +123,8 @@ func usage() {
   --ownAddress addr
         address under which this server is reachable, needed for 
         the case of --agencySize 1 in the master
+  --dockerContainer containername
+	      Name of the container used to run this process
   --dockerImage imagename
 	      name of the Docker image to use to launch arangod instances
 				(default "", which means do not use Docker
@@ -220,6 +224,10 @@ func main() {
 			if b, e := parseBool(os.Args[i], os.Args[i+1]); e == nil {
 				verbose = b
 			}
+		case "--dockerHostIP":
+			dockerHostIP = os.Args[i+1]
+		case "--dockerContainer":
+			dockerContainer = os.Args[i+1]
 		case "--dockerEndpoint":
 			dockerEndpoint = os.Args[i+1]
 		case "--dockerImage":
@@ -284,6 +292,8 @@ func main() {
 		OwnAddress:        ownAddress,
 		MasterAddress:     masterAddress,
 		Verbose:           verbose,
+		DockerHostIP:      dockerHostIP,
+		DockerContainer:   dockerContainer,
 		DockerEndpoint:    dockerEndpoint,
 		DockerImage:       dockerImage,
 		DockerUser:        dockerUser,

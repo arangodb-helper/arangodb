@@ -12,7 +12,8 @@ func (s *Service) startMaster(runner Runner) {
 	http.HandleFunc("/hello", s.hello)
 	go http.ListenAndServe("0.0.0.0:"+strconv.Itoa(s.MasterPort), nil)
 	// Permanent loop:
-	fmt.Println("Serving as master...")
+	fmt.Printf("Serving as master on %s:%d...\n", s.myPeers.MasterHostIP, s.myPeers.MasterPort)
+
 	if s.AgencySize == 1 {
 		s.myPeers.Hosts = append(s.myPeers.Hosts, s.OwnAddress)
 		s.myPeers.PortOffsets = append(s.myPeers.PortOffsets, 0)
