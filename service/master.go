@@ -1,18 +1,13 @@
 package service
 
-import (
-	"fmt"
-	"net/http"
-	"strconv"
-	"time"
-)
+import "time"
 
 func (s *Service) startMaster(runner Runner) {
-	// HTTP service:
-	http.HandleFunc("/hello", s.hello)
-	go http.ListenAndServe("0.0.0.0:"+strconv.Itoa(s.MasterPort), nil)
+	// Start HTTP listener
+	s.startHTTPServer()
+
 	// Permanent loop:
-	fmt.Printf("Serving as master on %s:%d...\n", s.myPeers.MasterHostIP, s.myPeers.MasterPort)
+	s.log.Infof("Serving as master on %s:%d...", s.myPeers.MasterHostIP, s.myPeers.MasterPort)
 
 	if s.AgencySize == 1 {
 		s.myPeers.Hosts = append(s.myPeers.Hosts, s.OwnAddress)
@@ -21,17 +16,17 @@ func (s *Service) startMaster(runner Runner) {
 		s.myPeers.AgencySize = s.AgencySize
 		s.myPeers.MyIndex = 0
 		s.saveSetup()
-		fmt.Println("Starting service...")
+		s.log.Info("Starting service...")
 		s.startRunning(runner)
 		return
 	}
-	fmt.Println("Waiting for", s.AgencySize, "servers to show up.")
+	s.log.Infof("Waiting for %d servers to show up.\n", s.AgencySize)
 	for {
 		time.Sleep(time.Second)
 		select {
 		case <-s.starter:
 			s.saveSetup()
-			fmt.Println("Starting service...")
+			s.log.Info("Starting service...")
 			s.startRunning(runner)
 			return
 		default:

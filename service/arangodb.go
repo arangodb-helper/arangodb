@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	logging "github.com/op/go-logging"
 )
 
 type ServiceConfig struct {
@@ -22,11 +24,10 @@ type ServiceConfig struct {
 	StartCoordinator  bool
 	StartDBserver     bool
 	DataDir           string
-	OwnAddress        string
+	OwnAddress        string // IP address of used to reach this process
 	MasterAddress     string
 	Verbose           bool
 
-	DockerHostIP    string // IP address of the docker host
 	DockerContainer string // Name of the container running this process
 	DockerEndpoint  string // Where to reach the docker daemon
 	DockerImage     string // Name of Arangodb docker image
@@ -35,6 +36,7 @@ type ServiceConfig struct {
 
 type Service struct {
 	ServiceConfig
+	log     *logging.Logger
 	state   State
 	starter chan bool
 	myPeers peers
@@ -42,9 +44,10 @@ type Service struct {
 }
 
 // NewService creates a new Service instance from the given config.
-func NewService(config ServiceConfig) (*Service, error) {
+func NewService(log *logging.Logger, config ServiceConfig) (*Service, error) {
 	return &Service{
 		ServiceConfig: config,
+		log:           log,
 		state:         stateStart,
 		starter:       make(chan bool),
 	}, nil
@@ -98,7 +101,8 @@ func slasher(s string) string {
 
 func testInstance(address string, port int) bool {
 	for i := 0; i < 300; i++ {
-		r, e := http.Get(fmt.Sprintf("http://%s:%d/_api/version", address, port))
+		url := fmt.Sprintf("http://%s:%d/_api/version", address, port)
+		r, e := http.Get(url)
 		if e == nil && r != nil && r.StatusCode == 200 {
 			return true
 		}
@@ -139,8 +143,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	if _, err := os.Stat(hostConfFileName); os.IsNotExist(err) {
 		out, e := os.Create(hostConfFileName)
 		if e != nil {
-			fmt.Printf("Could not create configuration file %s, error: %#v", hostConfFileName, e)
-			os.Exit(1)
+			s.log.Fatalf("Could not create configuration file %s, error: %#v", hostConfFileName, e)
 		}
 		switch mode {
 		// Parameters are: port, server threads, log level, v8-contexts
@@ -271,7 +274,7 @@ func (s *Service) startRunning(runner Runner) {
 	var agentProc Process
 	if s.myPeers.MyIndex < s.AgencySize {
 		myPort := strconv.Itoa(4001 + portOffset)
-		fmt.Printf("Starting agent on port %s\n", myPort)
+		s.log.Infof("Starting agent on port %s", myPort)
 		myHostDir := filepath.Join(s.DataDir, "agent"+myPort)
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
@@ -281,7 +284,7 @@ func (s *Service) startRunning(runner Runner) {
 		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
 		containerName := fmt.Sprintf("agent-%s-%s", myAddress, myPort)
 		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
-			fmt.Println("Error whilst starting agent:", err)
+			s.log.Errorf("Error whilst starting agent: %#v", err)
 		} else {
 			agentProc = p
 		}
@@ -293,7 +296,7 @@ func (s *Service) startRunning(runner Runner) {
 	var dbserverProc Process
 	if s.StartDBserver {
 		myPort := strconv.Itoa(8629 + portOffset)
-		fmt.Println("Starting DBserver on port", myPort)
+		s.log.Infof("Starting DBserver on port %s", myPort)
 		myHostDir := filepath.Join(s.DataDir, "dbserver"+myPort)
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
@@ -303,7 +306,7 @@ func (s *Service) startRunning(runner Runner) {
 		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
 		containerName := fmt.Sprintf("dbserver-%s-%s", myAddress, myPort)
 		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
-			fmt.Println("Error whilst starting dbserver:", err)
+			s.log.Errorf("Error whilst starting dbserver: %#v", err)
 		} else {
 			dbserverProc = p
 		}
@@ -315,7 +318,7 @@ func (s *Service) startRunning(runner Runner) {
 	var coordinatorProc Process
 	if s.StartCoordinator {
 		myPort := strconv.Itoa(8530 + portOffset)
-		fmt.Println("Starting coordinator on port", myPort)
+		s.log.Infof("Starting coordinator on port %s", myPort)
 		myHostDir := filepath.Join(s.DataDir, "coordinator"+myPort)
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
@@ -325,7 +328,7 @@ func (s *Service) startRunning(runner Runner) {
 		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
 		containerName := fmt.Sprintf("coordinator-%s-%s", myAddress, myPort)
 		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
-			fmt.Println("Error whilst starting coordinator:", err)
+			s.log.Errorf("Error whilst starting coordinator: %#v", err)
 		} else {
 			coordinatorProc = p
 		}
@@ -335,20 +338,20 @@ func (s *Service) startRunning(runner Runner) {
 	me := s.myPeers.MyIndex
 	if me < s.AgencySize {
 		if testInstance(s.myPeers.Hosts[me], 4001+s.myPeers.PortOffsets[me]) {
-			fmt.Println("Agent up and running.")
+			s.log.Info("Agent up and running.")
 		} else {
-			fmt.Println("Agent not ready after 5min!")
+			s.log.Warning("Agent not ready after 5min!")
 		}
 	}
 	if testInstance(s.myPeers.Hosts[me], 8629+s.myPeers.PortOffsets[me]) {
-		fmt.Println("DBserver up and running.")
+		s.log.Info("DBserver up and running.")
 	} else {
-		fmt.Println("DBserver not ready after 5min!")
+		s.log.Warning("DBserver not ready after 5min!")
 	}
 	if testInstance(s.myPeers.Hosts[me], 8530+s.myPeers.PortOffsets[me]) {
-		fmt.Println("Coordinator up and running.")
+		s.log.Info("Coordinator up and running.")
 	} else {
-		fmt.Println("Coordinator not ready after 5min!")
+		s.log.Warning("Coordinator not ready after 5min!")
 	}
 
 	if coordinatorProc != nil {
@@ -382,19 +385,18 @@ func (s *Service) startRunning(runner Runner) {
 	}
 }
 
-func (s *Service) saveSetup() {
-	f, e := os.Create(filepath.Join(s.DataDir, "setup.json"))
-	defer f.Close()
-	if e != nil {
-		fmt.Println("Error writing setup:", e)
-		return
+// saveSetup saves the current peer configuration to disk.
+func (s *Service) saveSetup() error {
+	b, err := json.Marshal(s.myPeers)
+	if err != nil {
+		s.log.Errorf("Cannot serialize myPeers: %#v", err)
+		return maskAny(err)
 	}
-	b, e := json.Marshal(s.myPeers)
-	if e != nil {
-		fmt.Println("Cannot serialize myPeers:", e)
-		return
+	if err := ioutil.WriteFile(filepath.Join(s.DataDir, "setup.json"), b, 0644); err != nil {
+		s.log.Errorf("Error writing setup: %#v", err)
+		return maskAny(err)
 	}
-	f.Write(b)
+	return nil
 }
 
 // Run runs the service in either master or slave mode.
@@ -408,16 +410,15 @@ func (s *Service) Run(stopChan chan bool) {
 
 	// Find the port mapping if running in a docker container
 	if s.DockerContainer != "" {
-		if s.DockerHostIP == "" {
-			fmt.Printf("Docker Host IP must be specified\n")
-			return
+		if s.OwnAddress == "" {
+			s.log.Fatal("OwnAddress must be specified")
 		}
 		hostPort, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainer, s.MasterPort)
 		if err != nil {
-			fmt.Printf("Failed to detect port mapping: %#v\n", err)
+			s.log.Fatalf("Failed to detect port mapping: %#v", err)
 			return
 		}
-		s.myPeers.MasterHostIP = s.DockerHostIP
+		s.myPeers.MasterHostIP = s.OwnAddress
 		s.myPeers.MasterPort = hostPort
 	} else {
 		s.myPeers.MasterHostIP = s.OwnAddress
@@ -430,27 +431,24 @@ func (s *Service) Run(stopChan chan bool) {
 		var err error
 		runner, err = NewDockerRunner(s.DockerEndpoint, s.DockerImage, s.DockerUser)
 		if err != nil {
-			fmt.Printf("Failed to create docker runner: %#v\n", err)
-			return
+			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}
+		s.log.Debug("Using docker runner")
 	} else {
 		runner = NewProcessRunner()
+		s.log.Debug("Using process runner")
 	}
 
 	// Is this a new start or a restart?
-	setupFile, err := os.Open(filepath.Join(s.DataDir, "setup.json"))
-	if err == nil {
+	if setupContent, err := ioutil.ReadFile(filepath.Join(s.DataDir, "setup.json")); err == nil {
 		// Could read file
-		setup, err := ioutil.ReadAll(setupFile)
-		setupFile.Close()
-		if err == nil {
-			err = json.Unmarshal(setup, &s.myPeers)
-			if err == nil {
-				s.AgencySize = s.myPeers.AgencySize
-				fmt.Println("Relaunching service...")
-				s.startRunning(runner)
-				return
-			}
+		if err := json.Unmarshal(setupContent, &s.myPeers); err == nil {
+			s.AgencySize = s.myPeers.AgencySize
+			fmt.Println("Relaunching service...")
+			s.startRunning(runner)
+			return
+		} else {
+			s.log.Warningf("Failed to unmarshal existing setup.json: %#v", err)
 		}
 	}
 

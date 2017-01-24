@@ -46,6 +46,8 @@ $(GOBUILDDIR):
 	@rm -f $(REPODIR) && ln -s ../../../.. $(REPODIR)
 	GOPATH=$(GOBUILDDIR) go get github.com/fsouza/go-dockerclient
 	GOPATH=$(GOBUILDDIR) go get github.com/juju/errgo
+	GOPATH=$(GOBUILDDIR) go get github.com/op/go-logging
+	GOPATH=$(GOBUILDDIR) go get github.com/spf13/cobra
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	docker run \

@@ -13,10 +13,17 @@ type SlaveRequest struct {
 	DataDir string
 }
 
+// startHTTPServer initializes and runs the HTTP server.
+// If will return directly after starting it.
+func (s *Service) startHTTPServer() {
+	http.HandleFunc("/hello", s.hello)
+	go http.ListenAndServe("0.0.0.0:"+strconv.Itoa(s.MasterPort), nil)
+}
+
 // HTTP service function:
 
 func (s *Service) hello(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("Received request from %s\n", r.RemoteAddr)
+	s.log.Debugf("Received request from %s", r.RemoteAddr)
 	if s.state == stateSlave {
 		header := w.Header()
 		if len(s.myPeers.Hosts) > 0 {
@@ -65,7 +72,7 @@ func (s *Service) hello(w http.ResponseWriter, r *http.Request) {
 			s.myPeers.PortOffsets = append(s.myPeers.PortOffsets, 0)
 			s.myPeers.Directories = append(s.myPeers.Directories, peerDir)
 		}
-		fmt.Println("New peer:", newGuy+", portOffset: "+strconv.Itoa(s.myPeers.PortOffsets[len(s.myPeers.PortOffsets)-1]))
+		s.log.Infof("New peer: %s, portOffset: %d", newGuy, s.myPeers.PortOffsets[len(s.myPeers.PortOffsets)-1])
 		if len(s.myPeers.Hosts) == s.AgencySize {
 			s.starter <- true
 		}
