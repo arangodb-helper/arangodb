@@ -79,7 +79,7 @@ type peers struct {
 }
 
 const (
-	basePortAgent       = 4001
+	basePortAgent       = 5001
 	basePortCoordinator = 8530
 	basePortDBServer    = 8629
 )
@@ -404,6 +404,7 @@ func (s *Service) Run(stopChan chan bool) {
 		if err := json.Unmarshal(setupContent, &s.myPeers); err == nil {
 			s.AgencySize = s.myPeers.AgencySize
 			fmt.Println("Relaunching service...")
+			s.startHTTPServer()
 			s.startRunning(runner)
 			return
 		} else {

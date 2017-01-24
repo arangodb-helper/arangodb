@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strconv"
 )
 
 type SlaveRequest struct {
@@ -17,7 +16,17 @@ type SlaveRequest struct {
 // If will return directly after starting it.
 func (s *Service) startHTTPServer() {
 	http.HandleFunc("/hello", s.hello)
-	go http.ListenAndServe("0.0.0.0:"+strconv.Itoa(s.MasterPort), nil)
+	go func() {
+		portOffset := 0
+		if len(s.myPeers.PortOffsets) > 0 {
+			portOffset = s.myPeers.PortOffsets[s.myPeers.MyIndex]
+		}
+		addr := fmt.Sprintf("0.0.0.0:%d", s.MasterPort+portOffset)
+		s.log.Infof("Listening on %s", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			s.log.Errorf("Failed to listen on %s: %v", addr, err)
+		}
+	}()
 }
 
 // HTTP service function:
