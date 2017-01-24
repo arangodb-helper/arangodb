@@ -78,6 +78,12 @@ type peers struct {
 	MasterPort   int
 }
 
+const (
+	basePortAgent       = 4001
+	basePortCoordinator = 8530
+	basePortDBServer    = 8629
+)
+
 // A helper function:
 
 func findHost(a string) string {
@@ -161,20 +167,6 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	jsStartup := s.ArangodJSstartup
 	if s.RrPath != "" {
 		args = append(args, s.RrPath)
-	} else if s.DockerEndpoint != "" {
-		executable = "/usr/sbin/arangod"
-		jsStartup = "/usr/share/arangodb3/js"
-		/*		args = append(args,
-					s.DockerPath,
-					"run", "-d",
-					"--net=host",
-					"-v", myDir+":/data",
-					"--name", mode+myPort,
-				)
-				if s.DockerUser != "" {
-					args = append(args, "--user", s.DockerUser)
-				}
-				args = append(args, s.Docker)*/
 	}
 	args = append(args,
 		executable,
@@ -200,7 +192,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			if i != s.myPeers.MyIndex {
 				args = append(args,
 					"--agency.endpoint",
-					fmt.Sprintf("tcp://%s:%d", s.myPeers.Hosts[i], 4001+s.myPeers.PortOffsets[i]),
+					fmt.Sprintf("tcp://%s:%d", s.myPeers.Hosts[i], basePortAgent+s.myPeers.PortOffsets[i]),
 				)
 			}
 		}
@@ -225,30 +217,26 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		for i := 0; i < s.AgencySize; i++ {
 			args = append(args,
 				"--cluster.agency-endpoint",
-				fmt.Sprintf("tcp://%s:%d", s.myPeers.Hosts[i], 4001+s.myPeers.PortOffsets[i]),
+				fmt.Sprintf("tcp://%s:%d", s.myPeers.Hosts[i], basePortAgent+s.myPeers.PortOffsets[i]),
 			)
 		}
 	}
 	return
 }
 
-func writeCommand(filename string, executable string, args []string) {
+func (s *Service) writeCommand(filename string, executable string, args []string) {
+	content := strings.Join(args, " \\\n") + "\n"
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		out, err := os.Create(filename)
-		if err == nil {
-			defer out.Close()
-			for _, s := range args {
-				fmt.Fprintf(out, " %s", s)
-			}
-			fmt.Fprintf(out, "\n")
+		if err := ioutil.WriteFile(filename, []byte(content), 0755); err != nil {
+			s.log.Errorf("Failed to write command to %s: %#v", filename, err)
 		}
 	}
 }
 
 func (s *Service) startRunning(runner Runner) {
 	s.state = stateRunning
-	myAddress := s.myPeers.Hosts[s.myPeers.MyIndex] + ":"
 	portOffset := s.myPeers.PortOffsets[s.myPeers.MyIndex]
+	myHost := s.myPeers.Hosts[s.myPeers.MyIndex]
 
 	var executable string
 	if s.RrPath != "" {
@@ -270,46 +258,59 @@ func (s *Service) startRunning(runner Runner) {
 		return configVolumes
 	}
 
-	// Start agent:
-	var agentProc Process
-	if s.myPeers.MyIndex < s.AgencySize {
-		myPort := strconv.Itoa(4001 + portOffset)
-		s.log.Infof("Starting agent on port %s", myPort)
-		myHostDir := filepath.Join(s.DataDir, "agent"+myPort)
+	startArangod := func(portBase int, mode string) (Process, error) {
+		myPort := portBase + portOffset
+		s.log.Infof("Starting %s on port %d", mode, myPort)
+		myHostDir := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort))
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
 		myContainerDir := runner.GetContainerDir(myHostDir)
-		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "agent")
+		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHost, strconv.Itoa(myPort), mode)
 		vols = addDataVolumes(vols, myHostDir, myContainerDir)
-		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
-		containerName := fmt.Sprintf("agent-%s-%s", myAddress, myPort)
-		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
-			s.log.Errorf("Error whilst starting agent: %#v", err)
+		s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
+		containerName := fmt.Sprintf("%s-%s-%d", mode, myHost, myPort)
+		if p, err := runner.Start(args[0], args[1:], vols, containerName); err != nil {
+			return nil, maskAny(err)
 		} else {
-			agentProc = p
+			return p, nil
 		}
 	}
 
+	runArangod := func(portBase int, mode string, processVar *Process, runProcess *bool) {
+		for {
+			p, err := startArangod(portBase, mode)
+			if err != nil {
+				s.log.Errorf("Error whilst starting %s: %#v", mode, err)
+				break
+			}
+			*processVar = p
+			if testInstance(myHost, portBase+portOffset) {
+				s.log.Infof("%s up and running.", mode)
+			} else {
+				s.log.Warningf("%s not ready after 5min!", mode)
+			}
+			p.Wait()
+
+			s.log.Infof("%s has terminated", mode)
+			if s.stop {
+				break
+			}
+			s.log.Infof("restarting %s", mode)
+		}
+	}
+
+	// Start agent:
+	var agentProc Process
+	if s.myPeers.MyIndex < s.AgencySize {
+		runAlways := true
+		go runArangod(basePortAgent, "agent", &agentProc, &runAlways)
+	}
 	time.Sleep(time.Second)
 
 	// Start DBserver:
 	var dbserverProc Process
 	if s.StartDBserver {
-		myPort := strconv.Itoa(8629 + portOffset)
-		s.log.Infof("Starting DBserver on port %s", myPort)
-		myHostDir := filepath.Join(s.DataDir, "dbserver"+myPort)
-		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
-		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
-		myContainerDir := runner.GetContainerDir(myHostDir)
-		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "dbserver")
-		vols = addDataVolumes(vols, myHostDir, myContainerDir)
-		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
-		containerName := fmt.Sprintf("dbserver-%s-%s", myAddress, myPort)
-		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
-			s.log.Errorf("Error whilst starting dbserver: %#v", err)
-		} else {
-			dbserverProc = p
-		}
+		go runArangod(basePortDBServer, "dbserver", &dbserverProc, &s.StartDBserver)
 	}
 
 	time.Sleep(time.Second)
@@ -317,52 +318,7 @@ func (s *Service) startRunning(runner Runner) {
 	// Start Coordinator:
 	var coordinatorProc Process
 	if s.StartCoordinator {
-		myPort := strconv.Itoa(8530 + portOffset)
-		s.log.Infof("Starting coordinator on port %s", myPort)
-		myHostDir := filepath.Join(s.DataDir, "coordinator"+myPort)
-		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
-		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
-		myContainerDir := runner.GetContainerDir(myHostDir)
-		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myAddress, myPort, "coordinator")
-		vols = addDataVolumes(vols, myHostDir, myContainerDir)
-		writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
-		containerName := fmt.Sprintf("coordinator-%s-%s", myAddress, myPort)
-		if p, err := runner.Start(executable, args, vols, containerName); err != nil {
-			s.log.Errorf("Error whilst starting coordinator: %#v", err)
-		} else {
-			coordinatorProc = p
-		}
-	}
-
-	// Check servers:
-	me := s.myPeers.MyIndex
-	if me < s.AgencySize {
-		if testInstance(s.myPeers.Hosts[me], 4001+s.myPeers.PortOffsets[me]) {
-			s.log.Info("Agent up and running.")
-		} else {
-			s.log.Warning("Agent not ready after 5min!")
-		}
-	}
-	if testInstance(s.myPeers.Hosts[me], 8629+s.myPeers.PortOffsets[me]) {
-		s.log.Info("DBserver up and running.")
-	} else {
-		s.log.Warning("DBserver not ready after 5min!")
-	}
-	if testInstance(s.myPeers.Hosts[me], 8530+s.myPeers.PortOffsets[me]) {
-		s.log.Info("Coordinator up and running.")
-	} else {
-		s.log.Warning("Coordinator not ready after 5min!")
-	}
-
-	if coordinatorProc != nil {
-		coordinatorProc.Wait()
-	}
-	if dbserverProc != nil {
-		dbserverProc.Wait()
-	}
-	time.Sleep(3 * time.Second)
-	if agentProc != nil {
-		agentProc.Wait()
+		go runArangod(basePortCoordinator, "coordinator", &coordinatorProc, &s.StartCoordinator)
 	}
 
 	for {
@@ -373,15 +329,15 @@ func (s *Service) startRunning(runner Runner) {
 	}
 
 	fmt.Println("Shutting down services...")
-	if coordinatorProc != nil {
-		coordinatorProc.Kill()
+	if p := coordinatorProc; p != nil {
+		p.Kill()
 	}
-	if dbserverProc != nil {
-		dbserverProc.Kill()
+	if p := dbserverProc; p != nil {
+		p.Kill()
 	}
 	time.Sleep(3 * time.Second)
-	if agentProc != nil {
-		agentProc.Kill()
+	if p := agentProc; p != nil {
+		p.Kill()
 	}
 }
 
@@ -434,6 +390,9 @@ func (s *Service) Run(stopChan chan bool) {
 			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}
 		s.log.Debug("Using docker runner")
+		// Set executables to their image path's
+		s.ArangodExecutable = "/usr/sbin/arangod"
+		s.ArangodJSstartup = "/usr/share/arangodb3/js"
 	} else {
 		runner = NewProcessRunner()
 		s.log.Debug("Using process runner")
