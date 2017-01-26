@@ -19,7 +19,11 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 	}
 	for {
 		s.log.Infof("Contacting master %s:%d...", peerAddress, masterPort)
-		b, _ := json.Marshal(SlaveRequest{DataDir: s.DataDir})
+		b, _ := json.Marshal(SlaveRequest{
+			DataDir:      s.DataDir,
+			SlaveAddress: s.OwnAddress,
+			SlavePort:    s.announcePort,
+		})
 		buf := bytes.Buffer{}
 		buf.Write(b)
 		r, e := http.Post(fmt.Sprintf("http://%s:%d/hello", peerAddress, masterPort), "application/json", &buf)
@@ -47,7 +51,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 			s.log.Warningf("Cannot parse body from master: %v", e)
 			return
 		}
-		s.myPeers.MyIndex = len(s.myPeers.Hosts) - 1
+		s.myPeers.MyIndex = len(s.myPeers.Peers) - 1
 		s.AgencySize = s.myPeers.AgencySize
 		break
 	}
@@ -60,19 +64,24 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		s.log.Infof("Waiting for %d servers to show up...", s.AgencySize)
 	}
 	for {
-		if len(s.myPeers.Hosts) >= s.AgencySize {
+		if len(s.myPeers.Peers) >= s.AgencySize {
 			s.log.Info("Starting service...")
 			s.saveSetup()
 			s.startRunning(runner)
 			return
 		}
 		time.Sleep(time.Second)
-		r, _ := http.Get(fmt.Sprintf("http://%s:%d/hello", s.myPeers.MasterHostIP, s.myPeers.MasterPort))
-		defer r.Body.Close()
-		body, _ := ioutil.ReadAll(r.Body)
-		var newPeers peers
-		json.Unmarshal(body, &newPeers)
-		s.myPeers.Hosts = newPeers.Hosts
-		s.myPeers.PortOffsets = newPeers.PortOffsets
+		master := s.myPeers.Peers[0]
+		r, err := http.Get(fmt.Sprintf("http://%s:%d/hello", master.Address, master.Port))
+		if err != nil {
+			s.log.Errorf("Failed to connect to master: %v", err)
+			time.Sleep(time.Second * 2)
+		} else {
+			defer r.Body.Close()
+			body, _ := ioutil.ReadAll(r.Body)
+			var newPeers peers
+			json.Unmarshal(body, &newPeers)
+			s.myPeers.Peers = newPeers.Peers
+		}
 	}
 }

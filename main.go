@@ -54,12 +54,12 @@ func init() {
 	f.StringVar(&rrPath, "rr", "", "Path of rr")
 	f.BoolVar(&startCoordinator, "startCoordinator", true, "should a coordinator instance be started")
 	f.BoolVar(&startDBserver, "startDBserver", true, "should a dbserver instance be started")
-	f.StringVar(&dataDir, "dataDir", ".", "directory to store all data")
+	f.StringVar(&dataDir, "dataDir", getEnvVar("DATA_DIR", "."), "directory to store all data")
 	f.StringVar(&ownAddress, "ownAddress", "", "address under which this server is reachable, needed for running arangodb in docker or the case of --agencySize 1 in the master")
 	f.StringVar(&masterAddress, "join", "", "join a cluster with master at address addr")
 	f.BoolVar(&verbose, "verbose", false, "Turn on debug logging")
 	f.StringVar(&dockerEndpoint, "dockerEndpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
-	f.StringVar(&dockerImage, "docker", "", "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&dockerImage, "docker", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
 	f.StringVar(&dockerUser, "dockerUser", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainer, "dockerContainer", "", "name of the docker container that is running this process")
 }
@@ -202,4 +202,14 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 
 	// Run the service
 	service.Run(stopChan)
+}
+
+// getEnvVar returns the value of the environment variable with given key of the given default
+// value of no such variable exist or is empty.
+func getEnvVar(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value != "" {
+		return value
+	}
+	return defaultValue
 }

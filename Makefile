@@ -6,15 +6,13 @@ COMMIT := $(shell git rev-parse --short HEAD)
 
 GOBUILDDIR := $(SCRIPTDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
-BINDIR := $(ROOTDIR)
+BINDIR := $(ROOTDIR)/bin
 
 ORGPATH := github.com/neunhoef
 ORGDIR := $(GOBUILDDIR)/src/$(ORGPATH)
 REPONAME := $(PROJECT)
 REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
-BINNAME := arangodb 
-BIN := $(BINDIR)/$(BINNAME)
 
 GOPATH := $(GOBUILDDIR)
 GOVERSION := 1.7.4-alpine
@@ -26,17 +24,25 @@ ifndef GOARCH
 	GOARCH := amd64
 endif
 
+BINNAME := arangodb-$(GOOS)-$(GOARCH)
+BIN := $(BINDIR)/$(BINNAME)
+
 SOURCES := $(shell find $(SRCDIR) -name '*.go')
 
-.PHONY: all clean deps docker
+.PHONY: all clean deps docker build build-local
 
-all: $(BIN)
+all: build
 
 clean:
 	rm -Rf $(BIN) $(GOBUILDDIR)
 
 local:
-	@${MAKE} -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) $(BIN)
+	@${MAKE} -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) build-local
+
+build: $(BIN)
+
+build-local: build 
+	@ln -sf $(BIN) $(ROOTDIR)/arangodb
 
 deps:
 	@${MAKE} -B -s $(GOBUILDDIR)
@@ -50,6 +56,7 @@ $(GOBUILDDIR):
 	GOPATH=$(GOBUILDDIR) go get github.com/spf13/cobra
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
+	@mkdir -p $(BINDIR)
 	docker run \
 		--rm \
 		-v $(SRCDIR):/usr/code \
@@ -59,14 +66,8 @@ $(BIN): $(GOBUILDDIR) $(SOURCES)
 		-e CGO_ENABLED=0 \
 		-w /usr/code/ \
 		golang:$(GOVERSION) \
-		go build -a -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/$(BINNAME) $(REPOPATH)
+		go build -a -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(BINNAME) $(REPOPATH)
 
-buildi: $(BIN)
-	docker build -t arangodb-starter .
+docker: build
+	docker build -t arangodb/arangodb-starter .
 
-docker:
-	sudo docker build -t arangodb/arangodb-starter .
-
-buildExecutableForDocker:
-	sudo docker build -t arangodb-starter-builder -f Dockerfile.builder .
-	sudo docker run --rm --user=`id -u`:`id -g` -v `pwd`/arangodb:/arangodb arangodb-starter-builder

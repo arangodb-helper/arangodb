@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	logging "github.com/op/go-logging"
@@ -36,11 +37,19 @@ type ServiceConfig struct {
 
 type Service struct {
 	ServiceConfig
-	log     *logging.Logger
-	state   State
-	starter chan bool
-	myPeers peers
-	stop    bool
+	log              *logging.Logger
+	state            State
+	starter          chan bool
+	myPeers          peers
+	announcePort     int        // Port I can be reached on from the outside
+	mutex            sync.Mutex // Mutex used to protect access to this datastructure
+	allowSameDataDir bool       // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
+	servers          struct {
+		agentProc       Process
+		dbserverProc    Process
+		coordinatorProc Process
+	}
+	stop bool
 }
 
 // NewService creates a new Service instance from the given config.
@@ -68,14 +77,17 @@ const (
 
 // State of peers:
 
+type Peer struct {
+	Address    string // IP address of arangodb peer server
+	Port       int    // Port number of arangodb peer server
+	PortOffset int    // Offset to add to base ports for the various servers (agent, coordinator, dbserver)
+	DataDir    string // Directory holding my data
+}
+
 type peers struct {
-	Hosts        []string
-	PortOffsets  []int
-	Directories  []string
-	MyIndex      int
-	AgencySize   int
-	MasterHostIP string
-	MasterPort   int
+	Peers      []Peer // All peers (index 0 is reserver for the master)
+	MyIndex    int    // Index into Peers for myself
+	AgencySize int    // Number of agents
 }
 
 const (
@@ -190,9 +202,10 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		)
 		for i := 0; i < s.AgencySize; i++ {
 			if i != s.myPeers.MyIndex {
+				p := s.myPeers.Peers[i]
 				args = append(args,
 					"--agency.endpoint",
-					fmt.Sprintf("tcp://%s:%d", s.myPeers.Hosts[i], basePortAgent+s.myPeers.PortOffsets[i]),
+					fmt.Sprintf("tcp://%s:%d", p.Address, basePortAgent+p.PortOffset),
 				)
 			}
 		}
@@ -215,9 +228,10 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	}
 	if mode != "agent" {
 		for i := 0; i < s.AgencySize; i++ {
+			p := s.myPeers.Peers[i]
 			args = append(args,
 				"--cluster.agency-endpoint",
-				fmt.Sprintf("tcp://%s:%d", s.myPeers.Hosts[i], basePortAgent+s.myPeers.PortOffsets[i]),
+				fmt.Sprintf("tcp://%s:%d", p.Address, basePortAgent+p.PortOffset),
 			)
 		}
 	}
@@ -235,8 +249,8 @@ func (s *Service) writeCommand(filename string, executable string, args []string
 
 func (s *Service) startRunning(runner Runner) {
 	s.state = stateRunning
-	portOffset := s.myPeers.PortOffsets[s.myPeers.MyIndex]
-	myHost := s.myPeers.Hosts[s.myPeers.MyIndex]
+	portOffset := s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
+	myHost := s.myPeers.Peers[s.myPeers.MyIndex].Address
 
 	var executable string
 	if s.RrPath != "" {
@@ -269,7 +283,8 @@ func (s *Service) startRunning(runner Runner) {
 		vols = addDataVolumes(vols, myHostDir, myContainerDir)
 		s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
 		containerName := fmt.Sprintf("%s-%s-%d", mode, myHost, myPort)
-		if p, err := runner.Start(args[0], args[1:], vols, containerName); err != nil {
+		ports := []int{myPort}
+		if p, err := runner.Start(args[0], args[1:], vols, ports, containerName); err != nil {
 			return nil, maskAny(err)
 		} else {
 			return p, nil
@@ -280,7 +295,7 @@ func (s *Service) startRunning(runner Runner) {
 		for {
 			p, err := startArangod(portBase, mode)
 			if err != nil {
-				s.log.Errorf("Error whilst starting %s: %#v", mode, err)
+				s.log.Errorf("Error while starting %s: %#v", mode, err)
 				break
 			}
 			*processVar = p
@@ -300,25 +315,22 @@ func (s *Service) startRunning(runner Runner) {
 	}
 
 	// Start agent:
-	var agentProc Process
 	if s.myPeers.MyIndex < s.AgencySize {
 		runAlways := true
-		go runArangod(basePortAgent, "agent", &agentProc, &runAlways)
+		go runArangod(basePortAgent, "agent", &s.servers.agentProc, &runAlways)
 	}
 	time.Sleep(time.Second)
 
 	// Start DBserver:
-	var dbserverProc Process
 	if s.StartDBserver {
-		go runArangod(basePortDBServer, "dbserver", &dbserverProc, &s.StartDBserver)
+		go runArangod(basePortDBServer, "dbserver", &s.servers.dbserverProc, &s.StartDBserver)
 	}
 
 	time.Sleep(time.Second)
 
 	// Start Coordinator:
-	var coordinatorProc Process
 	if s.StartCoordinator {
-		go runArangod(basePortCoordinator, "coordinator", &coordinatorProc, &s.StartCoordinator)
+		go runArangod(basePortCoordinator, "coordinator", &s.servers.coordinatorProc, &s.StartCoordinator)
 	}
 
 	for {
@@ -329,14 +341,14 @@ func (s *Service) startRunning(runner Runner) {
 	}
 
 	fmt.Println("Shutting down services...")
-	if p := coordinatorProc; p != nil {
+	if p := s.servers.coordinatorProc; p != nil {
 		p.Kill()
 	}
-	if p := dbserverProc; p != nil {
+	if p := s.servers.dbserverProc; p != nil {
 		p.Kill()
 	}
 	time.Sleep(3 * time.Second)
-	if p := agentProc; p != nil {
+	if p := s.servers.agentProc; p != nil {
 		p.Kill()
 	}
 }
@@ -374,18 +386,16 @@ func (s *Service) Run(stopChan chan bool) {
 			s.log.Fatalf("Failed to detect port mapping: %#v", err)
 			return
 		}
-		s.myPeers.MasterHostIP = s.OwnAddress
-		s.myPeers.MasterPort = hostPort
+		s.announcePort = hostPort
 	} else {
-		s.myPeers.MasterHostIP = s.OwnAddress
-		s.myPeers.MasterPort = s.MasterPort
+		s.announcePort = s.MasterPort
 	}
 
 	// Create a runner
 	var runner Runner
 	if s.DockerEndpoint != "" && s.DockerImage != "" {
 		var err error
-		runner, err = NewDockerRunner(s.DockerEndpoint, s.DockerImage, s.DockerUser)
+		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer)
 		if err != nil {
 			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}
@@ -393,6 +403,8 @@ func (s *Service) Run(stopChan chan bool) {
 		// Set executables to their image path's
 		s.ArangodExecutable = "/usr/sbin/arangod"
 		s.ArangodJSstartup = "/usr/share/arangodb3/js"
+		// Docker setup uses different volumes with same dataDir, allow that
+		s.allowSameDataDir = true
 	} else {
 		runner = NewProcessRunner()
 		s.log.Debug("Using process runner")

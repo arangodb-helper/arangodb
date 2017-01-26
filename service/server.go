@@ -3,23 +3,38 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 )
 
 type SlaveRequest struct {
-	DataDir string
+	SlaveAddress string // Address used to reach the slave (if empty, this will be derived from the request)
+	SlavePort    int    // Port used to reach the slave
+	DataDir      string // Directory used for data by this slave
+}
+
+type ProcessListResponse struct {
+	Servers []ServerProcess `json:"servers,omitempty"` // List of servers started by ArangoDB
+}
+
+type ServerProcess struct {
+	Type        string `json:"type"`                   // agent | coordinator | dbserver
+	IP          string `json:"ip"`                     // IP address needed to reach the server
+	Port        int    `json:"port"`                   // Port needed to reach the server
+	ProcessID   int    `json:"pid,omitempty"`          // PID of the process (0 when running in docker)
+	ContainerID string `json:"container-id,omitempty"` // ID of docker container running the server
 }
 
 // startHTTPServer initializes and runs the HTTP server.
 // If will return directly after starting it.
 func (s *Service) startHTTPServer() {
-	http.HandleFunc("/hello", s.hello)
+	http.HandleFunc("/hello", s.helloHandler)
+	http.HandleFunc("/process", s.processListHandler)
+
 	go func() {
 		portOffset := 0
-		if len(s.myPeers.PortOffsets) > 0 {
-			portOffset = s.myPeers.PortOffsets[s.myPeers.MyIndex]
+		if len(s.myPeers.Peers) > 0 {
+			portOffset = s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
 		}
 		addr := fmt.Sprintf("0.0.0.0:%d", s.MasterPort+portOffset)
 		s.log.Infof("Listening on %s", addr)
@@ -31,65 +46,127 @@ func (s *Service) startHTTPServer() {
 
 // HTTP service function:
 
-func (s *Service) hello(w http.ResponseWriter, r *http.Request) {
+func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
+	// Claim exclusive access to our data structures
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	s.log.Debugf("Received request from %s", r.RemoteAddr)
 	if s.state == stateSlave {
 		header := w.Header()
-		if len(s.myPeers.Hosts) > 0 {
-			header.Add("Location", fmt.Sprintf("http://%s:%d/hello", s.myPeers.MasterHostIP, s.myPeers.MasterPort))
+		if len(s.myPeers.Peers) > 0 {
+			master := s.myPeers.Peers[0]
+			header.Add("Location", fmt.Sprintf("http://%s:%d/hello", master.Address, master.Port))
 			w.WriteHeader(http.StatusTemporaryRedirect)
 		} else {
-			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, `{"error": "No master known."}`)
+			writeError(w, http.StatusBadRequest, "No master known.")
 		}
 		return
 	}
-	if len(s.myPeers.Hosts) == 0 {
-		// Learn my own address
+
+	// Learn my own address (if needed)
+	if len(s.myPeers.Peers) == 0 {
 		myself := findHost(r.Host)
-		s.myPeers.Hosts = append(s.myPeers.Hosts, myself)
-		s.myPeers.PortOffsets = append(s.myPeers.PortOffsets, 0)
-		s.myPeers.Directories = append(s.myPeers.Directories, s.DataDir)
+		s.myPeers.Peers = []Peer{
+			Peer{
+				Address:    myself,
+				Port:       s.announcePort,
+				PortOffset: 0,
+				DataDir:    s.DataDir,
+			},
+		}
 		s.myPeers.AgencySize = s.AgencySize
 		s.myPeers.MyIndex = 0
-		s.myPeers.MasterHostIP = myself
 	}
+
 	if r.Method == "POST" {
 		var req SlaveRequest
 		defer r.Body.Close()
 		body, _ := ioutil.ReadAll(r.Body)
 		json.Unmarshal(body, &req)
-		peerDir := req.DataDir
 
-		newGuy := findHost(r.RemoteAddr)
-		found := false
-		for i := len(s.myPeers.Hosts) - 1; i >= 0; i-- {
-			if s.myPeers.Hosts[i] == newGuy {
-				if s.myPeers.Directories[i] == peerDir {
-					w.WriteHeader(http.StatusBadRequest)
-					io.WriteString(w, `{"error": "Cannot use same directory as peer."}`)
+		slaveAddr := req.SlaveAddress
+		if slaveAddr == "" {
+			slaveAddr = findHost(r.RemoteAddr)
+		}
+		slavePort := req.SlavePort
+
+		if !s.allowSameDataDir {
+			for _, p := range s.myPeers.Peers {
+				if p.Address == slaveAddr && p.DataDir == req.DataDir {
+					writeError(w, http.StatusBadRequest, "Cannot use same directory as peer.")
 					return
 				}
-				s.myPeers.PortOffsets = append(s.myPeers.PortOffsets, s.myPeers.PortOffsets[i]+1)
-				s.myPeers.Directories = append(s.myPeers.Directories, peerDir)
-				found = true
-				break
 			}
 		}
-		s.myPeers.Hosts = append(s.myPeers.Hosts, newGuy)
-		if !found {
-			s.myPeers.PortOffsets = append(s.myPeers.PortOffsets, 0)
-			s.myPeers.Directories = append(s.myPeers.Directories, peerDir)
+
+		newPeer := Peer{
+			Address:    slaveAddr,
+			Port:       slavePort,
+			PortOffset: len(s.myPeers.Peers),
+			DataDir:    req.DataDir,
 		}
-		s.log.Infof("New peer: %s, portOffset: %d", newGuy, s.myPeers.PortOffsets[len(s.myPeers.PortOffsets)-1])
-		if len(s.myPeers.Hosts) == s.AgencySize {
+		s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
+		s.log.Infof("New peer: %s, portOffset: %d", newPeer.Address, newPeer.PortOffset)
+		if len(s.myPeers.Peers) == s.AgencySize {
 			s.starter <- true
 		}
 	}
-	b, e := json.Marshal(s.myPeers)
-	if e != nil {
-		io.WriteString(w, "Hello world! Your address is:"+r.RemoteAddr)
+	b, err := json.Marshal(s.myPeers)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
 	} else {
 		w.Write(b)
 	}
+}
+
+func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
+	// Gather processes
+	resp := ProcessListResponse{}
+	p := s.myPeers.Peers[s.myPeers.MyIndex]
+	portOffset := p.PortOffset
+	ip := p.Address
+	if p := s.servers.agentProc; p != nil {
+		resp.Servers = append(resp.Servers, ServerProcess{
+			Type:        "agent",
+			IP:          ip,
+			Port:        basePortAgent + portOffset,
+			ProcessID:   p.ProcessID(),
+			ContainerID: p.ContainerID(),
+		})
+	}
+	if p := s.servers.coordinatorProc; p != nil {
+		resp.Servers = append(resp.Servers, ServerProcess{
+			Type:        "coordinator",
+			IP:          ip,
+			Port:        basePortCoordinator + portOffset,
+			ProcessID:   p.ProcessID(),
+			ContainerID: p.ContainerID(),
+		})
+	}
+	if p := s.servers.dbserverProc; p != nil {
+		resp.Servers = append(resp.Servers, ServerProcess{
+			Type:        "dbserver",
+			IP:          ip,
+			Port:        basePortDBServer + portOffset,
+			ProcessID:   p.ProcessID(),
+			ContainerID: p.ContainerID(),
+		})
+	}
+	b, err := json.Marshal(resp)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+	} else {
+		w.Write(b)
+	}
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	if message == "" {
+		message = "Unknown error"
+	}
+	resp := ErrorResponse{Error: message}
+	b, _ := json.Marshal(resp)
+	w.WriteHeader(status)
+	w.Write(b)
 }
