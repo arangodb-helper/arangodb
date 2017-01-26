@@ -11,6 +11,6 @@ EXPOSE 8629 8630 8631 8632 8633
 VOLUME /data
 
 ENV DATA_DIR=/data 
-ENV DOCKER_IMAGE=arangodb/arangodb:3.1
+ENV DOCKER_IMAGE=arangodb/arangodb:3.1.9
 
 ENTRYPOINT ["/app/arangodb-linux-amd64"]
