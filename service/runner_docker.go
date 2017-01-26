@@ -116,12 +116,15 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 
 func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, masterPort string) string {
 	addr := masterIP
+	hostPort := 4000 + (portOffsetIncrement * (index - 1))
 	if masterPort != "" {
 		addr = addr + ":" + masterPort
+		masterPortI, _ := strconv.Atoi(masterPort)
+		hostPort = masterPortI + (portOffsetIncrement * (index - 1))
 	}
 	lines := []string{
 		fmt.Sprintf("docker volume create arangodb%d &&", index),
-		fmt.Sprintf("docker run -it --name=adb%d --rm -P -v arangodb%d:/data -v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter", index, index),
+		fmt.Sprintf("docker run -it --name=adb%d --rm -p %d:4000 -v arangodb%d:/data -v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter", index, hostPort, index),
 		fmt.Sprintf("--dockerContainer=adb%d --ownAddress=%s --join=%s", index, masterIP, addr),
 	}
 	return strings.Join(lines, " \\\n    ")

@@ -19,10 +19,11 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 	}
 	for {
 		s.log.Infof("Contacting master %s:%d...", peerAddress, masterPort)
+		_, hostPort := s.getHTTPServerPort()
 		b, _ := json.Marshal(SlaveRequest{
 			DataDir:      s.DataDir,
 			SlaveAddress: s.OwnAddress,
-			SlavePort:    s.announcePort,
+			SlavePort:    hostPort,
 		})
 		buf := bytes.Buffer{}
 		buf.Write(b)

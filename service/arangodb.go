@@ -91,9 +91,10 @@ type peers struct {
 }
 
 const (
-	basePortAgent       = 5001
-	basePortCoordinator = 8530
-	basePortDBServer    = 8629
+	portOffsetAgent       = 1
+	portOffsetCoordinator = 2
+	portOffsetDBServer    = 3
+	portOffsetIncrement   = 5 // {our http server, agent, coordinator, dbserver, reserved}
 )
 
 // A helper function:
@@ -205,7 +206,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 				p := s.myPeers.Peers[i]
 				args = append(args,
 					"--agency.endpoint",
-					fmt.Sprintf("tcp://%s:%d", p.Address, basePortAgent+p.PortOffset),
+					fmt.Sprintf("tcp://%s:%d", p.Address, s.MasterPort+p.PortOffset+portOffsetAgent),
 				)
 			}
 		}
@@ -231,7 +232,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			p := s.myPeers.Peers[i]
 			args = append(args,
 				"--cluster.agency-endpoint",
-				fmt.Sprintf("tcp://%s:%d", p.Address, basePortAgent+p.PortOffset),
+				fmt.Sprintf("tcp://%s:%d", p.Address, s.MasterPort+p.PortOffset+portOffsetAgent),
 			)
 		}
 	}
@@ -272,8 +273,8 @@ func (s *Service) startRunning(runner Runner) {
 		return configVolumes
 	}
 
-	startArangod := func(portBase int, mode string, restart int) (Process, error) {
-		myPort := portBase + portOffset
+	startArangod := func(serverPortOffset int, mode string, restart int) (Process, error) {
+		myPort := s.MasterPort + portOffset + serverPortOffset
 		s.log.Infof("Starting %s on port %d", mode, myPort)
 		myHostDir := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort))
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
@@ -291,16 +292,16 @@ func (s *Service) startRunning(runner Runner) {
 		}
 	}
 
-	runArangod := func(portBase int, mode string, processVar *Process, runProcess *bool) {
+	runArangod := func(serverPortOffset int, mode string, processVar *Process, runProcess *bool) {
 		restart := 0
 		for {
-			p, err := startArangod(portBase, mode, restart)
+			p, err := startArangod(serverPortOffset, mode, restart)
 			if err != nil {
 				s.log.Errorf("Error while starting %s: %#v", mode, err)
 				break
 			}
 			*processVar = p
-			if testInstance(myHost, portBase+portOffset) {
+			if testInstance(myHost, s.MasterPort+portOffset+serverPortOffset) {
 				s.log.Infof("%s up and running.", mode)
 			} else {
 				s.log.Warningf("%s not ready after 5min!", mode)
@@ -319,20 +320,20 @@ func (s *Service) startRunning(runner Runner) {
 	// Start agent:
 	if s.myPeers.MyIndex < s.AgencySize {
 		runAlways := true
-		go runArangod(basePortAgent, "agent", &s.servers.agentProc, &runAlways)
+		go runArangod(portOffsetAgent, "agent", &s.servers.agentProc, &runAlways)
 	}
 	time.Sleep(time.Second)
 
 	// Start DBserver:
 	if s.StartDBserver {
-		go runArangod(basePortDBServer, "dbserver", &s.servers.dbserverProc, &s.StartDBserver)
+		go runArangod(portOffsetDBServer, "dbserver", &s.servers.dbserverProc, &s.StartDBserver)
 	}
 
 	time.Sleep(time.Second)
 
 	// Start Coordinator:
 	if s.StartCoordinator {
-		go runArangod(basePortCoordinator, "coordinator", &s.servers.coordinatorProc, &s.StartCoordinator)
+		go runArangod(portOffsetCoordinator, "coordinator", &s.servers.coordinatorProc, &s.StartCoordinator)
 	}
 
 	for {

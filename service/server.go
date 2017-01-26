@@ -32,11 +32,8 @@ func (s *Service) startHTTPServer() {
 	http.HandleFunc("/process", s.processListHandler)
 
 	go func() {
-		portOffset := 0
-		if len(s.myPeers.Peers) > 0 {
-			portOffset = s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
-		}
-		addr := fmt.Sprintf("0.0.0.0:%d", s.MasterPort+portOffset)
+		containerPort, _ := s.getHTTPServerPort()
+		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
 		s.log.Infof("Listening on %s", addr)
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			s.log.Errorf("Failed to listen on %s: %v", addr, err)
@@ -67,10 +64,11 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 	// Learn my own address (if needed)
 	if len(s.myPeers.Peers) == 0 {
 		myself := findHost(r.Host)
+		_, hostPort := s.getHTTPServerPort()
 		s.myPeers.Peers = []Peer{
 			Peer{
 				Address:    myself,
-				Port:       s.announcePort,
+				Port:       hostPort,
 				PortOffset: 0,
 				DataDir:    s.DataDir,
 			},
@@ -103,7 +101,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 		newPeer := Peer{
 			Address:    slaveAddr,
 			Port:       slavePort,
-			PortOffset: len(s.myPeers.Peers),
+			PortOffset: len(s.myPeers.Peers) * portOffsetIncrement,
 			DataDir:    req.DataDir,
 		}
 		s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
@@ -130,7 +128,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 		resp.Servers = append(resp.Servers, ServerProcess{
 			Type:        "agent",
 			IP:          ip,
-			Port:        basePortAgent + portOffset,
+			Port:        s.MasterPort + portOffset + portOffsetAgent,
 			ProcessID:   p.ProcessID(),
 			ContainerID: p.ContainerID(),
 		})
@@ -139,7 +137,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 		resp.Servers = append(resp.Servers, ServerProcess{
 			Type:        "coordinator",
 			IP:          ip,
-			Port:        basePortCoordinator + portOffset,
+			Port:        s.MasterPort + portOffset + portOffsetCoordinator,
 			ProcessID:   p.ProcessID(),
 			ContainerID: p.ContainerID(),
 		})
@@ -148,7 +146,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 		resp.Servers = append(resp.Servers, ServerProcess{
 			Type:        "dbserver",
 			IP:          ip,
-			Port:        basePortDBServer + portOffset,
+			Port:        s.MasterPort + portOffset + portOffsetDBServer,
 			ProcessID:   p.ProcessID(),
 			ContainerID: p.ContainerID(),
 		})
@@ -169,4 +167,12 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	b, _ := json.Marshal(resp)
 	w.WriteHeader(status)
 	w.Write(b)
+}
+
+func (s *Service) getHTTPServerPort() (containerPort, hostPort int) {
+	port := s.MasterPort
+	if s.announcePort == s.MasterPort && len(s.myPeers.Peers) > 0 {
+		port += s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
+	}
+	return port, s.announcePort
 }
