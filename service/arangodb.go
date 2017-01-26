@@ -272,7 +272,7 @@ func (s *Service) startRunning(runner Runner) {
 		return configVolumes
 	}
 
-	startArangod := func(portBase int, mode string) (Process, error) {
+	startArangod := func(portBase int, mode string, restart int) (Process, error) {
 		myPort := portBase + portOffset
 		s.log.Infof("Starting %s on port %d", mode, myPort)
 		myHostDir := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort))
@@ -282,7 +282,7 @@ func (s *Service) startRunning(runner Runner) {
 		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHost, strconv.Itoa(myPort), mode)
 		vols = addDataVolumes(vols, myHostDir, myContainerDir)
 		s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
-		containerName := fmt.Sprintf("%s-%s-%d", mode, myHost, myPort)
+		containerName := fmt.Sprintf("%s-%d-%d-%s-%d", mode, s.myPeers.MyIndex, restart, myHost, myPort)
 		ports := []int{myPort}
 		if p, err := runner.Start(args[0], args[1:], vols, ports, containerName); err != nil {
 			return nil, maskAny(err)
@@ -292,8 +292,9 @@ func (s *Service) startRunning(runner Runner) {
 	}
 
 	runArangod := func(portBase int, mode string, processVar *Process, runProcess *bool) {
+		restart := 0
 		for {
-			p, err := startArangod(portBase, mode)
+			p, err := startArangod(portBase, mode, restart)
 			if err != nil {
 				s.log.Errorf("Error while starting %s: %#v", mode, err)
 				break
@@ -311,6 +312,7 @@ func (s *Service) startRunning(runner Runner) {
 				break
 			}
 			s.log.Infof("restarting %s", mode)
+			restart++
 		}
 	}
 
@@ -415,7 +417,7 @@ func (s *Service) Run(stopChan chan bool) {
 		// Could read file
 		if err := json.Unmarshal(setupContent, &s.myPeers); err == nil {
 			s.AgencySize = s.myPeers.AgencySize
-			fmt.Println("Relaunching service...")
+			s.log.Infof("Relaunching service on %s:%d...", s.OwnAddress, s.announcePort)
 			s.startHTTPServer()
 			s.startRunning(runner)
 			return
