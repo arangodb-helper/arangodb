@@ -6,11 +6,14 @@ Building
 
 Just do
 
-    cd arangodb
-    go build
+```
+make local
+```
 
-and the executable is in `arangodb/arangodb`. You can install it
-anywhere in your path. This program will run on Linux, OSX or Windows.
+and the executable is in `./bin` named after the current OS & architecture (e.g. `arangodb-linux-amd64`).
+You can copy the binary anywhere in your PATH.
+A link to the binary for the local OS & architecture is made to `./arangodb`.
+This program will run on Linux, OSX or Windows.
 
 Starting a cluster
 ------------------
@@ -19,17 +22,23 @@ Install ArangoDB in the usual way as binary package. Then:
 
 On host A:
 
-    arangodb
+```
+arangodb
+```
 
 This will use port 4000 to wait for colleagues (3 are needed for a
 resilient agency). On host B: (can be the same as A):
 
-    arangodb --join A
+```
+arangodb --join A
+```
 
 This will contact A on port 4000 and register. On host C: (can be same
 as A or B):
 
-    arangodb --join A
+```
+arangodb --join A
+```
 
 This will contact A on port 4000 and register.
 
@@ -46,6 +55,37 @@ directory.
 The `arangodb` program will find the ArangoDB executable and the
 other installation files automatically. If this fails, use the
 `--arangod` and `--jsdir` options described below.
+
+Running in Docker 
+-----------------
+
+The executable can be run inside Docker. In that case it will also run all 
+servers in a Docker container. 
+
+First make sure the docker images are build using:
+
+```
+make docker 
+```
+
+When running in Docker it is important to care about the volume mappings on 
+the container. Typically you will start the executable in docker with the following
+commands.
+
+```
+export IP=<IP of docker host>
+docker volume create arangodb1
+docker run -it --name=adb1 --rm -P \
+    -v arangodb1:/data \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    arangodb/arangodb-starter \
+    --dockerContainer=adb1 --ownAddress=$IP
+```
+
+The executable will show the commands needed to run the other instances.
+
+Note that the commands above create a docker volume. If you're running on Linux 
+it is also possible to use a host mapped volume. Make sure to map it on `/data`.
 
 Common options 
 --------------
@@ -84,6 +124,11 @@ under which address it can be reached from the outside. If you specify
 `image` is the name of a Docker image to run instead of the normal
 executable. For each started instance a Docker container is launched.
 Usually one would use the Docker image `arangodb/arangodb`.
+
+* `--dockerContainer containerName`
+
+`containerName` is the name of a Docker container that is used to run the
+executable. This argument is required when running the executable in docker.
 
 Esoteric options
 ----------------
@@ -135,6 +180,11 @@ option. One can give a user id or a user id and a group id, separated
 by a colon. The purpose of this option is to limit the access rights
 of the process in the Docker container.
 
+* `--dockerEndpoint endpoint`
+
+`endpoint` is the URL used to reach the docker host. This is needed to run 
+the executable in docker. The default value is "unix:///var/run/docker.sock".
+
 Future plans
 ------------
 
@@ -162,10 +212,15 @@ its data directory, starts up its `arangod` instances again (with their
 data) and they join the cluster.
 
 All network addresses are discovered from the HTTP communication between
-the `arangodb` instances. The ports used (4001 for the agent, 8530 for
+the `arangodb` instances. The ports used (5001 for the agent, 8530 for
 the coordinator, 8629 for the DBserver) need to be free. If more than
 one instance of an `arangodb` are started on the same machine, the
 second will increase all these port numbers by 1 and so on.
+
+In case the executable is running in Docker, it will use the Docker 
+API to retrieve the port number of the Docker host to which the 4000 port 
+number is mapped. The containers started by the executable will all 
+map the port they use to the exact same host port.
 
 Feedback
 --------
