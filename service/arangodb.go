@@ -318,7 +318,7 @@ func (s *Service) startRunning(runner Runner) {
 	}
 
 	// Start agent:
-	if s.myPeers.MyIndex < s.AgencySize {
+	if s.needsAgent() {
 		runAlways := true
 		go runArangod(portOffsetAgent, "agent", &s.servers.agentProc, &runAlways)
 	}
@@ -435,4 +435,9 @@ func (s *Service) Run(stopChan chan bool) {
 		s.state = stateMaster
 		s.startMaster(runner)
 	}
+}
+
+// needsAgent returns true if the agent should run in this instance
+func (s *Service) needsAgent() bool {
+	return s.myPeers.MyIndex < s.AgencySize
 }

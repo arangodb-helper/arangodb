@@ -14,7 +14,8 @@ type SlaveRequest struct {
 }
 
 type ProcessListResponse struct {
-	Servers []ServerProcess `json:"servers,omitempty"` // List of servers started by ArangoDB
+	ServersStarted bool            `json:"servers-started,omitempty"` // True if the server have all been started
+	Servers        []ServerProcess `json:"servers,omitempty"`         // List of servers started by ArangoDB
 }
 
 type ServerProcess struct {
@@ -151,6 +152,11 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 			ContainerID: p.ContainerID(),
 		})
 	}
+	expectedServers := 2
+	if s.needsAgent() {
+		expectedServers = 3
+	}
+	resp.ServersStarted = len(resp.Servers) == expectedServers
 	b, err := json.Marshal(resp)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
