@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -84,6 +83,8 @@ type Peer struct {
 	DataDir    string // Directory holding my data
 }
 
+// Peer information.
+// When this type (or any of the types used in here) is changed, increase `SetupConfigVersion`.
 type peers struct {
 	Peers      []Peer // All peers (index 0 is reserver for the master)
 	MyIndex    int    // Index into Peers for myself
@@ -356,20 +357,6 @@ func (s *Service) startRunning(runner Runner) {
 	}
 }
 
-// saveSetup saves the current peer configuration to disk.
-func (s *Service) saveSetup() error {
-	b, err := json.Marshal(s.myPeers)
-	if err != nil {
-		s.log.Errorf("Cannot serialize myPeers: %#v", err)
-		return maskAny(err)
-	}
-	if err := ioutil.WriteFile(filepath.Join(s.DataDir, "setup.json"), b, 0644); err != nil {
-		s.log.Errorf("Error writing setup: %#v", err)
-		return maskAny(err)
-	}
-	return nil
-}
-
 // Run runs the service in either master or slave mode.
 func (s *Service) Run(stopChan chan bool) {
 	go func() {
@@ -414,17 +401,8 @@ func (s *Service) Run(stopChan chan bool) {
 	}
 
 	// Is this a new start or a restart?
-	if setupContent, err := ioutil.ReadFile(filepath.Join(s.DataDir, "setup.json")); err == nil {
-		// Could read file
-		if err := json.Unmarshal(setupContent, &s.myPeers); err == nil {
-			s.AgencySize = s.myPeers.AgencySize
-			s.log.Infof("Relaunching service on %s:%d...", s.OwnAddress, s.announcePort)
-			s.startHTTPServer()
-			s.startRunning(runner)
-			return
-		} else {
-			s.log.Warningf("Failed to unmarshal existing setup.json: %#v", err)
-		}
+	if s.relaunch(runner) {
+		return
 	}
 
 	// Do we have to register?
