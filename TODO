@@ -1,10 +1,16 @@
-    Article
-
 Docker:
-    test in Docker container: Docker in Docker?
+    some progress has been made, challenges remaining:
+      EXPOSE does not really open the ports, -p seems to still be needed 
+        at runtime or at least --net=host
+      address recognition does not work, since we get the IP addresses of the 
+        Docker container
+      data volumes not yet sorted
+    in short: it does not work yet
+      
 
 future:
     shutdown via API instead of Kill
+    observe subprocesses and potentially restart them as long as we are running
     configurable base ports
     free port testing?
     SSL
