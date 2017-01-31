@@ -284,7 +284,11 @@ func (s *Service) startRunning(runner Runner) {
 		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHost, strconv.Itoa(myPort), mode)
 		vols = addDataVolumes(vols, myHostDir, myContainerDir)
 		s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
-		containerName := fmt.Sprintf("%s-%d-%d-%s-%d", mode, s.myPeers.MyIndex, restart, myHost, myPort)
+		containerNamePrefix := ""
+		if s.DockerContainer != "" {
+			containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainer)
+		}
+		containerName := fmt.Sprintf("%s%s-%d-%d-%s-%d", containerNamePrefix, mode, s.myPeers.MyIndex, restart, myHost, myPort)
 		ports := []int{myPort}
 		if p, err := runner.Start(args[0], args[1:], vols, ports, containerName); err != nil {
 			return nil, maskAny(err)
