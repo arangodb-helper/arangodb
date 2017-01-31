@@ -122,35 +122,39 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 	// Gather processes
 	resp := ProcessListResponse{}
-	p := s.myPeers.Peers[s.myPeers.MyIndex]
-	portOffset := p.PortOffset
-	ip := p.Address
-	if p := s.servers.agentProc; p != nil {
-		resp.Servers = append(resp.Servers, ServerProcess{
-			Type:        "agent",
-			IP:          ip,
-			Port:        s.MasterPort + portOffset + portOffsetAgent,
-			ProcessID:   p.ProcessID(),
-			ContainerID: p.ContainerID(),
-		})
-	}
-	if p := s.servers.coordinatorProc; p != nil {
-		resp.Servers = append(resp.Servers, ServerProcess{
-			Type:        "coordinator",
-			IP:          ip,
-			Port:        s.MasterPort + portOffset + portOffsetCoordinator,
-			ProcessID:   p.ProcessID(),
-			ContainerID: p.ContainerID(),
-		})
-	}
-	if p := s.servers.dbserverProc; p != nil {
-		resp.Servers = append(resp.Servers, ServerProcess{
-			Type:        "dbserver",
-			IP:          ip,
-			Port:        s.MasterPort + portOffset + portOffsetDBServer,
-			ProcessID:   p.ProcessID(),
-			ContainerID: p.ContainerID(),
-		})
+	peers := s.myPeers.Peers
+	index := s.myPeers.MyIndex
+	if index < len(peers) {
+		p := peers[index]
+		portOffset := p.PortOffset
+		ip := p.Address
+		if p := s.servers.agentProc; p != nil {
+			resp.Servers = append(resp.Servers, ServerProcess{
+				Type:        "agent",
+				IP:          ip,
+				Port:        s.MasterPort + portOffset + portOffsetAgent,
+				ProcessID:   p.ProcessID(),
+				ContainerID: p.ContainerID(),
+			})
+		}
+		if p := s.servers.coordinatorProc; p != nil {
+			resp.Servers = append(resp.Servers, ServerProcess{
+				Type:        "coordinator",
+				IP:          ip,
+				Port:        s.MasterPort + portOffset + portOffsetCoordinator,
+				ProcessID:   p.ProcessID(),
+				ContainerID: p.ContainerID(),
+			})
+		}
+		if p := s.servers.dbserverProc; p != nil {
+			resp.Servers = append(resp.Servers, ServerProcess{
+				Type:        "dbserver",
+				IP:          ip,
+				Port:        s.MasterPort + portOffset + portOffsetDBServer,
+				ProcessID:   p.ProcessID(),
+				ContainerID: p.ContainerID(),
+			})
+		}
 	}
 	expectedServers := 2
 	if s.needsAgent() {
