@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -120,16 +121,26 @@ func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
 }
 
-func testInstance(address string, port int) bool {
-	for i := 0; i < 300; i++ {
-		url := fmt.Sprintf("http://%s:%d/_api/version", address, port)
-		r, e := http.Get(url)
-		if e == nil && r != nil && r.StatusCode == 200 {
-			return true
+func testInstance(ctx context.Context, address string, port int) (up, cancelled bool) {
+	instanceUp := make(chan bool)
+	go func() {
+		for i := 0; i < 300; i++ {
+			url := fmt.Sprintf("http://%s:%d/_api/version", address, port)
+			r, e := http.Get(url)
+			if e == nil && r != nil && r.StatusCode == 200 {
+				instanceUp <- true
+				break
+			}
+			time.Sleep(time.Millisecond * 500)
 		}
-		time.Sleep(time.Millisecond * 500)
+		instanceUp <- false
+	}()
+	select {
+	case up := <-instanceUp:
+		return up, false
+	case <-ctx.Done():
+		return false, true
 	}
-	return false
 }
 
 var confFileTemplate = `# ArangoDB configuration file
@@ -307,12 +318,18 @@ func (s *Service) startRunning(runner Runner) {
 				break
 			}
 			*processVar = p
-			if testInstance(myHost, s.MasterPort+portOffset+serverPortOffset) {
-				s.log.Infof("%s up and running.", mode)
-			} else {
-				s.log.Warningf("%s not ready after 5min!", mode)
-			}
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				if up, cancelled := testInstance(ctx, myHost, s.MasterPort+portOffset+serverPortOffset); !cancelled {
+					if up {
+						s.log.Infof("%s up and running.", mode)
+					} else {
+						s.log.Warningf("%s not ready after 5min!", mode)
+					}
+				}
+			}()
 			p.Wait()
+			cancel()
 
 			s.log.Infof("%s has terminated", mode)
 			if s.stop {
