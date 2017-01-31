@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
+	"github.com/juju/errgo"
 	logging "github.com/op/go-logging"
 )
 
@@ -20,21 +23,25 @@ func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom str
 		return nil, maskAny(err)
 	}
 	return &dockerRunner{
-		log:         log,
-		client:      client,
-		image:       image,
-		user:        user,
-		volumesFrom: volumesFrom,
+		log:          log,
+		client:       client,
+		image:        image,
+		user:         user,
+		volumesFrom:  volumesFrom,
+		containerIDs: make(map[string]time.Time),
 	}, nil
 }
 
 // dockerRunner implements a Runner that starts processes in a docker container.
 type dockerRunner struct {
-	log         *logging.Logger
-	client      *docker.Client
-	image       string
-	user        string
-	volumesFrom string
+	log          *logging.Logger
+	client       *docker.Client
+	image        string
+	user         string
+	volumesFrom  string
+	mutex        sync.Mutex
+	containerIDs map[string]time.Time
+	gcOnce       sync.Once
 }
 
 type dockerContainer struct {
@@ -50,6 +57,9 @@ func (r *dockerRunner) GetContainerDir(hostDir string) string {
 }
 
 func (r *dockerRunner) Start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error) {
+	// Start gc (once)
+	r.gcOnce.Do(func() { go r.gc() })
+
 	// Pull docker image
 	repo, tag := docker.ParseRepositoryTag(r.image)
 	r.log.Debugf("Pulling image %s:%s", repo, tag)
@@ -74,7 +84,7 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 		HostConfig: &docker.HostConfig{
 			PortBindings:    make(map[docker.Port][]docker.PortBinding),
 			PublishAllPorts: true,
-			AutoRemove:      true,
+			AutoRemove:      false,
 		},
 	}
 	if r.volumesFrom != "" {
@@ -103,6 +113,7 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 	if err != nil {
 		return nil, maskAny(err)
 	}
+	r.recordContainerID(c.ID) // Record ID so we can clean it up later
 	r.log.Debugf("Starting container %s", containerName)
 	if err := r.client.StartContainer(c.ID, opts.HostConfig); err != nil {
 		return nil, maskAny(err)
@@ -130,6 +141,100 @@ func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, ma
 	return strings.Join(lines, " \\\n    ")
 }
 
+// Cleanup after all processes are dead and have been cleaned themselves
+func (r *dockerRunner) Cleanup() error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	for id := range r.containerIDs {
+		r.log.Infof("Removing container %s", id)
+		if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
+			ID:    id,
+			Force: true,
+		}); err != nil && !isNoSuchContainer(err) {
+			r.log.Warningf("Failed to remove container %s: %#v", id, err)
+		}
+	}
+	r.containerIDs = nil
+
+	return nil
+}
+
+// recordContainerID records an ID of a created container
+func (r *dockerRunner) recordContainerID(id string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.containerIDs[id] = time.Now()
+}
+
+// unrecordContainerID removes an ID from the list of created containers
+func (r *dockerRunner) unrecordContainerID(id string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	delete(r.containerIDs, id)
+}
+
+// gc performs continues garbage collection of stopped old containers
+func (r *dockerRunner) gc() {
+	canGC := func(c *docker.Container) bool {
+		tenMinAgo := time.Now().UTC().Add(-10 * time.Minute)
+		switch c.State.StateString() {
+		case "dead", "exited":
+			if c.State.FinishedAt.Before(tenMinAgo) {
+				// Dead or exited for over 10 min
+				return true
+			}
+		case "created":
+			if c.Created.Before(tenMinAgo) {
+				// Created but not running for over 10 min
+				return true
+			}
+		}
+		return false
+	}
+	for {
+		ids := r.gatherCollectableContainerIDs()
+		for _, id := range ids {
+			c, err := r.client.InspectContainer(id)
+			if err != nil {
+				if isNoSuchContainer(err) {
+					// container no longer exists
+					r.unrecordContainerID(id)
+				} else {
+					r.log.Warningf("Failed to inspect container %s: %#v", id, err)
+				}
+			} else if canGC(c) {
+				// Container is dead for more than 10 minutes, gc it.
+				r.log.Infof("Removing old container %s", id)
+				if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
+					ID: id,
+				}); err != nil {
+					r.log.Warningf("Failed to remove container %s: %#v", id, err)
+				} else {
+					// Remove succeeded
+					r.unrecordContainerID(id)
+				}
+			}
+		}
+		time.Sleep(time.Minute)
+	}
+}
+
+// gatherCollectableContainerIDs returns all container ID's that are old enough to be consider for garbage collection.
+func (r *dockerRunner) gatherCollectableContainerIDs() []string {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	var result []string
+	firstTS := time.Now().Add(-10 * time.Minute)
+	for id, ts := range r.containerIDs {
+		if ts.Before(firstTS) {
+			result = append(result, id)
+		}
+	}
+	return result
+}
+
 // ProcessID returns the pid of the process (if not running in docker)
 func (p *dockerContainer) ProcessID() int {
 	return 0
@@ -152,6 +257,15 @@ func (p *dockerContainer) Terminate() error {
 }
 
 func (p *dockerContainer) Kill() error {
+	if err := p.client.KillContainer(docker.KillContainerOptions{
+		ID: p.container.ID,
+	}); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+func (p *dockerContainer) Cleanup() error {
 	opts := docker.RemoveContainerOptions{
 		ID:    p.container.ID,
 		Force: true,
@@ -160,4 +274,15 @@ func (p *dockerContainer) Kill() error {
 		return maskAny(err)
 	}
 	return nil
+}
+
+// isNoSuchContainer returns true if the given error is (or is caused by) a NoSuchContainer error.
+func isNoSuchContainer(err error) bool {
+	if _, ok := err.(*docker.NoSuchContainer); ok {
+		return true
+	}
+	if _, ok := errgo.Cause(err).(*docker.NoSuchContainer); ok {
+		return true
+	}
+	return false
 }

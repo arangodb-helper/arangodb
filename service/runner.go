@@ -10,6 +10,9 @@ type Runner interface {
 	GetContainerDir(hostDir string) string
 	Start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error)
 	CreateStartArangodbCommand(index int, masterIP string, masterPort string) string
+
+	// Cleanup after all processes are dead and have been cleaned themselves
+	Cleanup() error
 }
 
 type Process interface {
@@ -24,4 +27,7 @@ type Process interface {
 	Terminate() error
 	// Kill performs a hard termination of the process
 	Kill() error
+
+	// Remove all traces of this process
+	Cleanup() error
 }

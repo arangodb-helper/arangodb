@@ -348,16 +348,45 @@ func (s *Service) startRunning(runner Runner) {
 		}
 	}
 
-	fmt.Println("Shutting down services...")
+	s.log.Info("Shutting down services...")
 	if p := s.servers.coordinatorProc; p != nil {
-		p.Kill()
+		if err := p.Terminate(); err != nil {
+			s.log.Warningf("Failed to terminate coordinator: %v", err)
+		}
 	}
 	if p := s.servers.dbserverProc; p != nil {
-		p.Kill()
+		if err := p.Terminate(); err != nil {
+			s.log.Warningf("Failed to terminate dbserver: %v", err)
+		}
 	}
 	time.Sleep(3 * time.Second)
 	if p := s.servers.agentProc; p != nil {
-		p.Kill()
+		if err := p.Terminate(); err != nil {
+			s.log.Warningf("Failed to terminate agent: %v", err)
+		}
+	}
+
+	// Cleanup containers
+	if p := s.servers.coordinatorProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			s.log.Warningf("Failed to cleanup coordinator: %v", err)
+		}
+	}
+	if p := s.servers.dbserverProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			s.log.Warningf("Failed to cleanup dbserver: %v", err)
+		}
+	}
+	time.Sleep(3 * time.Second)
+	if p := s.servers.agentProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			s.log.Warningf("Failed to cleanup agent: %v", err)
+		}
+	}
+
+	// Cleanup runner
+	if err := runner.Cleanup(); err != nil {
+		s.log.Warningf("Failed to cleanup runner: %v", err)
 	}
 }
 
