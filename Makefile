@@ -24,6 +24,10 @@ ifndef GOARCH
 	GOARCH := amd64
 endif
 
+ifndef DOCKERNAMESPACE
+	DOCKERNAMESPACE := arangodb
+endif
+
 BINNAME := arangodb-$(GOOS)-$(GOARCH)
 BIN := $(BINDIR)/$(BINNAME)
 
@@ -70,4 +74,10 @@ $(BIN): $(GOBUILDDIR) $(SOURCES)
 
 docker: build
 	docker build -t arangodb/arangodb-starter .
+
+docker-push: docker
+ifneq ($(DOCKERNAMESPACE), arangodb)
+	docker tag arangodb/arangodb-starter $(DOCKERNAMESPACE)/arangodb-starter
+endif
+	docker push $(DOCKERNAMESPACE)/arangodb-starter
 
