@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	service "github.com/neunhoef/ArangoDBStarter/service"
 	logging "github.com/op/go-logging"
@@ -18,7 +19,8 @@ import (
 // Configuration data with defaults:
 
 const (
-	projectName = "arangodb"
+	projectName          = "arangodb"
+	defaultDockerGCDelay = time.Minute * 10
 )
 
 var (
@@ -43,6 +45,7 @@ var (
 	dockerImage       string
 	dockerUser        string
 	dockerContainer   string
+	dockerGCDelay     time.Duration
 )
 
 func init() {
@@ -62,6 +65,7 @@ func init() {
 	f.StringVar(&dockerImage, "docker", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
 	f.StringVar(&dockerUser, "dockerUser", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainer, "dockerContainer", "", "name of the docker container that is running this process")
+	f.DurationVar(&dockerGCDelay, "dockerGCDelay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
@@ -195,6 +199,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		DockerEndpoint:    dockerEndpoint,
 		DockerImage:       dockerImage,
 		DockerUser:        dockerUser,
+		DockerGCDelay:     dockerGCDelay,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create service: %#v", err)

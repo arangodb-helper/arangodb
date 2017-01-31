@@ -32,6 +32,7 @@ type ServiceConfig struct {
 	DockerEndpoint  string // Where to reach the docker daemon
 	DockerImage     string // Name of Arangodb docker image
 	DockerUser      string
+	DockerGCDelay   time.Duration
 }
 
 type Service struct {
@@ -418,7 +419,7 @@ func (s *Service) Run(stopChan chan bool) {
 	var runner Runner
 	if s.DockerEndpoint != "" && s.DockerImage != "" {
 		var err error
-		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer)
+		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer, s.DockerGCDelay)
 		if err != nil {
 			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}

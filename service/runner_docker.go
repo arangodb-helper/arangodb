@@ -17,7 +17,7 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes on the local OS.
-func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string) (Runner, error) {
+func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		return nil, maskAny(err)
@@ -29,6 +29,7 @@ func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom str
 		user:         user,
 		volumesFrom:  volumesFrom,
 		containerIDs: make(map[string]time.Time),
+		gcDelay:      gcDelay,
 	}, nil
 }
 
@@ -42,6 +43,7 @@ type dockerRunner struct {
 	mutex        sync.Mutex
 	containerIDs map[string]time.Time
 	gcOnce       sync.Once
+	gcDelay      time.Duration
 }
 
 type dockerContainer struct {
@@ -177,16 +179,16 @@ func (r *dockerRunner) unrecordContainerID(id string) {
 // gc performs continues garbage collection of stopped old containers
 func (r *dockerRunner) gc() {
 	canGC := func(c *docker.Container) bool {
-		tenMinAgo := time.Now().UTC().Add(-10 * time.Minute)
+		gcBoundary := time.Now().UTC().Add(-r.gcDelay)
 		switch c.State.StateString() {
 		case "dead", "exited":
-			if c.State.FinishedAt.Before(tenMinAgo) {
-				// Dead or exited for over 10 min
+			if c.State.FinishedAt.Before(gcBoundary) {
+				// Dead or exited long enough
 				return true
 			}
 		case "created":
-			if c.Created.Before(tenMinAgo) {
-				// Created but not running for over 10 min
+			if c.Created.Before(gcBoundary) {
+				// Created but not running long enough
 				return true
 			}
 		}
@@ -226,9 +228,9 @@ func (r *dockerRunner) gatherCollectableContainerIDs() []string {
 	defer r.mutex.Unlock()
 
 	var result []string
-	firstTS := time.Now().Add(-10 * time.Minute)
+	gcBoundary := time.Now().Add(-r.gcDelay)
 	for id, ts := range r.containerIDs {
-		if ts.Before(firstTS) {
+		if ts.Before(gcBoundary) {
 			result = append(result, id)
 		}
 	}
