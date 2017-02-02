@@ -63,16 +63,40 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 	r.gcOnce.Do(func() { go r.gc() })
 
 	// Pull docker image
-	repo, tag := docker.ParseRepositoryTag(r.image)
-	r.log.Debugf("Pulling image %s:%s", repo, tag)
-	if err := r.client.PullImage(docker.PullImageOptions{
-		Repository: repo,
-		Tag:        tag,
-	}, docker.AuthConfiguration{}); err != nil {
+	if err := r.pullImage(r.image); err != nil {
 		return nil, maskAny(err)
 	}
 
+	// Ensure container name is valid
 	containerName = strings.Replace(containerName, ":", "", -1)
+
+	var result Process
+	op := func() error {
+		// Make sure the container is really gone
+		r.log.Debugf("Removing container '%s' (if it exists)", containerName)
+		if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
+			ID:    containerName,
+			Force: true,
+		}); err != nil && !isNoSuchContainer(err) {
+			r.log.Errorf("Failed to remove container '%s': %v", containerName, err)
+		}
+		// Try starting it now
+		p, err := r.start(command, args, volumes, ports, containerName)
+		if err != nil {
+			return maskAny(err)
+		}
+		result = p
+		return nil
+	}
+
+	if err := retry(op, time.Minute*2); err != nil {
+		return nil, maskAny(err)
+	}
+	return result, nil
+}
+
+// Try to start a command with given arguments
+func (r *dockerRunner) start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error) {
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
 		Config: &docker.Config{
@@ -125,6 +149,32 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 		client:    r.client,
 		container: c,
 	}, nil
+}
+
+// pullImage tries to pull the given image.
+// It retries several times upon failure.
+func (r *dockerRunner) pullImage(image string) error {
+	// Pull docker image
+	repo, tag := docker.ParseRepositoryTag(r.image)
+
+	op := func() error {
+		r.log.Debugf("Pulling image %s:%s", repo, tag)
+		if err := r.client.PullImage(docker.PullImageOptions{
+			Repository: repo,
+			Tag:        tag,
+		}, docker.AuthConfiguration{}); err != nil {
+			if isNotFound(err) {
+				return maskAny(&PermanentError{err})
+			}
+			return maskAny(err)
+		}
+		return nil
+	}
+
+	if err := retry(op, time.Minute*2); err != nil {
+		return maskAny(err)
+	}
+	return nil
 }
 
 func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, masterPort string) string {
@@ -285,6 +335,14 @@ func isNoSuchContainer(err error) bool {
 	}
 	if _, ok := errgo.Cause(err).(*docker.NoSuchContainer); ok {
 		return true
+	}
+	return false
+}
+
+// isNotFound returns true if the given error is (or is caused by) a 404 response error.
+func isNotFound(err error) bool {
+	if err, ok := errgo.Cause(err).(*docker.Error); ok {
+		return err.Status == 404
 	}
 	return false
 }
