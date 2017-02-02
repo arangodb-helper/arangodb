@@ -126,9 +126,10 @@ func slasher(s string) string {
 func testInstance(ctx context.Context, address string, port int) (up, cancelled bool) {
 	instanceUp := make(chan bool)
 	go func() {
+		client := &http.Client{Timeout: time.Second * 10}
 		for i := 0; i < 300; i++ {
 			url := fmt.Sprintf("http://%s:%d/_api/version", address, port)
-			r, e := http.Get(url)
+			r, e := client.Get(url)
 			if e == nil && r != nil && r.StatusCode == 200 {
 				instanceUp <- true
 				break
