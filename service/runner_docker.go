@@ -17,7 +17,7 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes on the local OS.
-func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration) (Runner, error) {
+func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, netHost bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		return nil, maskAny(err)
@@ -30,6 +30,7 @@ func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom str
 		volumesFrom:  volumesFrom,
 		containerIDs: make(map[string]time.Time),
 		gcDelay:      gcDelay,
+		netHost:      netHost,
 	}, nil
 }
 
@@ -44,6 +45,7 @@ type dockerRunner struct {
 	containerIDs map[string]time.Time
 	gcOnce       sync.Once
 	gcDelay      time.Duration
+	netHost      bool
 }
 
 type dockerContainer struct {
@@ -109,7 +111,7 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 		},
 		HostConfig: &docker.HostConfig{
 			PortBindings:    make(map[docker.Port][]docker.PortBinding),
-			PublishAllPorts: true,
+			PublishAllPorts: false,
 			AutoRemove:      false,
 		},
 	}
@@ -124,14 +126,18 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 			opts.HostConfig.Binds = append(opts.HostConfig.Binds, bind)
 		}
 	}
-	for _, p := range ports {
-		dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
-		opts.Config.ExposedPorts[dockerPort] = struct{}{}
-		opts.HostConfig.PortBindings[dockerPort] = []docker.PortBinding{
-			docker.PortBinding{
-				HostIP:   "0.0.0.0",
-				HostPort: strconv.Itoa(p),
-			},
+	if r.netHost {
+		opts.HostConfig.NetworkMode = "host"
+	} else {
+		for _, p := range ports {
+			dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
+			opts.Config.ExposedPorts[dockerPort] = struct{}{}
+			opts.HostConfig.PortBindings[dockerPort] = []docker.PortBinding{
+				docker.PortBinding{
+					HostIP:   "0.0.0.0",
+					HostPort: strconv.Itoa(p),
+				},
+			}
 		}
 	}
 	r.log.Debugf("Creating container %s", containerName)
