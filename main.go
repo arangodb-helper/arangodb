@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	service "github.com/neunhoef/ArangoDBStarter/service"
 	logging "github.com/op/go-logging"
@@ -18,11 +19,14 @@ import (
 // Configuration data with defaults:
 
 const (
-	projectName = "arangodb"
+	projectName          = "arangodb"
+	defaultDockerGCDelay = time.Minute * 10
 )
 
 var (
-	cmdMain = cobra.Command{
+	projectVersion = "dev"
+	projectBuild   = "dev"
+	cmdMain        = cobra.Command{
 		Use:   projectName,
 		Short: "Start ArangoDB clusters with ease",
 		Run:   cmdMainRun,
@@ -39,10 +43,14 @@ var (
 	ownAddress        string
 	masterAddress     string
 	verbose           bool
+	serverThreads     int
 	dockerEndpoint    string
 	dockerImage       string
 	dockerUser        string
 	dockerContainer   string
+	dockerGCDelay     time.Duration
+	dockerNetHost     bool
+	dockerPrivileged  bool
 )
 
 func init() {
@@ -58,10 +66,14 @@ func init() {
 	f.StringVar(&ownAddress, "ownAddress", "", "address under which this server is reachable, needed for running arangodb in docker or the case of --agencySize 1 in the master")
 	f.StringVar(&masterAddress, "join", "", "join a cluster with master at address addr")
 	f.BoolVar(&verbose, "verbose", false, "Turn on debug logging")
+	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
 	f.StringVar(&dockerEndpoint, "dockerEndpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&dockerImage, "docker", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
 	f.StringVar(&dockerUser, "dockerUser", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainer, "dockerContainer", "", "name of the docker container that is running this process")
+	f.DurationVar(&dockerGCDelay, "dockerGCDelay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
+	f.BoolVar(&dockerNetHost, "dockerNetHost", false, "Run containers with --net=host")
+	f.BoolVar(&dockerPrivileged, "dockerPrivileged", false, "Run containers with --privileged")
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
@@ -145,6 +157,8 @@ func main() {
 }
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
+	log.Infof("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
+
 	if verbose {
 		logging.SetLevel(logging.DEBUG, projectName)
 	} else {
@@ -191,10 +205,14 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		OwnAddress:        ownAddress,
 		MasterAddress:     masterAddress,
 		Verbose:           verbose,
+		ServerThreads:     serverThreads,
 		DockerContainer:   dockerContainer,
 		DockerEndpoint:    dockerEndpoint,
 		DockerImage:       dockerImage,
 		DockerUser:        dockerUser,
+		DockerGCDelay:     dockerGCDelay,
+		DockerNetHost:     dockerNetHost,
+		DockerPrivileged:  dockerPrivileged,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create service: %#v", err)

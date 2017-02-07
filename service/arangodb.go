@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -27,11 +28,15 @@ type ServiceConfig struct {
 	OwnAddress        string // IP address of used to reach this process
 	MasterAddress     string
 	Verbose           bool
+	ServerThreads     int // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
 
-	DockerContainer string // Name of the container running this process
-	DockerEndpoint  string // Where to reach the docker daemon
-	DockerImage     string // Name of Arangodb docker image
-	DockerUser      string
+	DockerContainer  string // Name of the container running this process
+	DockerEndpoint   string // Where to reach the docker daemon
+	DockerImage      string // Name of Arangodb docker image
+	DockerUser       string
+	DockerGCDelay    time.Duration
+	DockerNetHost    bool
+	DockerPrivileged bool
 }
 
 type Service struct {
@@ -119,16 +124,27 @@ func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
 }
 
-func testInstance(address string, port int) bool {
-	for i := 0; i < 300; i++ {
-		url := fmt.Sprintf("http://%s:%d/_api/version", address, port)
-		r, e := http.Get(url)
-		if e == nil && r != nil && r.StatusCode == 200 {
-			return true
+func testInstance(ctx context.Context, address string, port int) (up, cancelled bool) {
+	instanceUp := make(chan bool)
+	go func() {
+		client := &http.Client{Timeout: time.Second * 10}
+		for i := 0; i < 300; i++ {
+			url := fmt.Sprintf("http://%s:%d/_api/version", address, port)
+			r, e := client.Get(url)
+			if e == nil && r != nil && r.StatusCode == 200 {
+				instanceUp <- true
+				break
+			}
+			time.Sleep(time.Millisecond * 500)
 		}
-		time.Sleep(time.Millisecond * 500)
+		instanceUp <- false
+	}()
+	select {
+	case up := <-instanceUp:
+		return up, false
+	case <-ctx.Done():
+		return false, true
 	}
-	return false
 }
 
 var confFileTemplate = `# ArangoDB configuration file
@@ -192,6 +208,9 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		"--log.force-direct", "false",
 		"--server.authentication", "false",
 	)
+	if s.ServerThreads != 0 {
+		args = append(args, "--server.threads", strconv.Itoa(s.ServerThreads))
+	}
 	switch mode {
 	case "agent":
 		args = append(args,
@@ -284,7 +303,11 @@ func (s *Service) startRunning(runner Runner) {
 		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHost, strconv.Itoa(myPort), mode)
 		vols = addDataVolumes(vols, myHostDir, myContainerDir)
 		s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
-		containerName := fmt.Sprintf("%s-%d-%d-%s-%d", mode, s.myPeers.MyIndex, restart, myHost, myPort)
+		containerNamePrefix := ""
+		if s.DockerContainer != "" {
+			containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainer)
+		}
+		containerName := fmt.Sprintf("%s%s-%d-%d-%s-%d", containerNamePrefix, mode, s.myPeers.MyIndex, restart, myHost, myPort)
 		ports := []int{myPort}
 		if p, err := runner.Start(args[0], args[1:], vols, ports, containerName); err != nil {
 			return nil, maskAny(err)
@@ -302,12 +325,18 @@ func (s *Service) startRunning(runner Runner) {
 				break
 			}
 			*processVar = p
-			if testInstance(myHost, s.MasterPort+portOffset+serverPortOffset) {
-				s.log.Infof("%s up and running.", mode)
-			} else {
-				s.log.Warningf("%s not ready after 5min!", mode)
-			}
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				if up, cancelled := testInstance(ctx, myHost, s.MasterPort+portOffset+serverPortOffset); !cancelled {
+					if up {
+						s.log.Infof("%s up and running.", mode)
+					} else {
+						s.log.Warningf("%s not ready after 5min!", mode)
+					}
+				}
+			}()
 			p.Wait()
+			cancel()
 
 			s.log.Infof("%s has terminated", mode)
 			if s.stop {
@@ -344,16 +373,45 @@ func (s *Service) startRunning(runner Runner) {
 		}
 	}
 
-	fmt.Println("Shutting down services...")
+	s.log.Info("Shutting down services...")
 	if p := s.servers.coordinatorProc; p != nil {
-		p.Kill()
+		if err := p.Terminate(); err != nil {
+			s.log.Warningf("Failed to terminate coordinator: %v", err)
+		}
 	}
 	if p := s.servers.dbserverProc; p != nil {
-		p.Kill()
+		if err := p.Terminate(); err != nil {
+			s.log.Warningf("Failed to terminate dbserver: %v", err)
+		}
 	}
 	time.Sleep(3 * time.Second)
 	if p := s.servers.agentProc; p != nil {
-		p.Kill()
+		if err := p.Terminate(); err != nil {
+			s.log.Warningf("Failed to terminate agent: %v", err)
+		}
+	}
+
+	// Cleanup containers
+	if p := s.servers.coordinatorProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			s.log.Warningf("Failed to cleanup coordinator: %v", err)
+		}
+	}
+	if p := s.servers.dbserverProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			s.log.Warningf("Failed to cleanup dbserver: %v", err)
+		}
+	}
+	time.Sleep(3 * time.Second)
+	if p := s.servers.agentProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			s.log.Warningf("Failed to cleanup agent: %v", err)
+		}
+	}
+
+	// Cleanup runner
+	if err := runner.Cleanup(); err != nil {
+		s.log.Warningf("Failed to cleanup runner: %v", err)
 	}
 }
 
@@ -373,10 +431,16 @@ func (s *Service) Run(stopChan chan bool) {
 		}
 		hostPort, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainer, s.MasterPort)
 		if err != nil {
-			s.log.Fatalf("Failed to detect port mapping: %#v", err)
-			return
+			if s.DockerNetHost {
+				s.log.Warningf("Cannot detect port mapping, assuming host mapping")
+				s.announcePort = s.MasterPort
+			} else {
+				s.log.Fatalf("Failed to detect port mapping: %#v", err)
+				return
+			}
+		} else {
+			s.announcePort = hostPort
 		}
-		s.announcePort = hostPort
 	} else {
 		s.announcePort = s.MasterPort
 	}
@@ -385,7 +449,7 @@ func (s *Service) Run(stopChan chan bool) {
 	var runner Runner
 	if s.DockerEndpoint != "" && s.DockerImage != "" {
 		var err error
-		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer)
+		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer, s.DockerGCDelay, s.DockerNetHost, s.DockerPrivileged)
 		if err != nil {
 			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}

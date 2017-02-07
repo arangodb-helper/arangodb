@@ -42,6 +42,12 @@ func (r *processRunner) CreateStartArangodbCommand(index int, masterIP string, m
 	return fmt.Sprintf("arangodb --dataDir=./db%d --join %s", index, addr)
 }
 
+// Cleanup after all processes are dead and have been cleaned themselves
+func (r *processRunner) Cleanup() error {
+	// Nothing here
+	return nil
+}
+
 // ProcessID returns the pid of the process (if not running in docker)
 func (p *process) ProcessID() int {
 	proc := p.cmd.Process
@@ -80,5 +86,11 @@ func (p *process) Kill() error {
 			return maskAny(err)
 		}
 	}
+	return nil
+}
+
+// Remove all traces of this process
+func (p *process) Cleanup() error {
+	// Nothing todo here
 	return nil
 }

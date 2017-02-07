@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
+	"github.com/juju/errgo"
 	logging "github.com/op/go-logging"
 )
 
@@ -14,27 +17,37 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes on the local OS.
-func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string) (Runner, error) {
+func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, netHost, privileged bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		return nil, maskAny(err)
 	}
 	return &dockerRunner{
-		log:         log,
-		client:      client,
-		image:       image,
-		user:        user,
-		volumesFrom: volumesFrom,
+		log:          log,
+		client:       client,
+		image:        image,
+		user:         user,
+		volumesFrom:  volumesFrom,
+		containerIDs: make(map[string]time.Time),
+		gcDelay:      gcDelay,
+		netHost:      netHost,
+		privileged:   privileged,
 	}, nil
 }
 
 // dockerRunner implements a Runner that starts processes in a docker container.
 type dockerRunner struct {
-	log         *logging.Logger
-	client      *docker.Client
-	image       string
-	user        string
-	volumesFrom string
+	log          *logging.Logger
+	client       *docker.Client
+	image        string
+	user         string
+	volumesFrom  string
+	mutex        sync.Mutex
+	containerIDs map[string]time.Time
+	gcOnce       sync.Once
+	gcDelay      time.Duration
+	netHost      bool
+	privileged   bool
 }
 
 type dockerContainer struct {
@@ -50,17 +63,44 @@ func (r *dockerRunner) GetContainerDir(hostDir string) string {
 }
 
 func (r *dockerRunner) Start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error) {
+	// Start gc (once)
+	r.gcOnce.Do(func() { go r.gc() })
+
 	// Pull docker image
-	repo, tag := docker.ParseRepositoryTag(r.image)
-	r.log.Debugf("Pulling image %s:%s", repo, tag)
-	if err := r.client.PullImage(docker.PullImageOptions{
-		Repository: repo,
-		Tag:        tag,
-	}, docker.AuthConfiguration{}); err != nil {
+	if err := r.pullImage(r.image); err != nil {
 		return nil, maskAny(err)
 	}
 
+	// Ensure container name is valid
 	containerName = strings.Replace(containerName, ":", "", -1)
+
+	var result Process
+	op := func() error {
+		// Make sure the container is really gone
+		r.log.Debugf("Removing container '%s' (if it exists)", containerName)
+		if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
+			ID:    containerName,
+			Force: true,
+		}); err != nil && !isNoSuchContainer(err) {
+			r.log.Errorf("Failed to remove container '%s': %v", containerName, err)
+		}
+		// Try starting it now
+		p, err := r.start(command, args, volumes, ports, containerName)
+		if err != nil {
+			return maskAny(err)
+		}
+		result = p
+		return nil
+	}
+
+	if err := retry(op, time.Minute*2); err != nil {
+		return nil, maskAny(err)
+	}
+	return result, nil
+}
+
+// Try to start a command with given arguments
+func (r *dockerRunner) start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error) {
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
 		Config: &docker.Config{
@@ -73,8 +113,9 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 		},
 		HostConfig: &docker.HostConfig{
 			PortBindings:    make(map[docker.Port][]docker.PortBinding),
-			PublishAllPorts: true,
-			AutoRemove:      true,
+			PublishAllPorts: false,
+			AutoRemove:      false,
+			Privileged:      r.privileged,
 		},
 	}
 	if r.volumesFrom != "" {
@@ -88,14 +129,18 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 			opts.HostConfig.Binds = append(opts.HostConfig.Binds, bind)
 		}
 	}
-	for _, p := range ports {
-		dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
-		opts.Config.ExposedPorts[dockerPort] = struct{}{}
-		opts.HostConfig.PortBindings[dockerPort] = []docker.PortBinding{
-			docker.PortBinding{
-				HostIP:   "0.0.0.0",
-				HostPort: strconv.Itoa(p),
-			},
+	if r.netHost {
+		opts.HostConfig.NetworkMode = "host"
+	} else {
+		for _, p := range ports {
+			dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
+			opts.Config.ExposedPorts[dockerPort] = struct{}{}
+			opts.HostConfig.PortBindings[dockerPort] = []docker.PortBinding{
+				docker.PortBinding{
+					HostIP:   "0.0.0.0",
+					HostPort: strconv.Itoa(p),
+				},
+			}
 		}
 	}
 	r.log.Debugf("Creating container %s", containerName)
@@ -103,6 +148,7 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 	if err != nil {
 		return nil, maskAny(err)
 	}
+	r.recordContainerID(c.ID) // Record ID so we can clean it up later
 	r.log.Debugf("Starting container %s", containerName)
 	if err := r.client.StartContainer(c.ID, opts.HostConfig); err != nil {
 		return nil, maskAny(err)
@@ -112,6 +158,32 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 		client:    r.client,
 		container: c,
 	}, nil
+}
+
+// pullImage tries to pull the given image.
+// It retries several times upon failure.
+func (r *dockerRunner) pullImage(image string) error {
+	// Pull docker image
+	repo, tag := docker.ParseRepositoryTag(r.image)
+
+	op := func() error {
+		r.log.Debugf("Pulling image %s:%s", repo, tag)
+		if err := r.client.PullImage(docker.PullImageOptions{
+			Repository: repo,
+			Tag:        tag,
+		}, docker.AuthConfiguration{}); err != nil {
+			if isNotFound(err) {
+				return maskAny(&PermanentError{err})
+			}
+			return maskAny(err)
+		}
+		return nil
+	}
+
+	if err := retry(op, time.Minute*2); err != nil {
+		return maskAny(err)
+	}
+	return nil
 }
 
 func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, masterPort string) string {
@@ -128,6 +200,100 @@ func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, ma
 		fmt.Sprintf("--dockerContainer=adb%d --ownAddress=%s --join=%s", index, masterIP, addr),
 	}
 	return strings.Join(lines, " \\\n    ")
+}
+
+// Cleanup after all processes are dead and have been cleaned themselves
+func (r *dockerRunner) Cleanup() error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	for id := range r.containerIDs {
+		r.log.Infof("Removing container %s", id)
+		if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
+			ID:    id,
+			Force: true,
+		}); err != nil && !isNoSuchContainer(err) {
+			r.log.Warningf("Failed to remove container %s: %#v", id, err)
+		}
+	}
+	r.containerIDs = nil
+
+	return nil
+}
+
+// recordContainerID records an ID of a created container
+func (r *dockerRunner) recordContainerID(id string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.containerIDs[id] = time.Now()
+}
+
+// unrecordContainerID removes an ID from the list of created containers
+func (r *dockerRunner) unrecordContainerID(id string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	delete(r.containerIDs, id)
+}
+
+// gc performs continues garbage collection of stopped old containers
+func (r *dockerRunner) gc() {
+	canGC := func(c *docker.Container) bool {
+		gcBoundary := time.Now().UTC().Add(-r.gcDelay)
+		switch c.State.StateString() {
+		case "dead", "exited":
+			if c.State.FinishedAt.Before(gcBoundary) {
+				// Dead or exited long enough
+				return true
+			}
+		case "created":
+			if c.Created.Before(gcBoundary) {
+				// Created but not running long enough
+				return true
+			}
+		}
+		return false
+	}
+	for {
+		ids := r.gatherCollectableContainerIDs()
+		for _, id := range ids {
+			c, err := r.client.InspectContainer(id)
+			if err != nil {
+				if isNoSuchContainer(err) {
+					// container no longer exists
+					r.unrecordContainerID(id)
+				} else {
+					r.log.Warningf("Failed to inspect container %s: %#v", id, err)
+				}
+			} else if canGC(c) {
+				// Container is dead for more than 10 minutes, gc it.
+				r.log.Infof("Removing old container %s", id)
+				if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
+					ID: id,
+				}); err != nil {
+					r.log.Warningf("Failed to remove container %s: %#v", id, err)
+				} else {
+					// Remove succeeded
+					r.unrecordContainerID(id)
+				}
+			}
+		}
+		time.Sleep(time.Minute)
+	}
+}
+
+// gatherCollectableContainerIDs returns all container ID's that are old enough to be consider for garbage collection.
+func (r *dockerRunner) gatherCollectableContainerIDs() []string {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	var result []string
+	gcBoundary := time.Now().Add(-r.gcDelay)
+	for id, ts := range r.containerIDs {
+		if ts.Before(gcBoundary) {
+			result = append(result, id)
+		}
+	}
+	return result
 }
 
 // ProcessID returns the pid of the process (if not running in docker)
@@ -152,6 +318,15 @@ func (p *dockerContainer) Terminate() error {
 }
 
 func (p *dockerContainer) Kill() error {
+	if err := p.client.KillContainer(docker.KillContainerOptions{
+		ID: p.container.ID,
+	}); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+func (p *dockerContainer) Cleanup() error {
 	opts := docker.RemoveContainerOptions{
 		ID:    p.container.ID,
 		Force: true,
@@ -160,4 +335,23 @@ func (p *dockerContainer) Kill() error {
 		return maskAny(err)
 	}
 	return nil
+}
+
+// isNoSuchContainer returns true if the given error is (or is caused by) a NoSuchContainer error.
+func isNoSuchContainer(err error) bool {
+	if _, ok := err.(*docker.NoSuchContainer); ok {
+		return true
+	}
+	if _, ok := errgo.Cause(err).(*docker.NoSuchContainer); ok {
+		return true
+	}
+	return false
+}
+
+// isNotFound returns true if the given error is (or is caused by) a 404 response error.
+func isNotFound(err error) bool {
+	if err, ok := errgo.Cause(err).(*docker.Error); ok {
+		return err.Status == 404
+	}
+	return false
 }

@@ -24,6 +24,10 @@ ifndef GOARCH
 	GOARCH := amd64
 endif
 
+ifndef DOCKERNAMESPACE
+	DOCKERNAMESPACE := arangodb
+endif
+
 BINNAME := arangodb-$(GOOS)-$(GOARCH)
 BIN := $(BINDIR)/$(BINNAME)
 
@@ -50,10 +54,12 @@ deps:
 $(GOBUILDDIR):
 	@mkdir -p $(ORGDIR)
 	@rm -f $(REPODIR) && ln -s ../../../.. $(REPODIR)
+	GOPATH=$(GOBUILDDIR) go get github.com/cenkalti/backoff
 	GOPATH=$(GOBUILDDIR) go get github.com/fsouza/go-dockerclient
 	GOPATH=$(GOBUILDDIR) go get github.com/juju/errgo
 	GOPATH=$(GOBUILDDIR) go get github.com/op/go-logging
 	GOPATH=$(GOBUILDDIR) go get github.com/spf13/cobra
+	GOPATH=$(GOBUILDDIR) go get github.com/coreos/go-semver/semver
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	@mkdir -p $(BINDIR)
@@ -71,3 +77,21 @@ $(BIN): $(GOBUILDDIR) $(SOURCES)
 docker: build
 	docker build -t arangodb/arangodb-starter .
 
+docker-push: docker
+ifneq ($(DOCKERNAMESPACE), arangodb)
+	docker tag arangodb/arangodb-starter $(DOCKERNAMESPACE)/arangodb-starter
+endif
+	docker push $(DOCKERNAMESPACE)/arangodb-starter
+
+docker-push-version: docker
+	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
+	docker push arangodb/arangodb-starter:$(VERSION)
+
+release-patch: $(GOBUILDDIR)
+	go run ./tools/release.go -type=patch 
+
+release-minor: $(GOBUILDDIR)
+	go run ./tools/release.go -type=minor
+
+release-major: $(GOBUILDDIR)
+	go run ./tools/release.go -type=major 
