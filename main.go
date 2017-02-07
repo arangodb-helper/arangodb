@@ -48,6 +48,7 @@ var (
 	dockerContainer   string
 	dockerGCDelay     time.Duration
 	dockerNetHost     bool
+	dockerPrivileged  bool
 )
 
 func init() {
@@ -70,6 +71,7 @@ func init() {
 	f.StringVar(&dockerContainer, "dockerContainer", "", "name of the docker container that is running this process")
 	f.DurationVar(&dockerGCDelay, "dockerGCDelay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
 	f.BoolVar(&dockerNetHost, "dockerNetHost", false, "Run containers with --net=host")
+	f.BoolVar(&dockerPrivileged, "dockerPrivileged", false, "Run containers with --privileged")
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
@@ -206,6 +208,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		DockerUser:        dockerUser,
 		DockerGCDelay:     dockerGCDelay,
 		DockerNetHost:     dockerNetHost,
+		DockerPrivileged:  dockerPrivileged,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create service: %#v", err)

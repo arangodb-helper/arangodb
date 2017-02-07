@@ -185,6 +185,16 @@ of the process in the Docker container.
 `endpoint` is the URL used to reach the docker host. This is needed to run 
 the executable in docker. The default value is "unix:///var/run/docker.sock".
 
+* `--dockerNetHost bool`
+
+If `dockerNetHost` is set, all docker container will be started 
+with the `--net=host` option.
+
+* `--dockerPrivileged bool`
+
+If `dockerPrivileged` is set, all docker container will be started 
+with the `--privileged` option turned on.
+
 Future plans
 ------------
 

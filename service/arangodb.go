@@ -30,12 +30,13 @@ type ServiceConfig struct {
 	Verbose           bool
 	ServerThreads     int // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
 
-	DockerContainer string // Name of the container running this process
-	DockerEndpoint  string // Where to reach the docker daemon
-	DockerImage     string // Name of Arangodb docker image
-	DockerUser      string
-	DockerGCDelay   time.Duration
-	DockerNetHost   bool
+	DockerContainer  string // Name of the container running this process
+	DockerEndpoint   string // Where to reach the docker daemon
+	DockerImage      string // Name of Arangodb docker image
+	DockerUser       string
+	DockerGCDelay    time.Duration
+	DockerNetHost    bool
+	DockerPrivileged bool
 }
 
 type Service struct {
@@ -448,7 +449,7 @@ func (s *Service) Run(stopChan chan bool) {
 	var runner Runner
 	if s.DockerEndpoint != "" && s.DockerImage != "" {
 		var err error
-		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer, s.DockerGCDelay, s.DockerNetHost)
+		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer, s.DockerGCDelay, s.DockerNetHost, s.DockerPrivileged)
 		if err != nil {
 			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}

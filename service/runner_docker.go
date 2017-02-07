@@ -17,7 +17,7 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes on the local OS.
-func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, netHost bool) (Runner, error) {
+func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, netHost, privileged bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		return nil, maskAny(err)
@@ -31,6 +31,7 @@ func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom str
 		containerIDs: make(map[string]time.Time),
 		gcDelay:      gcDelay,
 		netHost:      netHost,
+		privileged:   privileged,
 	}, nil
 }
 
@@ -46,6 +47,7 @@ type dockerRunner struct {
 	gcOnce       sync.Once
 	gcDelay      time.Duration
 	netHost      bool
+	privileged   bool
 }
 
 type dockerContainer struct {
@@ -113,6 +115,7 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 			PortBindings:    make(map[docker.Port][]docker.PortBinding),
 			PublishAllPorts: false,
 			AutoRemove:      false,
+			Privileged:      r.privileged,
 		},
 	}
 	if r.volumesFrom != "" {
