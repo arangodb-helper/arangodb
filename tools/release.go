@@ -70,19 +70,18 @@ func bumpVersion(action string) string {
 		log.Fatalf("Cannot write '%s': %v\n", versionFile, err)
 	}
 
-	gitCommit(fmt.Sprintf("Updated to %s", version), versionFile)
+	gitCommitAll(fmt.Sprintf("Updated to %s", version))
 	log.Printf("Updated '%s' to '%s'\n", versionFile, string(contents))
 
 	return version.String()
 }
 
-func gitCommit(message string, file ...string) {
+func gitCommitAll(message string) {
 	args := []string{
 		"commit",
 		"--all",
 		"-m", message,
 	}
-	args = append(args, file...)
 	if err := run("git", args...); err != nil {
 		log.Fatalf("Failed to commit: %v\n", err)
 	}
