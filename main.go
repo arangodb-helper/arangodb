@@ -24,7 +24,9 @@ const (
 )
 
 var (
-	cmdMain = cobra.Command{
+	projectVersion = "dev"
+	projectBuild   = "dev"
+	cmdMain        = cobra.Command{
 		Use:   projectName,
 		Short: "Start ArangoDB clusters with ease",
 		Run:   cmdMainRun,
@@ -155,6 +157,8 @@ func main() {
 }
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
+	log.Infof("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
+
 	if verbose {
 		logging.SetLevel(logging.DEBUG, projectName)
 	} else {

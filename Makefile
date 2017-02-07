@@ -59,6 +59,7 @@ $(GOBUILDDIR):
 	GOPATH=$(GOBUILDDIR) go get github.com/juju/errgo
 	GOPATH=$(GOBUILDDIR) go get github.com/op/go-logging
 	GOPATH=$(GOBUILDDIR) go get github.com/spf13/cobra
+	GOPATH=$(GOBUILDDIR) go get github.com/coreos/go-semver/semver
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	@mkdir -p $(BINDIR)
@@ -82,3 +83,15 @@ ifneq ($(DOCKERNAMESPACE), arangodb)
 endif
 	docker push $(DOCKERNAMESPACE)/arangodb-starter
 
+docker-push-version: docker
+	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
+	docker push arangodb/arangodb-starter:$(VERSION)
+
+release-patch: $(GOBUILDDIR)
+	go run ./tools/release.go -type=patch 
+
+release-minor: $(GOBUILDDIR)
+	go run ./tools/release.go -type=minor
+
+release-major: $(GOBUILDDIR)
+	go run ./tools/release.go -type=major 
