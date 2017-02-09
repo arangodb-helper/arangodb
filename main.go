@@ -33,6 +33,7 @@ var (
 		Run:   cmdMainRun,
 	}
 	log               = logging.MustGetLogger(projectName)
+	id                string
 	agencySize        int
 	arangodExecutable string
 	arangodJSstartup  string
@@ -57,6 +58,7 @@ var (
 func init() {
 	f := cmdMain.Flags()
 	f.IntVar(&agencySize, "agencySize", 3, "Number of agents in the cluster")
+	f.StringVar(&id, "id", "", "Unique identifier of this peer")
 	f.StringVar(&arangodExecutable, "arangod", "/usr/sbin/arangod", "Path of arangod")
 	f.StringVar(&arangodJSstartup, "jsDir", "/usr/share/arangodb3/js", "Path of arango JS")
 	f.IntVar(&masterPort, "masterPort", 4000, "Port to listen on for other arangodb's to join")
@@ -195,6 +197,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 
 	// Create service
 	service, err := service.NewService(log, service.ServiceConfig{
+		ID:                id,
 		AgencySize:        agencySize,
 		ArangodExecutable: arangodExecutable,
 		ArangodJSstartup:  arangodJSstartup,

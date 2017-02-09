@@ -10,10 +10,15 @@ import (
 	"path/filepath"
 )
 
-type SlaveRequest struct {
+type HelloRequest struct {
+	SlaveID      string // Unique ID of the slave
 	SlaveAddress string // Address used to reach the slave (if empty, this will be derived from the request)
 	SlavePort    int    // Port used to reach the slave
 	DataDir      string // Directory used for data by this slave
+}
+
+type GoodbyeRequest struct {
+	SlaveID string // Unique ID of the slave that should be removed.
 }
 
 type ProcessListResponse struct {
@@ -38,6 +43,7 @@ type ServerProcess struct {
 // If will return directly after starting it.
 func (s *Service) startHTTPServer() {
 	http.HandleFunc("/hello", s.helloHandler)
+	http.HandleFunc("/goodbye", s.goodbyeHandler)
 	http.HandleFunc("/process", s.processListHandler)
 	http.HandleFunc("/logs/agent", s.agentLogsHandler)
 	http.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
@@ -46,9 +52,12 @@ func (s *Service) startHTTPServer() {
 	http.HandleFunc("/shutdown", s.shutdownHandler)
 
 	go func() {
-		containerPort, _ := s.getHTTPServerPort()
+		containerPort, hostPort, err := s.getHTTPServerPort()
+		if err != nil {
+			s.log.Fatalf("Failed to get HTTP port info: %#v", err)
+		}
 		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
-		s.log.Infof("Listening on %s", addr)
+		s.log.Infof("Listening on %s (%s:%d)", addr, s.OwnAddress, hostPort)
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			s.log.Errorf("Failed to listen on %s: %v", addr, err)
 		}
@@ -78,24 +87,32 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 	// Learn my own address (if needed)
 	if len(s.myPeers.Peers) == 0 {
 		myself := findHost(r.Host)
-		_, hostPort := s.getHTTPServerPort()
+		_, hostPort, _ := s.getHTTPServerPort()
 		s.myPeers.Peers = []Peer{
 			Peer{
+				ID:         s.ID,
 				Address:    myself,
 				Port:       hostPort,
 				PortOffset: 0,
 				DataDir:    s.DataDir,
+				HasAgent:   true,
 			},
 		}
 		s.myPeers.AgencySize = s.AgencySize
-		s.myPeers.MyIndex = 0
 	}
 
 	if r.Method == "POST" {
-		var req SlaveRequest
+		var req HelloRequest
 		defer r.Body.Close()
-		body, _ := ioutil.ReadAll(r.Body)
-		json.Unmarshal(body, &req)
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot read request body: %v", err.Error()))
+			return
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot parse request body: %v", err.Error()))
+			return
+		}
 
 		slaveAddr := req.SlaveAddress
 		if slaveAddr == "" {
@@ -103,25 +120,48 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		slavePort := req.SlavePort
 
+		// Check request
+		if req.SlaveID == "" {
+			writeError(w, http.StatusBadRequest, "SlaveID must be set.")
+			return
+		}
+
+		// Check datadir
 		if !s.allowSameDataDir {
 			for _, p := range s.myPeers.Peers {
-				if p.Address == slaveAddr && p.DataDir == req.DataDir {
+				if p.Address == slaveAddr && p.DataDir == req.DataDir && p.ID != req.SlaveID {
 					writeError(w, http.StatusBadRequest, "Cannot use same directory as peer.")
 					return
 				}
 			}
 		}
 
-		newPeer := Peer{
-			Address:    slaveAddr,
-			Port:       slavePort,
-			PortOffset: len(s.myPeers.Peers) * portOffsetIncrement,
-			DataDir:    req.DataDir,
-		}
-		s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
-		s.log.Infof("New peer: %s, portOffset: %d", newPeer.Address, newPeer.PortOffset)
-		if len(s.myPeers.Peers) == s.AgencySize {
-			s.starter <- true
+		// If slaveID already known, then return data right away.
+		_, idFound := s.myPeers.PeerByID(req.SlaveID)
+		if idFound {
+			// ID already found, update peer data
+			for i, p := range s.myPeers.Peers {
+				if p.ID == req.SlaveID {
+					s.myPeers.Peers[i].Port = req.SlavePort
+					s.myPeers.Peers[i].Address = req.SlaveAddress
+					s.myPeers.Peers[i].DataDir = req.DataDir
+				}
+			}
+		} else {
+			// ID not yet found, add it
+			newPeer := Peer{
+				ID:         req.SlaveID,
+				Address:    slaveAddr,
+				Port:       slavePort,
+				PortOffset: s.myPeers.GetFreePortOffset(),
+				DataDir:    req.DataDir,
+				HasAgent:   len(s.myPeers.Peers) < s.AgencySize,
+			}
+			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
+			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
+			if len(s.myPeers.Peers) == s.AgencySize {
+				s.startRunningTrigger()
+			}
 		}
 	}
 	b, err := json.Marshal(s.myPeers)
@@ -132,15 +172,63 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// goodbyeHandler handles a `/goodbye` request that removes a peer from the list of peers.
+func (s *Service) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
+	// Claim exclusive access to our data structures
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if r.Method != "POST" {
+		writeError(w, http.StatusMethodNotAllowed, "POST required")
+		return
+	}
+	var req GoodbyeRequest
+	defer r.Body.Close()
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot read request body: %v", err.Error()))
+		return
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot parse request body: %v", err.Error()))
+		return
+	}
+
+	// Check request
+	if req.SlaveID == "" {
+		writeError(w, http.StatusBadRequest, "SlaveID must be set.")
+		return
+	}
+
+	// Remove the peer
+	s.log.Infof("Removing peer %s", req.SlaveID)
+	if removed := s.myPeers.RemovePeerByID(req.SlaveID); !removed {
+		// ID not found
+		writeError(w, http.StatusNotFound, "Unknown ID")
+		return
+	}
+
+	// Peer has been removed, update stored config
+	s.log.Info("Saving setup")
+	if err := s.saveSetup(); err != nil {
+		s.log.Errorf("Failed to save setup: %#v", err)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("BYE"))
+}
+
 func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 	// Gather processes
 	resp := ProcessListResponse{}
-	peers := s.myPeers.Peers
-	index := s.myPeers.MyIndex
-	if index < len(peers) {
-		p := peers[index]
-		portOffset := p.PortOffset
-		ip := p.Address
+	expectedServers := 2
+	myPeer, found := s.myPeers.PeerByID(s.ID)
+	if found {
+		portOffset := myPeer.PortOffset
+		ip := myPeer.Address
+		if myPeer.HasAgent {
+			expectedServers = 3
+		}
 		if p := s.servers.agentProc; p != nil {
 			resp.Servers = append(resp.Servers, ServerProcess{
 				Type:        "agent",
@@ -168,10 +256,6 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 				ContainerID: p.ContainerID(),
 			})
 		}
-	}
-	expectedServers := 2
-	if s.needsAgent() {
-		expectedServers = 3
 	}
 	resp.ServersStarted = len(resp.Servers) == expectedServers
 	b, err := json.Marshal(resp)
@@ -203,13 +287,14 @@ func (s *Service) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, mode string, serverPortOffset int) {
-	if s.myPeers.MyIndex < 0 || s.myPeers.MyIndex >= len(s.myPeers.Peers) {
+	myPeer, found := s.myPeers.PeerByID(s.ID)
+	if !found {
 		// Not ready yet
 		w.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
 	// Find log path
-	portOffset := s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
+	portOffset := myPeer.PortOffset
 	myPort := s.MasterPort + portOffset + serverPortOffset
 	logPath := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort), "arangod.log")
 	s.log.Debugf("Fetching logs in %s", logPath)
@@ -250,11 +335,22 @@ func (s *Service) versionHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Service) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-	} else {
-		s.cancel()
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		return
 	}
+
+	if r.FormValue("mode") == "goodbye" {
+		// Inform the master we're leaving for good
+		if err := s.sendMasterGoodbye(); err != nil {
+			s.log.Errorf("Failed to send master goodbye: %#v", err)
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+
+	// Stop my services
+	s.cancel()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
@@ -267,10 +363,18 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	w.Write(b)
 }
 
-func (s *Service) getHTTPServerPort() (containerPort, hostPort int) {
-	port := s.MasterPort
+func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
+	containerPort = s.MasterPort
+	hostPort = s.announcePort
 	if s.announcePort == s.MasterPort && len(s.myPeers.Peers) > 0 {
-		port += s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
+		if myPeer, ok := s.myPeers.PeerByID(s.ID); ok {
+			containerPort += myPeer.PortOffset
+		} else {
+			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.ID))
+		}
 	}
-	return port, s.announcePort
+	if s.isNetHost {
+		hostPort = containerPort
+	}
+	return containerPort, hostPort, nil
 }

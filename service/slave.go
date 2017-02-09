@@ -19,9 +19,13 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 	}
 	for {
 		s.log.Infof("Contacting master %s:%d...", peerAddress, masterPort)
-		_, hostPort := s.getHTTPServerPort()
-		b, _ := json.Marshal(SlaveRequest{
+		_, hostPort, err := s.getHTTPServerPort()
+		if err != nil {
+			s.log.Fatalf("Failed to get HTTP server port: %#v", err)
+		}
+		b, _ := json.Marshal(HelloRequest{
 			DataDir:      s.DataDir,
+			SlaveID:      s.ID,
 			SlaveAddress: s.OwnAddress,
 			SlavePort:    hostPort,
 		})
@@ -52,7 +56,6 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 			s.log.Warningf("Cannot parse body from master: %v", e)
 			return
 		}
-		s.myPeers.MyIndex = len(s.myPeers.Peers) - 1
 		s.AgencySize = s.myPeers.AgencySize
 		break
 	}
@@ -66,7 +69,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 	}
 	for {
 		if len(s.myPeers.Peers) >= s.AgencySize {
-			s.log.Info("Starting service...")
+			s.log.Infof("Starting service as slave with id '%s'...", s.ID)
 			s.saveSetup()
 			s.startRunning(runner)
 			return
@@ -85,4 +88,28 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 			s.myPeers.Peers = newPeers.Peers
 		}
 	}
+}
+
+// sendMasterGoodbye informs the master that we're leaving for good.
+func (s *Service) sendMasterGoodbye() error {
+	master := s.myPeers.Peers[0]
+	if s.ID == master.ID {
+		// I'm the master, do nothing
+		return nil
+	}
+	u := fmt.Sprintf("http://%s:%d/goodbye", master.Address, master.Port)
+	s.log.Infof("Saying goodbye to master at %s", u)
+	req := GoodbyeRequest{SlaveID: s.ID}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	resp, err := http.Post(u, "application/json", bytes.NewReader(data))
+	if err != nil {
+		return maskAny(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+	}
+	return nil
 }
