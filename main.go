@@ -213,6 +213,8 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		DockerGCDelay:     dockerGCDelay,
 		DockerNetHost:     dockerNetHost,
 		DockerPrivileged:  dockerPrivileged,
+		ProjectVersion:    projectVersion,
+		ProjectBuild:      projectBuild,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create service: %#v", err)

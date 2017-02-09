@@ -21,6 +21,11 @@ type ProcessListResponse struct {
 	Servers        []ServerProcess `json:"servers,omitempty"`         // List of servers started by ArangoDB
 }
 
+type VersionResponse struct {
+	Version string `json:"version"`
+	Build   string `json:"build"`
+}
+
 type ServerProcess struct {
 	Type        string `json:"type"`                   // agent | coordinator | dbserver
 	IP          string `json:"ip"`                     // IP address needed to reach the server
@@ -37,6 +42,7 @@ func (s *Service) startHTTPServer() {
 	http.HandleFunc("/logs/agent", s.agentLogsHandler)
 	http.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
 	http.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
+	http.HandleFunc("/version", s.versionHandler)
 
 	go func() {
 		containerPort, _ := s.getHTTPServerPort()
@@ -219,6 +225,23 @@ func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, mode strin
 		defer rd.Close()
 		w.WriteHeader(http.StatusOK)
 		io.Copy(w, rd)
+	}
+}
+
+// versionHandler returns a JSON object containing the current version & build number.
+func (s *Service) versionHandler(w http.ResponseWriter, r *http.Request) {
+	v := VersionResponse{
+		Version: s.ProjectVersion,
+		Build:   s.ProjectBuild,
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		s.log.Errorf("Failed to marshal version response: %#v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	} else {
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
 	}
 }
 

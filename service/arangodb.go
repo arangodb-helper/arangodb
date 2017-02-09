@@ -37,6 +37,9 @@ type ServiceConfig struct {
 	DockerGCDelay    time.Duration
 	DockerNetHost    bool
 	DockerPrivileged bool
+
+	ProjectVersion string
+	ProjectBuild   string
 }
 
 type Service struct {
