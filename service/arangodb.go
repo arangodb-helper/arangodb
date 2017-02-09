@@ -52,6 +52,7 @@ type Service struct {
 	starter          chan bool
 	myPeers          peers
 	announcePort     int        // Port I can be reached on from the outside
+	isNetHost        bool       // Is this process running in a container with `--net=host` or running outside a container?
 	mutex            sync.Mutex // Mutex used to protect access to this datastructure
 	allowSameDataDir bool       // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
 	servers          struct {
@@ -436,20 +437,16 @@ func (s *Service) Run(rootCtx context.Context) {
 		if s.OwnAddress == "" {
 			s.log.Fatal("OwnAddress must be specified")
 		}
-		hostPort, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainer, s.MasterPort)
+		hostPort, isNetHost, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainer, s.MasterPort)
 		if err != nil {
-			if s.DockerNetHost {
-				s.log.Warningf("Cannot detect port mapping, assuming host mapping")
-				s.announcePort = s.MasterPort
-			} else {
-				s.log.Fatalf("Failed to detect port mapping: %#v", err)
-				return
-			}
-		} else {
-			s.announcePort = hostPort
+			s.log.Fatalf("Failed to detect port mapping: %#v", err)
+			return
 		}
+		s.announcePort = hostPort
+		s.isNetHost = isNetHost
 	} else {
 		s.announcePort = s.MasterPort
+		s.isNetHost = true // Not running in container so always true
 	}
 
 	// Create a runner

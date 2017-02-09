@@ -46,9 +46,9 @@ func (s *Service) startHTTPServer() {
 	http.HandleFunc("/shutdown", s.shutdownHandler)
 
 	go func() {
-		containerPort, _ := s.getHTTPServerPort()
+		containerPort, hostPort := s.getHTTPServerPort()
 		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
-		s.log.Infof("Listening on %s", addr)
+		s.log.Infof("Listening on %s (%s:%d)", addr, s.OwnAddress, hostPort)
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			s.log.Errorf("Failed to listen on %s: %v", addr, err)
 		}
@@ -268,9 +268,13 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func (s *Service) getHTTPServerPort() (containerPort, hostPort int) {
-	port := s.MasterPort
+	containerPort = s.MasterPort
+	hostPort = s.announcePort
 	if s.announcePort == s.MasterPort && len(s.myPeers.Peers) > 0 {
-		port += s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
+		containerPort += s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
 	}
-	return port, s.announcePort
+	if s.isNetHost {
+		hostPort = containerPort
+	}
+	return containerPort, hostPort
 }
