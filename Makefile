@@ -3,6 +3,7 @@ SCRIPTDIR := $(shell pwd)
 ROOTDIR := $(shell cd $(SCRIPTDIR) && pwd)
 VERSION:= $(shell cat $(ROOTDIR)/VERSION)
 COMMIT := $(shell git rev-parse --short HEAD)
+DOCKERCLI := $(shell which docker)
 
 GOBUILDDIR := $(SCRIPTDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
@@ -41,7 +42,12 @@ clean:
 	rm -Rf $(BIN) $(GOBUILDDIR)
 
 local:
+ifneq ("$(DOCKERCLI)", "")
 	@${MAKE} -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) build-local
+else
+	@${MAKE} deps
+	GOPATH=$(GOBUILDDIR) go build -o arangodb main.go
+endif
 
 build: $(BIN)
 
