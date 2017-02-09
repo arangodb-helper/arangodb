@@ -198,10 +198,20 @@ with the `--net=host` option.
 If `dockerPrivileged` is set, all docker container will be started 
 with the `--privileged` option turned on.
 
+HTTP API
+--------
+
+- GET `/process` returns status information of all of the running processes.
+- GET `/logs/agent` returns the contents of the agent log file.
+- GET `/logs/dbserver` returns the contents of the dbserver log file.
+- GET `/logs/coordinator` returns the contents of the coordinator log file.
+- GET `/version` returns a JSON object with the version & build information. 
+- POST `/shutdown` initiates a shutdown of the process and all servers started by it.
+- GET `/hello` internal API used to join a master. Not for external use.
+
 Future plans
 ------------
 
-* deploy this program as a Docker image
 * bundle this program with the usual distribution
 * make port usage configurable
 * support SSL
