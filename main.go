@@ -207,6 +207,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		MasterAddress:     masterAddress,
 		Verbose:           verbose,
 		ServerThreads:     serverThreads,
+		RunningInDocker:   os.Getenv("RUNNING_IN_DOCKER") == "true",
 		DockerContainer:   dockerContainer,
 		DockerEndpoint:    dockerEndpoint,
 		DockerImage:       dockerImage,

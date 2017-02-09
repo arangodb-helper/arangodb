@@ -37,6 +37,7 @@ type ServiceConfig struct {
 	DockerGCDelay    time.Duration
 	DockerNetHost    bool
 	DockerPrivileged bool
+	RunningInDocker  bool
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -466,6 +467,9 @@ func (s *Service) Run(rootCtx context.Context) {
 		// Docker setup uses different volumes with same dataDir, allow that
 		s.allowSameDataDir = true
 	} else {
+		if s.RunningInDocker {
+			s.log.Fatalf("When running in docker, you must provide a --dockerEndpoint=<endpoint> and --docker=<image>")
+		}
 		runner = NewProcessRunner()
 		s.log.Debug("Using process runner")
 	}
