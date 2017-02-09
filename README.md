@@ -206,8 +206,10 @@ HTTP API
 - GET `/logs/dbserver` returns the contents of the dbserver log file.
 - GET `/logs/coordinator` returns the contents of the coordinator log file.
 - GET `/version` returns a JSON object with the version & build information. 
-- POST `/shutdown` initiates a shutdown of the process and all servers started by it.
+- POST `/shutdown` initiates a shutdown of the process and all servers started by it. 
+  (passing a `mode=goodbye` query to the URL makes the peer say goodbye to the master).
 - GET `/hello` internal API used to join a master. Not for external use.
+- POST `/goodbye` internal API used to leave a master for good. Not for external use.
 
 Future plans
 ------------

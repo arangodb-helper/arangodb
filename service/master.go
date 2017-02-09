@@ -11,19 +11,20 @@ func (s *Service) startMaster(runner Runner) {
 	s.startHTTPServer()
 
 	// Permanent loop:
-	s.log.Infof("Serving as master on %s:%d...", s.OwnAddress, s.announcePort)
+	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
 
 	if s.AgencySize == 1 {
 		s.myPeers.Peers = []Peer{
 			Peer{
+				ID:         s.ID,
 				Address:    s.OwnAddress,
 				Port:       s.announcePort,
 				PortOffset: 0,
 				DataDir:    s.DataDir,
+				HasAgent:   true,
 			},
 		}
 		s.myPeers.AgencySize = s.AgencySize
-		s.myPeers.MyIndex = 0
 		s.saveSetup()
 		s.log.Info("Starting service...")
 		s.startRunning(runner)
@@ -43,7 +44,7 @@ func (s *Service) startMaster(runner Runner) {
 	for {
 		time.Sleep(time.Second)
 		select {
-		case <-s.starter:
+		case <-s.startRunningWaiter.Done():
 			s.saveSetup()
 			s.log.Info("Starting service...")
 			s.startRunning(runner)

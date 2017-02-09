@@ -8,13 +8,14 @@ import (
 
 const (
 	// Version of the process that created this. If the structure or semantics changed, you must increase this version.
-	SetupConfigVersion = "0.1.0"
+	SetupConfigVersion = "0.1.1"
 	setupFileName      = "setup.json"
 )
 
 // SetupConfigFile is the JSON structure stored in the setup file of this process.
 type SetupConfigFile struct {
 	Version string `json:"version"` // Version of the process that created this. If the structure or semantics changed, you must increase this version.
+	ID      string `json:"id"`      // My unique peer ID
 	Peers   peers  `json:"peers"`
 }
 
@@ -22,6 +23,7 @@ type SetupConfigFile struct {
 func (s *Service) saveSetup() error {
 	cfg := SetupConfigFile{
 		Version: SetupConfigVersion,
+		ID:      s.ID,
 		Peers:   s.myPeers,
 	}
 	b, err := json.Marshal(cfg)
@@ -46,8 +48,9 @@ func (s *Service) relaunch(runner Runner) bool {
 		if err := json.Unmarshal(setupContent, &cfg); err == nil {
 			if cfg.Version == SetupConfigVersion {
 				s.myPeers = cfg.Peers
+				s.ID = cfg.ID
 				s.AgencySize = s.myPeers.AgencySize
-				s.log.Infof("Relaunching service on %s:%d...", s.OwnAddress, s.announcePort)
+				s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
 				s.startHTTPServer()
 				s.startRunning(runner)
 				return true

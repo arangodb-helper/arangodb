@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -17,6 +19,7 @@ import (
 )
 
 type ServiceConfig struct {
+	ID                string // Unique identifier of this peer
 	AgencySize        int
 	ArangodExecutable string
 	ArangodJSstartup  string
@@ -45,17 +48,18 @@ type ServiceConfig struct {
 
 type Service struct {
 	ServiceConfig
-	log              *logging.Logger
-	ctx              context.Context
-	cancel           context.CancelFunc
-	state            State
-	starter          chan bool
-	myPeers          peers
-	announcePort     int        // Port I can be reached on from the outside
-	isNetHost        bool       // Is this process running in a container with `--net=host` or running outside a container?
-	mutex            sync.Mutex // Mutex used to protect access to this datastructure
-	allowSameDataDir bool       // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
-	servers          struct {
+	log                 *logging.Logger
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	state               State
+	myPeers             peers
+	startRunningWaiter  context.Context
+	startRunningTrigger context.CancelFunc
+	announcePort        int        // Port I can be reached on from the outside
+	isNetHost           bool       // Is this process running in a container with `--net=host` or running outside a container?
+	mutex               sync.Mutex // Mutex used to protect access to this datastructure
+	allowSameDataDir    bool       // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
+	servers             struct {
 		agentProc       Process
 		dbserverProc    Process
 		coordinatorProc Process
@@ -65,11 +69,22 @@ type Service struct {
 
 // NewService creates a new Service instance from the given config.
 func NewService(log *logging.Logger, config ServiceConfig) (*Service, error) {
+	// Create unique ID
+	if config.ID == "" {
+		b := make([]byte, 4)
+		if _, err := rand.Read(b); err != nil {
+			return nil, maskAny(err)
+		}
+		config.ID = hex.EncodeToString(b)
+	}
+
+	ctx, trigger := context.WithCancel(context.Background())
 	return &Service{
-		ServiceConfig: config,
-		log:           log,
-		state:         stateStart,
-		starter:       make(chan bool),
+		ServiceConfig:       config,
+		log:                 log,
+		state:               stateStart,
+		startRunningWaiter:  ctx,
+		startRunningTrigger: trigger,
 	}, nil
 }
 
@@ -85,23 +100,6 @@ const (
 	stateSlave                // finding phase, further instances
 	stateRunning              // running phase
 )
-
-// State of peers:
-
-type Peer struct {
-	Address    string // IP address of arangodb peer server
-	Port       int    // Port number of arangodb peer server
-	PortOffset int    // Offset to add to base ports for the various servers (agent, coordinator, dbserver)
-	DataDir    string // Directory holding my data
-}
-
-// Peer information.
-// When this type (or any of the types used in here) is changed, increase `SetupConfigVersion`.
-type peers struct {
-	Peers      []Peer // All peers (index 0 is reserver for the master)
-	MyIndex    int    // Index into Peers for myself
-	AgencySize int    // Number of agents
-}
 
 const (
 	portOffsetAgent       = 1
@@ -228,9 +226,8 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			"--foxx.queues", "false",
 			"--server.statistics", "false",
 		)
-		for i := 0; i < s.AgencySize; i++ {
-			if i != s.myPeers.MyIndex {
-				p := s.myPeers.Peers[i]
+		for _, p := range s.myPeers.Peers {
+			if p.HasAgent && p.ID != s.ID {
 				args = append(args,
 					"--agency.endpoint",
 					fmt.Sprintf("tcp://%s:%d", p.Address, s.MasterPort+p.PortOffset+portOffsetAgent),
@@ -277,8 +274,12 @@ func (s *Service) writeCommand(filename string, executable string, args []string
 
 func (s *Service) startRunning(runner Runner) {
 	s.state = stateRunning
-	portOffset := s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
-	myHost := s.myPeers.Peers[s.myPeers.MyIndex].Address
+	myPeer, ok := s.myPeers.PeerByID(s.ID)
+	if !ok {
+		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.ID)
+	}
+	portOffset := myPeer.PortOffset
+	myHost := myPeer.Address
 
 	var executable string
 	if s.RrPath != "" {
@@ -314,7 +315,7 @@ func (s *Service) startRunning(runner Runner) {
 		if s.DockerContainer != "" {
 			containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainer)
 		}
-		containerName := fmt.Sprintf("%s%s-%d-%d-%s-%d", containerNamePrefix, mode, s.myPeers.MyIndex, restart, myHost, myPort)
+		containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, mode, s.ID, restart, myHost, myPort)
 		ports := []int{myPort}
 		if p, err := runner.Start(args[0], args[1:], vols, ports, containerName); err != nil {
 			return nil, maskAny(err)
@@ -488,5 +489,6 @@ func (s *Service) Run(rootCtx context.Context) {
 
 // needsAgent returns true if the agent should run in this instance
 func (s *Service) needsAgent() bool {
-	return s.myPeers.MyIndex < s.AgencySize
+	myPeer, ok := s.myPeers.PeerByID(s.ID)
+	return ok && myPeer.HasAgent
 }
