@@ -23,6 +23,7 @@ func init() {
 }
 
 func main() {
+	flag.Parse()
 	checkCleanRepo()
 	version := bumpVersion(releaseType)
 	make("clean")
