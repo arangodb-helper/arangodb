@@ -3,8 +3,11 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"path/filepath"
 )
 
 type SlaveRequest struct {
@@ -31,6 +34,9 @@ type ServerProcess struct {
 func (s *Service) startHTTPServer() {
 	http.HandleFunc("/hello", s.helloHandler)
 	http.HandleFunc("/process", s.processListHandler)
+	http.HandleFunc("/logs/agent", s.agentLogsHandler)
+	http.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
+	http.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
 
 	go func() {
 		containerPort, _ := s.getHTTPServerPort()
@@ -166,6 +172,53 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 	} else {
 		w.Write(b)
+	}
+}
+
+// agentLogsHandler servers the entire agent log (if any).
+// If there is no agent running a 404 is returned.
+func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
+	if s.needsAgent() {
+		s.logsHandler(w, r, "agent", portOffsetAgent)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+// dbserverLogsHandler servers the entire dbserver log.
+func (s *Service) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
+	s.logsHandler(w, r, "dbserver", portOffsetDBServer)
+}
+
+// coordinatorLogsHandler servers the entire coordinator log.
+func (s *Service) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request) {
+	s.logsHandler(w, r, "coordinator", portOffsetCoordinator)
+}
+
+func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, mode string, serverPortOffset int) {
+	if s.myPeers.MyIndex < 0 || s.myPeers.MyIndex >= len(s.myPeers.Peers) {
+		// Not ready yet
+		w.WriteHeader(http.StatusPreconditionFailed)
+		return
+	}
+	// Find log path
+	portOffset := s.myPeers.Peers[s.myPeers.MyIndex].PortOffset
+	myPort := s.MasterPort + portOffset + serverPortOffset
+	logPath := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort), "arangod.log")
+	s.log.Debugf("Fetching logs in %s", logPath)
+	rd, err := os.Open(logPath)
+	if os.IsNotExist(err) {
+		// Log file not there (yet), we allow this
+		w.WriteHeader(http.StatusOK)
+	} else if err != nil {
+		s.log.Errorf("Failed to open log file '%s': %#v", logPath, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	} else {
+		// Log open
+		defer rd.Close()
+		w.WriteHeader(http.StatusOK)
+		io.Copy(w, rd)
 	}
 }
 
