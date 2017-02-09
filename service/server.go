@@ -43,6 +43,7 @@ func (s *Service) startHTTPServer() {
 	http.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
 	http.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
 	http.HandleFunc("/version", s.versionHandler)
+	http.HandleFunc("/shutdown", s.shutdownHandler)
 
 	go func() {
 		containerPort, _ := s.getHTTPServerPort()
@@ -242,6 +243,17 @@ func (s *Service) versionHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.WriteHeader(http.StatusOK)
 		w.Write(data)
+	}
+}
+
+// shutdownHandler initiates a shutdown of this process and all servers started by it.
+func (s *Service) shutdownHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	} else {
+		s.cancel()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -77,7 +78,7 @@ func init() {
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
-func handleSignal(sigChannel chan os.Signal, stopChan chan bool) {
+func handleSignal(sigChannel chan os.Signal, cancel context.CancelFunc) {
 	signalCount := 0
 	for s := range sigChannel {
 		signalCount++
@@ -85,7 +86,7 @@ func handleSignal(sigChannel chan os.Signal, stopChan chan bool) {
 		if signalCount > 1 {
 			os.Exit(1)
 		}
-		stopChan <- true
+		cancel()
 	}
 }
 
@@ -188,9 +189,9 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 
 	// Interrupt signal:
 	sigChannel := make(chan os.Signal)
-	stopChan := make(chan bool)
+	rootCtx, cancel := context.WithCancel(context.Background())
 	signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM)
-	go handleSignal(sigChannel, stopChan)
+	go handleSignal(sigChannel, cancel)
 
 	// Create service
 	service, err := service.NewService(log, service.ServiceConfig{
@@ -221,7 +222,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Run the service
-	service.Run(stopChan)
+	service.Run(rootCtx)
 }
 
 // getEnvVar returns the value of the environment variable with given key of the given default

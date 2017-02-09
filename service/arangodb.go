@@ -45,6 +45,8 @@ type ServiceConfig struct {
 type Service struct {
 	ServiceConfig
 	log              *logging.Logger
+	ctx              context.Context
+	cancel           context.CancelFunc
 	state            State
 	starter          chan bool
 	myPeers          peers
@@ -328,7 +330,7 @@ func (s *Service) startRunning(runner Runner) {
 				break
 			}
 			*processVar = p
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(s.ctx)
 			go func() {
 				if up, cancelled := testInstance(ctx, myHost, s.MasterPort+portOffset+serverPortOffset); !cancelled {
 					if up {
@@ -419,10 +421,11 @@ func (s *Service) startRunning(runner Runner) {
 }
 
 // Run runs the service in either master or slave mode.
-func (s *Service) Run(stopChan chan bool) {
+func (s *Service) Run(rootCtx context.Context) {
+	s.ctx, s.cancel = context.WithCancel(rootCtx)
 	go func() {
 		select {
-		case <-stopChan:
+		case <-s.ctx.Done():
 			s.stop = true
 		}
 	}()
