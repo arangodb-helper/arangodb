@@ -1,11 +1,9 @@
 package service
 
-import (
-	"github.com/juju/errgo"
-)
+import "github.com/pkg/errors"
 
 var (
-	maskAny = errgo.MaskFunc(errgo.Any)
+	maskAny = errors.WithStack
 )
 
 type ErrorResponse struct {

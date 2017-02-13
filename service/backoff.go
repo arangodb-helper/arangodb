@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff"
-	"github.com/juju/errgo"
+	"github.com/pkg/errors"
 )
 
 type PermanentError struct {
@@ -21,7 +21,7 @@ func retry(op func() error, timeout time.Duration) error {
 		if err := op(); err == nil {
 			return nil
 		} else {
-			if pe, ok := errgo.Cause(err).(*PermanentError); ok {
+			if pe, ok := errors.Cause(err).(*PermanentError); ok {
 				// Detected permanent error
 				failure = pe.Err
 				return nil

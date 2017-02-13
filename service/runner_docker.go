@@ -8,8 +8,8 @@ import (
 	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
-	"github.com/juju/errgo"
 	logging "github.com/op/go-logging"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -342,7 +342,7 @@ func isNoSuchContainer(err error) bool {
 	if _, ok := err.(*docker.NoSuchContainer); ok {
 		return true
 	}
-	if _, ok := errgo.Cause(err).(*docker.NoSuchContainer); ok {
+	if _, ok := errors.Cause(err).(*docker.NoSuchContainer); ok {
 		return true
 	}
 	return false
@@ -350,7 +350,7 @@ func isNoSuchContainer(err error) bool {
 
 // isNotFound returns true if the given error is (or is caused by) a 404 response error.
 func isNotFound(err error) bool {
-	if err, ok := errgo.Cause(err).(*docker.Error); ok {
+	if err, ok := errors.Cause(err).(*docker.Error); ok {
 		return err.Status == 404
 	}
 	return false
