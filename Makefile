@@ -60,12 +60,6 @@ deps:
 $(GOBUILDDIR):
 	@mkdir -p $(ORGDIR)
 	@rm -f $(REPODIR) && ln -s ../../../.. $(REPODIR)
-	GOPATH=$(GOBUILDDIR) go get github.com/cenkalti/backoff
-	GOPATH=$(GOBUILDDIR) go get github.com/fsouza/go-dockerclient
-	GOPATH=$(GOBUILDDIR) go get github.com/op/go-logging
-	GOPATH=$(GOBUILDDIR) go get github.com/pkg/errors
-	GOPATH=$(GOBUILDDIR) go get github.com/spf13/cobra
-	GOPATH=$(GOBUILDDIR) go get github.com/coreos/go-semver/semver
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	@mkdir -p $(BINDIR)
