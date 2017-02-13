@@ -15,8 +15,9 @@ You can copy the binary anywhere in your PATH.
 A link to the binary for the local OS & architecture is made to `./arangodb`.
 This program will run on Linux, OSX or Windows.
 
-Note: The standard build uses a docker container to run the build if. If docker is not available 
-`make local` runs the go compiler directly and places the binary directly in the project directory.
+Note: The standard build uses a docker container to run the build. If docker is not available 
+`make local` runs the [go compiler](https://golang.org/) directly and places the binary directly in the project directory.
+In this case you need to install the `golang` package on your system.
 
 Starting a cluster
 ------------------
