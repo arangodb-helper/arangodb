@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	service "github.com/neunhoef/ArangoDBStarter/service"
+	service "github.com/arangodb/ArangoDBStarter/service"
 	logging "github.com/op/go-logging"
 	"github.com/spf13/cobra"
 )

@@ -9,7 +9,7 @@ GOBUILDDIR := $(SCRIPTDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
 BINDIR := $(ROOTDIR)/bin
 
-ORGPATH := github.com/neunhoef
+ORGPATH := github.com/arangodb
 ORGDIR := $(GOBUILDDIR)/src/$(ORGPATH)
 REPONAME := $(PROJECT)
 REPODIR := $(ORGDIR)/$(REPONAME)
