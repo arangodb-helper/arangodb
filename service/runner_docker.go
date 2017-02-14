@@ -328,8 +328,9 @@ func (p *dockerContainer) Kill() error {
 
 func (p *dockerContainer) Cleanup() error {
 	opts := docker.RemoveContainerOptions{
-		ID:    p.container.ID,
-		Force: true,
+		ID:            p.container.ID,
+		Force:         true,
+		RemoveVolumes: true,
 	}
 	if err := p.client.RemoveContainer(opts); err != nil {
 		return maskAny(err)
