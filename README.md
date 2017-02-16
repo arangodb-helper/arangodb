@@ -17,7 +17,7 @@ This program will run on Linux, OSX or Windows.
 
 Note: The standard build uses a docker container to run the build. If docker is not available 
 `make local` runs the [go compiler](https://golang.org/) directly and places the binary directly in the project directory.
-In this case you need to install the `golang` package on your system.
+In this case you need to install the `golang` package on your system (version 1.7 or higher).
 
 Starting a cluster
 ------------------

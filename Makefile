@@ -39,14 +39,14 @@ SOURCES := $(shell find $(SRCDIR) -name '*.go')
 all: build
 
 clean:
-	rm -Rf $(BIN) $(GOBUILDDIR)
+	rm -Rf $(BIN) $(GOBUILDDIR) $(ROOTDIR)/arangodb
 
 local:
 ifneq ("$(DOCKERCLI)", "")
 	@${MAKE} -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) build-local
 else
 	@${MAKE} deps
-	GOPATH=$(GOBUILDDIR) go build -o arangodb main.go
+	GOPATH=$(GOBUILDDIR) go build -o arangodb $(REPOPATH)
 endif
 
 build: $(BIN)
