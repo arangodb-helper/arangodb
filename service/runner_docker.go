@@ -210,8 +210,9 @@ func (r *dockerRunner) Cleanup() error {
 	for id := range r.containerIDs {
 		r.log.Infof("Removing container %s", id)
 		if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
-			ID:    id,
-			Force: true,
+			ID:            id,
+			Force:         true,
+			RemoveVolumes: true,
 		}); err != nil && !isNoSuchContainer(err) {
 			r.log.Warningf("Failed to remove container %s: %#v", id, err)
 		}
@@ -268,7 +269,8 @@ func (r *dockerRunner) gc() {
 				// Container is dead for more than 10 minutes, gc it.
 				r.log.Infof("Removing old container %s", id)
 				if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
-					ID: id,
+					ID:            id,
+					RemoveVolumes: true,
 				}); err != nil {
 					r.log.Warningf("Failed to remove container %s: %#v", id, err)
 				} else {
