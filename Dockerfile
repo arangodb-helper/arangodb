@@ -1,7 +1,7 @@
 FROM alpine:3.4
 MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
-COPY bin/arangodb-linux-amd64 /app/
+COPY bin/linux/amd64/arangodb /app/
 
 EXPOSE 4000 
 

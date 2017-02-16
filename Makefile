@@ -24,13 +24,18 @@ endif
 ifndef GOARCH
 	GOARCH := amd64
 endif
+ifeq ("$(GOOS)", "windows")
+	GOEXE := .exe
+endif
 
 ifndef DOCKERNAMESPACE
 	DOCKERNAMESPACE := arangodb
 endif
 
-BINNAME := arangodb-$(GOOS)-$(GOARCH)
-BIN := $(BINDIR)/$(BINNAME)
+BINNAME := arangodb$(GOEXE)
+BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
+RELEASE := $(GOBUILDDIR)/bin/release 
+GHRELEASE := $(GOBUILDDIR)/bin/github-release 
 
 SOURCES := $(shell find $(SRCDIR) -name '*.go')
 
@@ -39,7 +44,7 @@ SOURCES := $(shell find $(SRCDIR) -name '*.go')
 all: build
 
 clean:
-	rm -Rf $(BIN) $(GOBUILDDIR) $(ROOTDIR)/arangodb
+	rm -Rf $(BIN) $(BINDIR) $(GOBUILDDIR) $(ROOTDIR)/arangodb
 
 local:
 ifneq ("$(DOCKERCLI)", "")
@@ -54,13 +59,20 @@ build: $(BIN)
 build-local: build 
 	@ln -sf $(BIN) $(ROOTDIR)/arangodb
 
+binaries: 
+	@${MAKE} -B GOOS=linux GOARCH=amd64 build
+	@${MAKE} -B GOOS=darwin GOARCH=amd64 build
+	@${MAKE} -B GOOS=windows GOARCH=amd64 build
+
 deps:
 	@${MAKE} -B -s $(GOBUILDDIR)
 
 $(GOBUILDDIR):
 	@mkdir -p $(ORGDIR)
 	@rm -f $(REPODIR) && ln -s ../../../.. $(REPODIR)
-	@rm -f $(GOBUILDDIR)/src/github.com/coreos && ln -s ../../../vendor/github.com/coreos $(GOBUILDDIR)/src/github.com/coreos
+	@rm -f $(GOBUILDDIR)/src/github.com/aktau && ln -s ../../../vendor/github.com/aktau $(GOBUILDDIR)/src/github.com/aktau
+	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../vendor/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
+	@rm -f $(GOBUILDDIR)/src/github.com/voxelbrain && ln -s ../../../vendor/github.com/voxelbrain $(GOBUILDDIR)/src/github.com/voxelbrain
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	@mkdir -p $(BINDIR)
@@ -73,7 +85,7 @@ $(BIN): $(GOBUILDDIR) $(SOURCES)
 		-e CGO_ENABLED=0 \
 		-w /usr/code/ \
 		golang:$(GOVERSION) \
-		go build -a -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(BINNAME) $(REPOPATH)
+		go build -a -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME) $(REPOPATH)
 
 docker: build
 	docker build -t arangodb/arangodb-starter .
@@ -88,11 +100,17 @@ docker-push-version: docker
 	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
 	docker push arangodb/arangodb-starter:$(VERSION)
 
-release-patch: $(GOBUILDDIR)
-	GOPATH=$(GOBUILDDIR) go run ./tools/release.go -type=patch 
+$(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
+	GOPATH=$(GOBUILDDIR) go build -o $(RELEASE) $(REPOPATH)/tools/release
 
-release-minor: $(GOBUILDDIR)
-	GOPATH=$(GOBUILDDIR) go run ./tools/release.go -type=minor
+$(GHRELEASE): $(GOBUILDDIR) 
+	GOPATH=$(GOBUILDDIR) go build -o $(GHRELEASE) github.com/aktau/github-release
 
-release-major: $(GOBUILDDIR)
-	GOPATH=$(GOBUILDDIR) go run ./tools/release.go -type=major 
+release-patch: $(RELEASE)
+	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=patch 
+
+release-minor: $(RELEASE)
+	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=minor
+
+release-major: $(RELEASE)
+	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=major 
