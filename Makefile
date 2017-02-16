@@ -59,7 +59,7 @@ build: $(BIN)
 build-local: build 
 	@ln -sf $(BIN) $(ROOTDIR)/arangodb
 
-binaries: 
+binaries: $(GHRELEASE)
 	@${MAKE} -B GOOS=linux GOARCH=amd64 build
 	@${MAKE} -B GOOS=darwin GOARCH=amd64 build
 	@${MAKE} -B GOOS=windows GOARCH=amd64 build
