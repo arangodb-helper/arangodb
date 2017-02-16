@@ -16,4 +16,4 @@ ENV RUNNING_IN_DOCKER=true
 # Docker image containing arangod.
 ENV DOCKER_IMAGE=arangodb/arangodb:3.1.10
 
-ENTRYPOINT ["/app/arangodb-linux-amd64"]
+ENTRYPOINT ["/app/arangodb"]
