@@ -154,6 +154,11 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 		return nil, maskAny(err)
 	}
 	r.log.Debugf("Started container %s", containerName)
+	// Inspect container to make sure we have the latest info
+	c, err = r.client.InspectContainer(c.ID)
+	if err != nil {
+		return nil, maskAny(err)
+	}
 	return &dockerContainer{
 		client:    r.client,
 		container: c,
