@@ -37,6 +37,7 @@ type ServerProcess struct {
 	Port        int    `json:"port"`                   // Port needed to reach the server
 	ProcessID   int    `json:"pid,omitempty"`          // PID of the process (0 when running in docker)
 	ContainerID string `json:"container-id,omitempty"` // ID of docker container running the server
+	ContainerIP string `json:"container-ip,omitempty"` // IP address of docker container running the server
 }
 
 // startHTTPServer initializes and runs the HTTP server.
@@ -236,6 +237,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 				Port:        s.MasterPort + portOffset + portOffsetAgent,
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
+				ContainerIP: p.ContainerIP(),
 			})
 		}
 		if p := s.servers.coordinatorProc; p != nil {
@@ -245,6 +247,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 				Port:        s.MasterPort + portOffset + portOffsetCoordinator,
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
+				ContainerIP: p.ContainerIP(),
 			})
 		}
 		if p := s.servers.dbserverProc; p != nil {
@@ -254,6 +257,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 				Port:        s.MasterPort + portOffset + portOffsetDBServer,
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
+				ContainerIP: p.ContainerIP(),
 			})
 		}
 	}

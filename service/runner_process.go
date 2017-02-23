@@ -62,6 +62,11 @@ func (p *process) ContainerID() string {
 	return ""
 }
 
+// ContainerIP returns the IP address of the docker container that runs the process.
+func (p *process) ContainerIP() string {
+	return ""
+}
+
 func (p *process) Wait() {
 	proc := p.cmd.Process
 	if proc != nil {

@@ -20,6 +20,8 @@ type Process interface {
 	ProcessID() int
 	// ContainerID returns the ID of the docker container that runs the process.
 	ContainerID() string
+	// ContainerIP returns the IP address of the docker container that runs the process.
+	ContainerIP() string
 
 	// Wait until the process has terminated
 	Wait()

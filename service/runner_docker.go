@@ -308,6 +308,14 @@ func (p *dockerContainer) ContainerID() string {
 	return p.container.ID
 }
 
+// ContainerIP returns the IP address of the docker container that runs the process.
+func (p *dockerContainer) ContainerIP() string {
+	if ns := p.container.NetworkSettings; ns != nil {
+		return ns.IPAddress
+	}
+	return ""
+}
+
 func (p *dockerContainer) Wait() {
 	p.client.WaitContainer(p.container.ID)
 }
