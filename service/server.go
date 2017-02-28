@@ -87,7 +87,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Learn my own address (if needed)
 	if len(s.myPeers.Peers) == 0 {
-		myself := findHost(r.Host)
+		myself := normalizeHost(r.Host)
 		_, hostPort, _ := s.getHTTPServerPort()
 		s.myPeers.Peers = []Peer{
 			Peer{
@@ -99,6 +99,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				HasAgent:   true,
 			},
 		}
+		s.log.Infof("Added master '%s': %s, portOffset: %d", s.myPeers.Peers[0].ID, s.myPeers.Peers[0].Address, s.myPeers.Peers[0].PortOffset)
 		s.myPeers.AgencySize = s.AgencySize
 	}
 
@@ -117,7 +118,9 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 
 		slaveAddr := req.SlaveAddress
 		if slaveAddr == "" {
-			slaveAddr = findHost(r.RemoteAddr)
+			slaveAddr = normalizeHost(r.RemoteAddr)
+		} else {
+			slaveAddr = normalizeHost(slaveAddr)
 		}
 		slavePort := req.SlavePort
 
@@ -145,10 +148,10 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				if p.ID == req.SlaveID {
 					s.myPeers.Peers[i].Port = req.SlavePort
 					if s.AllPortOffsetsUnique {
-						s.myPeers.Peers[i].Address = req.SlaveAddress
+						s.myPeers.Peers[i].Address = slaveAddr
 					} else {
 						// Slave address may not change
-						if p.Address != req.SlaveAddress {
+						if p.Address != slaveAddr {
 							writeError(w, http.StatusBadRequest, "Cannot change slave address while using an existing ID.")
 							return
 						}
@@ -162,7 +165,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				ID:         req.SlaveID,
 				Address:    slaveAddr,
 				Port:       slavePort,
-				PortOffset: s.myPeers.GetFreePortOffset(req.SlaveAddress, s.AllPortOffsetsUnique),
+				PortOffset: s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique),
 				DataDir:    req.DataDir,
 				HasAgent:   len(s.myPeers.Peers) < s.AgencySize,
 			}

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -111,16 +112,15 @@ const (
 
 // A helper function:
 
-func findHost(a string) string {
-	pos := strings.LastIndex(a, ":")
-	var host string
-	if pos > 0 {
-		host = a[:pos]
-	} else {
-		host = a
+func normalizeHost(address string) string {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		host = strings.Split(address, ":")[0]
 	}
-	if host == "127.0.0.1" || host == "[::1]" {
-		host = "localhost"
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() {
+			return "127.0.0.1"
+		}
 	}
 	return host
 }
