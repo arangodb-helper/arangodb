@@ -121,6 +121,8 @@ func normalizeHost(address string) string {
 		if ip.IsLoopback() {
 			return "127.0.0.1"
 		}
+	} else if host == "localhost" {
+		return "127.0.0.1"
 	}
 	return host
 }
