@@ -2,6 +2,9 @@ package service
 
 import (
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +17,7 @@ import (
 
 const (
 	stopContainerTimeout = 60 // Seconds before a container is killed (after graceful stop)
+	containerFileName    = "CONTAINER"
 )
 
 // NewDockerRunner creates a runner that starts processes on the local OS.
@@ -62,9 +66,42 @@ func (r *dockerRunner) GetContainerDir(hostDir string) string {
 	return "/data"
 }
 
-func (r *dockerRunner) Start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error) {
+// GetRunningServer checks if there is already a server process running in the given server directory.
+// If that is the case, its process is returned.
+// Otherwise nil is returned.
+func (r *dockerRunner) GetRunningServer(serverDir string) (Process, error) {
+	containerContent, err := ioutil.ReadFile(filepath.Join(serverDir, containerFileName))
+	if os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, maskAny(err)
+	}
+	id := string(containerContent)
+	// We found a CONTAINER file, see if this container is still running
+	c, err := r.client.InspectContainer(id)
+	if err != nil {
+		// Container cannot be inspected, assume it no longer exists
+		return nil, nil
+	}
+	// Container can be inspected, check its state
+	if !c.State.Running {
+		// Container is not running
+		return nil, nil
+	}
+	r.recordContainerID(c.ID)
 	// Start gc (once)
-	r.gcOnce.Do(func() { go r.gc() })
+	r.startGC()
+
+	// Return container
+	return &dockerContainer{
+		client:    r.client,
+		container: c,
+	}, nil
+}
+
+func (r *dockerRunner) Start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
+	// Start gc (once)
+	r.startGC()
 
 	// Pull docker image
 	if err := r.pullImage(r.image); err != nil {
@@ -85,7 +122,7 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 			r.log.Errorf("Failed to remove container '%s': %v", containerName, err)
 		}
 		// Try starting it now
-		p, err := r.start(command, args, volumes, ports, containerName)
+		p, err := r.start(command, args, volumes, ports, containerName, serverDir)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -99,8 +136,14 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 	return result, nil
 }
 
+// startGC ensures GC is started (only once)
+func (r *dockerRunner) startGC() {
+	// Start gc (once)
+	r.gcOnce.Do(func() { go r.gc() })
+}
+
 // Try to start a command with given arguments
-func (r *dockerRunner) start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error) {
+func (r *dockerRunner) start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
 		Config: &docker.Config{
@@ -154,6 +197,11 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 		return nil, maskAny(err)
 	}
 	r.log.Debugf("Started container %s", containerName)
+	// Write container ID to disk
+	containerFilePath := filepath.Join(serverDir, containerFileName)
+	if err := ioutil.WriteFile(containerFilePath, []byte(c.ID), 0755); err != nil {
+		r.log.Errorf("Failed to store container ID in '%s': %v", containerFilePath, err)
+	}
 	// Inspect container to make sure we have the latest info
 	c, err = r.client.InspectContainer(c.ID)
 	if err != nil {

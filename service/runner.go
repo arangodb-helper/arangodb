@@ -7,8 +7,18 @@ type Volume struct {
 }
 
 type Runner interface {
+	// Map the given host directory to a container directory
 	GetContainerDir(hostDir string) string
-	Start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error)
+
+	// GetRunningServer checks if there is already a server process running in the given server directory.
+	// If that is the case, its process is returned.
+	// Otherwise nil is returned.
+	GetRunningServer(serverDir string) (Process, error)
+
+	// Start a server with given arguments
+	Start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error)
+
+	// Create a command that a user should use to start a slave arangodb instance.
 	CreateStartArangodbCommand(index int, masterIP string, masterPort string) string
 
 	// Cleanup after all processes are dead and have been cleaned themselves

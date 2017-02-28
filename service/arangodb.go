@@ -304,10 +304,29 @@ func (s *Service) startRunning(runner Runner) {
 
 	startArangod := func(serverPortOffset int, mode string, restart int) (Process, error) {
 		myPort := s.MasterPort + portOffset + serverPortOffset
-		s.log.Infof("Starting %s on port %d", mode, myPort)
 		myHostDir := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort))
 		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
+
+		// Check if the server is already running
+		p, err := runner.GetRunningServer(myHost)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		if p != nil {
+			s.log.Infof("%s seems to be running already, checking port %d...", mode, myPort)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+			up, _ := testInstance(ctx, myHost, myPort)
+			cancel()
+			if up {
+				s.log.Infof("%s is already running on %d. No need to start anything.", mode, myPort)
+				return p, nil
+			}
+			s.log.Infof("%s is not up on port %d. Terminating existing process and restarting it...", mode, myPort)
+			p.Terminate()
+		}
+
+		s.log.Infof("Starting %s on port %d", mode, myPort)
 		myContainerDir := runner.GetContainerDir(myHostDir)
 		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHost, strconv.Itoa(myPort), mode)
 		vols = addDataVolumes(vols, myHostDir, myContainerDir)
@@ -318,7 +337,7 @@ func (s *Service) startRunning(runner Runner) {
 		}
 		containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, mode, s.ID, restart, myHost, myPort)
 		ports := []int{myPort}
-		if p, err := runner.Start(args[0], args[1:], vols, ports, containerName); err != nil {
+		if p, err := runner.Start(args[0], args[1:], vols, ports, containerName, myHostDir); err != nil {
 			return nil, maskAny(err)
 		} else {
 			return p, nil
