@@ -19,19 +19,20 @@ import (
 )
 
 type ServiceConfig struct {
-	ID                string // Unique identifier of this peer
-	AgencySize        int
-	ArangodExecutable string
-	ArangodJSstartup  string
-	MasterPort        int
-	RrPath            string
-	StartCoordinator  bool
-	StartDBserver     bool
-	DataDir           string
-	OwnAddress        string // IP address of used to reach this process
-	MasterAddress     string
-	Verbose           bool
-	ServerThreads     int // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
+	ID                   string // Unique identifier of this peer
+	AgencySize           int
+	ArangodExecutable    string
+	ArangodJSstartup     string
+	MasterPort           int
+	RrPath               string
+	StartCoordinator     bool
+	StartDBserver        bool
+	DataDir              string
+	OwnAddress           string // IP address of used to reach this process
+	MasterAddress        string
+	Verbose              bool
+	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
+	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
 
 	DockerContainer  string // Name of the container running this process
 	DockerEndpoint   string // Where to reach the docker daemon
