@@ -32,27 +32,28 @@ var (
 		Short: "Start ArangoDB clusters with ease",
 		Run:   cmdMainRun,
 	}
-	log               = logging.MustGetLogger(projectName)
-	id                string
-	agencySize        int
-	arangodExecutable string
-	arangodJSstartup  string
-	masterPort        int
-	rrPath            string
-	startCoordinator  bool
-	startDBserver     bool
-	dataDir           string
-	ownAddress        string
-	masterAddress     string
-	verbose           bool
-	serverThreads     int
-	dockerEndpoint    string
-	dockerImage       string
-	dockerUser        string
-	dockerContainer   string
-	dockerGCDelay     time.Duration
-	dockerNetHost     bool
-	dockerPrivileged  bool
+	log                  = logging.MustGetLogger(projectName)
+	id                   string
+	agencySize           int
+	arangodExecutable    string
+	arangodJSstartup     string
+	masterPort           int
+	rrPath               string
+	startCoordinator     bool
+	startDBserver        bool
+	dataDir              string
+	ownAddress           string
+	masterAddress        string
+	verbose              bool
+	serverThreads        int
+	allPortOffsetsUnique bool
+	dockerEndpoint       string
+	dockerImage          string
+	dockerUser           string
+	dockerContainer      string
+	dockerGCDelay        time.Duration
+	dockerNetHost        bool
+	dockerPrivileged     bool
 )
 
 func init() {
@@ -77,6 +78,7 @@ func init() {
 	f.DurationVar(&dockerGCDelay, "dockerGCDelay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
 	f.BoolVar(&dockerNetHost, "dockerNetHost", false, "Run containers with --net=host")
 	f.BoolVar(&dockerPrivileged, "dockerPrivileged", false, "Run containers with --privileged")
+	f.BoolVar(&allPortOffsetsUnique, "uniquePortOffsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
@@ -197,29 +199,30 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 
 	// Create service
 	service, err := service.NewService(log, service.ServiceConfig{
-		ID:                id,
-		AgencySize:        agencySize,
-		ArangodExecutable: arangodExecutable,
-		ArangodJSstartup:  arangodJSstartup,
-		MasterPort:        masterPort,
-		RrPath:            rrPath,
-		StartCoordinator:  startCoordinator,
-		StartDBserver:     startDBserver,
-		DataDir:           dataDir,
-		OwnAddress:        ownAddress,
-		MasterAddress:     masterAddress,
-		Verbose:           verbose,
-		ServerThreads:     serverThreads,
-		RunningInDocker:   os.Getenv("RUNNING_IN_DOCKER") == "true",
-		DockerContainer:   dockerContainer,
-		DockerEndpoint:    dockerEndpoint,
-		DockerImage:       dockerImage,
-		DockerUser:        dockerUser,
-		DockerGCDelay:     dockerGCDelay,
-		DockerNetHost:     dockerNetHost,
-		DockerPrivileged:  dockerPrivileged,
-		ProjectVersion:    projectVersion,
-		ProjectBuild:      projectBuild,
+		ID:                   id,
+		AgencySize:           agencySize,
+		ArangodExecutable:    arangodExecutable,
+		ArangodJSstartup:     arangodJSstartup,
+		MasterPort:           masterPort,
+		RrPath:               rrPath,
+		StartCoordinator:     startCoordinator,
+		StartDBserver:        startDBserver,
+		DataDir:              dataDir,
+		OwnAddress:           ownAddress,
+		MasterAddress:        masterAddress,
+		Verbose:              verbose,
+		ServerThreads:        serverThreads,
+		AllPortOffsetsUnique: allPortOffsetsUnique,
+		RunningInDocker:      os.Getenv("RUNNING_IN_DOCKER") == "true",
+		DockerContainer:      dockerContainer,
+		DockerEndpoint:       dockerEndpoint,
+		DockerImage:          dockerImage,
+		DockerUser:           dockerUser,
+		DockerGCDelay:        dockerGCDelay,
+		DockerNetHost:        dockerNetHost,
+		DockerPrivileged:     dockerPrivileged,
+		ProjectVersion:       projectVersion,
+		ProjectBuild:         projectBuild,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create service: %#v", err)

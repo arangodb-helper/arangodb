@@ -177,6 +177,11 @@ debugging only.
 
 show more information (default false).
 
+* `--uniquePortOffsets bool`
+
+If set to true, all port offsets (of slaves) will be made globally unique.
+By default (value is false), port offsets will be unique per slave address.
+
 * `--dockerUser user`
 
 `user` is an expression to be used for `docker run` with the `--user` 

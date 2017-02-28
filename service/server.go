@@ -144,7 +144,15 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 			for i, p := range s.myPeers.Peers {
 				if p.ID == req.SlaveID {
 					s.myPeers.Peers[i].Port = req.SlavePort
-					s.myPeers.Peers[i].Address = req.SlaveAddress
+					if s.AllPortOffsetsUnique {
+						s.myPeers.Peers[i].Address = req.SlaveAddress
+					} else {
+						// Slave address may not change
+						if p.Address != req.SlaveAddress {
+							writeError(w, http.StatusBadRequest, "Cannot change slave address while using an existing ID.")
+							return
+						}
+					}
 					s.myPeers.Peers[i].DataDir = req.DataDir
 				}
 			}
@@ -154,7 +162,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				ID:         req.SlaveID,
 				Address:    slaveAddr,
 				Port:       slavePort,
-				PortOffset: s.myPeers.GetFreePortOffset(),
+				PortOffset: s.myPeers.GetFreePortOffset(req.SlaveAddress, s.AllPortOffsetsUnique),
 				DataDir:    req.DataDir,
 				HasAgent:   len(s.myPeers.Peers) < s.AgencySize,
 			}

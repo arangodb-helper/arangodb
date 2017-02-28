@@ -51,14 +51,16 @@ func (p peers) IDs() []string {
 }
 
 // GetFreePortOffset returns the first unallocated port offset.
-func (p peers) GetFreePortOffset() int {
+func (p peers) GetFreePortOffset(peerAddress string, allPortOffsetsUnique bool) int {
 	portOffset := 0
 	for {
 		found := false
 		for _, p := range p.Peers {
 			if p.PortOffset == portOffset {
-				found = true
-				break
+				if allPortOffsetsUnique || p.Address == peerAddress {
+					found = true
+					break
+				}
 			}
 		}
 		if !found {
