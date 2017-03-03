@@ -168,7 +168,7 @@ var confFileTemplate = `# ArangoDB configuration file
 [server]
 endpoint = tcp://0.0.0.0:%s
 threads = %d
-authentication = false
+%s 
 
 [log]
 level = %s
@@ -190,20 +190,51 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	}
 
 	if _, err := os.Stat(hostConfFileName); os.IsNotExist(err) {
+		var threads, v8Contexts string
+		logLevel := "INFO"
+		switch mode {
+		// Parameters are: port, server threads, log level, v8-contexts
+		case "agent":
+			threads = "8"
+			v8Contexts = "1"
+		case "dbserver":
+			threads = "4"
+			v8Contexts = "4"
+		case "coordinator":
+			threads = "16"
+			v8Contexts = "4"
+		}
+		config := configFile{
+			&configSection{
+				Name: "server",
+				Settings: map[string]string{
+					"endpoint":       fmt.Sprintf("tcp://0.0.0.0:%s", myPort),
+					"threads":        threads,
+					"authentication": "false",
+				},
+			},
+			&configSection{
+				Name: "log",
+				Settings: map[string]string{
+					"level": logLevel,
+				},
+			},
+			&configSection{
+				Name: "javascript",
+				Settings: map[string]string{
+					"v8-contexts": v8Contexts,
+				},
+			},
+		}
 		out, e := os.Create(hostConfFileName)
 		if e != nil {
 			s.log.Fatalf("Could not create configuration file %s, error: %#v", hostConfFileName, e)
 		}
-		switch mode {
-		// Parameters are: port, server threads, log level, v8-contexts
-		case "agent":
-			fmt.Fprintf(out, confFileTemplate, myPort, 8, "INFO", 1)
-		case "dbserver":
-			fmt.Fprintf(out, confFileTemplate, myPort, 4, "INFO", 4)
-		case "coordinator":
-			fmt.Fprintf(out, confFileTemplate, myPort, 16, "INFO", 4)
-		}
+		_, err := config.WriteTo(out)
 		out.Close()
+		if err != nil {
+			s.log.Fatalf("Cannot create config file: %v", err)
+		}
 	}
 	args = make([]string, 0, 40)
 	executable := s.ArangodExecutable
