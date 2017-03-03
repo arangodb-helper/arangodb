@@ -168,6 +168,7 @@ var confFileTemplate = `# ArangoDB configuration file
 [server]
 endpoint = tcp://0.0.0.0:%s
 threads = %d
+authentication = false
 
 [log]
 level = %s
@@ -218,7 +219,6 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps")),
 		"--log.file", slasher(filepath.Join(myContainerDir, "arangod.log")),
 		"--log.force-direct", "false",
-		"--server.authentication", "false",
 	)
 	if s.ServerThreads != 0 {
 		args = append(args, "--server.threads", strconv.Itoa(s.ServerThreads))
