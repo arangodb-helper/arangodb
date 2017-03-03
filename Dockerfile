@@ -14,6 +14,6 @@ ENV DATA_DIR=/data
 ENV RUNNING_IN_DOCKER=true
 
 # Docker image containing arangod.
-ENV DOCKER_IMAGE=arangodb/arangodb:3.1.10
+ENV DOCKER_IMAGE=arangodb/arangodb:3.1.12
 
 ENTRYPOINT ["/app/arangodb"]
