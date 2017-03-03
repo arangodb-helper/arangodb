@@ -2,33 +2,76 @@ package service
 
 import (
 	"fmt"
+	"io/ioutil"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"syscall"
+	"time"
+
+	logging "github.com/op/go-logging"
 )
 
 // NewProcessRunner creates a runner that starts processes on the local OS.
-func NewProcessRunner() Runner {
-	return &processRunner{}
+func NewProcessRunner(log *logging.Logger) Runner {
+	return &processRunner{
+		log: log,
+	}
 }
 
 // processRunner implements a ProcessRunner that starts processes on the local OS.
 type processRunner struct {
+	log *logging.Logger
 }
 
 type process struct {
-	cmd *exec.Cmd
+	log     *logging.Logger
+	p       *os.Process
+	isChild bool
 }
 
 func (r *processRunner) GetContainerDir(hostDir string) string {
 	return hostDir
 }
 
-func (r *processRunner) Start(command string, args []string, volumes []Volume, ports []int, containerName string) (Process, error) {
+// GetRunningServer checks if there is already a server process running in the given server directory.
+// If that is the case, its process is returned.
+// Otherwise nil is returned.
+func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
+	lockContent, err := ioutil.ReadFile(filepath.Join(serverDir, "data", "LOCK"))
+	if os.IsNotExist(err) {
+		r.log.Debugf("Cannot find %s", filepath.Join(serverDir, "data", "LOCK"))
+		return nil, nil
+	} else if err != nil {
+		return nil, maskAny(err)
+	}
+	pid, err := strconv.Atoi(string(lockContent))
+	if err != nil {
+		// No valid contents in LOCK file
+		return nil, nil
+	}
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		// Cannot find pid
+		r.log.Debugf("Cannot find process %d", pid)
+		return nil, nil
+	}
+	if err := p.Signal(syscall.Signal(0)); err != nil {
+		// Process does not seem to exist anymore
+		r.log.Debugf("Cannot signal process %d", pid)
+		return nil, nil
+	}
+	// Apparently we still have a server.
+	return &process{log: r.log, p: p, isChild: false}, nil
+}
+
+func (r *processRunner) Start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
 	c := exec.Command(command, args...)
 	if err := c.Start(); err != nil {
 		return nil, maskAny(err)
 	}
-	return &process{c}, nil
+	return &process{log: r.log, p: c.Process, isChild: true}, nil
 }
 
 func (r *processRunner) CreateStartArangodbCommand(index int, masterIP string, masterPort string) string {
@@ -50,7 +93,7 @@ func (r *processRunner) Cleanup() error {
 
 // ProcessID returns the pid of the process (if not running in docker)
 func (p *process) ProcessID() int {
-	proc := p.cmd.Process
+	proc := p.p
 	if proc != nil {
 		return proc.Pid
 	}
@@ -68,15 +111,27 @@ func (p *process) ContainerIP() string {
 }
 
 func (p *process) Wait() {
-	proc := p.cmd.Process
-	if proc != nil {
-		proc.Wait()
+	if proc := p.p; proc != nil {
+		p.log.Debugf("Waiting on %d", proc.Pid)
+		if p.isChild {
+			_, err := proc.Wait()
+			p.log.Debugf("Wait on %d returned %v\n", proc.Pid, err)
+		} else {
+			// Cannot wait on non-child process, so let's do it the hard way
+			for {
+				if err := proc.Signal(syscall.Signal(0)); err != nil {
+					// Process does not seem to exist anymore
+					p.log.Debugf("Wait on %d ended at process seems to be gone", proc.Pid)
+					break
+				}
+				time.Sleep(time.Second)
+			}
+		}
 	}
 }
 
 func (p *process) Terminate() error {
-	proc := p.cmd.Process
-	if proc != nil {
+	if proc := p.p; proc != nil {
 		if err := proc.Signal(syscall.SIGTERM); err != nil {
 			return maskAny(err)
 		}
@@ -85,8 +140,7 @@ func (p *process) Terminate() error {
 }
 
 func (p *process) Kill() error {
-	proc := p.cmd.Process
-	if proc != nil {
+	if proc := p.p; proc != nil {
 		if err := proc.Kill(); err != nil {
 			return maskAny(err)
 		}
