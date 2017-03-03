@@ -110,6 +110,10 @@ const (
 	portOffsetIncrement   = 5 // {our http server, agent, coordinator, dbserver, reserved}
 )
 
+const (
+	maxRecentFailures = 100
+)
+
 // A helper function:
 
 func normalizeHost(address string) string {
@@ -311,7 +315,8 @@ func (s *Service) startRunning(runner Runner) {
 		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
 
 		// Check if the server is already running
-		p, err := runner.GetRunningServer(myHost)
+		s.log.Infof("Looking for a running instance of %s on port %d", mode, myPort)
+		p, err := runner.GetRunningServer(myHostDir)
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -348,7 +353,9 @@ func (s *Service) startRunning(runner Runner) {
 
 	runArangod := func(serverPortOffset int, mode string, processVar *Process, runProcess *bool) {
 		restart := 0
+		recentFailures := 0
 		for {
+			startTime := time.Now()
 			p, err := startArangod(serverPortOffset, mode, restart)
 			if err != nil {
 				s.log.Errorf("Error while starting %s: %#v", mode, err)
@@ -367,11 +374,24 @@ func (s *Service) startRunning(runner Runner) {
 			}()
 			p.Wait()
 			cancel()
+			uptime := time.Since(startTime)
+			if uptime < time.Second*30 {
+				recentFailures++
+			} else {
+				recentFailures = 0
+			}
 
-			s.log.Infof("%s has terminated", mode)
+			s.log.Infof("%s has terminated in %s (recent failures: %d)", mode, uptime, recentFailures)
 			if s.stop {
 				break
 			}
+
+			if recentFailures >= maxRecentFailures {
+				s.log.Errorf("%s has failed %d times, giving up", mode, recentFailures)
+				s.stop = true
+				break
+			}
+
 			s.log.Infof("restarting %s", mode)
 			restart++
 		}
@@ -490,7 +510,7 @@ func (s *Service) Run(rootCtx context.Context) {
 		if s.RunningInDocker {
 			s.log.Fatalf("When running in docker, you must provide a --dockerEndpoint=<endpoint> and --docker=<image>")
 		}
-		runner = NewProcessRunner()
+		runner = NewProcessRunner(s.log)
 		s.log.Debug("Using process runner")
 	}
 
