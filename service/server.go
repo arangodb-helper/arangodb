@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 type HelloRequest struct {
@@ -59,7 +60,7 @@ func (s *Service) startHTTPServer() {
 			s.log.Fatalf("Failed to get HTTP port info: %#v", err)
 		}
 		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
-		s.log.Infof("Listening on %s (%s:%d)", addr, s.OwnAddress, hostPort)
+		s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			s.log.Errorf("Failed to listen on %s: %v", addr, err)
 		}

@@ -18,7 +18,8 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		masterPort, _ = strconv.Atoi(port)
 	}
 	for {
-		s.log.Infof("Contacting master %s:%d...", peerAddress, masterPort)
+		masterAddr := net.JoinHostPort(peerAddress, strconv.Itoa(masterPort))
+		s.log.Infof("Contacting master %s...", masterAddr)
 		_, hostPort, err := s.getHTTPServerPort()
 		if err != nil {
 			s.log.Fatalf("Failed to get HTTP server port: %#v", err)
@@ -31,8 +32,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		})
 		buf := bytes.Buffer{}
 		buf.Write(b)
-		addr := net.JoinHostPort(peerAddress, strconv.Itoa(masterPort))
-		r, e := http.Post(fmt.Sprintf("http://%s/hello", addr), "application/json", &buf)
+		r, e := http.Post(fmt.Sprintf("http://%s/hello", masterAddr), "application/json", &buf)
 		if e != nil {
 			s.log.Infof("Cannot start because of error from master: %v", e)
 			time.Sleep(time.Second)

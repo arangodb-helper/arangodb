@@ -161,7 +161,7 @@ var confFileTemplate = `# ArangoDB configuration file
 #
 
 [server]
-endpoint = tcp://0.0.0.0:%s
+endpoint = tcp://[::]:%s
 threads = %d
 
 [log]

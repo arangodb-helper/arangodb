@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,7 +81,7 @@ func (r *processRunner) CreateStartArangodbCommand(index int, masterIP string, m
 	}
 	addr := masterIP
 	if masterPort != "" {
-		addr = addr + ":" + masterPort
+		addr = net.JoinHostPort(addr, masterPort)
 	}
 	return fmt.Sprintf("arangodb --dataDir=./db%d --join %s", index, addr)
 }
