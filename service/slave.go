@@ -31,7 +31,8 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		})
 		buf := bytes.Buffer{}
 		buf.Write(b)
-		r, e := http.Post(fmt.Sprintf("http://%s:%d/hello", peerAddress, masterPort), "application/json", &buf)
+		addr := net.JoinHostPort(peerAddress, strconv.Itoa(masterPort))
+		r, e := http.Post(fmt.Sprintf("http://%s/hello", addr), "application/json", &buf)
 		if e != nil {
 			s.log.Infof("Cannot start because of error from master: %v", e)
 			time.Sleep(time.Second)
@@ -76,7 +77,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		}
 		time.Sleep(time.Second)
 		master := s.myPeers.Peers[0]
-		r, err := http.Get(fmt.Sprintf("http://%s:%d/hello", master.Address, master.Port))
+		r, err := http.Get(master.CreateStarterURL("/hello"))
 		if err != nil {
 			s.log.Errorf("Failed to connect to master: %v", err)
 			time.Sleep(time.Second * 2)
@@ -97,7 +98,7 @@ func (s *Service) sendMasterGoodbye() error {
 		// I'm the master, do nothing
 		return nil
 	}
-	u := fmt.Sprintf("http://%s:%d/goodbye", master.Address, master.Port)
+	u := master.CreateStarterURL("/goodbye")
 	s.log.Infof("Saying goodbye to master at %s", u)
 	req := GoodbyeRequest{SlaveID: s.ID}
 	data, err := json.Marshal(req)
