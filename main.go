@@ -50,6 +50,9 @@ var (
 	allPortOffsetsUnique bool
 	jwtSecretFile        string
 	sslKeyFile           string
+	sslAutoKeyFile       bool
+	sslAutoServerName    string
+	sslAutoOrganization  string
 	sslCAFile            string
 	dockerEndpoint       string
 	dockerImage          string
@@ -86,6 +89,9 @@ func init() {
 	f.StringVar(&jwtSecretFile, "jwtSecretFile", "", "name of a plain text file containing a JWT secret used for server authentication")
 	f.StringVar(&sslKeyFile, "sslKeyFile", "", "path of a PEM encoded file containing a server certificate + private key")
 	f.StringVar(&sslCAFile, "sslCAFile", "", "path of a PEM encoded file containing a CA certificate used for client authentication")
+	f.BoolVar(&sslAutoKeyFile, "sslAutoKeyFile", false, "If set, a self-signed certificate will be created and used as --sslKeyFile")
+	f.StringVar(&sslAutoServerName, "sslAutoServerName", "", "Server name put into self-signed certificate. See --sslAutoKeyFile")
+	f.StringVar(&sslAutoOrganization, "sslAutoOrganization", "ArangoDB", "Organization name put into self-signed certificate. See --sslAutoKeyFile")
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
@@ -206,6 +212,30 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 			log.Fatalf("Failed to read JWT secret file '%s': %v", jwtSecretFile, err)
 		}
 		jwtSecret = strings.TrimSpace(string(content))
+	}
+
+	// Auto create key file (if needed)
+	if sslAutoKeyFile {
+		if sslKeyFile != "" {
+			log.Fatalf("Cannot specify both --sslAutoKeyFile and --sslKeyFile")
+		}
+		hosts := []string{"arangod.server"}
+		if sslAutoServerName != "" {
+			hosts = []string{sslAutoServerName}
+		}
+		if ownAddress != "" {
+			hosts = append(hosts, ownAddress)
+		}
+		keyFile, err := service.CreateCertificate(service.CreateCertificateOptions{
+			Hosts:        hosts,
+			RSABits:      2048,
+			Organization: sslAutoOrganization,
+		}, dataDir)
+		if err != nil {
+			log.Fatalf("Failed to create keyfile: %v", err)
+		}
+		sslKeyFile = keyFile
+		log.Infof("Using self-signed certificate: %s", sslKeyFile)
 	}
 
 	// Interrupt signal:
