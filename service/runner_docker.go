@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -243,7 +244,7 @@ func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, ma
 	addr := masterIP
 	hostPort := 4000 + (portOffsetIncrement * (index - 1))
 	if masterPort != "" {
-		addr = addr + ":" + masterPort
+		addr = net.JoinHostPort(addr, masterPort)
 		masterPortI, _ := strconv.Atoi(masterPort)
 		hostPort = masterPortI + (portOffsetIncrement * (index - 1))
 	}

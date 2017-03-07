@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 type HelloRequest struct {
 	SlaveID      string // Unique ID of the slave
-	SlaveAddress string // Address used to reach the slave (if empty, this will be derived from the request)
+	SlaveAddress string // IP address used to reach the slave (if empty, this will be derived from the request)
 	SlavePort    int    // Port used to reach the slave
 	DataDir      string // Directory used for data by this slave
 }
@@ -58,7 +60,7 @@ func (s *Service) startHTTPServer() {
 			s.log.Fatalf("Failed to get HTTP port info: %#v", err)
 		}
 		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
-		s.log.Infof("Listening on %s (%s:%d)", addr, s.OwnAddress, hostPort)
+		s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			s.log.Errorf("Failed to listen on %s: %v", addr, err)
 		}
@@ -77,7 +79,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 		header := w.Header()
 		if len(s.myPeers.Peers) > 0 {
 			master := s.myPeers.Peers[0]
-			header.Add("Location", fmt.Sprintf("http://%s:%d/hello", master.Address, master.Port))
+			header.Add("Location", master.CreateStarterURL("/hello"))
 			w.WriteHeader(http.StatusTemporaryRedirect)
 		} else {
 			writeError(w, http.StatusBadRequest, "No master known.")
@@ -87,7 +89,12 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Learn my own address (if needed)
 	if len(s.myPeers.Peers) == 0 {
-		myself := normalizeHost(r.Host)
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot derive own host address: %v", err))
+			return
+		}
+		myself := normalizeHostName(host)
 		_, hostPort, _ := s.getHTTPServerPort()
 		s.myPeers.Peers = []Peer{
 			Peer{
@@ -118,9 +125,14 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 
 		slaveAddr := req.SlaveAddress
 		if slaveAddr == "" {
-			slaveAddr = normalizeHost(r.RemoteAddr)
+			host, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "SlaveAddress must be set.")
+				return
+			}
+			slaveAddr = normalizeHostName(host)
 		} else {
-			slaveAddr = normalizeHost(slaveAddr)
+			slaveAddr = normalizeHostName(slaveAddr)
 		}
 		slavePort := req.SlavePort
 

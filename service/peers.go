@@ -1,5 +1,12 @@
 package service
 
+import (
+	"fmt"
+	"net"
+	"strconv"
+	"strings"
+)
+
 type Peer struct {
 	ID         string // Unique of of the peer
 	Address    string // IP address of arangodb peer server
@@ -7,6 +14,13 @@ type Peer struct {
 	PortOffset int    // Offset to add to base ports for the various servers (agent, coordinator, dbserver)
 	DataDir    string // Directory holding my data
 	HasAgent   bool   // If set, this peer is running an agent
+}
+
+// CreateStarterURL creates a URL to the relative path to the starter on this peer.
+func (p Peer) CreateStarterURL(relPath string) string {
+	addr := net.JoinHostPort(p.Address, strconv.Itoa(p.Port))
+	relPath = strings.TrimPrefix(relPath, "/")
+	return fmt.Sprintf("http://%s/%s", addr, relPath)
 }
 
 // Peer information.

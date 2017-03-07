@@ -117,17 +117,11 @@ const (
 
 // A helper function:
 
-func normalizeHost(address string) string {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		host = strings.Split(address, ":")[0]
-	}
+func normalizeHostName(host string) string {
 	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsLoopback() {
-			return "127.0.0.1"
+			return "localhost"
 		}
-	} else if host == "localhost" {
-		return "127.0.0.1"
 	}
 	return host
 }
@@ -141,9 +135,9 @@ func (s *Service) testInstance(ctx context.Context, address string, port int) (u
 	instanceUp := make(chan bool)
 	go func() {
 		client := &http.Client{Timeout: time.Second * 10}
-
 		makeRequest := func() error {
-			url := fmt.Sprintf("http://%s:%d/_api/version", address, port)
+			addr := net.JoinHostPort(address, strconv.Itoa(port))
+			url := fmt.Sprintf("http://%s/_api/version", addr)
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
 				return maskAny(err)
@@ -178,24 +172,6 @@ func (s *Service) testInstance(ctx context.Context, address string, port int) (u
 	}
 }
 
-var confFileTemplate = `# ArangoDB configuration file
-#
-# Documentation:
-# https://docs.arangodb.com/Manual/Administration/Configuration/
-#
-
-[server]
-endpoint = tcp://0.0.0.0:%s
-threads = %d
-%s 
-
-[log]
-level = %s
-
-[javascript]
-v8-contexts = %d
-`
-
 func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, mode string) (args []string, configVolumes []Volume) {
 	hostConfFileName := filepath.Join(myHostDir, "arangod.conf")
 	containerConfFileName := filepath.Join(myContainerDir, "arangod.conf")
@@ -226,7 +202,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		serverSection := &configSection{
 			Name: "server",
 			Settings: map[string]string{
-				"endpoint":       fmt.Sprintf("tcp://0.0.0.0:%s", myPort),
+				"endpoint":       fmt.Sprintf("tcp://[::]:%s", myPort),
 				"threads":        threads,
 				"authentication": "false",
 			},
@@ -279,11 +255,12 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	if s.ServerThreads != 0 {
 		args = append(args, "--server.threads", strconv.Itoa(s.ServerThreads))
 	}
+	myTCPURL := "tcp://" + net.JoinHostPort(myAddress, myPort)
 	switch mode {
 	case "agent":
 		args = append(args,
 			"--agency.activate", "true",
-			"--agency.my-address", fmt.Sprintf("tcp://%s:%s", myAddress, myPort),
+			"--agency.my-address", myTCPURL,
 			"--agency.size", strconv.Itoa(s.AgencySize),
 			"--agency.supervision", "true",
 			"--foxx.queues", "false",
@@ -293,23 +270,23 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			if p.HasAgent && p.ID != s.ID {
 				args = append(args,
 					"--agency.endpoint",
-					fmt.Sprintf("tcp://%s:%d", p.Address, s.MasterPort+p.PortOffset+portOffsetAgent),
+					fmt.Sprintf("tcp://%s", net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+portOffsetAgent))),
 				)
 			}
 		}
 	case "dbserver":
 		args = append(args,
-			"--cluster.my-address", fmt.Sprintf("tcp://%s:%s", myAddress, myPort),
+			"--cluster.my-address", myTCPURL,
 			"--cluster.my-role", "PRIMARY",
-			"--cluster.my-local-info", fmt.Sprintf("tcp://%s:%s", myAddress, myPort),
+			"--cluster.my-local-info", myTCPURL,
 			"--foxx.queues", "false",
 			"--server.statistics", "true",
 		)
 	case "coordinator":
 		args = append(args,
-			"--cluster.my-address", fmt.Sprintf("tcp://%s:%s", myAddress, myPort),
+			"--cluster.my-address", myTCPURL,
 			"--cluster.my-role", "COORDINATOR",
-			"--cluster.my-local-info", fmt.Sprintf("tcp://%s:%s", myAddress, myPort),
+			"--cluster.my-local-info", myTCPURL,
 			"--foxx.queues", "true",
 			"--server.statistics", "true",
 		)
@@ -319,7 +296,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			p := s.myPeers.Peers[i]
 			args = append(args,
 				"--cluster.agency-endpoint",
-				fmt.Sprintf("tcp://%s:%d", p.Address, s.MasterPort+p.PortOffset+portOffsetAgent),
+				fmt.Sprintf("tcp://%s", net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+portOffsetAgent))),
 			)
 		}
 	}
