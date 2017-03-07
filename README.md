@@ -134,6 +134,65 @@ Usually one would use the Docker image `arangodb/arangodb`.
 `containerName` is the name of a Docker container that is used to run the
 executable. This argument is required when running the executable in docker.
 
+Authentication options
+----------------------
+
+The arango starter by default creates a cluster that uses no authentication.
+
+To create a cluster that uses authentication, create a file containing a random JWT secret (single line)
+and pass it through the `--jwtSecretFile` option.
+
+For example:
+
+```
+echo "MakeThisSecretMuchStronger" > jwtSecret 
+arangodb --jwtSecretFile=./jwtSecret
+```
+
+All starters used in the cluster must have the same JWT secret.
+
+SSL options
+-----------
+
+The arango starter by default creates a cluster that uses no unencrypted connections (no SSL).
+
+To create a cluster that uses encrypted connections, you can use an existing server key file 
+or let the starter create one for you.
+
+To use an existing server key file use the `--sslKeyFile` option like this:
+
+```
+arangodb --sslKeyFile=myServer.key
+```
+
+Go to the [SSL manual](https://docs.arangodb.com/3.1/Manual/Administration/Configuration/SSL.html) for more
+information on how to create a server key file.
+
+To let the starter created a self-signed server key file, use the `--sslAutoKeyFile` option like this:
+
+```
+arangodb --sslAutoKeyFile
+```
+
+All starters used to make a cluster must be using SSL or not.
+You cannot have one starter using SSL and another not using SSL.
+
+Note that all starters can use different server key files.
+
+Additional SSL options:
+
+* `--sslCAFile path`
+
+Configure the servers to require a client certificate in their communication to the servers using the CA certificate in a file with given path.
+
+* `--sslAutoServerName name` 
+
+name of the server that will be used in the self-signed certificate created by the `--sslAutoKeyFile` option.
+
+* `--sslAutoOrganization name` 
+
+name of the server that will be used in the self-signed certificate created by the `--sslAutoKeyFile` option.
+
 Esoteric options
 ----------------
 
@@ -222,8 +281,6 @@ Future plans
 
 * bundle this program with the usual distribution
 * make port usage configurable
-* support SSL
-* support authentication
 
 Technical explanation as to what happens
 ----------------------------------------
