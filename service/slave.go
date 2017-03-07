@@ -29,6 +29,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 			SlaveID:      s.ID,
 			SlaveAddress: s.OwnAddress,
 			SlavePort:    hostPort,
+			IsSecure:     s.IsSecure(),
 		})
 		buf := bytes.Buffer{}
 		buf.Write(b)

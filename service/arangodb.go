@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
@@ -35,6 +36,8 @@ type ServiceConfig struct {
 	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
 	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
 	JwtSecret            string
+	SslKeyFile           string // Path containing an x509 certificate + private key to be used by the servers.
+	SslCAFile            string // Path containing an x509 CA certificate used to authenticate clients.
 
 	DockerContainer  string // Name of the container running this process
 	DockerEndpoint   string // Where to reach the docker daemon
@@ -131,13 +134,27 @@ func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
 }
 
+// IsSecure returns true when the cluster is using SSL for connections, false otherwise.
+func (s *Service) IsSecure() bool {
+	return s.SslKeyFile != ""
+}
+
 func (s *Service) testInstance(ctx context.Context, address string, port int) (up, cancelled bool) {
 	instanceUp := make(chan bool)
 	go func() {
 		client := &http.Client{Timeout: time.Second * 10}
+		scheme := "http"
+		if s.IsSecure() {
+			scheme = "https"
+			client.Transport = &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}
+		}
 		makeRequest := func() error {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
-			url := fmt.Sprintf("http://%s/_api/version", addr)
+			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
 				return maskAny(err)
@@ -175,6 +192,10 @@ func (s *Service) testInstance(ctx context.Context, address string, port int) (u
 func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, mode string) (args []string, configVolumes []Volume) {
 	hostConfFileName := filepath.Join(myHostDir, "arangod.conf")
 	containerConfFileName := filepath.Join(myContainerDir, "arangod.conf")
+	scheme := "tcp"
+	if s.IsSecure() {
+		scheme = "ssl"
+	}
 
 	if runtime.GOOS != "linux" {
 		configVolumes = append(configVolumes, Volume{
@@ -202,7 +223,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		serverSection := &configSection{
 			Name: "server",
 			Settings: map[string]string{
-				"endpoint":       fmt.Sprintf("tcp://[::]:%s", myPort),
+				"endpoint":       fmt.Sprintf("%s://[::]:%s", scheme, myPort),
 				"threads":        threads,
 				"authentication": "false",
 			},
@@ -225,6 +246,18 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 					"v8-contexts": v8Contexts,
 				},
 			},
+		}
+		if s.IsSecure() {
+			sslSection := &configSection{
+				Name: "ssl",
+				Settings: map[string]string{
+					"keyfile": s.SslKeyFile,
+				},
+			}
+			if s.SslCAFile != "" {
+				sslSection.Settings["cafile"] = s.SslCAFile
+			}
+			config = append(config, sslSection)
 		}
 
 		out, e := os.Create(hostConfFileName)
@@ -255,7 +288,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	if s.ServerThreads != 0 {
 		args = append(args, "--server.threads", strconv.Itoa(s.ServerThreads))
 	}
-	myTCPURL := "tcp://" + net.JoinHostPort(myAddress, myPort)
+	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch mode {
 	case "agent":
 		args = append(args,
@@ -270,7 +303,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			if p.HasAgent && p.ID != s.ID {
 				args = append(args,
 					"--agency.endpoint",
-					fmt.Sprintf("tcp://%s", net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+portOffsetAgent))),
+					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+portOffsetAgent))),
 				)
 			}
 		}
@@ -296,7 +329,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			p := s.myPeers.Peers[i]
 			args = append(args,
 				"--cluster.agency-endpoint",
-				fmt.Sprintf("tcp://%s", net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+portOffsetAgent))),
+				fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+portOffsetAgent))),
 			)
 		}
 	}

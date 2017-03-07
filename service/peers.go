@@ -14,6 +14,7 @@ type Peer struct {
 	PortOffset int    // Offset to add to base ports for the various servers (agent, coordinator, dbserver)
 	DataDir    string // Directory holding my data
 	HasAgent   bool   // If set, this peer is running an agent
+	IsSecure   bool   // If set, servers started by this peer are using an SSL connection
 }
 
 // CreateStarterURL creates a URL to the relative path to the starter on this peer.

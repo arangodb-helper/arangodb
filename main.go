@@ -49,6 +49,8 @@ var (
 	serverThreads        int
 	allPortOffsetsUnique bool
 	jwtSecretFile        string
+	sslKeyFile           string
+	sslCAFile            string
 	dockerEndpoint       string
 	dockerImage          string
 	dockerUser           string
@@ -82,6 +84,8 @@ func init() {
 	f.BoolVar(&dockerPrivileged, "dockerPrivileged", false, "Run containers with --privileged")
 	f.BoolVar(&allPortOffsetsUnique, "uniquePortOffsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
 	f.StringVar(&jwtSecretFile, "jwtSecretFile", "", "name of a plain text file containing a JWT secret used for server authentication")
+	f.StringVar(&sslKeyFile, "sslKeyFile", "", "path of a PEM encoded file containing a server certificate + private key")
+	f.StringVar(&sslCAFile, "sslCAFile", "", "path of a PEM encoded file containing a CA certificate used for client authentication")
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
@@ -227,6 +231,8 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		ServerThreads:        serverThreads,
 		AllPortOffsetsUnique: allPortOffsetsUnique,
 		JwtSecret:            jwtSecret,
+		SslKeyFile:           sslKeyFile,
+		SslCAFile:            sslCAFile,
 		RunningInDocker:      os.Getenv("RUNNING_IN_DOCKER") == "true",
 		DockerContainer:      dockerContainer,
 		DockerEndpoint:       dockerEndpoint,
