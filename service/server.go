@@ -17,6 +17,7 @@ type HelloRequest struct {
 	SlaveAddress string // IP address used to reach the slave (if empty, this will be derived from the request)
 	SlavePort    int    // Port used to reach the slave
 	DataDir      string // Directory used for data by this slave
+	IsSecure     bool   // If set, servers started by this peer are using an SSL connection
 }
 
 type GoodbyeRequest struct {
@@ -40,6 +41,7 @@ type ServerProcess struct {
 	ProcessID   int    `json:"pid,omitempty"`          // PID of the process (0 when running in docker)
 	ContainerID string `json:"container-id,omitempty"` // ID of docker container running the server
 	ContainerIP string `json:"container-ip,omitempty"` // IP address of docker container running the server
+	IsSecure    bool   `json:"is-secure,omitempty"`    // If set, this server is using an SSL connection
 }
 
 // startHTTPServer initializes and runs the HTTP server.
@@ -104,6 +106,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				PortOffset: 0,
 				DataDir:    s.DataDir,
 				HasAgent:   true,
+				IsSecure:   s.IsSecure(),
 			},
 		}
 		s.log.Infof("Added master '%s': %s, portOffset: %d", s.myPeers.Peers[0].ID, s.myPeers.Peers[0].Address, s.myPeers.Peers[0].PortOffset)
@@ -152,6 +155,12 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Check IsSecure, cannot mix secure / non-secure
+		if req.IsSecure != s.IsSecure() {
+			writeError(w, http.StatusBadRequest, "Cannot mix secure / non-secure peers.")
+			return
+		}
+
 		// If slaveID already known, then return data right away.
 		_, idFound := s.myPeers.PeerByID(req.SlaveID)
 		if idFound {
@@ -180,6 +189,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				PortOffset: s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique),
 				DataDir:    req.DataDir,
 				HasAgent:   len(s.myPeers.Peers) < s.AgencySize,
+				IsSecure:   req.IsSecure,
 			}
 			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
 			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
@@ -261,6 +271,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
 				ContainerIP: p.ContainerIP(),
+				IsSecure:    s.IsSecure(),
 			})
 		}
 		if p := s.servers.coordinatorProc; p != nil {
@@ -271,6 +282,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
 				ContainerIP: p.ContainerIP(),
+				IsSecure:    s.IsSecure(),
 			})
 		}
 		if p := s.servers.dbserverProc; p != nil {
@@ -281,6 +293,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
 				ContainerIP: p.ContainerIP(),
+				IsSecure:    s.IsSecure(),
 			})
 		}
 	}
