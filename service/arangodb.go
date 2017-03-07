@@ -34,6 +34,7 @@ type ServiceConfig struct {
 	Verbose              bool
 	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
 	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
+	JwtSecret            string
 
 	DockerContainer  string // Name of the container running this process
 	DockerEndpoint   string // Where to reach the docker daemon
@@ -130,15 +131,32 @@ func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
 }
 
-func testInstance(ctx context.Context, address string, port int) (up, cancelled bool) {
+func (s *Service) testInstance(ctx context.Context, address string, port int) (up, cancelled bool) {
 	instanceUp := make(chan bool)
 	go func() {
 		client := &http.Client{Timeout: time.Second * 10}
-		for i := 0; i < 300; i++ {
+		makeRequest := func() error {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 			url := fmt.Sprintf("http://%s/_api/version", addr)
-			r, e := client.Get(url)
-			if e == nil && r != nil && r.StatusCode == 200 {
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				return maskAny(err)
+			}
+			if err := addJwtHeader(req, s.JwtSecret); err != nil {
+				return maskAny(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return maskAny(err)
+			}
+			if resp.StatusCode != 200 {
+				return maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+			}
+			return nil
+		}
+
+		for i := 0; i < 300; i++ {
+			if err := makeRequest(); err == nil {
 				instanceUp <- true
 				break
 			}
@@ -154,23 +172,6 @@ func testInstance(ctx context.Context, address string, port int) (up, cancelled 
 	}
 }
 
-var confFileTemplate = `# ArangoDB configuration file
-#
-# Documentation:
-# https://docs.arangodb.com/Manual/Administration/Configuration/
-#
-
-[server]
-endpoint = tcp://[::]:%s
-threads = %d
-
-[log]
-level = %s
-
-[javascript]
-v8-contexts = %d
-`
-
 func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, mode string) (args []string, configVolumes []Volume) {
 	hostConfFileName := filepath.Join(myHostDir, "arangod.conf")
 	containerConfFileName := filepath.Join(myContainerDir, "arangod.conf")
@@ -184,20 +185,57 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	}
 
 	if _, err := os.Stat(hostConfFileName); os.IsNotExist(err) {
+		var threads, v8Contexts string
+		logLevel := "INFO"
+		switch mode {
+		// Parameters are: port, server threads, log level, v8-contexts
+		case "agent":
+			threads = "8"
+			v8Contexts = "1"
+		case "dbserver":
+			threads = "4"
+			v8Contexts = "4"
+		case "coordinator":
+			threads = "16"
+			v8Contexts = "4"
+		}
+		serverSection := &configSection{
+			Name: "server",
+			Settings: map[string]string{
+				"endpoint":       fmt.Sprintf("tcp://[::]:%s", myPort),
+				"threads":        threads,
+				"authentication": "false",
+			},
+		}
+		if s.JwtSecret != "" {
+			serverSection.Settings["authentication"] = "true"
+			serverSection.Settings["jwt-secret"] = s.JwtSecret
+		}
+		config := configFile{
+			serverSection,
+			&configSection{
+				Name: "log",
+				Settings: map[string]string{
+					"level": logLevel,
+				},
+			},
+			&configSection{
+				Name: "javascript",
+				Settings: map[string]string{
+					"v8-contexts": v8Contexts,
+				},
+			},
+		}
+
 		out, e := os.Create(hostConfFileName)
 		if e != nil {
 			s.log.Fatalf("Could not create configuration file %s, error: %#v", hostConfFileName, e)
 		}
-		switch mode {
-		// Parameters are: port, server threads, log level, v8-contexts
-		case "agent":
-			fmt.Fprintf(out, confFileTemplate, myPort, 8, "INFO", 1)
-		case "dbserver":
-			fmt.Fprintf(out, confFileTemplate, myPort, 4, "INFO", 4)
-		case "coordinator":
-			fmt.Fprintf(out, confFileTemplate, myPort, 16, "INFO", 4)
-		}
+		_, err := config.WriteTo(out)
 		out.Close()
+		if err != nil {
+			s.log.Fatalf("Cannot create config file: %v", err)
+		}
 	}
 	args = make([]string, 0, 40)
 	executable := s.ArangodExecutable
@@ -213,7 +251,6 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps")),
 		"--log.file", slasher(filepath.Join(myContainerDir, "arangod.log")),
 		"--log.force-direct", "false",
-		"--server.authentication", "false",
 	)
 	if s.ServerThreads != 0 {
 		args = append(args, "--server.threads", strconv.Itoa(s.ServerThreads))
@@ -319,7 +356,7 @@ func (s *Service) startRunning(runner Runner) {
 		if p != nil {
 			s.log.Infof("%s seems to be running already, checking port %d...", mode, myPort)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-			up, _ := testInstance(ctx, myHost, myPort)
+			up, _ := s.testInstance(ctx, myHost, myPort)
 			cancel()
 			if up {
 				s.log.Infof("%s is already running on %d. No need to start anything.", mode, myPort)
@@ -360,7 +397,7 @@ func (s *Service) startRunning(runner Runner) {
 			*processVar = p
 			ctx, cancel := context.WithCancel(s.ctx)
 			go func() {
-				if up, cancelled := testInstance(ctx, myHost, s.MasterPort+portOffset+serverPortOffset); !cancelled {
+				if up, cancelled := s.testInstance(ctx, myHost, s.MasterPort+portOffset+serverPortOffset); !cancelled {
 					if up {
 						s.log.Infof("%s up and running.", mode)
 					} else {

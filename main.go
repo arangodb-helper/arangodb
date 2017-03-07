@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -47,6 +48,7 @@ var (
 	verbose              bool
 	serverThreads        int
 	allPortOffsetsUnique bool
+	jwtSecretFile        string
 	dockerEndpoint       string
 	dockerImage          string
 	dockerUser           string
@@ -79,6 +81,7 @@ func init() {
 	f.BoolVar(&dockerNetHost, "dockerNetHost", false, "Run containers with --net=host")
 	f.BoolVar(&dockerPrivileged, "dockerPrivileged", false, "Run containers with --privileged")
 	f.BoolVar(&allPortOffsetsUnique, "uniquePortOffsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
+	f.StringVar(&jwtSecretFile, "jwtSecretFile", "", "name of a plain text file containing a JWT secret used for server authentication")
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
@@ -191,6 +194,16 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		log.Fatalf("Cannot create data directory %s because %v, giving up.", dataDir, err)
 	}
 
+	// Read jwtSecret (if any)
+	var jwtSecret string
+	if jwtSecretFile != "" {
+		content, err := ioutil.ReadFile(jwtSecretFile)
+		if err != nil {
+			log.Fatalf("Failed to read JWT secret file '%s': %v", jwtSecretFile, err)
+		}
+		jwtSecret = strings.TrimSpace(string(content))
+	}
+
 	// Interrupt signal:
 	sigChannel := make(chan os.Signal)
 	rootCtx, cancel := context.WithCancel(context.Background())
@@ -213,6 +226,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		Verbose:              verbose,
 		ServerThreads:        serverThreads,
 		AllPortOffsetsUnique: allPortOffsetsUnique,
+		JwtSecret:            jwtSecret,
 		RunningInDocker:      os.Getenv("RUNNING_IN_DOCKER") == "true",
 		DockerContainer:      dockerContainer,
 		DockerEndpoint:       dockerEndpoint,
