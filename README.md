@@ -62,15 +62,10 @@ other installation files automatically. If this fails, use the
 
 Running in Docker 
 -----------------
+You can run ArangoDBStarter using our ready made docker container. 
 
-The executable can be run inside Docker. In that case it will also run all 
-servers in a Docker container. 
-
-First make sure the docker images are build using:
-
-```
-make docker 
-```
+When using ArangoDBStarter in a Docker contairer it will also run all 
+servers in a Docker using the `arangodb/arangodb` container.
 
 When running in Docker it is important to care about the volume mappings on 
 the container. Typically you will start the executable in docker with the following
@@ -91,6 +86,14 @@ The executable will show the commands needed to run the other instances.
 Note that the commands above create a docker volume. If you're running on Linux 
 it is also possible to use a host mapped volume. Make sure to map it on `/data`.
 
+If you want to create the `arangodb/arangodb-starter` docker container yourselves
+you can build it using:
+
+```
+make docker 
+```
+
+in this directory.
 Common options 
 --------------
 
