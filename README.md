@@ -1,10 +1,13 @@
 Starting an ArangoDB cluster the easy way
 =========================================
+Downloading Releases
+--------------------
+You can download precompiled ArangoDBStarter binaries via [the github releases page](https://github.com/arangodb-helper/ArangoDBStarter/releases).
 
 Building
 --------
 
-Just do
+If you want to compile ArangoDBStarter yourselves just do
 
 ```
 make local
