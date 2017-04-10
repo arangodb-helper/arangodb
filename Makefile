@@ -1,7 +1,10 @@
 PROJECT := ArangoDBStarter
 SCRIPTDIR := $(shell pwd)
 ROOTDIR := $(shell cd $(SCRIPTDIR) && pwd)
-VERSION:= $(shell cat $(ROOTDIR)/VERSION)
+VERSION := $(shell cat $(ROOTDIR)/VERSION)
+VERSION_MAJOR_MINOR_PATCH := $(shell echo $(VERSION) | cut -f 1 -d '+')
+VERSION_MAJOR_MINOR := $(shell echo $(VERSION_MAJOR_MINOR_PATCH) | cut -f 1,2 -d '.')
+VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
 DOCKERCLI := $(shell which docker)
 
@@ -98,8 +101,12 @@ endif
 
 docker-push-version: docker
 	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
-	docker push arangodb/arangodb-starter:$(VERSION)
+	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
+	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR)
 	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:latest
+	docker push arangodb/arangodb-starter:$(VERSION)
+	docker push arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
+	docker push arangodb/arangodb-starter:$(VERSION_MAJOR)
 	docker push arangodb/arangodb-starter:latest
 
 $(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
