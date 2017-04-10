@@ -99,6 +99,8 @@ endif
 docker-push-version: docker
 	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
 	docker push arangodb/arangodb-starter:$(VERSION)
+	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:latest
+	docker push arangodb/arangodb-starter:latest
 
 $(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
 	GOPATH=$(GOBUILDDIR) go build -o $(RELEASE) $(REPOPATH)/tools/release
