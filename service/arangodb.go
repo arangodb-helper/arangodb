@@ -430,9 +430,25 @@ func (s *Service) startRunning(runner Runner) {
 			*processVar = p
 			ctx, cancel := context.WithCancel(s.ctx)
 			go func() {
-				if up, cancelled := s.testInstance(ctx, myHost, s.MasterPort+portOffset+serverPortOffset); !cancelled {
+				port := s.MasterPort + portOffset + serverPortOffset
+				if up, cancelled := s.testInstance(ctx, myHost, port); !cancelled {
 					if up {
 						s.log.Infof("%s up and running.", mode)
+						if mode == "coordinator" {
+							hostPort, err := p.HostPort(port)
+							if err != nil {
+								if id := p.ContainerID(); id != "" {
+									s.log.Infof("%s can only be accessed from inside a container.", mode)
+								}
+							} else {
+								scheme := "http"
+								if myPeer.IsSecure {
+									scheme = "https"
+								}
+								ip := myPeer.Address
+								s.log.Infof("%s can be accessed via %s://%s:%d.", mode, scheme, ip, hostPort)
+							}
+						}
 					} else {
 						s.log.Warningf("%s not ready after 5min!", mode)
 					}

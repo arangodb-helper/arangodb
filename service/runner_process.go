@@ -111,6 +111,11 @@ func (p *process) ContainerIP() string {
 	return ""
 }
 
+// HostPort returns the port on the host that is used to access the given port of the process.
+func (p *process) HostPort(containerPort int) (int, error) {
+	return containerPort, nil
+}
+
 func (p *process) Wait() {
 	if proc := p.p; proc != nil {
 		p.log.Debugf("Waiting on %d", proc.Pid)

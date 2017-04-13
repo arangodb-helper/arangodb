@@ -370,6 +370,20 @@ func (p *dockerContainer) ContainerIP() string {
 	return ""
 }
 
+// HostPort returns the port on the host that is used to access the given port of the process.
+func (p *dockerContainer) HostPort(containerPort int) (int, error) {
+	if hostConfig := p.container.HostConfig; hostConfig != nil {
+		if hostConfig.NetworkMode == "host" {
+			return containerPort, nil
+		}
+		dockerPort := docker.Port(fmt.Sprintf("%d/tcp", containerPort))
+		if binding, ok := hostConfig.PortBindings[dockerPort]; ok && len(binding) > 0 {
+			return strconv.Atoi(binding[0].HostPort)
+		}
+	}
+	return 0, fmt.Errorf("Cannot find port mapping.")
+}
+
 func (p *dockerContainer) Wait() {
 	p.client.WaitContainer(p.container.ID)
 }
