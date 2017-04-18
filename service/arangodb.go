@@ -442,11 +442,14 @@ func (s *Service) startRunning(runner Runner) {
 								}
 							} else {
 								scheme := "http"
+								arangoshScheme := "tcp"
 								if myPeer.IsSecure {
 									scheme = "https"
+									arangoshScheme = "ssl"
 								}
 								ip := myPeer.Address
-								s.log.Infof("%s can be accessed via %s://%s:%d.", mode, scheme, ip, hostPort)
+								s.log.Infof("Your cluster can now be accessed with a browser at `%s://%s:%d` or", scheme, ip, hostPort)
+								s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", arangoshScheme, ip, hostPort)
 							}
 						}
 					} else {
