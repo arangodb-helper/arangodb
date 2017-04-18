@@ -32,6 +32,8 @@ type Process interface {
 	ContainerID() string
 	// ContainerIP returns the IP address of the docker container that runs the process.
 	ContainerIP() string
+	// HostPort returns the port on the host that is used to access the given port of the process.
+	HostPort(containerPort int) (int, error)
 
 	// Wait until the process has terminated
 	Wait()

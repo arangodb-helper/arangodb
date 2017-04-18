@@ -430,9 +430,28 @@ func (s *Service) startRunning(runner Runner) {
 			*processVar = p
 			ctx, cancel := context.WithCancel(s.ctx)
 			go func() {
-				if up, cancelled := s.testInstance(ctx, myHost, s.MasterPort+portOffset+serverPortOffset); !cancelled {
+				port := s.MasterPort + portOffset + serverPortOffset
+				if up, cancelled := s.testInstance(ctx, myHost, port); !cancelled {
 					if up {
 						s.log.Infof("%s up and running.", mode)
+						if mode == "coordinator" {
+							hostPort, err := p.HostPort(port)
+							if err != nil {
+								if id := p.ContainerID(); id != "" {
+									s.log.Infof("%s can only be accessed from inside a container.", mode)
+								}
+							} else {
+								scheme := "http"
+								arangoshScheme := "tcp"
+								if myPeer.IsSecure {
+									scheme = "https"
+									arangoshScheme = "ssl"
+								}
+								ip := myPeer.Address
+								s.log.Infof("Your cluster can now be accessed with a browser at `%s://%s:%d` or", scheme, ip, hostPort)
+								s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", arangoshScheme, ip, hostPort)
+							}
+						}
 					} else {
 						s.log.Warningf("%s not ready after 5min!", mode)
 					}
