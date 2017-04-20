@@ -39,14 +39,14 @@ type ServiceConfig struct {
 	SslKeyFile           string // Path containing an x509 certificate + private key to be used by the servers.
 	SslCAFile            string // Path containing an x509 CA certificate used to authenticate clients.
 
-	DockerContainer  string // Name of the container running this process
-	DockerEndpoint   string // Where to reach the docker daemon
-	DockerImage      string // Name of Arangodb docker image
-	DockerUser       string
-	DockerGCDelay    time.Duration
-	DockerNetHost    bool
-	DockerPrivileged bool
-	RunningInDocker  bool
+	DockerContainer   string // Name of the container running this process
+	DockerEndpoint    string // Where to reach the docker daemon
+	DockerImage       string // Name of Arangodb docker image
+	DockerUser        string
+	DockerGCDelay     time.Duration
+	DockerNetworkMode string
+	DockerPrivileged  bool
+	RunningInDocker   bool
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -565,10 +565,14 @@ func (s *Service) Run(rootCtx context.Context) {
 		if s.OwnAddress == "" {
 			s.log.Fatal("OwnAddress must be specified")
 		}
-		hostPort, isNetHost, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainer, s.MasterPort)
+		hostPort, isNetHost, networkMode, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainer, s.MasterPort)
 		if err != nil {
 			s.log.Fatalf("Failed to detect port mapping: %#v", err)
 			return
+		}
+		if s.DockerNetworkMode == "" && networkMode != "" && networkMode != "default" {
+			s.log.Infof("Auto detected network mode: %s", networkMode)
+			s.DockerNetworkMode = networkMode
 		}
 		s.announcePort = hostPort
 		s.isNetHost = isNetHost
@@ -581,7 +585,7 @@ func (s *Service) Run(rootCtx context.Context) {
 	var runner Runner
 	if s.DockerEndpoint != "" && s.DockerImage != "" {
 		var err error
-		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer, s.DockerGCDelay, s.DockerNetHost, s.DockerPrivileged)
+		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer, s.DockerGCDelay, s.DockerNetworkMode, s.DockerPrivileged)
 		if err != nil {
 			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}
