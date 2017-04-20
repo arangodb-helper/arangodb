@@ -22,7 +22,7 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes on the local OS.
-func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, netHost, privileged bool) (Runner, error) {
+func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, networkMode string, privileged bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		return nil, maskAny(err)
@@ -35,7 +35,7 @@ func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom str
 		volumesFrom:  volumesFrom,
 		containerIDs: make(map[string]time.Time),
 		gcDelay:      gcDelay,
-		netHost:      netHost,
+		networkMode:  networkMode,
 		privileged:   privileged,
 	}, nil
 }
@@ -51,7 +51,7 @@ type dockerRunner struct {
 	containerIDs map[string]time.Time
 	gcOnce       sync.Once
 	gcDelay      time.Duration
-	netHost      bool
+	networkMode  string
 	privileged   bool
 }
 
@@ -173,8 +173,8 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 			opts.HostConfig.Binds = append(opts.HostConfig.Binds, bind)
 		}
 	}
-	if r.netHost {
-		opts.HostConfig.NetworkMode = "host"
+	if r.networkMode != "" && r.networkMode != "default" {
+		opts.HostConfig.NetworkMode = r.networkMode
 	} else {
 		for _, p := range ports {
 			dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
@@ -248,9 +248,15 @@ func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, ma
 		masterPortI, _ := strconv.Atoi(masterPort)
 		hostPort = masterPortI + (portOffsetIncrement * (index - 1))
 	}
+	var netArgs string
+	if r.networkMode == "" || r.networkMode == "default" {
+		netArgs = fmt.Sprintf("-p %d:4000", hostPort)
+	} else {
+		netArgs = fmt.Sprintf("--net=%s", r.networkMode)
+	}
 	lines := []string{
 		fmt.Sprintf("docker volume create arangodb%d &&", index),
-		fmt.Sprintf("docker run -it --name=adb%d --rm -p %d:4000 -v arangodb%d:/data -v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter", index, hostPort, index),
+		fmt.Sprintf("docker run -it --name=adb%d --rm %s -v arangodb%d:/data -v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter", index, netArgs, index),
 		fmt.Sprintf("--dockerContainer=adb%d --ownAddress=%s --join=%s", index, masterIP, addr),
 	}
 	return strings.Join(lines, " \\\n    ")

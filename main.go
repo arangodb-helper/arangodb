@@ -59,7 +59,8 @@ var (
 	dockerUser           string
 	dockerContainer      string
 	dockerGCDelay        time.Duration
-	dockerNetHost        bool
+	dockerNetHost        bool // Deprecated
+	dockerNetworkMode    string
 	dockerPrivileged     bool
 )
 
@@ -83,7 +84,8 @@ func init() {
 	f.StringVar(&dockerUser, "dockerUser", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainer, "dockerContainer", "", "name of the docker container that is running this process")
 	f.DurationVar(&dockerGCDelay, "dockerGCDelay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
-	f.BoolVar(&dockerNetHost, "dockerNetHost", false, "Run containers with --net=host")
+	f.BoolVar(&dockerNetHost, "dockerNetHost", false, "Run containers with --net=host. (deprecated, use --dockerNetworkMode=host instead)")
+	f.StringVar(&dockerNetworkMode, "dockerNetworkMode", "", "Run containers with --net=<value>")
 	f.BoolVar(&dockerPrivileged, "dockerPrivileged", false, "Run containers with --privileged")
 	f.BoolVar(&allPortOffsetsUnique, "uniquePortOffsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
 	f.StringVar(&jwtSecretFile, "jwtSecretFile", "", "name of a plain text file containing a JWT secret used for server authentication")
@@ -192,6 +194,13 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	if dockerImage != "" && rrPath != "" {
 		log.Fatal("Error: using --dockerImage and --rr is not possible.")
 	}
+	if dockerNetHost {
+		if dockerNetworkMode == "" {
+			dockerNetworkMode = "host"
+		} else if dockerNetworkMode != "host" {
+			log.Fatal("Error: cannot set --dockerNetHost and --dockerNetworkMode at the same time")
+		}
+	}
 	log.Debugf("Using %s as default arangod executable.", arangodExecutable)
 	log.Debugf("Using %s as default JS dir.", arangodJSstartup)
 
@@ -269,7 +278,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		DockerImage:          dockerImage,
 		DockerUser:           dockerUser,
 		DockerGCDelay:        dockerGCDelay,
-		DockerNetHost:        dockerNetHost,
+		DockerNetworkMode:    dockerNetworkMode,
 		DockerPrivileged:     dockerPrivileged,
 		ProjectVersion:       projectVersion,
 		ProjectBuild:         projectBuild,
