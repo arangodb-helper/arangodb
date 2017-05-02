@@ -31,6 +31,7 @@ type ServiceConfig struct {
 	RrPath               string
 	StartCoordinator     bool
 	StartDBserver        bool
+	StartLocalSlaves     bool // If set, start sufficient slave (Service's) locally.
 	DataDir              string
 	OwnAddress           string // IP address of used to reach this process
 	MasterAddress        string

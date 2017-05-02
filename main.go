@@ -43,6 +43,7 @@ var (
 	rrPath               string
 	startCoordinator     bool
 	startDBserver        bool
+	startLocalSlaves     bool
 	dataDir              string
 	ownAddress           string
 	masterAddress        string
@@ -75,6 +76,7 @@ func init() {
 	f.StringVar(&rrPath, "rr", "", "Path of rr")
 	f.BoolVar(&startCoordinator, "startCoordinator", true, "should a coordinator instance be started")
 	f.BoolVar(&startDBserver, "startDBserver", true, "should a dbserver instance be started")
+	f.BoolVar(&startLocalSlaves, "local", false, "If set, local slaves will be started to create a machine local (test) cluster")
 	f.StringVar(&dataDir, "dataDir", getEnvVar("DATA_DIR", "."), "directory to store all data")
 	f.StringVar(&ownAddress, "ownAddress", "", "address under which this server is reachable, needed for running arangodb in docker or the case of --agencySize 1 in the master")
 	f.StringVar(&masterAddress, "join", "", "join a cluster with master at address addr")
@@ -272,6 +274,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		RrPath:               rrPath,
 		StartCoordinator:     startCoordinator,
 		StartDBserver:        startDBserver,
+		StartLocalSlaves:     startLocalSlaves,
 		DataDir:              dataDir,
 		OwnAddress:           ownAddress,
 		MasterAddress:        masterAddress,

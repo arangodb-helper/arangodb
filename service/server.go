@@ -47,14 +47,15 @@ type ServerProcess struct {
 // startHTTPServer initializes and runs the HTTP server.
 // If will return directly after starting it.
 func (s *Service) startHTTPServer() {
-	http.HandleFunc("/hello", s.helloHandler)
-	http.HandleFunc("/goodbye", s.goodbyeHandler)
-	http.HandleFunc("/process", s.processListHandler)
-	http.HandleFunc("/logs/agent", s.agentLogsHandler)
-	http.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
-	http.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
-	http.HandleFunc("/version", s.versionHandler)
-	http.HandleFunc("/shutdown", s.shutdownHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/hello", s.helloHandler)
+	mux.HandleFunc("/goodbye", s.goodbyeHandler)
+	mux.HandleFunc("/process", s.processListHandler)
+	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
+	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
+	mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
+	mux.HandleFunc("/version", s.versionHandler)
+	mux.HandleFunc("/shutdown", s.shutdownHandler)
 
 	go func() {
 		containerPort, hostPort, err := s.getHTTPServerPort()
@@ -63,7 +64,7 @@ func (s *Service) startHTTPServer() {
 		}
 		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
 		s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
-		if err := http.ListenAndServe(addr, nil); err != nil {
+		if err := http.ListenAndServe(addr, mux); err != nil {
 			s.log.Errorf("Failed to listen on %s: %v", addr, err)
 		}
 	}()
