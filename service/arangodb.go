@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"crypto/tls"
@@ -24,8 +25,8 @@ import (
 type ServiceConfig struct {
 	ID                   string // Unique identifier of this peer
 	AgencySize           int
-	ArangodExecutable    string
-	ArangodJSstartup     string
+	ArangodPath          string
+	ArangodJSPath        string
 	MasterPort           int
 	RrPath               string
 	StartCoordinator     bool
@@ -65,6 +66,7 @@ type Service struct {
 	announcePort        int        // Port I can be reached on from the outside
 	isNetHost           bool       // Is this process running in a container with `--net=host` or running outside a container?
 	mutex               sync.Mutex // Mutex used to protect access to this datastructure
+	logMutex            sync.Mutex // Mutex used to synchronize server log output
 	allowSameDataDir    bool       // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
 	servers             struct {
 		agentProc       Process
@@ -109,14 +111,20 @@ const (
 )
 
 const (
-	portOffsetCoordinator = 1
-	portOffsetDBServer    = 2
-	portOffsetAgent       = 3
-	portOffsetIncrement   = 5 // {our http server, agent, coordinator, dbserver, reserved}
+	_portOffsetCoordinator = 1
+	_portOffsetDBServer    = 2
+	_portOffsetAgent       = 3
+	portOffsetIncrement    = 5 // {our http server, agent, coordinator, dbserver, reserved}
 )
 
 const (
-	maxRecentFailures = 100
+	minRecentFailuresForLog = 2   // Number of recent failures needed before a log file is shown.
+	maxRecentFailures       = 100 // Maximum number of recent failures before the starter gives up.
+)
+
+const (
+	confFileName = "arangod.conf"
+	logFileName  = "arangod.log"
 )
 
 // A helper function:
@@ -140,6 +148,36 @@ func (s *Service) IsSecure() bool {
 	return s.SslKeyFile != ""
 }
 
+// serverPort returns the port number on which my server of given type will listen.
+func (s *Service) serverPort(serverType ServerType) (int, error) {
+	myPeer, found := s.myPeers.PeerByID(s.ID)
+	if !found {
+		// Cannot find my own peer.
+		return 0, maskAny(fmt.Errorf("Cannot find peer %s", s.ID))
+	}
+	// Find log path
+	portOffset := myPeer.PortOffset
+	return s.MasterPort + portOffset + serverType.PortOffset(), nil
+}
+
+// serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
+func (s *Service) serverHostDir(serverType ServerType) (string, error) {
+	myPort, err := s.serverPort(serverType)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	return filepath.Join(s.DataDir, fmt.Sprintf("%s%d", serverType, myPort)), nil
+}
+
+// serverExecutable returns the path of the server's executable.
+func (s *Service) serverExecutable() string {
+	if s.RrPath != "" {
+		return s.RrPath
+	}
+	return s.ArangodPath
+}
+
+// testInstance checks the `up` status of an arangod server instance.
 func (s *Service) testInstance(ctx context.Context, address string, port int) (up bool, version string, cancelled bool) {
 	instanceUp := make(chan string)
 	go func() {
@@ -198,9 +236,10 @@ func (s *Service) testInstance(ctx context.Context, address string, port int) (u
 	}
 }
 
-func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, mode string) (args []string, configVolumes []Volume) {
-	hostConfFileName := filepath.Join(myHostDir, "arangod.conf")
-	containerConfFileName := filepath.Join(myContainerDir, "arangod.conf")
+// makeBaseArgs returns the command line arguments needed to run an arangod server of given type.
+func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, serverType ServerType) (args []string, configVolumes []Volume) {
+	hostConfFileName := filepath.Join(myHostDir, confFileName)
+	containerConfFileName := filepath.Join(myContainerDir, confFileName)
 	scheme := "tcp"
 	if s.IsSecure() {
 		scheme = "ssl"
@@ -217,15 +256,15 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	if _, err := os.Stat(hostConfFileName); os.IsNotExist(err) {
 		var threads, v8Contexts string
 		logLevel := "INFO"
-		switch mode {
+		switch serverType {
 		// Parameters are: port, server threads, log level, v8-contexts
-		case "agent":
+		case ServerTypeAgent:
 			threads = "8"
 			v8Contexts = "1"
-		case "dbserver":
+		case ServerTypeDBServer:
 			threads = "4"
 			v8Contexts = "4"
-		case "coordinator":
+		case ServerTypeCoordinator:
 			threads = "16"
 			v8Contexts = "4"
 		}
@@ -280,8 +319,8 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		}
 	}
 	args = make([]string, 0, 40)
-	executable := s.ArangodExecutable
-	jsStartup := s.ArangodJSstartup
+	executable := s.ArangodPath
+	jsStartup := s.ArangodJSPath
 	if s.RrPath != "" {
 		args = append(args, s.RrPath)
 	}
@@ -291,15 +330,15 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		"--database.directory", slasher(filepath.Join(myContainerDir, "data")),
 		"--javascript.startup-directory", slasher(jsStartup),
 		"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps")),
-		"--log.file", slasher(filepath.Join(myContainerDir, "arangod.log")),
+		"--log.file", slasher(filepath.Join(myContainerDir, logFileName)),
 		"--log.force-direct", "false",
 	)
 	if s.ServerThreads != 0 {
 		args = append(args, "--server.threads", strconv.Itoa(s.ServerThreads))
 	}
 	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
-	switch mode {
-	case "agent":
+	switch serverType {
+	case ServerTypeAgent:
 		args = append(args,
 			"--agency.activate", "true",
 			"--agency.my-address", myTCPURL,
@@ -312,11 +351,11 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			if p.HasAgent && p.ID != s.ID {
 				args = append(args,
 					"--agency.endpoint",
-					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+portOffsetAgent))),
+					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent))),
 				)
 			}
 		}
-	case "dbserver":
+	case ServerTypeDBServer:
 		args = append(args,
 			"--cluster.my-address", myTCPURL,
 			"--cluster.my-role", "PRIMARY",
@@ -324,7 +363,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			"--foxx.queues", "false",
 			"--server.statistics", "true",
 		)
-	case "coordinator":
+	case ServerTypeCoordinator:
 		args = append(args,
 			"--cluster.my-address", myTCPURL,
 			"--cluster.my-role", "COORDINATOR",
@@ -333,18 +372,19 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			"--server.statistics", "true",
 		)
 	}
-	if mode != "agent" {
+	if serverType != ServerTypeAgent {
 		for i := 0; i < s.AgencySize; i++ {
 			p := s.myPeers.Peers[i]
 			args = append(args,
 				"--cluster.agency-endpoint",
-				fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+portOffsetAgent))),
+				fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent))),
 			)
 		}
 	}
 	return
 }
 
+// writeCommand writes the command used to start a server in a file with given path.
 func (s *Service) writeCommand(filename string, executable string, args []string) {
 	content := strings.Join(args, " \\\n") + "\n"
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
@@ -354,160 +394,210 @@ func (s *Service) writeCommand(filename string, executable string, args []string
 	}
 }
 
+// addDataVolumes extends the list of volumes with given host+container pair if running on linux.
+func addDataVolumes(configVolumes []Volume, hostPath, containerPath string) []Volume {
+	if runtime.GOOS == "linux" {
+		return []Volume{
+			Volume{
+				HostPath:      hostPath,
+				ContainerPath: containerPath,
+				ReadOnly:      false,
+			},
+		}
+	}
+	return configVolumes
+}
+
+// startArangod starts a single Arango server of the given type.
+func (s *Service) startArangod(runner Runner, myHostAddress string, serverType ServerType, restart int) (Process, error) {
+	myPort, err := s.serverPort(serverType)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	myHostDir, err := s.serverHostDir(serverType)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
+	os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
+
+	// Check if the server is already running
+	s.log.Infof("Looking for a running instance of %s on port %d", serverType, myPort)
+	p, err := runner.GetRunningServer(myHostDir)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	if p != nil {
+		s.log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+		up, _, _ := s.testInstance(ctx, myHostAddress, myPort)
+		cancel()
+		if up {
+			s.log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
+			return p, nil
+		}
+		s.log.Infof("%s is not up on port %d. Terminating existing process and restarting it...", serverType, myPort)
+		p.Terminate()
+	}
+
+	s.log.Infof("Starting %s on port %d", serverType, myPort)
+	myContainerDir := runner.GetContainerDir(myHostDir)
+	args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHostAddress, strconv.Itoa(myPort), serverType)
+	vols = addDataVolumes(vols, myHostDir, myContainerDir)
+	s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), s.serverExecutable(), args)
+	containerNamePrefix := ""
+	if s.DockerContainer != "" {
+		containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainer)
+	}
+	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, s.ID, restart, myHostAddress, myPort)
+	ports := []int{myPort}
+	if p, err := runner.Start(args[0], args[1:], vols, ports, containerName, myHostDir); err != nil {
+		return nil, maskAny(err)
+	} else {
+		return p, nil
+	}
+}
+
+// showRecentLogs dumps the most recent log lines of the server of given type to the console.
+func (s *Service) showRecentLogs(serverType ServerType) {
+	myHostDir, err := s.serverHostDir(serverType)
+	if err != nil {
+		s.log.Errorf("Cannot find server host dir: %#v", err)
+		return
+	}
+	logPath := filepath.Join(myHostDir, logFileName)
+	logFile, err := os.Open(logPath)
+	if os.IsNotExist(err) {
+		s.log.Infof("Log file for %s is empty", serverType)
+	} else if err != nil {
+		s.log.Errorf("Cannot open log file for %s: %#v", serverType, err)
+	} else {
+		defer logFile.Close()
+		rd := bufio.NewReader(logFile)
+		lines := [20]string{}
+		maxLines := 0
+		for {
+			line, err := rd.ReadString('\n')
+			if line != "" || err == nil {
+				copy(lines[1:], lines[0:])
+				lines[0] = line
+				if maxLines < len(lines) {
+					maxLines++
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+		s.logMutex.Lock()
+		defer s.logMutex.Unlock()
+		s.log.Infof("## Start of %s log", serverType)
+		for i := maxLines - 1; i >= 0; i-- {
+			fmt.Println("\t" + strings.TrimSuffix(lines[i], "\n"))
+		}
+		s.log.Infof("## End of %s log", serverType)
+	}
+}
+
+// runArangod starts a single Arango server of the given type and keeps restarting it when needed.
+func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, processVar *Process, runProcess *bool) {
+	restart := 0
+	recentFailures := 0
+	for {
+		myHostAddress := myPeer.Address
+		startTime := time.Now()
+		p, err := s.startArangod(runner, myHostAddress, serverType, restart)
+		if err != nil {
+			s.log.Errorf("Error while starting %s: %#v", serverType, err)
+			break
+		}
+		*processVar = p
+		ctx, cancel := context.WithCancel(s.ctx)
+		go func() {
+			port, err := s.serverPort(serverType)
+			if err != nil {
+				s.log.Fatalf("Cannot collect serverPort: %#v", err)
+			}
+			if up, version, cancelled := s.testInstance(ctx, myHostAddress, port); !cancelled {
+				if up {
+					s.log.Infof("%s up and running (version %s).", serverType, version)
+					if serverType == ServerTypeCoordinator {
+						hostPort, err := p.HostPort(port)
+						if err != nil {
+							if id := p.ContainerID(); id != "" {
+								s.log.Infof("%s can only be accessed from inside a container.", serverType)
+							}
+						} else {
+							ip := myPeer.Address
+							urlSchemes := NewURLSchemes(myPeer.IsSecure)
+							s.log.Infof("Your cluster can now be accessed with a browser at `%s://%s:%d` or", urlSchemes.Browser, ip, hostPort)
+							s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
+						}
+					}
+				} else {
+					s.log.Warningf("%s not ready after 5min!", serverType)
+				}
+			}
+		}()
+		p.Wait()
+		cancel()
+		uptime := time.Since(startTime)
+		var isRecentFailure bool
+		if uptime < time.Second*30 {
+			recentFailures++
+			isRecentFailure = true
+		} else {
+			recentFailures = 0
+			isRecentFailure = false
+		}
+
+		if isRecentFailure {
+			s.log.Infof("%s has terminated, quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
+			if recentFailures >= minRecentFailuresForLog {
+				// Show logs of the server
+				s.showRecentLogs(serverType)
+			}
+			if recentFailures >= maxRecentFailures {
+				s.log.Errorf("%s has failed %d times, giving up", serverType, recentFailures)
+				s.stop = true
+				break
+			}
+		} else {
+			s.log.Infof("%s has terminated", serverType)
+		}
+		if s.stop {
+			break
+		}
+
+		s.log.Infof("restarting %s", serverType)
+		restart++
+	}
+}
+
+// startRunning starts all relevant servers and keeps the running.
 func (s *Service) startRunning(runner Runner) {
 	s.state = stateRunning
 	myPeer, ok := s.myPeers.PeerByID(s.ID)
 	if !ok {
 		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.ID)
 	}
-	portOffset := myPeer.PortOffset
-	myHost := myPeer.Address
-
-	var executable string
-	if s.RrPath != "" {
-		executable = s.RrPath
-	} else {
-		executable = s.ArangodExecutable
-	}
-
-	addDataVolumes := func(configVolumes []Volume, hostPath, containerPath string) []Volume {
-		if runtime.GOOS == "linux" {
-			return []Volume{
-				Volume{
-					HostPath:      hostPath,
-					ContainerPath: containerPath,
-					ReadOnly:      false,
-				},
-			}
-		}
-		return configVolumes
-	}
-
-	startArangod := func(serverPortOffset int, mode string, restart int) (Process, error) {
-		myPort := s.MasterPort + portOffset + serverPortOffset
-		myHostDir := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort))
-		os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
-		os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
-
-		// Check if the server is already running
-		s.log.Infof("Looking for a running instance of %s on port %d", mode, myPort)
-		p, err := runner.GetRunningServer(myHostDir)
-		if err != nil {
-			return nil, maskAny(err)
-		}
-		if p != nil {
-			s.log.Infof("%s seems to be running already, checking port %d...", mode, myPort)
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-			up, _, _ := s.testInstance(ctx, myHost, myPort)
-			cancel()
-			if up {
-				s.log.Infof("%s is already running on %d. No need to start anything.", mode, myPort)
-				return p, nil
-			}
-			s.log.Infof("%s is not up on port %d. Terminating existing process and restarting it...", mode, myPort)
-			p.Terminate()
-		}
-
-		s.log.Infof("Starting %s on port %d", mode, myPort)
-		myContainerDir := runner.GetContainerDir(myHostDir)
-		args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHost, strconv.Itoa(myPort), mode)
-		vols = addDataVolumes(vols, myHostDir, myContainerDir)
-		s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), executable, args)
-		containerNamePrefix := ""
-		if s.DockerContainer != "" {
-			containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainer)
-		}
-		containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, mode, s.ID, restart, myHost, myPort)
-		ports := []int{myPort}
-		if p, err := runner.Start(args[0], args[1:], vols, ports, containerName, myHostDir); err != nil {
-			return nil, maskAny(err)
-		} else {
-			return p, nil
-		}
-	}
-
-	runArangod := func(serverPortOffset int, mode string, processVar *Process, runProcess *bool) {
-		restart := 0
-		recentFailures := 0
-		for {
-			startTime := time.Now()
-			p, err := startArangod(serverPortOffset, mode, restart)
-			if err != nil {
-				s.log.Errorf("Error while starting %s: %#v", mode, err)
-				break
-			}
-			*processVar = p
-			ctx, cancel := context.WithCancel(s.ctx)
-			go func() {
-				port := s.MasterPort + portOffset + serverPortOffset
-				if up, version, cancelled := s.testInstance(ctx, myHost, port); !cancelled {
-					if up {
-						s.log.Infof("%s up and running (version %s).", mode, version)
-						if mode == "coordinator" {
-							hostPort, err := p.HostPort(port)
-							if err != nil {
-								if id := p.ContainerID(); id != "" {
-									s.log.Infof("%s can only be accessed from inside a container.", mode)
-								}
-							} else {
-								scheme := "http"
-								arangoshScheme := "tcp"
-								if myPeer.IsSecure {
-									scheme = "https"
-									arangoshScheme = "ssl"
-								}
-								ip := myPeer.Address
-								s.log.Infof("Your cluster can now be accessed with a browser at `%s://%s:%d` or", scheme, ip, hostPort)
-								s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", arangoshScheme, ip, hostPort)
-							}
-						}
-					} else {
-						s.log.Warningf("%s not ready after 5min!", mode)
-					}
-				}
-			}()
-			p.Wait()
-			cancel()
-			uptime := time.Since(startTime)
-			if uptime < time.Second*30 {
-				recentFailures++
-			} else {
-				recentFailures = 0
-			}
-
-			s.log.Infof("%s has terminated in %s (recent failures: %d)", mode, uptime, recentFailures)
-			if s.stop {
-				break
-			}
-
-			if recentFailures >= maxRecentFailures {
-				s.log.Errorf("%s has failed %d times, giving up", mode, recentFailures)
-				s.stop = true
-				break
-			}
-
-			s.log.Infof("restarting %s", mode)
-			restart++
-		}
-	}
 
 	// Start agent:
 	if s.needsAgent() {
 		runAlways := true
-		go runArangod(portOffsetAgent, "agent", &s.servers.agentProc, &runAlways)
+		go s.runArangod(runner, myPeer, ServerTypeAgent, &s.servers.agentProc, &runAlways)
+		time.Sleep(time.Second)
 	}
-	time.Sleep(time.Second)
 
 	// Start DBserver:
 	if s.StartDBserver {
-		go runArangod(portOffsetDBServer, "dbserver", &s.servers.dbserverProc, &s.StartDBserver)
+		go s.runArangod(runner, myPeer, ServerTypeDBServer, &s.servers.dbserverProc, &s.StartDBserver)
+		time.Sleep(time.Second)
 	}
-
-	time.Sleep(time.Second)
 
 	// Start Coordinator:
 	if s.StartCoordinator {
-		go runArangod(portOffsetCoordinator, "coordinator", &s.servers.coordinatorProc, &s.StartCoordinator)
+		go s.runArangod(runner, myPeer, ServerTypeCoordinator, &s.servers.coordinatorProc, &s.StartCoordinator)
 	}
 
 	for {
@@ -600,8 +690,8 @@ func (s *Service) Run(rootCtx context.Context) {
 		}
 		s.log.Debug("Using docker runner")
 		// Set executables to their image path's
-		s.ArangodExecutable = "/usr/sbin/arangod"
-		s.ArangodJSstartup = "/usr/share/arangodb3/js"
+		s.ArangodPath = "/usr/sbin/arangod"
+		s.ArangodJSPath = "/usr/share/arangodb3/js"
 		// Docker setup uses different volumes with same dataDir, allow that
 		s.allowSameDataDir = true
 	} else {
