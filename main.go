@@ -14,6 +14,7 @@ import (
 	"time"
 
 	service "github.com/arangodb/ArangoDBStarter/service"
+	homedir "github.com/mitchellh/go-homedir"
 	logging "github.com/op/go-logging"
 	"github.com/spf13/cobra"
 )
@@ -36,8 +37,8 @@ var (
 	log                  = logging.MustGetLogger(projectName)
 	id                   string
 	agencySize           int
-	arangodExecutable    string
-	arangodJSstartup     string
+	arangodPath          string
+	arangodJSPath        string
 	masterPort           int
 	rrPath               string
 	startCoordinator     bool
@@ -68,8 +69,8 @@ func init() {
 	f := cmdMain.Flags()
 	f.IntVar(&agencySize, "agencySize", 3, "Number of agents in the cluster")
 	f.StringVar(&id, "id", "", "Unique identifier of this peer")
-	f.StringVar(&arangodExecutable, "arangod", "/usr/sbin/arangod", "Path of arangod")
-	f.StringVar(&arangodJSstartup, "jsDir", "/usr/share/arangodb3/js", "Path of arango JS")
+	f.StringVar(&arangodPath, "arangod", "/usr/sbin/arangod", "Path of arangod")
+	f.StringVar(&arangodJSPath, "jsDir", "/usr/share/arangodb3/js", "Path of arango JS")
 	f.IntVar(&masterPort, "masterPort", 4000, "Port to listen on for other arangodb's to join")
 	f.StringVar(&rrPath, "rr", "", "Path of rr")
 	f.BoolVar(&startCoordinator, "startCoordinator", true, "should a coordinator instance be started")
@@ -157,12 +158,11 @@ func findExecutable() {
 	}
 	for _, p := range pathList {
 		if _, e := os.Stat(filepath.Clean(filepath.FromSlash(p))); e == nil || !os.IsNotExist(e) {
-			arangodExecutable, _ = filepath.Abs(filepath.FromSlash(p))
+			arangodPath, _ = filepath.Abs(filepath.FromSlash(p))
 			if p == "build/bin/arangod" {
-				arangodJSstartup, _ = filepath.Abs("js")
+				arangodJSPath, _ = filepath.Abs("js")
 			} else {
-				arangodJSstartup, _ = filepath.Abs(
-					filepath.FromSlash(filepath.Dir(p) + "/../share/arangodb3/js"))
+				arangodJSPath, _ = filepath.Abs(filepath.FromSlash(filepath.Dir(p) + "/../share/arangodb3/js"))
 			}
 			return
 		}
@@ -201,8 +201,17 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 			log.Fatal("Error: cannot set --dockerNetHost and --dockerNetworkMode at the same time")
 		}
 	}
-	log.Debugf("Using %s as default arangod executable.", arangodExecutable)
-	log.Debugf("Using %s as default JS dir.", arangodJSstartup)
+	log.Debugf("Using %s as default arangod executable.", arangodPath)
+	log.Debugf("Using %s as default JS dir.", arangodJSPath)
+
+	// Expand home-dis (~) in paths
+	arangodPath = mustExpand(arangodPath)
+	arangodJSPath = mustExpand(arangodJSPath)
+	rrPath = mustExpand(rrPath)
+	dataDir = mustExpand(dataDir)
+	jwtSecretFile = mustExpand(jwtSecretFile)
+	sslKeyFile = mustExpand(sslKeyFile)
+	sslCAFile = mustExpand(sslCAFile)
 
 	// Sort out work directory:
 	if len(dataDir) == 0 {
@@ -257,8 +266,8 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	service, err := service.NewService(log, service.ServiceConfig{
 		ID:                   id,
 		AgencySize:           agencySize,
-		ArangodExecutable:    arangodExecutable,
-		ArangodJSstartup:     arangodJSstartup,
+		ArangodExecutable:    arangodPath,
+		ArangodJSstartup:     arangodJSPath,
 		MasterPort:           masterPort,
 		RrPath:               rrPath,
 		StartCoordinator:     startCoordinator,
@@ -299,4 +308,13 @@ func getEnvVar(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// mustExpand performs a homedir.Expand and fails on errors.
+func mustExpand(s string) string {
+	result, err := homedir.Expand(s)
+	if err != nil {
+		log.Fatalf("Cannot expand '%s': %#v", s, err)
+	}
+	return result
 }
