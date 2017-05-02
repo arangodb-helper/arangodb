@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -139,8 +140,8 @@ func (s *Service) IsSecure() bool {
 	return s.SslKeyFile != ""
 }
 
-func (s *Service) testInstance(ctx context.Context, address string, port int) (up, cancelled bool) {
-	instanceUp := make(chan bool)
+func (s *Service) testInstance(ctx context.Context, address string, port int) (up bool, version string, cancelled bool) {
+	instanceUp := make(chan string)
 	go func() {
 		client := &http.Client{Timeout: time.Second * 10}
 		scheme := "http"
@@ -152,40 +153,48 @@ func (s *Service) testInstance(ctx context.Context, address string, port int) (u
 				},
 			}
 		}
-		makeRequest := func() error {
+		makeRequest := func() (string, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
-				return maskAny(err)
+				return "", maskAny(err)
 			}
 			if err := addJwtHeader(req, s.JwtSecret); err != nil {
-				return maskAny(err)
+				return "", maskAny(err)
 			}
 			resp, err := client.Do(req)
 			if err != nil {
-				return maskAny(err)
+				return "", maskAny(err)
 			}
 			if resp.StatusCode != 200 {
-				return maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+				return "", maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
 			}
-			return nil
+			versionResponse := struct {
+				Version string `json:"version"`
+			}{}
+			defer resp.Body.Close()
+			decoder := json.NewDecoder(resp.Body)
+			if err := decoder.Decode(&versionResponse); err != nil {
+				return "", maskAny(fmt.Errorf("Unexpected version response: %#v", err))
+			}
+			return versionResponse.Version, nil
 		}
 
 		for i := 0; i < 300; i++ {
-			if err := makeRequest(); err == nil {
-				instanceUp <- true
+			if version, err := makeRequest(); err == nil {
+				instanceUp <- version
 				break
 			}
 			time.Sleep(time.Millisecond * 500)
 		}
-		instanceUp <- false
+		instanceUp <- ""
 	}()
 	select {
-	case up := <-instanceUp:
-		return up, false
+	case version := <-instanceUp:
+		return version != "", version, false
 	case <-ctx.Done():
-		return false, true
+		return false, "", true
 	}
 }
 
@@ -389,7 +398,7 @@ func (s *Service) startRunning(runner Runner) {
 		if p != nil {
 			s.log.Infof("%s seems to be running already, checking port %d...", mode, myPort)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-			up, _ := s.testInstance(ctx, myHost, myPort)
+			up, _, _ := s.testInstance(ctx, myHost, myPort)
 			cancel()
 			if up {
 				s.log.Infof("%s is already running on %d. No need to start anything.", mode, myPort)
@@ -431,9 +440,9 @@ func (s *Service) startRunning(runner Runner) {
 			ctx, cancel := context.WithCancel(s.ctx)
 			go func() {
 				port := s.MasterPort + portOffset + serverPortOffset
-				if up, cancelled := s.testInstance(ctx, myHost, port); !cancelled {
+				if up, version, cancelled := s.testInstance(ctx, myHost, port); !cancelled {
 					if up {
-						s.log.Infof("%s up and running.", mode)
+						s.log.Infof("%s up and running (version %s).", mode, version)
 						if mode == "coordinator" {
 							hostPort, err := p.HostPort(port)
 							if err != nil {
