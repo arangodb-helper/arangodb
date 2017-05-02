@@ -263,38 +263,27 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 		if myPeer.HasAgent {
 			expectedServers = 3
 		}
-		if p := s.servers.agentProc; p != nil {
-			resp.Servers = append(resp.Servers, ServerProcess{
-				Type:        "agent",
+
+		createServerProcess := func(serverType ServerType, p Process) ServerProcess {
+			return ServerProcess{
+				Type:        serverType.String(),
 				IP:          ip,
-				Port:        s.MasterPort + portOffset + portOffsetAgent,
+				Port:        s.MasterPort + portOffset + serverType.PortOffset(),
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
 				ContainerIP: p.ContainerIP(),
 				IsSecure:    s.IsSecure(),
-			})
+			}
+		}
+
+		if p := s.servers.agentProc; p != nil {
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeAgent, p))
 		}
 		if p := s.servers.coordinatorProc; p != nil {
-			resp.Servers = append(resp.Servers, ServerProcess{
-				Type:        "coordinator",
-				IP:          ip,
-				Port:        s.MasterPort + portOffset + portOffsetCoordinator,
-				ProcessID:   p.ProcessID(),
-				ContainerID: p.ContainerID(),
-				ContainerIP: p.ContainerIP(),
-				IsSecure:    s.IsSecure(),
-			})
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeCoordinator, p))
 		}
 		if p := s.servers.dbserverProc; p != nil {
-			resp.Servers = append(resp.Servers, ServerProcess{
-				Type:        "dbserver",
-				IP:          ip,
-				Port:        s.MasterPort + portOffset + portOffsetDBServer,
-				ProcessID:   p.ProcessID(),
-				ContainerID: p.ContainerID(),
-				ContainerIP: p.ContainerIP(),
-				IsSecure:    s.IsSecure(),
-			})
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeDBServer, p))
 		}
 	}
 	resp.ServersStarted = len(resp.Servers) == expectedServers
@@ -310,7 +299,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 // If there is no agent running a 404 is returned.
 func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 	if s.needsAgent() {
-		s.logsHandler(w, r, "agent", portOffsetAgent)
+		s.logsHandler(w, r, ServerTypeAgent)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -318,25 +307,23 @@ func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 // dbserverLogsHandler servers the entire dbserver log.
 func (s *Service) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.logsHandler(w, r, "dbserver", portOffsetDBServer)
+	s.logsHandler(w, r, ServerTypeDBServer)
 }
 
 // coordinatorLogsHandler servers the entire coordinator log.
 func (s *Service) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.logsHandler(w, r, "coordinator", portOffsetCoordinator)
+	s.logsHandler(w, r, ServerTypeCoordinator)
 }
 
-func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, mode string, serverPortOffset int) {
-	myPeer, found := s.myPeers.PeerByID(s.ID)
-	if !found {
+func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, serverType ServerType) {
+	// Find log path
+	myHostDir, err := s.serverHostDir(serverType)
+	if err != nil {
 		// Not ready yet
 		w.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
-	// Find log path
-	portOffset := myPeer.PortOffset
-	myPort := s.MasterPort + portOffset + serverPortOffset
-	logPath := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort), "arangod.log")
+	logPath := filepath.Join(myHostDir, logFileName)
 	s.log.Debugf("Fetching logs in %s", logPath)
 	rd, err := os.Open(logPath)
 	if os.IsNotExist(err) {
