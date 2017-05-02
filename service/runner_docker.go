@@ -256,7 +256,8 @@ func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, ma
 	}
 	lines := []string{
 		fmt.Sprintf("docker volume create arangodb%d &&", index),
-		fmt.Sprintf("docker run -it --name=adb%d --rm %s -v arangodb%d:/data -v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter", index, netArgs, index),
+		fmt.Sprintf("docker run -it --name=adb%d --rm %s -v arangodb%d:/data", index, netArgs, index),
+		fmt.Sprintf("-v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter"),
 		fmt.Sprintf("--dockerContainer=adb%d --ownAddress=%s --join=%s", index, masterIP, addr),
 	}
 	return strings.Join(lines, " \\\n    ")
