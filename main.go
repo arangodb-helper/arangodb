@@ -266,8 +266,8 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	service, err := service.NewService(log, service.ServiceConfig{
 		ID:                   id,
 		AgencySize:           agencySize,
-		ArangodExecutable:    arangodPath,
-		ArangodJSstartup:     arangodJSPath,
+		ArangodPath:          arangodPath,
+		ArangodJSPath:        arangodJSPath,
 		MasterPort:           masterPort,
 		RrPath:               rrPath,
 		StartCoordinator:     startCoordinator,
