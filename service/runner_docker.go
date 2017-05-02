@@ -21,7 +21,7 @@ const (
 	containerFileName    = "CONTAINER"
 )
 
-// NewDockerRunner creates a runner that starts processes on the local OS.
+// NewDockerRunner creates a runner that starts processes in a docker container.
 func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, networkMode string, privileged bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
