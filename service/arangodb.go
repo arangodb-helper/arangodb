@@ -108,9 +108,9 @@ const (
 )
 
 const (
-	portOffsetAgent       = 1
-	portOffsetCoordinator = 2
-	portOffsetDBServer    = 3
+	portOffsetCoordinator = 1
+	portOffsetDBServer    = 2
+	portOffsetAgent       = 3
 	portOffsetIncrement   = 5 // {our http server, agent, coordinator, dbserver, reserved}
 )
 

@@ -313,8 +313,8 @@ its data directory, starts up its `arangod` instances again (with their
 data) and they join the cluster.
 
 All network addresses are discovered from the HTTP communication between
-the `arangodb` instances. The ports used 4001(/4006/4011) for the agent, 
-4002(/4007/4012) for the coordinator, 4003(/4008/4013) for the DBserver) 
+the `arangodb` instances. The ports used 4001(/4006/4011) for the coordinator, 
+4002(/4007/4012) for the DBserver, 4003(/4008/4013) for the agent) 
 need to be free. If more than one instance of an `arangodb` are started 
 on the same machine, the second will increase all these port numbers by 5 and so on.
 
