@@ -8,7 +8,7 @@ import (
 
 const (
 	// Version of the process that created this. If the structure or semantics changed, you must increase this version.
-	SetupConfigVersion = "0.1.1"
+	SetupConfigVersion = "0.1.2"
 	setupFileName      = "setup.json"
 )
 
