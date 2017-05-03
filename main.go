@@ -265,7 +265,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	go handleSignal(sigChannel, cancel)
 
 	// Create service
-	service, err := service.NewService(log, service.ServiceConfig{
+	service, err := service.NewService(log, service.Config{
 		ID:                   id,
 		AgencySize:           agencySize,
 		ArangodPath:          arangodPath,
@@ -294,7 +294,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		DockerPrivileged:     dockerPrivileged,
 		ProjectVersion:       projectVersion,
 		ProjectBuild:         projectBuild,
-	})
+	}, false)
 	if err != nil {
 		log.Fatalf("Failed to create service: %#v", err)
 	}

@@ -4,27 +4,31 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"path/filepath"
+	"sync"
 )
 
 const (
-	// Version of the process that created this. If the structure or semantics changed, you must increase this version.
-	SetupConfigVersion = "0.1.2"
+	// SetupConfigVersion is the semantic version of the process that created this.
+	// If the structure of SetupConfigFile (or any underlying fields) or its semantics change, you must increase this version.
+	SetupConfigVersion = "0.2.0"
 	setupFileName      = "setup.json"
 )
 
 // SetupConfigFile is the JSON structure stored in the setup file of this process.
 type SetupConfigFile struct {
-	Version string `json:"version"` // Version of the process that created this. If the structure or semantics changed, you must increase this version.
-	ID      string `json:"id"`      // My unique peer ID
-	Peers   peers  `json:"peers"`
+	Version          string `json:"version"` // Version of the process that created this. If the structure or semantics changed, you must increase this version.
+	ID               string `json:"id"`      // My unique peer ID
+	Peers            peers  `json:"peers"`
+	StartLocalSlaves bool   `json:"start-local-slaves,omitempty"`
 }
 
 // saveSetup saves the current peer configuration to disk.
 func (s *Service) saveSetup() error {
 	cfg := SetupConfigFile{
-		Version: SetupConfigVersion,
-		ID:      s.ID,
-		Peers:   s.myPeers,
+		Version:          SetupConfigVersion,
+		ID:               s.ID,
+		Peers:            s.myPeers,
+		StartLocalSlaves: s.StartLocalSlaves,
 	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
@@ -52,7 +56,12 @@ func (s *Service) relaunch(runner Runner) bool {
 				s.AgencySize = s.myPeers.AgencySize
 				s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
 				s.startHTTPServer()
+				wg := &sync.WaitGroup{}
+				if cfg.StartLocalSlaves {
+					s.startLocalSlaves(wg, cfg.Peers.Peers)
+				}
 				s.startRunning(runner)
+				wg.Wait()
 				return true
 			}
 			s.log.Warningf("%s is outdated. Starting fresh...", setupFileName)

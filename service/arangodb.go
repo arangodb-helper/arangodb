@@ -22,7 +22,8 @@ import (
 	logging "github.com/op/go-logging"
 )
 
-type ServiceConfig struct {
+// Config holds all configuration for a single service.
+type Config struct {
 	ID                   string // Unique identifier of this peer
 	AgencySize           int
 	ArangodPath          string
@@ -55,8 +56,9 @@ type ServiceConfig struct {
 	ProjectBuild   string
 }
 
+// Service implements the actual starter behavior of the ArangoDB starter.
 type Service struct {
-	ServiceConfig
+	Config
 	log                 *logging.Logger
 	ctx                 context.Context
 	cancel              context.CancelFunc
@@ -69,6 +71,7 @@ type Service struct {
 	mutex               sync.Mutex // Mutex used to protect access to this datastructure
 	logMutex            sync.Mutex // Mutex used to synchronize server log output
 	allowSameDataDir    bool       // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
+	isLocalSlave        bool
 	servers             struct {
 		agentProc       Process
 		dbserverProc    Process
@@ -78,7 +81,7 @@ type Service struct {
 }
 
 // NewService creates a new Service instance from the given config.
-func NewService(log *logging.Logger, config ServiceConfig) (*Service, error) {
+func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service, error) {
 	// Create unique ID
 	if config.ID == "" {
 		var err error
@@ -90,14 +93,16 @@ func NewService(log *logging.Logger, config ServiceConfig) (*Service, error) {
 
 	ctx, trigger := context.WithCancel(context.Background())
 	return &Service{
-		ServiceConfig:       config,
+		Config:              config,
 		log:                 log,
 		state:               stateStart,
 		startRunningWaiter:  ctx,
 		startRunningTrigger: trigger,
+		isLocalSlave:        isLocalSlave,
 	}, nil
 }
 
+// createUniqueID creates a new random ID.
 func createUniqueID() (string, error) {
 	b := make([]byte, 4)
 	if _, err := rand.Read(b); err != nil {
@@ -106,10 +111,7 @@ func createUniqueID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// Configuration data with defaults:
-
-// Overall state:
-
+// State of the service.
 type State int
 
 const (
@@ -136,8 +138,7 @@ const (
 	logFileName  = "arangod.log"
 )
 
-// A helper function:
-
+// normalizeHostName normalizes all loopback addresses to "localhost"
 func normalizeHostName(host string) string {
 	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsLoopback() {
@@ -530,7 +531,7 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 			if up, version, cancelled := s.testInstance(ctx, myHostAddress, port); !cancelled {
 				if up {
 					s.log.Infof("%s up and running (version %s).", serverType, version)
-					if serverType == ServerTypeCoordinator {
+					if serverType == ServerTypeCoordinator && !s.isLocalSlave {
 						hostPort, err := p.HostPort(port)
 						if err != nil {
 							if id := p.ContainerID(); id != "" {
@@ -539,8 +540,10 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 						} else {
 							ip := myPeer.Address
 							urlSchemes := NewURLSchemes(myPeer.IsSecure)
+							s.logMutex.Lock()
 							s.log.Infof("Your cluster can now be accessed with a browser at `%s://%s:%d` or", urlSchemes.Browser, ip, hostPort)
 							s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
+							s.logMutex.Unlock()
 						}
 					}
 				} else {

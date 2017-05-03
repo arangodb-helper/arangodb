@@ -3,9 +3,7 @@ package service
 import (
 	"fmt"
 	"log"
-	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -13,6 +11,7 @@ import (
 	logging "github.com/op/go-logging"
 )
 
+// startMaster starts the Service as master.
 func (s *Service) startMaster(runner Runner) {
 	// Start HTTP listener
 	s.startHTTPServer()
@@ -41,7 +40,7 @@ func (s *Service) startMaster(runner Runner) {
 	wg := sync.WaitGroup{}
 	if s.StartLocalSlaves {
 		// Start additional local slaves
-		s.startLocalSlaves(&wg)
+		s.createAndStartLocalSlaves(&wg)
 	} else {
 		// Show commands needed to start slaves
 		s.log.Infof("Waiting for %d servers to show up.\n", s.AgencySize)
@@ -77,40 +76,6 @@ func (s *Service) showSlaveStartCommands(runner Runner) {
 		}
 		fmt.Println(runner.CreateStartArangodbCommand(index, s.OwnAddress, port))
 		fmt.Println()
-	}
-}
-
-// startLocalSlaves starts additional services for local slaves.
-func (s *Service) startLocalSlaves(wg *sync.WaitGroup) {
-	s.log = s.mustCreateIDLogger("master")
-	s.log.Infof("Starting %d local slaves...", s.AgencySize-1)
-	masterAddr := s.OwnAddress
-	if masterAddr == "" {
-		masterAddr = "127.0.0.1"
-	}
-	masterAddr = net.JoinHostPort(masterAddr, strconv.Itoa(s.announcePort))
-	for index := 2; index <= s.AgencySize; index++ {
-		config := s.ServiceConfig
-		var err error
-		config.ID, err = createUniqueID()
-		if err != nil {
-			s.log.Errorf("Failed to create unique ID: %#v", err)
-			continue
-		}
-		config.DataDir = filepath.Join(config.DataDir, fmt.Sprintf("local-slave-%d", index-1))
-		config.MasterAddress = masterAddr
-		config.StartLocalSlaves = false
-		os.MkdirAll(config.DataDir, 0755)
-		slaveService, err := NewService(s.mustCreateIDLogger(fmt.Sprintf("slave%d", index-1)), config)
-		if err != nil {
-			s.log.Errorf("Failed to create local slave service %d: %#v", index-1, err)
-			continue
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			slaveService.Run(s.ctx)
-		}()
 	}
 }
 

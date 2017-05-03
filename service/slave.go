@@ -11,6 +11,7 @@ import (
 	"time"
 )
 
+// startSlave starts the Service as slave.
 func (s *Service) startSlave(peerAddress string, runner Runner) {
 	masterPort := s.MasterPort
 	if host, port, err := net.SplitHostPort(peerAddress); err == nil {
@@ -71,7 +72,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 	}
 	for {
 		if len(s.myPeers.Peers) >= s.AgencySize {
-			s.log.Infof("Starting service as slave with id '%s'...", s.ID)
+			s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
 			s.saveSetup()
 			s.startRunning(runner)
 			return
