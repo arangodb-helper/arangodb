@@ -1,0 +1,48 @@
+FROM arangodb/arangodb:latest
+
+# gcc for cgo
+RUN apt-get update && apt-get install -y --no-install-recommends \
+		g++ \
+		gcc \
+		libc6-dev \
+		make \
+		pkg-config \
+        wget \
+		ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+
+ENV GOLANG_VERSION 1.8.1
+
+RUN set -eux; \
+	\
+	dpkgArch="$(dpkg --print-architecture)"; \
+	case "${dpkgArch##*-}" in \
+		ppc64el) goRelArch='linux-ppc64le';; \
+		i386) goRelArch='linux-386';; \
+		s390x) goRelArch='linux-s390x';; \
+		armhf) goRelArch='linux-armv6l';; \
+		amd64) goRelArch='linux-amd64';; \
+		*) goRelArch='src'; \
+			echo >&2; echo >&2 "warning: current architecture ($dpkgArch) does not have a corresponding Go binary release; will be building from source"; echo >&2 ;; \
+	esac; \
+	\
+	url="https://golang.org/dl/go${GOLANG_VERSION}.${goRelArch}.tar.gz"; \
+	wget -O go.tgz "$url"; \
+	tar -C /usr/local -xzf go.tgz; \
+	rm go.tgz; \
+	\
+	if [ "$goRelArch" = 'src' ]; then \
+		echo >&2; \
+		echo >&2 'error: UNIMPLEMENTED'; \
+		echo >&2 'TODO install golang-any from jessie-backports for GOROOT_BOOTSTRAP (and uninstall after build)'; \
+		echo >&2; \
+		exit 1; \
+	fi; \
+	\
+	export PATH="/usr/local/go/bin:$PATH"; \
+	go version
+
+ENV GOPATH /go
+ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
+
+RUN mkdir -p "$GOPATH/src" "$GOPATH/bin" && chmod -R 777 "$GOPATH"
