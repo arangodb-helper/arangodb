@@ -2,7 +2,6 @@ package gexpect
 
 import (
 	"bufio"
-	"github.com/shavac/gexpect/pty"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +9,8 @@ import (
 	"regexp"
 	"syscall"
 	"time"
+
+	"github.com/shavac/gexpect/pty"
 )
 
 var (
@@ -68,11 +69,11 @@ func (sp *SubProcess) Expect(expreg ...*regexp.Regexp) (matchIndex int, err erro
 }
 
 func (sp *SubProcess) ExpectTimeout(timeout time.Duration, expreg ...*regexp.Regexp) (matchIndex int, err error) {
-	buf := make([]byte, 2048)
 	c := make(chan byte, 1)
 	checkpoint := make(chan int, 1)
 	rerr := make(chan error, 1)
 	go func() {
+		buf := make([]byte, 2048)
 		for {
 			if _, err := io.ReadAtLeast(sp, buf, 1); err != nil {
 				rerr <- err
@@ -99,6 +100,7 @@ func (sp *SubProcess) ExpectTimeout(timeout time.Duration, expreg ...*regexp.Reg
 			checkpoint <- i
 		}
 	}()
+	buf := make([]byte, 0, 2048)
 	for {
 		select {
 		case c1 := <-c:
@@ -111,7 +113,7 @@ func (sp *SubProcess) ExpectTimeout(timeout time.Duration, expreg ...*regexp.Reg
 				if loc := re.FindIndex(buf); loc != nil {
 					sp.Match = buf[loc[0]:loc[1]]
 					sp.Before = append(sp.Before, buf[0:loc[0]]...)
-					buf = make([]byte, 2048)
+					buf = make([]byte, 0, 2048)
 					return idx, nil
 				}
 			} // no match
