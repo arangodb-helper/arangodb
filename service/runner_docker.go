@@ -287,14 +287,18 @@ func (r *dockerRunner) Cleanup() error {
 func (r *dockerRunner) recordContainerID(id string) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.containerIDs[id] = time.Now()
+	if r.containerIDs != nil {
+		r.containerIDs[id] = time.Now()
+	}
 }
 
 // unrecordContainerID removes an ID from the list of created containers
 func (r *dockerRunner) unrecordContainerID(id string) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	delete(r.containerIDs, id)
+	if r.containerIDs != nil {
+		delete(r.containerIDs, id)
+	}
 }
 
 // gc performs continues garbage collection of stopped old containers

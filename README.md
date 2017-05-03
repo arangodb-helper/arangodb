@@ -96,7 +96,18 @@ you can build it using:
 make docker 
 ```
 
-in this directory.
+Starting a local test cluster
+-----------------------------
+
+If you want to start a local cluster quickly, use the `--local` flag. 
+It will start all servers within the context of a single starter process.
+
+```
+arangodb --local
+```
+
+Note: When you restart the started, it remembers the original `--local` flag.
+
 Common options 
 --------------
 
@@ -111,6 +122,11 @@ Different instances of `arangodb` must use different data directories.
 * `--join addr`
 
 join a cluster with master at address `addr` (default "")
+
+* `--local` 
+
+Start a local (test) cluster. Since all servers are running on a single machine 
+this is really not intended for production setups.
 
 * `--agencySize int`
 
