@@ -81,11 +81,11 @@ type Service struct {
 func NewService(log *logging.Logger, config ServiceConfig) (*Service, error) {
 	// Create unique ID
 	if config.ID == "" {
-		b := make([]byte, 4)
-		if _, err := rand.Read(b); err != nil {
+		var err error
+		config.ID, err = createUniqueID()
+		if err != nil {
 			return nil, maskAny(err)
 		}
-		config.ID = hex.EncodeToString(b)
 	}
 
 	ctx, trigger := context.WithCancel(context.Background())
@@ -96,6 +96,14 @@ func NewService(log *logging.Logger, config ServiceConfig) (*Service, error) {
 		startRunningWaiter:  ctx,
 		startRunningTrigger: trigger,
 	}, nil
+}
+
+func createUniqueID() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", maskAny(err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // Configuration data with defaults:
