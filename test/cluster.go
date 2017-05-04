@@ -20,8 +20,6 @@
 // Author Ewout Prangsma
 //
 
-// +build localprocess
-
 package test
 
 import (
@@ -33,7 +31,7 @@ import (
 )
 
 // testCluster runs a series of tests to verify a good cluster.
-func testCluster(t *testing.T, starterEndpoint string) {
+func testCluster(t *testing.T, starterEndpoint string) client.API {
 	ctx := context.Background()
 
 	ep, err := url.Parse(starterEndpoint)
@@ -76,4 +74,6 @@ func testCluster(t *testing.T, starterEndpoint string) {
 	} else {
 		t.Errorf("No dbserver found in %s", starterEndpoint)
 	}
+
+	return c
 }

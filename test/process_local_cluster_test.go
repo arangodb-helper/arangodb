@@ -30,39 +30,23 @@ import (
 	"testing"
 )
 
-// TestClusterProcesses starts a master starter, followed by 2 slave starters.
-func TestClusterProcesses(t *testing.T) {
-	dataDirMaster := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirMaster)
-	master, err := Spawn("${STARTER}")
+// TestProcessLocalCluster runs `arangodb --local`
+func TestProcessLocalCluster(t *testing.T) {
+	dataDir := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDir)
+	child, err := Spawn("${STARTER} --local")
 	if err != nil {
-		t.Fatalf("Failed to launch master: %s", describe(err))
+		t.Fatalf("Failed to launch arangodb: %s", describe(err))
 	}
-	defer master.Close()
-
-	dataDirSlave1 := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirSlave1)
-	slave1, err := Spawn("${STARTER} --join 127.0.0.1")
-	if err != nil {
-		t.Fatalf("Failed to launch slave 1: %s", describe(err))
-	}
-	defer slave1.Close()
-
-	dataDirSlave2 := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirSlave2)
-	slave2, err := Spawn("${STARTER} --join 127.0.0.1")
-	if err != nil {
-		t.Fatalf("Failed to launch slave 2: %s", describe(err))
-	}
-	defer slave2.Close()
+	defer child.Close()
 
 	fmt.Println("Waiting for cluster ready")
-	if ok := WaitUntilStarterReady(t, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, child); ok {
 		testCluster(t, "http://localhost:4000")
 		testCluster(t, "http://localhost:4005")
 		testCluster(t, "http://localhost:4010")
 	}
 
 	fmt.Println("Waiting for termination")
-	StopStarter(t, master, slave1, slave2)
+	StopStarter(t, child)
 }

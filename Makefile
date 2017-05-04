@@ -20,6 +20,7 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
 GOVERSION := 1.8.1-alpine
+ARANGODB := arangodb/arangodb:3.1.19
 
 ifndef GOOS
 	GOOS := linux
@@ -130,7 +131,9 @@ test-images:
 	docker pull arangodb/arangodb:latest
 	docker build -t arangodb-golang -f test/Dockerfile-arangodb-golang .
 
-run-tests: build test-images
+run-tests: run-tests-local-process
+
+run-tests-local-process: build test-images
 	@-docker rm -f -v $(TESTCONTAINER) &> /dev/null
 	docker run \
 		--rm \
@@ -142,6 +145,9 @@ run-tests: build test-images
 		-w /usr/code/ \
 		arangodb-golang \
 		go test -v -tags localprocess $(REPOPATH)/test
+
+run-tests-docker: docker
+	go test -v -tags docker $(REPOPATH)/test
 
 run-tests-local: #local
 	STARTER=$(ROOTDIR)/arangodb go test -v -tags localprocess $(REPOPATH)/test
