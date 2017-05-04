@@ -1,5 +1,6 @@
 # Changes from version 0.6.0 to master 
 
+- Docker container created by the started are given the label `created-by=arangodb-starter`
 - Added `--local` argument, used to start a local test cluster in a single starter process (#25)
 - When an `arangod` server stops quickly and often, its most recent log output is shown
 - Support `~` (home directory) in path arguments. E.g. `--dataDir=~/mydata/` (#30)
