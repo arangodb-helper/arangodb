@@ -27,7 +27,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"regexp"
+	"sync"
 	"testing"
+	"time"
 
 	shell "github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
@@ -64,6 +67,50 @@ func SetUniqueDataDir(t *testing.T) string {
 	}
 	os.Setenv("DATA_DIR", dataDir)
 	return dataDir
+}
+
+// WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
+func WaitUntilStarterReady(t *testing.T, starters ...*gexpect.SubProcess) bool {
+	g := sync.WaitGroup{}
+	result := true
+	for _, starter := range starters {
+		starter := starter // Used in nested function
+		g.Add(1)
+		go func() {
+			defer g.Done()
+			if _, err := starter.ExpectTimeout(time.Minute, regexp.MustCompile("Your cluster can now be accessed with a browser at")); err != nil {
+				result = false
+				t.Errorf("Starter is not ready in time: %s", describe(err))
+			}
+		}()
+	}
+	g.Wait()
+	return result
+}
+
+// StopStarter stops all all given starter processes by sending a Ctrl-C into it.
+// It then waits until the process has terminated.
+func StopStarter(t *testing.T, starters ...*gexpect.SubProcess) bool {
+	g := sync.WaitGroup{}
+	result := true
+	for _, starter := range starters {
+		starter := starter // Used in nested function
+		g.Add(1)
+		go func() {
+			defer g.Done()
+			if err := starter.WaitTimeout(time.Second * 30); err != nil {
+				result = false
+				t.Errorf("Starter is not stopped in time: %s", describe(err))
+			}
+		}()
+	}
+	time.Sleep(time.Second)
+	for _, starter := range starters {
+		starter.Term.SendIntr()
+		//starter.Send(ctrlC)
+	}
+	g.Wait()
+	return result
 }
 
 // describe returns a string description of the given error.

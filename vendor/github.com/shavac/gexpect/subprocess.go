@@ -51,7 +51,14 @@ func (sp *SubProcess) WaitTimeout(d time.Duration) (err error) {
 		}()
 	}
 	go func() {
-		execerr <- sp.cmd.Wait()
+		for {
+			if err := sp.cmd.Process.Signal(syscall.Signal(0)); err != nil {
+				// Process does not seem to exist anymore
+				break
+			}
+			time.Sleep(time.Second)
+			execerr <- nil
+		}
 	}()
 	return <-execerr
 }

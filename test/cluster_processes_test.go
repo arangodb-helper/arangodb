@@ -27,11 +27,7 @@ package test
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"testing"
-	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
 // TestClusterProcesses starts a master starter, followed by 2 slave starters.
@@ -61,28 +57,12 @@ func TestClusterProcesses(t *testing.T) {
 	defer slave2.Close()
 
 	fmt.Println("Waiting for cluster ready")
-
-	if _, err := master.ExpectTimeout(time.Minute, regexp.MustCompile("Your cluster can now be accessed with a browser at")); err != nil {
-		t.Error(describe(err))
+	if ok := WaitUntilStarterReady(t, master, slave1, slave2); ok {
+		testCluster(t, "http://localhost:4000")
+		testCluster(t, "http://localhost:4005")
+		testCluster(t, "http://localhost:4010")
 	}
-
-	if _, err := slave1.ExpectTimeout(time.Second*10, regexp.MustCompile("Your cluster can now be accessed with a browser at")); err != nil {
-		t.Error(describe(err))
-	}
-	if _, err := slave2.ExpectTimeout(time.Second*10, regexp.MustCompile("Your cluster can now be accessed with a browser at")); err != nil {
-		t.Error(describe(err))
-	}
-
-	g := errgroup.Group{}
-	g.Go(func() error { return master.WaitTimeout(time.Second * 20) })
-	g.Go(func() error { return slave1.WaitTimeout(time.Second * 20) })
-	g.Go(func() error { return slave2.WaitTimeout(time.Second * 20) })
-
-	master.Send(ctrlC)
-	slave1.Send(ctrlC)
-	slave2.Send(ctrlC)
 
 	fmt.Println("Waiting for termination")
-
-	g.Wait()
+	StopStarter(t, master, slave1, slave2)
 }

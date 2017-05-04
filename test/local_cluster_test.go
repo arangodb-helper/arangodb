@@ -25,14 +25,12 @@
 package test
 
 import (
+	"fmt"
 	"os"
-	"regexp"
 	"testing"
-	"time"
-
-	"golang.org/x/sync/errgroup"
 )
 
+// TestLocalCluster runs `arangodb --local`
 func TestLocalCluster(t *testing.T) {
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -41,15 +39,14 @@ func TestLocalCluster(t *testing.T) {
 		t.Fatalf("Failed to launch arangodb: %s", describe(err))
 	}
 	defer child.Close()
-	//child.Echo()
-	if _, err := child.ExpectTimeout(time.Minute, regexp.MustCompile("Your cluster can now be accessed with a browser at")); err != nil {
-		t.Error(describe(err))
+
+	fmt.Println("Waiting for cluster ready")
+	if ok := WaitUntilStarterReady(t, child); ok {
+		testCluster(t, "http://localhost:4000")
+		testCluster(t, "http://localhost:4005")
+		testCluster(t, "http://localhost:4010")
 	}
 
-	g := errgroup.Group{}
-	g.Go(func() error { return child.WaitTimeout(time.Second * 20) })
-
-	child.Send(ctrlC)
-
-	g.Wait()
+	fmt.Println("Waiting for termination")
+	StopStarter(t, child)
 }
