@@ -160,4 +160,24 @@ func ShutdownStarter(t *testing.T, endpoint string) {
 	if err := c.Shutdown(context.Background(), false); err != nil {
 		t.Errorf("Shutdown failed: %s", describe(err))
 	}
+	WaitUntilStarterGone(t, endpoint)
+}
+
+// WaitUntilStarterGone waits until the starter at given endpoint no longer responds to queries.
+func WaitUntilStarterGone(t *testing.T, endpoint string) {
+	c := NewStarterClient(t, endpoint)
+	failures := 0
+	for {
+		if _, err := c.Version(context.Background()); err != nil {
+			// Version request failed
+			failures++
+		} else {
+			failures = 0
+		}
+		if failures > 2 {
+			// Several failures, we assume the starter is really gone now
+			break
+		}
+		time.Sleep(time.Millisecond * 200)
+	}
 }
