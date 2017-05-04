@@ -305,7 +305,7 @@ func (r *dockerRunner) Cleanup() error {
 			r.log.Warningf("Failed to remove container %s: %#v", id, err)
 		}
 	}
-	r.containerIDs = nil
+	r.containerIDs = make(map[string]time.Time)
 
 	return nil
 }
