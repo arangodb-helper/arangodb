@@ -85,6 +85,15 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		break
 	}
 
+	// Check HTTP server port
+	containerHTTPPort, _, err := s.getHTTPServerPort()
+	if err != nil {
+		s.log.Fatalf("Cannot find HTTP server info: %#v", err)
+	}
+	if !IsPortOpen(containerHTTPPort) {
+		s.log.Fatalf("Port %d is already in use", containerHTTPPort)
+	}
+
 	// Run the HTTP service so we can forward other clients
 	s.startHTTPServer()
 
