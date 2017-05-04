@@ -31,8 +31,8 @@ import (
 	"testing"
 )
 
-// TestDockerLocalCluster runs `arangodb --docker=... --local`
-func TestDockerLocalCluster(t *testing.T) {
+// TestDockerClusterLocal runs the arangodb starter in docker with `--local`
+func TestDockerClusterLocal(t *testing.T) {
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -42,15 +42,20 @@ func TestDockerLocalCluster(t *testing.T) {
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
-			--dockerContainer=adb1 --ownAddress=$IP
+			--dockerContainer=adb1 --ownAddress=$IP \
+			--local
 	*/
 	volID := createDockerID("vol-starter-test-local-cluster-")
 	createDockerVolume(t, volID)
 	defer removeDockerVolume(t, volID)
 
+	// Cleanup of left over tests
+	removeDockerContainersByLabel(t, "starter-test=true")
+
 	cID := createDockerID("starter-test-local-cluster-")
 	dockerRun, err := Spawn(strings.Join([]string{
 		"docker run -it",
+		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm -p 4000:4000",
 		fmt.Sprintf("-v %s:/data", volID),

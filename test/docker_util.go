@@ -26,6 +26,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -66,6 +68,20 @@ func stopDockerContainer(t *testing.T, id string) {
 	} else {
 		defer c.Close()
 		c.Wait()
+	}
+}
+
+func removeDockerContainersByLabel(t *testing.T, labelKeyValue string) {
+	ps := exec.Command("docker", "ps", "-q", "--filter", "label="+labelKeyValue)
+	list, err := ps.Output()
+	if err != nil {
+		t.Fatalf("docker ps failed: %s", describe(err))
+	}
+	ids := strings.Split(strings.TrimSpace(string(list)), "\n")
+	for _, id := range ids {
+		if id := strings.TrimSpace(id); id != "" {
+			removeDockerContainer(t, id)
+		}
 	}
 }
 

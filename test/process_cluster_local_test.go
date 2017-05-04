@@ -30,8 +30,8 @@ import (
 	"testing"
 )
 
-// TestProcessLocalCluster runs `arangodb --local`
-func TestProcessLocalCluster(t *testing.T) {
+// TestProcessClusterLocal runs `arangodb --local`
+func TestProcessClusterLocal(t *testing.T) {
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 	child, err := Spawn("${STARTER} --local")

@@ -30,8 +30,8 @@ import (
 	"testing"
 )
 
-// TestProcessClusterProcesses starts a master starter, followed by 2 slave starters.
-func TestProcessClusterProcesses(t *testing.T) {
+// TestProcessClusterDefault starts a master starter, followed by 2 slave starters.
+func TestProcessClusterDefault(t *testing.T) {
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 	master, err := Spawn("${STARTER}")
