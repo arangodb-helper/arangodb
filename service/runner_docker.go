@@ -41,6 +41,8 @@ import (
 const (
 	stopContainerTimeout = 60 // Seconds before a container is killed (after graceful stop)
 	containerFileName    = "CONTAINER"
+	createdByKey         = "created-by"
+	createdByValue       = "arangodb-starter"
 )
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
@@ -176,6 +178,9 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 			Tty:          true,
 			User:         r.user,
 			ExposedPorts: make(map[docker.Port]struct{}),
+			Labels: map[string]string{
+				createdByKey: createdByValue,
+			},
 		},
 		HostConfig: &docker.HostConfig{
 			PortBindings:    make(map[docker.Port][]docker.PortBinding),

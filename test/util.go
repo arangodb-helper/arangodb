@@ -23,15 +23,18 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"regexp"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/arangodb/ArangoDBStarter/client"
 	shell "github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
 	"github.com/shavac/gexpect"
@@ -41,22 +44,32 @@ const (
 	ctrlC = "\u0003"
 )
 
+var (
+	isVerbose bool
+)
+
+func init() {
+	isVerbose = os.Getenv("VERBOSE") != ""
+}
+
 // Spawn a command an return its process.
-func Spawn(command string) (*gexpect.SubProcess, error) {
+func Spawn(t *testing.T, command string) *gexpect.SubProcess {
 	args, err := shell.Split(os.ExpandEnv(command))
 	if err != nil {
-		return nil, errors.WithStack(err)
+		t.Fatal(describe(err))
 	}
-	fmt.Println(args, len(args))
+	if isVerbose {
+		t.Log(args, len(args))
+	}
 	p, err := gexpect.NewSubProcess(args[0], args[1:]...)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		t.Fatal(describe(err))
 	}
 	if err := p.Start(); err != nil {
 		p.Close()
-		return nil, errors.WithStack(err)
+		t.Fatal(describe(err))
 	}
-	return p, nil
+	return p
 }
 
 // SetUniqueDataDir creates a temp dir and sets the DATA_DIR environment variable to it.
@@ -88,9 +101,9 @@ func WaitUntilStarterReady(t *testing.T, starters ...*gexpect.SubProcess) bool {
 	return result
 }
 
-// StopStarter stops all all given starter processes by sending a Ctrl-C into it.
+// SendIntrAndWait stops all all given starter processes by sending a Ctrl-C into it.
 // It then waits until the process has terminated.
-func StopStarter(t *testing.T, starters ...*gexpect.SubProcess) bool {
+func SendIntrAndWait(t *testing.T, starters ...*gexpect.SubProcess) bool {
 	g := sync.WaitGroup{}
 	result := true
 	for _, starter := range starters {
@@ -125,5 +138,26 @@ func describe(err error) string {
 		return fmt.Sprintf("%v caused by %v", err, cStr)
 	} else {
 		return cStr
+	}
+}
+
+// NewStarterClient creates a new starter API instance for the given endpoint, failing the test on errors.
+func NewStarterClient(t *testing.T, endpoint string) client.API {
+	ep, err := url.Parse(endpoint)
+	if err != nil {
+		t.Fatalf("Failed to parse starter endpoint: %s", describe(err))
+	}
+	c, err := client.NewArangoStarterClient(*ep)
+	if err != nil {
+		t.Fatalf("Failed to create starter client: %s", describe(err))
+	}
+	return c
+}
+
+// ShutdownStarter calls the starter the shutdown via the HTTP API.
+func ShutdownStarter(t *testing.T, endpoint string) {
+	c := NewStarterClient(t, endpoint)
+	if err := c.Shutdown(context.Background(), false); err != nil {
+		t.Errorf("Shutdown failed: %s", describe(err))
 	}
 }

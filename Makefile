@@ -131,7 +131,8 @@ test-images:
 	docker pull arangodb/arangodb:latest
 	docker build -t arangodb-golang -f test/Dockerfile-arangodb-golang .
 
-run-tests: run-tests-local-process
+# Run all integration tests
+run-tests: run-tests-local-process run-tests-docker
 
 run-tests-local-process: build test-images
 	@-docker rm -f -v $(TESTCONTAINER) &> /dev/null
@@ -149,5 +150,6 @@ run-tests-local-process: build test-images
 run-tests-docker: docker
 	go test -v -tags docker $(REPOPATH)/test
 
-run-tests-local: #local
-	STARTER=$(ROOTDIR)/arangodb go test -v -tags localprocess $(REPOPATH)/test
+# Run all integration tests on the local system
+run-tests-local: local
+	GOPATH=$(GOBUILDDIR) STARTER=$(ROOTDIR)/arangodb go test -v -tags "localprocess docker" $(REPOPATH)/test

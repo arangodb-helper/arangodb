@@ -25,28 +25,53 @@
 package test
 
 import (
-	"fmt"
 	"os"
 	"testing"
+	"time"
 )
 
 // TestProcessClusterLocal runs `arangodb --local`
 func TestProcessClusterLocal(t *testing.T) {
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
-	child, err := Spawn("${STARTER} --local")
-	if err != nil {
-		t.Fatalf("Failed to launch arangodb: %s", describe(err))
-	}
+
+	start := time.Now()
+
+	child := Spawn(t, "${STARTER} --local")
 	defer child.Close()
 
-	fmt.Println("Waiting for cluster ready")
 	if ok := WaitUntilStarterReady(t, child); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, "http://localhost:4000")
 		testCluster(t, "http://localhost:4005")
 		testCluster(t, "http://localhost:4010")
 	}
 
-	fmt.Println("Waiting for termination")
-	StopStarter(t, child)
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	SendIntrAndWait(t, child)
+}
+
+// TestProcessClusterLocal runs `arangodb --local`, stopping it through the `/shutdown` API.
+func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
+	dataDir := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDir)
+
+	start := time.Now()
+
+	child := Spawn(t, "${STARTER} --local")
+	defer child.Close()
+
+	if ok := WaitUntilStarterReady(t, child); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
+		testCluster(t, "http://localhost:4000")
+		testCluster(t, "http://localhost:4005")
+		testCluster(t, "http://localhost:4010")
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, "http://localhost:4000")
 }

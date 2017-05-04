@@ -32,43 +32,27 @@ import (
 )
 
 func createDockerVolume(t *testing.T, id string) {
-	c, err := Spawn(fmt.Sprintf("docker volume create %s", id))
-	if err != nil {
-		t.Fatalf("Failed to create docker volume: %s", describe(err))
-	} else {
-		defer c.Close()
-		c.Wait()
-	}
+	c := Spawn(t, fmt.Sprintf("docker volume create %s", id))
+	defer c.Close()
+	c.Wait()
 }
 
 func removeDockerVolume(t *testing.T, id string) {
-	c, err := Spawn(fmt.Sprintf("docker volume rm -f %s", id))
-	if err != nil {
-		t.Errorf("Failed to remove docker volume: %s", describe(err))
-	} else {
-		defer c.Close()
-		c.Wait()
-	}
+	c := Spawn(t, fmt.Sprintf("docker volume rm -f %s", id))
+	defer c.Close()
+	c.Wait()
 }
 
 func removeDockerContainer(t *testing.T, id string) {
-	c, err := Spawn(fmt.Sprintf("docker rm -f -v %s", id))
-	if err != nil {
-		t.Errorf("Failed to remove docker container: %s", describe(err))
-	} else {
-		defer c.Close()
-		c.Wait()
-	}
+	c := Spawn(t, fmt.Sprintf("docker rm -f -v %s", id))
+	defer c.Close()
+	c.Wait()
 }
 
 func stopDockerContainer(t *testing.T, id string) {
-	c, err := Spawn(fmt.Sprintf("docker stop --time=120 %s", id))
-	if err != nil {
-		t.Errorf("Failed to stop docker container: %s", describe(err))
-	} else {
-		defer c.Close()
-		c.Wait()
-	}
+	c := Spawn(t, fmt.Sprintf("docker stop --time=120 %s", id))
+	defer c.Close()
+	c.Wait()
 }
 
 func removeDockerContainersByLabel(t *testing.T, labelKeyValue string) {
@@ -83,6 +67,10 @@ func removeDockerContainersByLabel(t *testing.T, labelKeyValue string) {
 			removeDockerContainer(t, id)
 		}
 	}
+}
+
+func removeStarterCreatedDockerContainers(t *testing.T) {
+	removeDockerContainersByLabel(t, "created-by=arangodb-starter")
 }
 
 func createDockerID(prefix string) string {

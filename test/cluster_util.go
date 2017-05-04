@@ -24,7 +24,6 @@ package test
 
 import (
 	"context"
-	"net/url"
 	"testing"
 
 	"github.com/arangodb/ArangoDBStarter/client"
@@ -33,21 +32,15 @@ import (
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string) client.API {
 	ctx := context.Background()
-
-	ep, err := url.Parse(starterEndpoint)
-	if err != nil {
-		t.Fatalf("Failed to parse starter endpoint: %s", describe(err))
-	}
-	c, err := client.NewArangoStarterClient(*ep)
-	if err != nil {
-		t.Fatalf("Failed to create starter client: %s", describe(err))
-	}
+	c := NewStarterClient(t, starterEndpoint)
 
 	// Fetch version
 	if info, err := c.Version(ctx); err != nil {
 		t.Errorf("Failed to get starter version: %s", describe(err))
 	} else {
-		t.Logf("Found starter version %s, %s", info.Version, info.Build)
+		if isVerbose {
+			t.Logf("Found starter version %s, %s", info.Version, info.Build)
+		}
 	}
 
 	// Fetch server processes
@@ -58,19 +51,25 @@ func testCluster(t *testing.T, starterEndpoint string) client.API {
 
 	// Check agent
 	if sp, ok := processes.ServerByType(client.ServerTypeAgent); ok {
-		t.Logf("Found agent at %s:%d", sp.IP, sp.Port)
+		if isVerbose {
+			t.Logf("Found agent at %s:%d", sp.IP, sp.Port)
+		}
 	}
 
 	// Check coordinator
 	if sp, ok := processes.ServerByType(client.ServerTypeCoordinator); ok {
-		t.Logf("Found coordinator at %s:%d", sp.IP, sp.Port)
+		if isVerbose {
+			t.Logf("Found coordinator at %s:%d", sp.IP, sp.Port)
+		}
 	} else {
 		t.Errorf("No coordinator found in %s", starterEndpoint)
 	}
 
 	// Check dbserver
 	if sp, ok := processes.ServerByType(client.ServerTypeDBServer); ok {
-		t.Logf("Found dbserver at %s:%d", sp.IP, sp.Port)
+		if isVerbose {
+			t.Logf("Found dbserver at %s:%d", sp.IP, sp.Port)
+		}
 	} else {
 		t.Errorf("No dbserver found in %s", starterEndpoint)
 	}

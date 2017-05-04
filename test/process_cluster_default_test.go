@@ -25,44 +25,75 @@
 package test
 
 import (
-	"fmt"
 	"os"
 	"testing"
+	"time"
 )
 
 // TestProcessClusterDefault starts a master starter, followed by 2 slave starters.
 func TestProcessClusterDefault(t *testing.T) {
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
-	master, err := Spawn("${STARTER}")
-	if err != nil {
-		t.Fatalf("Failed to launch master: %s", describe(err))
-	}
+
+	start := time.Now()
+
+	master := Spawn(t, "${STARTER}")
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1, err := Spawn("${STARTER} --join 127.0.0.1")
-	if err != nil {
-		t.Fatalf("Failed to launch slave 1: %s", describe(err))
-	}
+	slave1 := Spawn(t, "${STARTER} --join 127.0.0.1")
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2, err := Spawn("${STARTER} --join 127.0.0.1")
-	if err != nil {
-		t.Fatalf("Failed to launch slave 2: %s", describe(err))
-	}
+	slave2 := Spawn(t, "${STARTER} --join 127.0.0.1")
 	defer slave2.Close()
 
-	fmt.Println("Waiting for cluster ready")
 	if ok := WaitUntilStarterReady(t, master, slave1, slave2); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, "http://localhost:4000")
 		testCluster(t, "http://localhost:4005")
 		testCluster(t, "http://localhost:4010")
 	}
 
-	fmt.Println("Waiting for termination")
-	StopStarter(t, master, slave1, slave2)
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	SendIntrAndWait(t, master, slave1, slave2)
+}
+
+// TestProcessClusterDefaultShutdownViaAPI starts a master starter, followed by 2 slave starters, shutting all down through the API.
+func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
+	dataDirMaster := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDirMaster)
+
+	start := time.Now()
+
+	master := Spawn(t, "${STARTER}")
+	defer master.Close()
+
+	dataDirSlave1 := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDirSlave1)
+	slave1 := Spawn(t, "${STARTER} --join 127.0.0.1")
+	defer slave1.Close()
+
+	dataDirSlave2 := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDirSlave2)
+	slave2 := Spawn(t, "${STARTER} --join 127.0.0.1")
+	defer slave2.Close()
+
+	if ok := WaitUntilStarterReady(t, master, slave1, slave2); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
+		testCluster(t, "http://localhost:4000")
+		testCluster(t, "http://localhost:4005")
+		testCluster(t, "http://localhost:4010")
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, "http://localhost:4000")
+	ShutdownStarter(t, "http://localhost:4005")
+	ShutdownStarter(t, "http://localhost:4010")
 }

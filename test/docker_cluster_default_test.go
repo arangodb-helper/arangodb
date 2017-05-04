@@ -29,6 +29,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestDockerClusterDefault runs 3 arangodb starters in docker with default settings.
@@ -59,9 +60,12 @@ func TestDockerClusterDefault(t *testing.T) {
 
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	start := time.Now()
 
 	cID1 := createDockerID("starter-test-cluster-default1-")
-	dockerRun1, err := Spawn(strings.Join([]string{
+	dockerRun1 := Spawn(t, strings.Join([]string{
 		"docker run -it",
 		"--label starter-test=true",
 		"--name=" + cID1,
@@ -72,14 +76,11 @@ func TestDockerClusterDefault(t *testing.T) {
 		"--dockerContainer=" + cID1,
 		"--ownAddress=$IP",
 	}, " "))
-	if err != nil {
-		t.Fatalf("Failed to run docker container: %s", describe(err))
-	}
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
 	cID2 := createDockerID("starter-test-cluster-default2-")
-	dockerRun2, err := Spawn(strings.Join([]string{
+	dockerRun2 := Spawn(t, strings.Join([]string{
 		"docker run -it",
 		"--label starter-test=true",
 		"--name=" + cID2,
@@ -91,14 +92,11 @@ func TestDockerClusterDefault(t *testing.T) {
 		"--ownAddress=$IP",
 		"--join=$IP:4000",
 	}, " "))
-	if err != nil {
-		t.Fatalf("Failed to run docker container: %s", describe(err))
-	}
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
 
 	cID3 := createDockerID("starter-test-cluster-default3-")
-	dockerRun3, err := Spawn(strings.Join([]string{
+	dockerRun3 := Spawn(t, strings.Join([]string{
 		"docker run -it",
 		"--label starter-test=true",
 		"--name=" + cID3,
@@ -110,21 +108,20 @@ func TestDockerClusterDefault(t *testing.T) {
 		"--ownAddress=$IP",
 		"--join=$IP:4000",
 	}, " "))
-	if err != nil {
-		t.Fatalf("Failed to run docker container: %s", describe(err))
-	}
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	fmt.Println("Waiting for cluster ready")
 	if ok := WaitUntilStarterReady(t, dockerRun1, dockerRun2, dockerRun3); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, "http://localhost:4000")
 		testCluster(t, "http://localhost:4005")
 		testCluster(t, "http://localhost:4010")
 	}
 
-	fmt.Println("Waiting for termination")
-	stopDockerContainer(t, cID1)
-	stopDockerContainer(t, cID2)
-	stopDockerContainer(t, cID3)
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, "http://localhost:4000")
+	ShutdownStarter(t, "http://localhost:4005")
+	ShutdownStarter(t, "http://localhost:4010")
 }

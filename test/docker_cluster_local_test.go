@@ -29,6 +29,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestDockerClusterLocal runs the arangodb starter in docker with `--local`
@@ -51,9 +52,12 @@ func TestDockerClusterLocal(t *testing.T) {
 
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	start := time.Now()
 
 	cID := createDockerID("starter-test-local-cluster-")
-	dockerRun, err := Spawn(strings.Join([]string{
+	dockerRun := Spawn(t, strings.Join([]string{
 		"docker run -it",
 		"--label starter-test=true",
 		"--name=" + cID,
@@ -65,17 +69,16 @@ func TestDockerClusterLocal(t *testing.T) {
 		"--ownAddress=$IP",
 		"--local",
 	}, " "))
-	if err != nil {
-		t.Fatalf("Failed to run docker container: %s", describe(err))
-	}
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	fmt.Println("Waiting for cluster ready")
 	if ok := WaitUntilStarterReady(t, dockerRun); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, "http://localhost:4000")
 	}
 
-	fmt.Println("Waiting for termination")
-	stopDockerContainer(t, cID)
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, "http://localhost:4000")
 }
