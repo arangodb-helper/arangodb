@@ -1,0 +1,84 @@
+//
+// DISCLAIMER
+//
+// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Copyright holder is ArangoDB GmbH, Cologne, Germany
+//
+// Author Ewout Prangsma
+//
+
+// +build docker
+
+package test
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
+
+// TestDockerClusterLocal runs the arangodb starter in docker with `--local`
+func TestDockerClusterLocal(t *testing.T) {
+	if os.Getenv("IP") == "" {
+		t.Fatal("IP envvar must be set to IP address of this machine")
+	}
+	/*
+		docker volume create arangodb1
+		docker run -it --name=adb1 --rm -p 4000:4000 \
+			-v arangodb1:/data \
+			-v /var/run/docker.sock:/var/run/docker.sock \
+			arangodb/arangodb-starter \
+			--dockerContainer=adb1 --ownAddress=$IP \
+			--local
+	*/
+	volID := createDockerID("vol-starter-test-local-cluster-")
+	createDockerVolume(t, volID)
+	defer removeDockerVolume(t, volID)
+
+	// Cleanup of left over tests
+	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	start := time.Now()
+
+	cID := createDockerID("starter-test-local-cluster-")
+	dockerRun := Spawn(t, strings.Join([]string{
+		"docker run -it",
+		"--label starter-test=true",
+		"--name=" + cID,
+		"--rm -p 4000:4000",
+		fmt.Sprintf("-v %s:/data", volID),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+		"arangodb/arangodb-starter",
+		"--dockerContainer=" + cID,
+		"--ownAddress=$IP",
+		"--local",
+	}, " "))
+	defer dockerRun.Close()
+	defer removeDockerContainer(t, cID)
+
+	if ok := WaitUntilStarterReady(t, dockerRun); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
+		testCluster(t, "http://localhost:4000")
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, "http://localhost:4000")
+}

@@ -20,6 +20,7 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
 GOVERSION := 1.8.1-alpine
+ARANGODB := arangodb/arangodb:3.1.19
 
 ifndef GOOS
 	GOOS := linux
@@ -40,7 +41,7 @@ BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
 RELEASE := $(GOBUILDDIR)/bin/release 
 GHRELEASE := $(GOBUILDDIR)/bin/github-release 
 
-SOURCES := $(shell find $(SRCDIR) -name '*.go')
+SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 
 .PHONY: all clean deps docker build build-local
 
@@ -123,3 +124,32 @@ release-minor: $(RELEASE)
 
 release-major: $(RELEASE)
 	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=major 
+
+TESTCONTAINER := arangodb-starter-test
+
+test-images:
+	docker pull arangodb/arangodb:latest
+	docker build -t arangodb-golang -f test/Dockerfile-arangodb-golang .
+
+# Run all integration tests
+run-tests: run-tests-local-process run-tests-docker
+
+run-tests-local-process: build test-images
+	@-docker rm -f -v $(TESTCONTAINER) &> /dev/null
+	docker run \
+		--rm \
+		--name=$(TESTCONTAINER) \
+		-v $(ROOTDIR):/usr/code \
+		-e GOPATH=/usr/code/.gobuild \
+		-e DATA_DIR=/tmp \
+		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
+		-w /usr/code/ \
+		arangodb-golang \
+		go test -v -tags localprocess $(REPOPATH)/test
+
+run-tests-docker: docker
+	go test -v -tags docker $(REPOPATH)/test
+
+# Run all integration tests on the local system
+run-tests-local: local
+	GOPATH=$(GOBUILDDIR) STARTER=$(ROOTDIR)/arangodb go test -v -tags "localprocess docker" $(REPOPATH)/test

@@ -35,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/arangodb/ArangoDBStarter/client"
 	service "github.com/arangodb/ArangoDBStarter/service"
 	homedir "github.com/mitchellh/go-homedir"
 	logging "github.com/op/go-logging"
