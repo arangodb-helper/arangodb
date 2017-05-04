@@ -441,14 +441,14 @@ func addDataVolumes(configVolumes []Volume, hostPath, containerPath string) []Vo
 }
 
 // startArangod starts a single Arango server of the given type.
-func (s *Service) startArangod(runner Runner, myHostAddress string, serverType ServerType, restart int) (Process, error) {
+func (s *Service) startArangod(runner Runner, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
 	myPort, err := s.serverPort(serverType)
 	if err != nil {
-		return nil, maskAny(err)
+		return nil, false, maskAny(err)
 	}
 	myHostDir, err := s.serverHostDir(serverType)
 	if err != nil {
-		return nil, maskAny(err)
+		return nil, false, maskAny(err)
 	}
 	os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 	os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
@@ -457,7 +457,7 @@ func (s *Service) startArangod(runner Runner, myHostAddress string, serverType S
 	s.log.Infof("Looking for a running instance of %s on port %d", serverType, myPort)
 	p, err := runner.GetRunningServer(myHostDir)
 	if err != nil {
-		return nil, maskAny(err)
+		return nil, false, maskAny(err)
 	}
 	if p != nil {
 		s.log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
@@ -466,10 +466,15 @@ func (s *Service) startArangod(runner Runner, myHostAddress string, serverType S
 		cancel()
 		if up {
 			s.log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
-			return p, nil
+			return p, false, nil
 		}
 		s.log.Infof("%s is not up on port %d. Terminating existing process and restarting it...", serverType, myPort)
 		p.Terminate()
+	}
+
+	// Check availability of port
+	if !IsPortOpen(myPort) {
+		return nil, true, maskAny(fmt.Errorf("Cannot start %s, because port %d is already in use", serverType, myPort))
 	}
 
 	s.log.Infof("Starting %s on port %d", serverType, myPort)
@@ -484,9 +489,9 @@ func (s *Service) startArangod(runner Runner, myHostAddress string, serverType S
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, s.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
 	if p, err := runner.Start(args[0], args[1:], vols, ports, containerName, myHostDir); err != nil {
-		return nil, maskAny(err)
+		return nil, false, maskAny(err)
 	} else {
-		return p, nil
+		return p, false, nil
 	}
 }
 
@@ -538,43 +543,46 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 	for {
 		myHostAddress := myPeer.Address
 		startTime := time.Now()
-		p, err := s.startArangod(runner, myHostAddress, serverType, restart)
+		p, portInUse, err := s.startArangod(runner, myHostAddress, serverType, restart)
 		if err != nil {
 			s.log.Errorf("Error while starting %s: %#v", serverType, err)
-			break
-		}
-		*processVar = p
-		ctx, cancel := context.WithCancel(s.ctx)
-		go func() {
-			port, err := s.serverPort(serverType)
-			if err != nil {
-				s.log.Fatalf("Cannot collect serverPort: %#v", err)
+			if !portInUse {
+				break
 			}
-			if up, version, cancelled := s.testInstance(ctx, myHostAddress, port); !cancelled {
-				if up {
-					s.log.Infof("%s up and running (version %s).", serverType, version)
-					if serverType == ServerTypeCoordinator && !s.isLocalSlave {
-						hostPort, err := p.HostPort(port)
-						if err != nil {
-							if id := p.ContainerID(); id != "" {
-								s.log.Infof("%s can only be accessed from inside a container.", serverType)
-							}
-						} else {
-							ip := myPeer.Address
-							urlSchemes := NewURLSchemes(myPeer.IsSecure)
-							s.logMutex.Lock()
-							s.log.Infof("Your cluster can now be accessed with a browser at `%s://%s:%d` or", urlSchemes.Browser, ip, hostPort)
-							s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
-							s.logMutex.Unlock()
-						}
-					}
-				} else {
-					s.log.Warningf("%s not ready after 5min!", serverType)
+		} else {
+			*processVar = p
+			ctx, cancel := context.WithCancel(s.ctx)
+			go func() {
+				port, err := s.serverPort(serverType)
+				if err != nil {
+					s.log.Fatalf("Cannot collect serverPort: %#v", err)
 				}
-			}
-		}()
-		p.Wait()
-		cancel()
+				if up, version, cancelled := s.testInstance(ctx, myHostAddress, port); !cancelled {
+					if up {
+						s.log.Infof("%s up and running (version %s).", serverType, version)
+						if serverType == ServerTypeCoordinator && !s.isLocalSlave {
+							hostPort, err := p.HostPort(port)
+							if err != nil {
+								if id := p.ContainerID(); id != "" {
+									s.log.Infof("%s can only be accessed from inside a container.", serverType)
+								}
+							} else {
+								ip := myPeer.Address
+								urlSchemes := NewURLSchemes(myPeer.IsSecure)
+								s.logMutex.Lock()
+								s.log.Infof("Your cluster can now be accessed with a browser at `%s://%s:%d` or", urlSchemes.Browser, ip, hostPort)
+								s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
+								s.logMutex.Unlock()
+							}
+						}
+					} else {
+						s.log.Warningf("%s not ready after 5min!", serverType)
+					}
+				}
+			}()
+			p.Wait()
+			cancel()
+		}
 		uptime := time.Since(startTime)
 		var isRecentFailure bool
 		if uptime < time.Second*30 {
@@ -586,10 +594,12 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 		}
 
 		if isRecentFailure {
-			s.log.Infof("%s has terminated, quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
-			if recentFailures >= minRecentFailuresForLog {
-				// Show logs of the server
-				s.showRecentLogs(serverType)
+			if !portInUse {
+				s.log.Infof("%s has terminated, quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
+				if recentFailures >= minRecentFailuresForLog {
+					// Show logs of the server
+					s.showRecentLogs(serverType)
+				}
 			}
 			if recentFailures >= maxRecentFailures {
 				s.log.Errorf("%s has failed %d times, giving up", serverType, recentFailures)
@@ -599,6 +609,10 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 		} else {
 			s.log.Infof("%s has terminated", serverType)
 		}
+		if portInUse {
+			time.Sleep(time.Second)
+		}
+
 		if s.stop {
 			break
 		}
