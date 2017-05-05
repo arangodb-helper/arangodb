@@ -39,6 +39,7 @@ import (
 	service "github.com/arangodb/ArangoDBStarter/service"
 	homedir "github.com/mitchellh/go-homedir"
 	logging "github.com/op/go-logging"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
 
@@ -83,11 +84,13 @@ var (
 	dockerEndpoint       string
 	dockerImage          string
 	dockerUser           string
-	dockerContainer      string
+	dockerContainerName  string
 	dockerGCDelay        time.Duration
 	dockerNetHost        bool // Deprecated
 	dockerNetworkMode    string
 	dockerPrivileged     bool
+
+	maskAny = errors.WithStack
 )
 
 func init() {
@@ -110,7 +113,7 @@ func init() {
 	f.StringVar(&dockerEndpoint, "dockerEndpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&dockerImage, "docker", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
 	f.StringVar(&dockerUser, "dockerUser", "", "use the given name as user to run the Docker container")
-	f.StringVar(&dockerContainer, "dockerContainer", "", "name of the docker container that is running this process")
+	f.StringVar(&dockerContainerName, "dockerContainer", "", "name of the docker container that is running this process")
 	f.DurationVar(&dockerGCDelay, "dockerGCDelay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
 	f.BoolVar(&dockerNetHost, "dockerNetHost", false, "Run containers with --net=host. (deprecated, use --dockerNetworkMode=host instead)")
 	f.StringVar(&dockerNetworkMode, "dockerNetworkMode", "", "Run containers with --net=<value>")
@@ -206,11 +209,22 @@ func main() {
 func cmdMainRun(cmd *cobra.Command, args []string) {
 	log.Infof("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
 
+	// Setup log level
 	if verbose {
 		logging.SetLevel(logging.DEBUG, projectName)
 	} else {
 		logging.SetLevel(logging.INFO, projectName)
 	}
+
+	// Auto detect docker container ID (if needed)
+	if isRunningInDocker() && dockerContainerName == "" {
+		id, err := findDockerContainerName(dockerEndpoint)
+		if err != nil {
+			log.Fatalf("Cannot find docker container name. Please specify using --dockerContainer=...")
+		}
+		dockerContainerName = id
+	}
+
 	// Some plausibility checks:
 	if agencySize%2 == 0 || agencySize <= 0 {
 		log.Fatal("Error: agencySize needs to be a positive, odd number.")
@@ -310,8 +324,8 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		JwtSecret:            jwtSecret,
 		SslKeyFile:           sslKeyFile,
 		SslCAFile:            sslCAFile,
-		RunningInDocker:      os.Getenv("RUNNING_IN_DOCKER") == "true",
-		DockerContainer:      dockerContainer,
+		RunningInDocker:      isRunningInDocker(),
+		DockerContainerName:  dockerContainerName,
 		DockerEndpoint:       dockerEndpoint,
 		DockerImage:          dockerImage,
 		DockerUser:           dockerUser,

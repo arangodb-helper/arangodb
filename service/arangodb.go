@@ -70,14 +70,14 @@ type Config struct {
 	SslKeyFile           string // Path containing an x509 certificate + private key to be used by the servers.
 	SslCAFile            string // Path containing an x509 CA certificate used to authenticate clients.
 
-	DockerContainer   string // Name of the container running this process
-	DockerEndpoint    string // Where to reach the docker daemon
-	DockerImage       string // Name of Arangodb docker image
-	DockerUser        string
-	DockerGCDelay     time.Duration
-	DockerNetworkMode string
-	DockerPrivileged  bool
-	RunningInDocker   bool
+	DockerContainerName string // Name of the container running this process
+	DockerEndpoint      string // Where to reach the docker daemon
+	DockerImage         string // Name of Arangodb docker image
+	DockerUser          string
+	DockerGCDelay       time.Duration
+	DockerNetworkMode   string
+	DockerPrivileged    bool
+	RunningInDocker     bool
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -506,8 +506,8 @@ func (s *Service) startArangod(runner Runner, myHostAddress string, serverType S
 	vols = addDataVolumes(vols, myHostDir, myContainerDir)
 	s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), s.serverExecutable(), args)
 	containerNamePrefix := ""
-	if s.DockerContainer != "" {
-		containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainer)
+	if s.DockerContainerName != "" {
+		containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainerName)
 	}
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, s.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
@@ -749,8 +749,11 @@ func (s *Service) Run(rootCtx context.Context) {
 		}
 	}()
 
+	// Decide what type of process runner to use.
+	useDockerRunner := s.DockerEndpoint != "" && s.DockerImage != ""
+
 	// Guess own IP address if not specified
-	if s.OwnAddress == "" && s.isSingleMode() && s.DockerContainer == "" {
+	if s.OwnAddress == "" && s.isSingleMode() && !useDockerRunner {
 		addr, err := GuessOwnAddress()
 		if err != nil {
 			s.log.Fatalf("OwnAddress must be specified, it cannot be guessed because: %v", err)
@@ -760,11 +763,17 @@ func (s *Service) Run(rootCtx context.Context) {
 	}
 
 	// Find the port mapping if running in a docker container
-	if s.DockerContainer != "" {
+	if s.RunningInDocker {
 		if s.OwnAddress == "" {
 			s.log.Fatal("OwnAddress must be specified")
 		}
-		hostPort, isNetHost, networkMode, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainer, s.MasterPort)
+		if s.DockerContainerName == "" {
+			s.log.Fatal("DockerContainerName must be specified")
+		}
+		if s.DockerEndpoint == "" {
+			s.log.Fatal("DockerEndpoint must be specified")
+		}
+		hostPort, isNetHost, networkMode, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainerName, s.MasterPort)
 		if err != nil {
 			s.log.Fatalf("Failed to detect port mapping: %#v", err)
 			return
@@ -782,9 +791,9 @@ func (s *Service) Run(rootCtx context.Context) {
 
 	// Create a runner
 	var runner Runner
-	if s.DockerEndpoint != "" && s.DockerImage != "" {
+	if useDockerRunner {
 		var err error
-		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainer, s.DockerGCDelay, s.DockerNetworkMode, s.DockerPrivileged)
+		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainerName, s.DockerGCDelay, s.DockerNetworkMode, s.DockerPrivileged)
 		if err != nil {
 			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}
