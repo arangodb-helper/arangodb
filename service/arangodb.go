@@ -741,6 +741,16 @@ func (s *Service) Run(rootCtx context.Context) {
 		}
 	}()
 
+	// Guess own IP address if not specified
+	if s.OwnAddress == "" && s.isSingleMode() && s.DockerContainer == "" {
+		addr, err := GuessOwnAddress()
+		if err != nil {
+			s.log.Fatalf("OwnAddress must be specified, it cannot be guessed because: %v", err)
+		}
+		s.log.Infof("Using auto-detected OwnAddress: %s", addr)
+		s.OwnAddress = addr
+	}
+
 	// Find the port mapping if running in a docker container
 	if s.DockerContainer != "" {
 		if s.OwnAddress == "" {
