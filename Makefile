@@ -20,7 +20,6 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
 GOVERSION := 1.8.1-alpine
-ARANGODB := arangodb/arangodb:3.1.19
 
 ifndef GOOS
 	GOOS := linux
