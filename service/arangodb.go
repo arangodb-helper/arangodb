@@ -47,6 +47,7 @@ import (
 // Config holds all configuration for a single service.
 type Config struct {
 	ID                   string // Unique identifier of this peer
+	Mode                 string // Service mode cluster|single
 	AgencySize           int
 	ArangodPath          string
 	ArangodJSPath        string
@@ -98,6 +99,7 @@ type Service struct {
 		agentProc       Process
 		dbserverProc    Process
 		coordinatorProc Process
+		singleProc      Process
 	}
 	stop bool
 }
@@ -111,6 +113,18 @@ func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service
 		if err != nil {
 			return nil, maskAny(err)
 		}
+	}
+
+	// Check mode & flags
+	switch config.Mode {
+	case "cluster":
+		if config.AgencySize < 3 {
+			return nil, maskAny(fmt.Errorf("AgentSize must be >= 3"))
+		}
+	case "single":
+		config.AgencySize = 1
+	default:
+		return nil, maskAny(fmt.Errorf("Unknown mode '%s'", config.Mode))
 	}
 
 	ctx, trigger := context.WithCancel(context.Background())
@@ -144,7 +158,7 @@ const (
 )
 
 const (
-	_portOffsetCoordinator = 1
+	_portOffsetCoordinator = 1 // Coordinator/single server
 	_portOffsetDBServer    = 2
 	_portOffsetAgent       = 3
 	portOffsetIncrement    = 5 // {our http server, agent, coordinator, dbserver, reserved}
@@ -296,7 +310,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		case ServerTypeDBServer:
 			threads = "4"
 			v8Contexts = "4"
-		case ServerTypeCoordinator:
+		case ServerTypeCoordinator, ServerTypeSingle:
 			threads = "16"
 			v8Contexts = "4"
 		}
@@ -403,8 +417,13 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 			"--foxx.queues", "true",
 			"--server.statistics", "true",
 		)
+	case ServerTypeSingle:
+		args = append(args,
+			"--foxx.queues", "true",
+			"--server.statistics", "true",
+		)
 	}
-	if serverType != ServerTypeAgent {
+	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
 		for i := 0; i < s.AgencySize; i++ {
 			p := s.myPeers.Peers[i]
 			args = append(args,
@@ -537,7 +556,7 @@ func (s *Service) showRecentLogs(serverType ServerType) {
 }
 
 // runArangod starts a single Arango server of the given type and keeps restarting it when needed.
-func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, processVar *Process, runProcess *bool) {
+func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, processVar *Process, runProcess_ *bool) {
 	restart := 0
 	recentFailures := 0
 	for {
@@ -630,22 +649,27 @@ func (s *Service) startRunning(runner Runner) {
 		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.ID)
 	}
 
-	// Start agent:
-	if s.needsAgent() {
-		runAlways := true
-		go s.runArangod(runner, myPeer, ServerTypeAgent, &s.servers.agentProc, &runAlways)
-		time.Sleep(time.Second)
-	}
+	if s.isClusterMode() {
+		// Start agent:
+		if s.needsAgent() {
+			runAlways := true
+			go s.runArangod(runner, myPeer, ServerTypeAgent, &s.servers.agentProc, &runAlways)
+			time.Sleep(time.Second)
+		}
 
-	// Start DBserver:
-	if s.StartDBserver {
-		go s.runArangod(runner, myPeer, ServerTypeDBServer, &s.servers.dbserverProc, &s.StartDBserver)
-		time.Sleep(time.Second)
-	}
+		// Start DBserver:
+		if s.StartDBserver {
+			go s.runArangod(runner, myPeer, ServerTypeDBServer, &s.servers.dbserverProc, &s.StartDBserver)
+			time.Sleep(time.Second)
+		}
 
-	// Start Coordinator:
-	if s.StartCoordinator {
-		go s.runArangod(runner, myPeer, ServerTypeCoordinator, &s.servers.coordinatorProc, &s.StartCoordinator)
+		// Start Coordinator:
+		if s.StartCoordinator {
+			go s.runArangod(runner, myPeer, ServerTypeCoordinator, &s.servers.coordinatorProc, &s.StartCoordinator)
+		}
+	} else if s.isSingleMode() {
+		// Start Single server:
+		go s.runArangod(runner, myPeer, ServerTypeSingle, &s.servers.singleProc, nil)
 	}
 
 	for {
@@ -656,6 +680,11 @@ func (s *Service) startRunning(runner Runner) {
 	}
 
 	s.log.Info("Shutting down services...")
+	if p := s.servers.singleProc; p != nil {
+		if err := p.Terminate(); err != nil {
+			s.log.Warningf("Failed to terminate single server: %v", err)
+		}
+	}
 	if p := s.servers.coordinatorProc; p != nil {
 		if err := p.Terminate(); err != nil {
 			s.log.Warningf("Failed to terminate coordinator: %v", err)
@@ -666,14 +695,19 @@ func (s *Service) startRunning(runner Runner) {
 			s.log.Warningf("Failed to terminate dbserver: %v", err)
 		}
 	}
-	time.Sleep(3 * time.Second)
 	if p := s.servers.agentProc; p != nil {
+		time.Sleep(3 * time.Second)
 		if err := p.Terminate(); err != nil {
 			s.log.Warningf("Failed to terminate agent: %v", err)
 		}
 	}
 
 	// Cleanup containers
+	if p := s.servers.singleProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			s.log.Warningf("Failed to cleanup single server: %v", err)
+		}
+	}
 	if p := s.servers.coordinatorProc; p != nil {
 		if err := p.Cleanup(); err != nil {
 			s.log.Warningf("Failed to cleanup coordinator: %v", err)
@@ -684,8 +718,8 @@ func (s *Service) startRunning(runner Runner) {
 			s.log.Warningf("Failed to cleanup dbserver: %v", err)
 		}
 	}
-	time.Sleep(3 * time.Second)
 	if p := s.servers.agentProc; p != nil {
+		time.Sleep(3 * time.Second)
 		if err := p.Cleanup(); err != nil {
 			s.log.Warningf("Failed to cleanup agent: %v", err)
 		}
@@ -763,6 +797,16 @@ func (s *Service) Run(rootCtx context.Context) {
 		s.state = stateMaster
 		s.startMaster(runner)
 	}
+}
+
+// isClusterMode returns true when the service is running in cluster mode.
+func (s *Service) isClusterMode() bool {
+	return s.Mode == "cluster"
+}
+
+// isSingleMode returns true when the service is running in single server mode.
+func (s *Service) isSingleMode() bool {
+	return s.Mode == "single"
 }
 
 // needsAgent returns true if the agent should run in this instance

@@ -76,6 +76,7 @@ func (s *Service) startHTTPServer() {
 	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
 	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
 	mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
+	mux.HandleFunc("/logs/single", s.singleLogsHandler)
 	mux.HandleFunc("/version", s.versionHandler)
 	mux.HandleFunc("/shutdown", s.shutdownHandler)
 
@@ -128,7 +129,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				Port:       hostPort,
 				PortOffset: 0,
 				DataDir:    s.DataDir,
-				HasAgent:   true,
+				HasAgent:   !s.isSingleMode(),
 				IsSecure:   s.IsSecure(),
 			},
 		}
@@ -204,6 +205,11 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
+			// In single server mode, do not accept new slaves
+			if s.isSingleMode() {
+				writeError(w, http.StatusBadRequest, "In single server mode, slaves cannot be added.")
+				return
+			}
 			// ID not yet found, add it
 			newPeer := Peer{
 				ID:         req.SlaveID,
@@ -211,7 +217,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				Port:       slavePort,
 				PortOffset: s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique),
 				DataDir:    req.DataDir,
-				HasAgent:   len(s.myPeers.Peers) < s.AgencySize,
+				HasAgent:   (len(s.myPeers.Peers) < s.AgencySize) && !s.isSingleMode(),
 				IsSecure:   req.IsSecure,
 			}
 			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
@@ -308,6 +314,12 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 		if p := s.servers.dbserverProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeDBServer, p))
 		}
+		if p := s.servers.singleProc; p != nil {
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
+		}
+	}
+	if s.isSingleMode() {
+		expectedServers = 1
 	}
 	resp.ServersStarted = len(resp.Servers) == expectedServers
 	b, err := json.Marshal(resp)
@@ -336,6 +348,11 @@ func (s *Service) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
 // coordinatorLogsHandler servers the entire coordinator log.
 func (s *Service) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request) {
 	s.logsHandler(w, r, ServerTypeCoordinator)
+}
+
+// singleLogsHandler servers the entire single server log.
+func (s *Service) singleLogsHandler(w http.ResponseWriter, r *http.Request) {
+	s.logsHandler(w, r, ServerTypeSingle)
 }
 
 func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, serverType ServerType) {

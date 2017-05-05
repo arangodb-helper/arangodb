@@ -67,6 +67,7 @@ var (
 	startCoordinator     bool
 	startDBserver        bool
 	startLocalSlaves     bool
+	mode                 string
 	dataDir              string
 	ownAddress           string
 	masterAddress        string
@@ -100,6 +101,7 @@ func init() {
 	f.BoolVar(&startCoordinator, "startCoordinator", true, "should a coordinator instance be started")
 	f.BoolVar(&startDBserver, "startDBserver", true, "should a dbserver instance be started")
 	f.BoolVar(&startLocalSlaves, "local", false, "If set, local slaves will be started to create a machine local (test) cluster")
+	f.StringVar(&mode, "mode", "cluster", "Set the mode of operation to use (cluster|single)")
 	f.StringVar(&dataDir, "dataDir", getEnvVar("DATA_DIR", "."), "directory to store all data")
 	f.StringVar(&ownAddress, "ownAddress", "", "address under which this server is reachable, needed for running arangodb in docker or the case of --agencySize 1 in the master")
 	f.StringVar(&masterAddress, "join", "", "join a cluster with master at address addr")
@@ -290,6 +292,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	// Create service
 	service, err := service.NewService(log, service.Config{
 		ID:                   id,
+		Mode:                 mode,
 		AgencySize:           agencySize,
 		ArangodPath:          arangodPath,
 		ArangodJSPath:        arangodJSPath,
