@@ -33,21 +33,21 @@ On host A:
 arangodb
 ```
 
-This will use port 4000 to wait for colleagues (3 are needed for a
+This will use port 8528 to wait for colleagues (3 are needed for a
 resilient agency). On host B: (can be the same as A):
 
 ```
 arangodb --join A
 ```
 
-This will contact A on port 4000 and register. On host C: (can be same
+This will contact A on port 8528 and register. On host C: (can be same
 as A or B):
 
 ```
 arangodb --join A
 ```
 
-This will contact A on port 4000 and register.
+This will contact A on port 8528 and register.
 
 From the moment on when 3 have joined, each will fire up an agent, a 
 coordinator and a dbserver and the cluster is up. Ports are shown on
@@ -77,7 +77,7 @@ commands.
 ```
 export IP=<IP of docker host>
 docker volume create arangodb1
-docker run -it --name=adb1 --rm -p 4000:4000 \
+docker run -it --name=adb1 --rm -p 8528:8528 \
     -v arangodb1:/data \
     -v /var/run/docker.sock:/var/run/docker.sock \
     arangodb/arangodb-starter \
@@ -126,7 +126,7 @@ use the normal docker arguments, combined with `--mode=single`.
 ```
 export IP=<IP of docker host>
 docker volume create arangodb
-docker run -it --name=adb --rm -p 4000:4000 \
+docker run -it --name=adb --rm -p 8528:8528 \
     -v arangodb:/data \
     -v /var/run/docker.sock:/var/run/docker.sock \
     arangodb/arangodb-starter \
@@ -254,7 +254,7 @@ Esoteric options
 
 * `--masterPort int`
 
-port for arangodb master (default 4000).
+port for arangodb master (default 8528).
 
 This is the port used for communication of the `arangodb` instances
 amongst each other.
@@ -350,7 +350,7 @@ Technical explanation as to what happens
 ----------------------------------------
 
 The procedure is essentially that the first instance of `arangodb` (aka
-the "master") offers an HTTP service on port 4000 for peers to register.
+the "master") offers an HTTP service on port 8528 for peers to register.
 Every instance that registers becomes a slave. As soon as there are
 `agencySize` peers, every instance of `arangodb` starts up an agent (if
 it is one of the first 3), a DBserver, and a coordinator. The necessary
@@ -364,13 +364,13 @@ its data directory, starts up its `arangod` instances again (with their
 data) and they join the cluster.
 
 All network addresses are discovered from the HTTP communication between
-the `arangodb` instances. The ports used 4001(/4006/4011) for the coordinator, 
-4002(/4007/4012) for the DBserver, 4003(/4008/4013) for the agent) 
+the `arangodb` instances. The ports used 8529(/8534/8539) for the coordinator, 
+8530(/8535/8540) for the DBserver, 8531(/8536/8537) for the agent) 
 need to be free. If more than one instance of an `arangodb` are started 
 on the same machine, the second will increase all these port numbers by 5 and so on.
 
 In case the executable is running in Docker, it will use the Docker 
-API to retrieve the port number of the Docker host to which the 4000 port 
+API to retrieve the port number of the Docker host to which the 8528 port 
 number is mapped. The containers started by the executable will all 
 map the port they use to the exact same host port.
 

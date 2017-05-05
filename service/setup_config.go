@@ -32,7 +32,7 @@ import (
 const (
 	// SetupConfigVersion is the semantic version of the process that created this.
 	// If the structure of SetupConfigFile (or any underlying fields) or its semantics change, you must increase this version.
-	SetupConfigVersion = "0.2.0"
+	SetupConfigVersion = "0.2.1"
 	setupFileName      = "setup.json"
 )
 

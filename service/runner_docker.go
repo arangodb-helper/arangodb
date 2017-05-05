@@ -269,7 +269,7 @@ func (r *dockerRunner) pullImage(image string) error {
 
 func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, masterPort string) string {
 	addr := masterIP
-	hostPort := 4000 + (portOffsetIncrement * (index - 1))
+	hostPort := DefaultMasterPort + (portOffsetIncrement * (index - 1))
 	if masterPort != "" {
 		addr = net.JoinHostPort(addr, masterPort)
 		masterPortI, _ := strconv.Atoi(masterPort)
@@ -277,7 +277,7 @@ func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, ma
 	}
 	var netArgs string
 	if r.networkMode == "" || r.networkMode == "default" {
-		netArgs = fmt.Sprintf("-p %d:4000", hostPort)
+		netArgs = fmt.Sprintf("-p %d:%d", hostPort, DefaultMasterPort)
 	} else {
 		netArgs = fmt.Sprintf("--net=%s", r.networkMode)
 	}

@@ -32,10 +32,11 @@ import (
 	"time"
 
 	"github.com/arangodb/ArangoDBStarter/client"
+	"github.com/arangodb/ArangoDBStarter/service"
 )
 
 const (
-	basePort = 4000
+	basePort = service.DefaultMasterPort
 )
 
 var (

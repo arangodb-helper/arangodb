@@ -44,6 +44,10 @@ import (
 	logging "github.com/op/go-logging"
 )
 
+const (
+	DefaultMasterPort = 8528
+)
+
 // Config holds all configuration for a single service.
 type Config struct {
 	ID                   string // Unique identifier of this peer
