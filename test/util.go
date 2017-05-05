@@ -30,6 +30,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -41,15 +42,36 @@ import (
 )
 
 const (
-	ctrlC = "\u0003"
+	ctrlC           = "\u0003"
+	whatCluster     = "cluster"
+	whatSingle      = "single server"
+	testModeProcess = "localprocess"
+	testModeDocker  = "docker"
 )
 
 var (
 	isVerbose bool
+	testModes []string
 )
 
 func init() {
 	isVerbose = os.Getenv("VERBOSE") != ""
+	testModes = strings.Split(os.Getenv("TEST_MODES"), " ")
+	if len(testModes) == 1 && testModes[0] == "" {
+		testModes = nil
+	}
+}
+
+func needTestMode(t *testing.T, testMode string) {
+	for _, x := range testModes {
+		if x == testMode {
+			return
+		}
+	}
+	if len(testModes) == 0 {
+		return
+	}
+	t.Skipf("Test mode '%s' not set", testMode)
 }
 
 // Spawn a command an return its process.
@@ -83,7 +105,7 @@ func SetUniqueDataDir(t *testing.T) string {
 }
 
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
-func WaitUntilStarterReady(t *testing.T, starters ...*gexpect.SubProcess) bool {
+func WaitUntilStarterReady(t *testing.T, what string, starters ...*gexpect.SubProcess) bool {
 	g := sync.WaitGroup{}
 	result := true
 	for _, starter := range starters {
@@ -91,7 +113,7 @@ func WaitUntilStarterReady(t *testing.T, starters ...*gexpect.SubProcess) bool {
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			if _, err := starter.ExpectTimeout(time.Minute, regexp.MustCompile("Your cluster can now be accessed with a browser at")); err != nil {
+			if _, err := starter.ExpectTimeout(time.Minute, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what))); err != nil {
 				result = false
 				t.Errorf("Starter is not ready in time: %s", describe(err))
 			}

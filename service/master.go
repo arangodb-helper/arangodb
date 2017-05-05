@@ -58,7 +58,8 @@ func (s *Service) startMaster(runner Runner) {
 				Port:       s.announcePort,
 				PortOffset: 0,
 				DataDir:    s.DataDir,
-				HasAgent:   true,
+				HasAgent:   !s.isSingleMode(),
+				IsSecure:   s.IsSecure(),
 			},
 		}
 		s.myPeers.AgencySize = s.AgencySize

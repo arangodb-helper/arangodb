@@ -31,6 +31,7 @@ const (
 	ServerTypeCoordinator = "coordinator"
 	ServerTypeDBServer    = "dbserver"
 	ServerTypeAgent       = "agent"
+	ServerTypeSingle      = "single"
 )
 
 // String returns a string representation of the given ServerType.
@@ -41,7 +42,7 @@ func (s ServerType) String() string {
 // PortOffset returns the offset from a peer base port for the given type of server.
 func (s ServerType) PortOffset() int {
 	switch s {
-	case ServerTypeCoordinator:
+	case ServerTypeCoordinator, ServerTypeSingle:
 		return _portOffsetCoordinator
 	case ServerTypeDBServer:
 		return _portOffsetDBServer

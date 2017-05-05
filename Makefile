@@ -20,7 +20,6 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
 GOVERSION := 1.8.1-alpine
-ARANGODB := arangodb/arangodb:3.1.19
 
 ifndef GOOS
 	GOOS := linux
@@ -76,6 +75,8 @@ $(GOBUILDDIR):
 	@rm -f $(REPODIR) && ln -s ../../../.. $(REPODIR)
 	@rm -f $(GOBUILDDIR)/src/github.com/aktau && ln -s ../../../vendor/github.com/aktau $(GOBUILDDIR)/src/github.com/aktau
 	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../vendor/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
+	@rm -f $(GOBUILDDIR)/src/github.com/kballard && ln -s ../../../vendor/github.com/kballard $(GOBUILDDIR)/src/github.com/kballard
+	@rm -f $(GOBUILDDIR)/src/github.com/shavac && ln -s ../../../vendor/github.com/shavac $(GOBUILDDIR)/src/github.com/shavac
 	@rm -f $(GOBUILDDIR)/src/github.com/voxelbrain && ln -s ../../../vendor/github.com/voxelbrain $(GOBUILDDIR)/src/github.com/voxelbrain
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
@@ -143,13 +144,14 @@ run-tests-local-process: build test-images
 		-e GOPATH=/usr/code/.gobuild \
 		-e DATA_DIR=/tmp \
 		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
+		-e TEST_MODES=localprocess \
 		-w /usr/code/ \
 		arangodb-golang \
-		go test -v -tags localprocess $(REPOPATH)/test
+		go test -v $(REPOPATH)/test
 
 run-tests-docker: docker
-	go test -v -tags docker $(REPOPATH)/test
+	GOPATH=$(GOBUILDDIR) TEST_MODES=docker go test -v $(REPOPATH)/test
 
 # Run all integration tests on the local system
 run-tests-local: local
-	GOPATH=$(GOBUILDDIR) STARTER=$(ROOTDIR)/arangodb go test -v -tags "localprocess docker" $(REPOPATH)/test
+	GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess docker" STARTER=$(ROOTDIR)/arangodb go test -v $(REPOPATH)/test
