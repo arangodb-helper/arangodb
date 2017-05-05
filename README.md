@@ -108,6 +108,31 @@ arangodb --local
 
 Note: When you restart the started, it remembers the original `--local` flag.
 
+Starting a single server
+------------------------
+
+If you want to start a single database server, use `--mode=single`.
+
+```
+arangodb --mode=single
+```
+
+Starting a single server in Docker
+----------------------------------
+
+If you want to start a single database server running in a docker container,
+use the normal docker arguments, combined with `--mode=single`.
+
+```
+export IP=<IP of docker host>
+docker volume create arangodb
+docker run -it --name=adb --rm -p 4000:4000 \
+    -v arangodb:/data \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    arangodb/arangodb-starter \
+    --dockerContainer=adb --ownAddress=$IP --mode=single
+```
+
 Common options 
 --------------
 
@@ -127,6 +152,15 @@ join a cluster with master at address `addr` (default "")
 
 Start a local (test) cluster. Since all servers are running on a single machine 
 this is really not intended for production setups.
+
+* `--mode cluster|single`
+
+Select what kind of database configuration you want. 
+This can be a `cluster` configuration (which is the default), or a `single` server 
+configuration.
+
+Note that when running a `single` server configuration you will lose all 
+high availability features that a cluster provides you.
 
 * `--agencySize int`
 
