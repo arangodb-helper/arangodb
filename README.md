@@ -67,10 +67,12 @@ Running in Docker
 -----------------
 You can run ArangoDBStarter using our ready made docker container. 
 
-When using ArangoDBStarter in a Docker contairer it will also run all 
-servers in a Docker using the `arangodb/arangodb` container.
+When using ArangoDBStarter in a Docker container it will also run all 
+servers in a docker using the `arangodb/arangodb:latest` docker image.
+If you wish to run a specific docker image for the servers, specify it using
+the `--docker` argument.
 
-When running in Docker it is important to care about the volume mappings on 
+When running in docker it is important to care about the volume mappings on 
 the container. Typically you will start the executable in docker with the following
 commands.
 
@@ -81,7 +83,7 @@ docker run -it --name=adb1 --rm -p 8528:8528 \
     -v arangodb1:/data \
     -v /var/run/docker.sock:/var/run/docker.sock \
     arangodb/arangodb-starter \
-    --dockerContainer=adb1 --ownAddress=$IP
+    --ownAddress=$IP
 ```
 
 The executable will show the commands needed to run the other instances.
@@ -130,7 +132,8 @@ docker run -it --name=adb --rm -p 8528:8528 \
     -v arangodb:/data \
     -v /var/run/docker.sock:/var/run/docker.sock \
     arangodb/arangodb-starter \
-    --dockerContainer=adb --ownAddress=$IP --mode=single
+    --ownAddress=$IP \
+    --mode=single
 ```
 
 Common options 
@@ -188,7 +191,8 @@ Usually one would use the Docker image `arangodb/arangodb`.
 * `--dockerContainer containerName`
 
 `containerName` is the name of a Docker container that is used to run the
-executable. This argument is required when running the executable in docker.
+executable. If you do not provide this argument but run the starter inside 
+a docker container, the starter will auto-detect its container name.
 
 Authentication options
 ----------------------
