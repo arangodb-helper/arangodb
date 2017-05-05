@@ -20,8 +20,6 @@
 // Author Ewout Prangsma
 //
 
-// +build docker
-
 package test
 
 import (
@@ -34,6 +32,7 @@ import (
 
 // TestDockerSingle runs the arangodb starter in docker with `--mode=single`
 func TestDockerSingle(t *testing.T) {
+	needTestMode(t, testModeDocker)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -75,7 +74,61 @@ func TestDockerSingle(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0))
+		testSingle(t, insecureStarterEndpoint(0), false)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+}
+
+// TestDockerSingleAutoKeyFile runs the arangodb starter in docker with `--mode=single` && `--sslAutoKeyFile`
+func TestDockerSingleAutoKeyFile(t *testing.T) {
+	needTestMode(t, testModeDocker)
+	if os.Getenv("IP") == "" {
+		t.Fatal("IP envvar must be set to IP address of this machine")
+	}
+	/*
+		docker volume create arangodb1
+		docker run -it --name=adb1 --rm -p 4000:4000 \
+			-v arangodb1:/data \
+			-v /var/run/docker.sock:/var/run/docker.sock \
+			arangodb/arangodb-starter \
+			--dockerContainer=adb1 --ownAddress=$IP \
+			--mode=single --sslAutoKeyFile
+	*/
+	volID := createDockerID("vol-starter-test-single-")
+	createDockerVolume(t, volID)
+	defer removeDockerVolume(t, volID)
+
+	// Cleanup of left over tests
+	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	start := time.Now()
+
+	cID := createDockerID("starter-test-single-")
+	dockerRun := Spawn(t, strings.Join([]string{
+		"docker run -it",
+		"--label starter-test=true",
+		"--name=" + cID,
+		"--rm",
+		fmt.Sprintf("-p %d:%d", basePort, basePort),
+		fmt.Sprintf("-v %s:/data", volID),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+		"arangodb/arangodb-starter",
+		"--dockerContainer=" + cID,
+		"--ownAddress=$IP",
+		"--mode=single",
+		"--sslAutoKeyFile",
+	}, " "))
+	defer dockerRun.Close()
+	defer removeDockerContainer(t, cID)
+
+	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
+		t.Logf("Single server start took %s", time.Since(start))
+		testSingle(t, insecureStarterEndpoint(0), true)
 	}
 
 	if isVerbose {

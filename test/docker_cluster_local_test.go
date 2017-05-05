@@ -20,8 +20,6 @@
 // Author Ewout Prangsma
 //
 
-// +build docker
-
 package test
 
 import (
@@ -34,6 +32,7 @@ import (
 
 // TestDockerClusterLocal runs the arangodb starter in docker with `--local`
 func TestDockerClusterLocal(t *testing.T) {
+	needTestMode(t, testModeDocker)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -75,7 +74,7 @@ func TestDockerClusterLocal(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
+		testCluster(t, insecureStarterEndpoint(0), false)
 	}
 
 	if isVerbose {

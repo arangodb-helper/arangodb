@@ -20,8 +20,6 @@
 // Author Ewout Prangsma
 //
 
-// +build docker
-
 package test
 
 import (
@@ -34,6 +32,7 @@ import (
 
 // TestDockerClusterDefault runs 3 arangodb starters in docker with default settings.
 func TestDockerClusterDefault(t *testing.T) {
+	needTestMode(t, testModeDocker)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -116,9 +115,9 @@ func TestDockerClusterDefault(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
-		testCluster(t, insecureStarterEndpoint(5))
-		testCluster(t, insecureStarterEndpoint(10))
+		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(5), false)
+		testCluster(t, insecureStarterEndpoint(10), false)
 	}
 
 	if isVerbose {

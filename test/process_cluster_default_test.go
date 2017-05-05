@@ -20,8 +20,6 @@
 // Author Ewout Prangsma
 //
 
-// +build localprocess
-
 package test
 
 import (
@@ -32,6 +30,7 @@ import (
 
 // TestProcessClusterDefault starts a master starter, followed by 2 slave starters.
 func TestProcessClusterDefault(t *testing.T) {
+	needTestMode(t, testModeProcess)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -52,9 +51,9 @@ func TestProcessClusterDefault(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
-		testCluster(t, insecureStarterEndpoint(5))
-		testCluster(t, insecureStarterEndpoint(10))
+		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(5), false)
+		testCluster(t, insecureStarterEndpoint(10), false)
 	}
 
 	if isVerbose {
@@ -65,6 +64,7 @@ func TestProcessClusterDefault(t *testing.T) {
 
 // TestProcessClusterDefaultShutdownViaAPI starts a master starter, followed by 2 slave starters, shutting all down through the API.
 func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
+	needTestMode(t, testModeProcess)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -85,9 +85,9 @@ func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
-		testCluster(t, insecureStarterEndpoint(5))
-		testCluster(t, insecureStarterEndpoint(10))
+		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(5), false)
+		testCluster(t, insecureStarterEndpoint(10), false)
 	}
 
 	if isVerbose {

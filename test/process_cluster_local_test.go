@@ -20,8 +20,6 @@
 // Author Ewout Prangsma
 //
 
-// +build localprocess
-
 package test
 
 import (
@@ -32,6 +30,7 @@ import (
 
 // TestProcessClusterLocal runs `arangodb --local`
 func TestProcessClusterLocal(t *testing.T) {
+	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -42,9 +41,9 @@ func TestProcessClusterLocal(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
-		testCluster(t, insecureStarterEndpoint(5))
-		testCluster(t, insecureStarterEndpoint(10))
+		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(5), false)
+		testCluster(t, insecureStarterEndpoint(10), false)
 	}
 
 	if isVerbose {
@@ -55,6 +54,7 @@ func TestProcessClusterLocal(t *testing.T) {
 
 // TestProcessClusterLocal runs `arangodb --local`, stopping it through the `/shutdown` API.
 func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
+	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -65,9 +65,9 @@ func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
-		testCluster(t, insecureStarterEndpoint(5))
-		testCluster(t, insecureStarterEndpoint(10))
+		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(5), false)
+		testCluster(t, insecureStarterEndpoint(10), false)
 	}
 
 	if isVerbose {

@@ -24,15 +24,39 @@ package test
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/arangodb/ArangoDBStarter/client"
 )
 
 const (
 	basePort = 4000
+)
+
+var (
+	// Custom httpClient which allows insecure HTTPS connections.
+	httpClient = &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+				DualStack: true,
+			}).DialContext,
+			MaxIdleConns:        100,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 )
 
 // insecureStarterEndpoint creates an insecure (HTTP) endpoint for a starter
@@ -42,21 +66,21 @@ func insecureStarterEndpoint(portOffset int) string {
 }
 
 // testCluster runs a series of tests to verify a good cluster.
-func testCluster(t *testing.T, starterEndpoint string) client.API {
+func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure)
 	return c
 }
 
 // testSingle runs a series of tests to verify a good single server.
-func testSingle(t *testing.T, starterEndpoint string) client.API {
+func testSingle(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "single", starterEndpoint)
+	testProcesses(t, c, "single", starterEndpoint, isSecure)
 	return c
 }
 
 // testProcesses runs a series of tests to verify a good series of database servers.
-func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string) {
+func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool) {
 	ctx := context.Background()
 
 	// Fetch version
@@ -76,6 +100,9 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string) {
 
 	// Check agent
 	if sp, ok := processes.ServerByType(client.ServerTypeAgent); ok {
+		if sp.IsSecure != isSecure {
+			t.Errorf("Invalid IsSecure on agent. Expected %v, got %v", isSecure, sp.IsSecure)
+		}
 		if mode == "single" {
 			t.Errorf("Found agent, not allowed in single mode")
 		} else {
@@ -88,6 +115,9 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string) {
 
 	// Check coordinator
 	if sp, ok := processes.ServerByType(client.ServerTypeCoordinator); ok {
+		if sp.IsSecure != isSecure {
+			t.Errorf("Invalid IsSecure on coordinator. Expected %v, got %v", isSecure, sp.IsSecure)
+		}
 		if mode == "single" {
 			t.Errorf("Found coordinator, not allowed in single mode")
 		} else {
@@ -102,6 +132,9 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string) {
 
 	// Check dbserver
 	if sp, ok := processes.ServerByType(client.ServerTypeDBServer); ok {
+		if sp.IsSecure != isSecure {
+			t.Errorf("Invalid IsSecure on dbserver. Expected %v, got %v", isSecure, sp.IsSecure)
+		}
 		if mode == "single" {
 			t.Errorf("Found dbserver, not allowed in single mode")
 		} else {
@@ -116,6 +149,9 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string) {
 
 	// Check single
 	if sp, ok := processes.ServerByType(client.ServerTypeSingle); ok {
+		if sp.IsSecure != isSecure {
+			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
+		}
 		if mode == "cluster" {
 			t.Errorf("Found single, not allowed in cluster mode")
 		} else {
@@ -137,7 +173,7 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess) {
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s:%d/_api/version", scheme, sp.IP, sp.Port)
-	_, err := http.Get(url)
+	_, err := httpClient.Get(url)
 	if err != nil {
 		t.Errorf("Failed to reach arangod at %s:%d", sp.IP, sp.Port)
 	}

@@ -30,6 +30,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -41,17 +42,36 @@ import (
 )
 
 const (
-	ctrlC       = "\u0003"
-	whatCluster = "cluster"
-	whatSingle  = "single server"
+	ctrlC           = "\u0003"
+	whatCluster     = "cluster"
+	whatSingle      = "single server"
+	testModeProcess = "localprocess"
+	testModeDocker  = "docker"
 )
 
 var (
 	isVerbose bool
+	testModes []string
 )
 
 func init() {
 	isVerbose = os.Getenv("VERBOSE") != ""
+	testModes = strings.Split(os.Getenv("TEST_MODES"), " ")
+	if len(testModes) == 1 && testModes[0] == "" {
+		testModes = nil
+	}
+}
+
+func needTestMode(t *testing.T, testMode string) {
+	for _, x := range testModes {
+		if x == testMode {
+			return
+		}
+	}
+	if len(testModes) == 0 {
+		return
+	}
+	t.Skipf("Test mode '%s' not set", testMode)
 }
 
 // Spawn a command an return its process.
