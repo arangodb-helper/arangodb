@@ -96,7 +96,7 @@ func init() {
 	f.StringVar(&id, "id", "", "Unique identifier of this peer")
 	f.StringVar(&arangodPath, "arangod", "/usr/sbin/arangod", "Path of arangod")
 	f.StringVar(&arangodJSPath, "jsDir", "/usr/share/arangodb3/js", "Path of arango JS")
-	f.IntVar(&masterPort, "masterPort", 4000, "Port to listen on for other arangodb's to join")
+	f.IntVar(&masterPort, "masterPort", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
 	f.StringVar(&rrPath, "rr", "", "Path of rr")
 	f.BoolVar(&startCoordinator, "startCoordinator", true, "should a coordinator instance be started")
 	f.BoolVar(&startDBserver, "startDBserver", true, "should a dbserver instance be started")

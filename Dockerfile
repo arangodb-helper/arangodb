@@ -3,7 +3,7 @@ MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
 COPY bin/linux/amd64/arangodb /app/
 
-EXPOSE 4000 
+EXPOSE 8528 
 
 VOLUME /data
 
