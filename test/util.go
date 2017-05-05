@@ -41,7 +41,9 @@ import (
 )
 
 const (
-	ctrlC = "\u0003"
+	ctrlC       = "\u0003"
+	whatCluster = "cluster"
+	whatSingle  = "single server"
 )
 
 var (
@@ -83,7 +85,7 @@ func SetUniqueDataDir(t *testing.T) string {
 }
 
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
-func WaitUntilStarterReady(t *testing.T, starters ...*gexpect.SubProcess) bool {
+func WaitUntilStarterReady(t *testing.T, what string, starters ...*gexpect.SubProcess) bool {
 	g := sync.WaitGroup{}
 	result := true
 	for _, starter := range starters {
@@ -91,7 +93,7 @@ func WaitUntilStarterReady(t *testing.T, starters ...*gexpect.SubProcess) bool {
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			if _, err := starter.ExpectTimeout(time.Minute, regexp.MustCompile("Your cluster can now be accessed with a browser at")); err != nil {
+			if _, err := starter.ExpectTimeout(time.Minute, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what))); err != nil {
 				result = false
 				t.Errorf("Starter is not ready in time: %s", describe(err))
 			}

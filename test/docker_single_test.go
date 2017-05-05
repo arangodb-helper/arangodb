@@ -32,8 +32,8 @@ import (
 	"time"
 )
 
-// TestDockerClusterLocal runs the arangodb starter in docker with `--local`
-func TestDockerClusterLocal(t *testing.T) {
+// TestDockerSingle runs the arangodb starter in docker with `--mode=single`
+func TestDockerSingle(t *testing.T) {
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -44,9 +44,9 @@ func TestDockerClusterLocal(t *testing.T) {
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
 			--dockerContainer=adb1 --ownAddress=$IP \
-			--local
+			--mode=single
 	*/
-	volID := createDockerID("vol-starter-test-local-cluster-")
+	volID := createDockerID("vol-starter-test-single-")
 	createDockerVolume(t, volID)
 	defer removeDockerVolume(t, volID)
 
@@ -56,7 +56,7 @@ func TestDockerClusterLocal(t *testing.T) {
 
 	start := time.Now()
 
-	cID := createDockerID("starter-test-local-cluster-")
+	cID := createDockerID("starter-test-single-")
 	dockerRun := Spawn(t, strings.Join([]string{
 		"docker run -it",
 		"--label starter-test=true",
@@ -68,14 +68,14 @@ func TestDockerClusterLocal(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID,
 		"--ownAddress=$IP",
-		"--local",
+		"--mode=single",
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
+	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
+		t.Logf("Single server start took %s", time.Since(start))
+		testSingle(t, insecureStarterEndpoint(0))
 	}
 
 	if isVerbose {

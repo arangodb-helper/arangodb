@@ -56,6 +56,7 @@ const (
 	ServerTypeCoordinator = ServerType("coordinator")
 	ServerTypeDBServer    = ServerType("dbserver")
 	ServerTypeAgent       = ServerType("agent")
+	ServerTypeSingle      = ServerType("single")
 )
 
 // ServerProcess holds all information of a single server started by the starter.
@@ -66,6 +67,7 @@ type ServerProcess struct {
 	ProcessID   int        `json:"pid,omitempty"`          // PID of the process (0 when running in docker)
 	ContainerID string     `json:"container-id,omitempty"` // ID of docker container running the server
 	ContainerIP string     `json:"container-ip,omitempty"` // IP address of docker container running the server
+	IsSecure    bool       `json:"is-secure,omitempty"`    // If set, this server is using an SSL connection
 }
 
 // ServerByType returns the server of given type.

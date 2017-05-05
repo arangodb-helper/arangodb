@@ -30,21 +30,19 @@ import (
 	"time"
 )
 
-// TestProcessClusterLocal runs `arangodb --local`
-func TestProcessClusterLocal(t *testing.T) {
+// TestProcessSingle runs `arangodb --mode=single`
+func TestProcessSingle(t *testing.T) {
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --local")
+	child := Spawn(t, "${STARTER} --mode=single")
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
-		testCluster(t, insecureStarterEndpoint(5))
-		testCluster(t, insecureStarterEndpoint(10))
+	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+		t.Logf("Single server start took %s", time.Since(start))
+		testSingle(t, insecureStarterEndpoint(0))
 	}
 
 	if isVerbose {
@@ -53,21 +51,19 @@ func TestProcessClusterLocal(t *testing.T) {
 	SendIntrAndWait(t, child)
 }
 
-// TestProcessClusterLocal runs `arangodb --local`, stopping it through the `/shutdown` API.
-func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
+// TestProcessSingleShutdownViaAPI runs `arangodb --mode=single`, stopping it through the `/shutdown` API.
+func TestProcessSingleShutdownViaAPI(t *testing.T) {
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --local")
+	child := Spawn(t, "${STARTER} --mode=single")
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0))
-		testCluster(t, insecureStarterEndpoint(5))
-		testCluster(t, insecureStarterEndpoint(10))
+	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+		t.Logf("Single server start took %s", time.Since(start))
+		testSingle(t, insecureStarterEndpoint(0))
 	}
 
 	if isVerbose {

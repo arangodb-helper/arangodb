@@ -579,7 +579,7 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 				if up, version, cancelled := s.testInstance(ctx, myHostAddress, port); !cancelled {
 					if up {
 						s.log.Infof("%s up and running (version %s).", serverType, version)
-						if serverType == ServerTypeCoordinator && !s.isLocalSlave {
+						if (serverType == ServerTypeCoordinator && !s.isLocalSlave) || serverType == ServerTypeSingle {
 							hostPort, err := p.HostPort(port)
 							if err != nil {
 								if id := p.ContainerID(); id != "" {
@@ -588,8 +588,12 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 							} else {
 								ip := myPeer.Address
 								urlSchemes := NewURLSchemes(myPeer.IsSecure)
+								what := "cluster"
+								if serverType == ServerTypeSingle {
+									what = "single server"
+								}
 								s.logMutex.Lock()
-								s.log.Infof("Your cluster can now be accessed with a browser at `%s://%s:%d` or", urlSchemes.Browser, ip, hostPort)
+								s.log.Infof("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
 								s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
 								s.logMutex.Unlock()
 							}

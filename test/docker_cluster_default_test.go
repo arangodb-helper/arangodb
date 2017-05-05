@@ -69,7 +69,8 @@ func TestDockerClusterDefault(t *testing.T) {
 		"docker run -it",
 		"--label starter-test=true",
 		"--name=" + cID1,
-		"--rm -p 4000:4000",
+		"--rm",
+		fmt.Sprintf("-p %d:%d", basePort, basePort),
 		fmt.Sprintf("-v %s:/data", volID1),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -84,13 +85,14 @@ func TestDockerClusterDefault(t *testing.T) {
 		"docker run -it",
 		"--label starter-test=true",
 		"--name=" + cID2,
-		"--rm -p 4005:4000",
+		"--rm",
+		fmt.Sprintf("-p %d:%d", basePort+5, basePort),
 		fmt.Sprintf("-v %s:/data", volID2),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID2,
 		"--ownAddress=$IP",
-		"--join=$IP:4000",
+		fmt.Sprintf("--join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
@@ -100,28 +102,29 @@ func TestDockerClusterDefault(t *testing.T) {
 		"docker run -it",
 		"--label starter-test=true",
 		"--name=" + cID3,
-		"--rm -p 4010:4000",
+		"--rm",
+		fmt.Sprintf("-p %d:%d", basePort+10, basePort),
 		fmt.Sprintf("-v %s:/data", volID3),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID3,
 		"--ownAddress=$IP",
-		"--join=$IP:4000",
+		fmt.Sprintf("--join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	if ok := WaitUntilStarterReady(t, dockerRun1, dockerRun2, dockerRun3); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, "http://localhost:4000")
-		testCluster(t, "http://localhost:4005")
-		testCluster(t, "http://localhost:4010")
+		testCluster(t, insecureStarterEndpoint(0))
+		testCluster(t, insecureStarterEndpoint(5))
+		testCluster(t, insecureStarterEndpoint(10))
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, "http://localhost:4000")
-	ShutdownStarter(t, "http://localhost:4005")
-	ShutdownStarter(t, "http://localhost:4010")
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(5))
+	ShutdownStarter(t, insecureStarterEndpoint(10))
 }

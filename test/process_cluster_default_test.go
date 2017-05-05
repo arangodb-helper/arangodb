@@ -50,11 +50,11 @@ func TestProcessClusterDefault(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --join 127.0.0.1")
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, "http://localhost:4000")
-		testCluster(t, "http://localhost:4005")
-		testCluster(t, "http://localhost:4010")
+		testCluster(t, insecureStarterEndpoint(0))
+		testCluster(t, insecureStarterEndpoint(5))
+		testCluster(t, insecureStarterEndpoint(10))
 	}
 
 	if isVerbose {
@@ -83,17 +83,17 @@ func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --join 127.0.0.1")
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, "http://localhost:4000")
-		testCluster(t, "http://localhost:4005")
-		testCluster(t, "http://localhost:4010")
+		testCluster(t, insecureStarterEndpoint(0))
+		testCluster(t, insecureStarterEndpoint(5))
+		testCluster(t, insecureStarterEndpoint(10))
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, "http://localhost:4000")
-	ShutdownStarter(t, "http://localhost:4005")
-	ShutdownStarter(t, "http://localhost:4010")
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(5))
+	ShutdownStarter(t, insecureStarterEndpoint(10))
 }
