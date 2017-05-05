@@ -333,6 +333,7 @@ HTTP API
 - GET `/logs/agent` returns the contents of the agent log file.
 - GET `/logs/dbserver` returns the contents of the dbserver log file.
 - GET `/logs/coordinator` returns the contents of the coordinator log file.
+- GET `/logs/single` returns the contents of the single server log file.
 - GET `/version` returns a JSON object with the version & build information. 
 - POST `/shutdown` initiates a shutdown of the process and all servers started by it. 
   (passing a `mode=goodbye` query to the URL makes the peer say goodbye to the master).
