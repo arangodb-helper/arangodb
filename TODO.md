@@ -1,11 +1,11 @@
 Docker:
-    `arangodb` will not run in docker. 
-    See README.md for details.
+    `arangodb` runs in docker, use the `arangodb/arangodb-starter` image. 
+    See README.md for more details.
 
 future:
-- [ ] shutdown via API instead of Kill
+- [x] shutdown via API instead of Kill
 - [x] observe subprocesses and potentially restart them as long as we are running
 - [x] configurable base ports
-- [ ] free port testing?
-- [ ] SSL
+- [x] free port testing
+- [x] SSL
 - [ ] authentication
