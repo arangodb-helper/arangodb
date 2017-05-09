@@ -28,8 +28,74 @@ import (
 	"time"
 )
 
-// TestProcessSingle runs `arangodb --mode=single`
+// TestProcessSingle runs `arangodb --starter.mode=single`
 func TestProcessSingle(t *testing.T) {
+	needTestMode(t, testModeProcess)
+	dataDir := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDir)
+
+	start := time.Now()
+
+	child := Spawn(t, "${STARTER} --starter.mode=single")
+	defer child.Close()
+
+	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+		t.Logf("Single server start took %s", time.Since(start))
+		testSingle(t, insecureStarterEndpoint(0), false)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	SendIntrAndWait(t, child)
+}
+
+// TestProcessSingleShutdownViaAPI runs `arangodb --starter.mode=single`, stopping it through the `/shutdown` API.
+func TestProcessSingleShutdownViaAPI(t *testing.T) {
+	needTestMode(t, testModeProcess)
+	dataDir := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDir)
+
+	start := time.Now()
+
+	child := Spawn(t, "${STARTER} --starter.mode=single")
+	defer child.Close()
+
+	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+		t.Logf("Single server start took %s", time.Since(start))
+		testSingle(t, insecureStarterEndpoint(0), false)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+}
+
+// TestProcessSingleAutoKeyFile runs `arangodb --starter.mode=single --ssl.auto-key`
+func TestProcessSingleAutoKeyFile(t *testing.T) {
+	needTestMode(t, testModeProcess)
+	dataDir := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDir)
+
+	start := time.Now()
+
+	child := Spawn(t, "${STARTER} --starter.mode=single --ssl.auto-key")
+	defer child.Close()
+
+	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+		t.Logf("Single server start took %s", time.Since(start))
+		testSingle(t, secureStarterEndpoint(0), true)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	SendIntrAndWait(t, child)
+}
+
+// TestOldProcessSingle runs `arangodb --mode=single`
+func TestOldProcessSingle(t *testing.T) {
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -50,30 +116,8 @@ func TestProcessSingle(t *testing.T) {
 	SendIntrAndWait(t, child)
 }
 
-// TestProcessSingleShutdownViaAPI runs `arangodb --mode=single`, stopping it through the `/shutdown` API.
-func TestProcessSingleShutdownViaAPI(t *testing.T) {
-	needTestMode(t, testModeProcess)
-	dataDir := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDir)
-
-	start := time.Now()
-
-	child := Spawn(t, "${STARTER} --mode=single")
-	defer child.Close()
-
-	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
-		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), false)
-	}
-
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
-}
-
-// TestProcessSingleAutoKeyFile runs `arangodb --mode=single --sslAutoKeyFile`
-func TestProcessSingleAutoKeyFile(t *testing.T) {
+// TestOldProcessSingleAutoKeyFile runs `arangodb --mode=single --sslAutoKeyFile`
+func TestOldProcessSingleAutoKeyFile(t *testing.T) {
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)

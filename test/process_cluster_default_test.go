@@ -41,12 +41,12 @@ func TestProcessClusterDefault(t *testing.T) {
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --join 127.0.0.1")
+	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1")
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --join 127.0.0.1")
+	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1")
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
@@ -64,6 +64,42 @@ func TestProcessClusterDefault(t *testing.T) {
 
 // TestProcessClusterDefaultShutdownViaAPI starts a master starter, followed by 2 slave starters, shutting all down through the API.
 func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
+	needTestMode(t, testModeProcess)
+	dataDirMaster := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDirMaster)
+
+	start := time.Now()
+
+	master := Spawn(t, "${STARTER}")
+	defer master.Close()
+
+	dataDirSlave1 := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDirSlave1)
+	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1")
+	defer slave1.Close()
+
+	dataDirSlave2 := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDirSlave2)
+	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1")
+	defer slave2.Close()
+
+	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
+		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(5), false)
+		testCluster(t, insecureStarterEndpoint(10), false)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(5))
+	ShutdownStarter(t, insecureStarterEndpoint(10))
+}
+
+// TestOldProcessClusterDefault starts a master starter, followed by 2 slave starters.
+func TestOldProcessClusterDefault(t *testing.T) {
 	needTestMode(t, testModeProcess)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
@@ -93,7 +129,5 @@ func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
-	ShutdownStarter(t, insecureStarterEndpoint(5))
-	ShutdownStarter(t, insecureStarterEndpoint(10))
+	SendIntrAndWait(t, master, slave1, slave2)
 }
