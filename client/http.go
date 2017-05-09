@@ -44,6 +44,7 @@ func DefaultHTTPClient() *http.Client {
 			IdleConnTimeout:     90 * time.Second,
 			TLSHandshakeTimeout: 10 * time.Second,
 			TLSClientConfig: &tls.Config{
+				// It is likely that we'll use self-signed certificates, so disable verification by default.
 				InsecureSkipVerify: true,
 			},
 			ExpectContinueTimeout: 1 * time.Second,
