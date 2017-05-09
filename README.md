@@ -139,7 +139,7 @@ docker run -it --name=adb --rm -p 8528:8528 \
 Common options 
 --------------
 
-* `--dataDir path`
+* `--dataDir=path`
 
 `path` is the directory in which all data is stored. (default "./")
 
@@ -147,7 +147,7 @@ In the directory, there will be a single file `setup.json` used for
 restarts and a directory for each instances that runs on this machine.
 Different instances of `arangodb` must use different data directories.
 
-* `--join addr`
+* `--join=addr`
 
 join a cluster with master at address `addr` (default "")
 
@@ -156,7 +156,7 @@ join a cluster with master at address `addr` (default "")
 Start a local (test) cluster. Since all servers are running on a single machine 
 this is really not intended for production setups.
 
-* `--mode cluster|single`
+* `--mode=cluster|single`
 
 Select what kind of database configuration you want. 
 This can be a `cluster` configuration (which is the default), or a `single` server 
@@ -165,14 +165,14 @@ configuration.
 Note that when running a `single` server configuration you will lose all 
 high availability features that a cluster provides you.
 
-* `--agencySize int`
+* `--agencySize=int`
 
 number of agents in agency (default 3).
 
 This number has to be positive and odd, and anything beyond 5 probably
 does not make sense. The default 3 allows for the failure of one agent.
 
-* `--ownAddress addr`
+* `--ownAddress=addr`
 
 `addr` is the address under which this server is reachable from the
 outside.
@@ -182,13 +182,13 @@ that `--agencySize` is set to 1 (see below), the master has to know
 under which address it can be reached from the outside. If you specify
 `localhost` here, then all instances must run on the local machine.
 
-* `--docker image`
+* `--docker=image`
 
 `image` is the name of a Docker image to run instead of the normal
 executable. For each started instance a Docker container is launched.
 Usually one would use the Docker image `arangodb/arangodb`.
 
-* `--dockerContainer containerName`
+* `--dockerContainer=containerName`
 
 `containerName` is the name of a Docker container that is used to run the
 executable. If you do not provide this argument but run the starter inside 
@@ -244,89 +244,89 @@ Note that all starters can use different server key files.
 
 Additional SSL options:
 
-* `--sslCAFile path`
+* `--sslCAFile=path`
 
 Configure the servers to require a client certificate in their communication to the servers using the CA certificate in a file with given path.
 
-* `--sslAutoServerName name` 
+* `--sslAutoServerName=name` 
 
 name of the server that will be used in the self-signed certificate created by the `--sslAutoKeyFile` option.
 
-* `--sslAutoOrganization name` 
+* `--sslAutoOrganization=name` 
 
 name of the server that will be used in the self-signed certificate created by the `--sslAutoKeyFile` option.
 
 Esoteric options
 ----------------
 
-* `--masterPort int`
+* `--masterPort=int`
 
 port for arangodb master (default 8528).
 
 This is the port used for communication of the `arangodb` instances
 amongst each other.
 
-* `--arangod path`
+* `--arangod=path`
 
 path to the `arangod` executable (default varies from platform to
 platform, an executable is searched in various places).
 
 This option only has to be specified if the standard search fails.
 
-* `--jsDir path`
+* `--jsDir=path`
 
 path to JS library directory (default varies from platform to platform,
 this is coupled to the search for the executable).
 
 This option only has to be specified if the standard search fails.
 
-* `--startCoordinator bool`
+* `--startCoordinator=bool`
 
 This indicates whether or not a coordinator instance should be started 
 (default true).
 
-* `--startDBserver bool`
+* `--startDBserver=bool`
 
-This indicates whether or not a DBserver instance should be started 
+This indicates whether or not a DB server instance should be started 
 (default true).
 
-* `--rr path`
+* `--rr=path`
 
 path to rr executable to use if non-empty (default ""). Expert and
 debugging only.
 
-* `--verbose bool`
+* `--verbose=bool`
 
 show more information (default false).
 
-* `--uniquePortOffsets bool`
+* `--uniquePortOffsets=bool`
 
 If set to true, all port offsets (of slaves) will be made globally unique.
 By default (value is false), port offsets will be unique per slave address.
 
-* `--dockerUser user`
+* `--dockerUser=user`
 
 `user` is an expression to be used for `docker run` with the `--user` 
 option. One can give a user id or a user id and a group id, separated
 by a colon. The purpose of this option is to limit the access rights
 of the process in the Docker container.
 
-* `--dockerEndpoint endpoint`
+* `--dockerEndpoint=endpoint`
 
 `endpoint` is the URL used to reach the docker host. This is needed to run 
 the executable in docker. The default value is "unix:///var/run/docker.sock".
 
-* `--dockerNetworkMode mode`
+* `--dockerNetworkMode=mode`
 
 If `dockerNetworkMode` is set, all docker container will be started 
 with the `--net=<mode>` option.
 
-* `--dockerPrivileged bool`
+* `--dockerPrivileged=bool`
 
 If `dockerPrivileged` is set, all docker container will be started 
 with the `--privileged` option turned on.
 
-* `--dockerNetHost bool` (deprecated)
+* `--dockerNetHost=bool` (deprecated)
 
 If `dockerNetHost` is set, all docker container will be started 
 with the `--net=host` option.
