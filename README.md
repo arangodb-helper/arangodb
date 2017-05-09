@@ -1,5 +1,6 @@
 Starting an ArangoDB cluster the easy way
 =========================================
+
 Downloading Releases
 --------------------
 You can download precompiled `arangodb` binaries via [the github releases page](https://github.com/arangodb-helper/arangodb/releases).
@@ -7,7 +8,15 @@ You can download precompiled `arangodb` binaries via [the github releases page](
 Building
 --------
 
-If you want to compile `arangodb` yourselves just do
+If you want to compile `arangodb` yourselves just do:
+
+```
+go get -u github.com/arangodb-helper/arangodb
+```
+
+This will result in a binary at `$GOPATH/bin/arangodb`.
+
+For more advanced build options, clone this repository and do:
 
 ```
 make local
