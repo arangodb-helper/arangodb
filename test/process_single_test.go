@@ -85,7 +85,7 @@ func TestProcessSingleAutoKeyFile(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), true)
+		testSingle(t, secureStarterEndpoint(0), true)
 	}
 
 	if isVerbose {

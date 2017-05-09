@@ -66,6 +66,12 @@ func insecureStarterEndpoint(portOffset int) string {
 	return fmt.Sprintf("http://localhost:%d", basePort+portOffset)
 }
 
+// secureStarterEndpoint creates a secure (HTTPS) endpoint for a starter
+// at localhost using default base port + given offset.
+func secureStarterEndpoint(portOffset int) string {
+	return fmt.Sprintf("https://localhost:%d", basePort+portOffset)
+}
+
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
