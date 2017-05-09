@@ -105,7 +105,7 @@ func (r *processRunner) CreateStartArangodbCommand(index int, masterIP string, m
 	if masterPort != "" {
 		addr = net.JoinHostPort(addr, masterPort)
 	}
-	return fmt.Sprintf("arangodb --dataDir=./db%d --join %s", index, addr)
+	return fmt.Sprintf("arangodb --data.dir=./db%d --starter.join %s", index, addr)
 }
 
 // Cleanup after all processes are dead and have been cleaned themselves

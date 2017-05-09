@@ -65,12 +65,12 @@ the console.
 Additional servers can be added in the same way.
 
 If two or more of the `arangodb` instances run on the same machine,
-one has to use the `--dataDir` option to let each use a different
+one has to use the `--data.dir` option to let each use a different
 directory.
 
 The `arangodb` program will find the ArangoDB executable and the
 other installation files automatically. If this fails, use the
-`--arangod` and `--jsdir` options described below.
+`--server.arangod-path` and `--server.js-dir` options described below.
 
 Running in Docker 
 -----------------
@@ -79,7 +79,7 @@ You can run `arangodb` using our ready made docker container.
 When using `arangodb` in a Docker container it will also run all 
 servers in a docker using the `arangodb/arangodb:latest` docker image.
 If you wish to run a specific docker image for the servers, specify it using
-the `--docker` argument.
+the `--docker.image` argument.
 
 When running in docker it is important to care about the volume mappings on 
 the container. Typically you will start the executable in docker with the following
@@ -92,7 +92,7 @@ docker run -it --name=adb1 --rm -p 8528:8528 \
     -v arangodb1:/data \
     -v /var/run/docker.sock:/var/run/docker.sock \
     arangodb/arangodb-starter \
-    --ownAddress=$IP
+    --starter.address=$IP
 ```
 
 The executable will show the commands needed to run the other instances.
@@ -110,29 +110,29 @@ make docker
 Starting a local test cluster
 -----------------------------
 
-If you want to start a local cluster quickly, use the `--local` flag. 
+If you want to start a local cluster quickly, use the `--starter.local` flag. 
 It will start all servers within the context of a single starter process.
 
 ```
-arangodb --local
+arangodb --starter.local
 ```
 
-Note: When you restart the started, it remembers the original `--local` flag.
+Note: When you restart the started, it remembers the original `--starter.local` flag.
 
 Starting a single server
 ------------------------
 
-If you want to start a single database server, use `--mode=single`.
+If you want to start a single database server, use `--starter.mode=single`.
 
 ```
-arangodb --mode=single
+arangodb --starter.mode=single
 ```
 
 Starting a single server in Docker
 ----------------------------------
 
 If you want to start a single database server running in a docker container,
-use the normal docker arguments, combined with `--mode=single`.
+use the normal docker arguments, combined with `--starter.mode=single`.
 
 ```
 export IP=<IP of docker host>
@@ -141,14 +141,14 @@ docker run -it --name=adb --rm -p 8528:8528 \
     -v arangodb:/data \
     -v /var/run/docker.sock:/var/run/docker.sock \
     arangodb/arangodb-starter \
-    --ownAddress=$IP \
-    --mode=single
+    --starter.address=$IP \
+    --starter.mode=single
 ```
 
 Common options 
 --------------
 
-* `--dataDir=path`
+* `--data.dir=path`
 
 `path` is the directory in which all data is stored. (default "./")
 
@@ -156,16 +156,16 @@ In the directory, there will be a single file `setup.json` used for
 restarts and a directory for each instances that runs on this machine.
 Different instances of `arangodb` must use different data directories.
 
-* `--join=addr`
+* `--starter.join=addr`
 
 join a cluster with master at address `addr` (default "")
 
-* `--local` 
+* `--starter.local` 
 
 Start a local (test) cluster. Since all servers are running on a single machine 
 this is really not intended for production setups.
 
-* `--mode=cluster|single`
+* `--starter.mode=cluster|single`
 
 Select what kind of database configuration you want. 
 This can be a `cluster` configuration (which is the default), or a `single` server 
@@ -174,30 +174,30 @@ configuration.
 Note that when running a `single` server configuration you will lose all 
 high availability features that a cluster provides you.
 
-* `--agencySize=int`
+* `--cluster.agency-size=int`
 
 number of agents in agency (default 3).
 
 This number has to be positive and odd, and anything beyond 5 probably
 does not make sense. The default 3 allows for the failure of one agent.
 
-* `--ownAddress=addr`
+* `--starter.address=addr`
 
 `addr` is the address under which this server is reachable from the
 outside.
 
 Usually, this option does not have to be specified. Only in the case
-that `--agencySize` is set to 1 (see below), the master has to know
+that `--cluster.agency-size` is set to 1 (see below), the master has to know
 under which address it can be reached from the outside. If you specify
 `localhost` here, then all instances must run on the local machine.
 
-* `--docker=image`
+* `--docker.image=image`
 
 `image` is the name of a Docker image to run instead of the normal
 executable. For each started instance a Docker container is launched.
 Usually one would use the Docker image `arangodb/arangodb`.
 
-* `--dockerContainer=containerName`
+* `--docker.container=containerName`
 
 `containerName` is the name of a Docker container that is used to run the
 executable. If you do not provide this argument but run the starter inside 
@@ -209,13 +209,13 @@ Authentication options
 The arango starter by default creates a cluster that uses no authentication.
 
 To create a cluster that uses authentication, create a file containing a random JWT secret (single line)
-and pass it through the `--jwtSecretFile` option.
+and pass it through the `--auth.jwt-secret-path` option.
 
 For example:
 
 ```
 echo "MakeThisSecretMuchStronger" > jwtSecret 
-arangodb --jwtSecretFile=./jwtSecret
+arangodb --auth.jwt-secret-path=./jwtSecret
 ```
 
 All starters used in the cluster must have the same JWT secret.
@@ -228,19 +228,19 @@ The arango starter by default creates a cluster that uses no unencrypted connect
 To create a cluster that uses encrypted connections, you can use an existing server key file 
 or let the starter create one for you.
 
-To use an existing server key file use the `--sslKeyFile` option like this:
+To use an existing server key file use the `--ssl.key-path` option like this:
 
 ```
-arangodb --sslKeyFile=myServer.key
+arangodb --ssl.key-path=myServer.key
 ```
 
 Go to the [SSL manual](https://docs.arangodb.com/3.1/Manual/Administration/Configuration/SSL.html) for more
 information on how to create a server key file.
 
-To let the starter created a self-signed server key file, use the `--sslAutoKeyFile` option like this:
+To let the starter created a self-signed server key file, use the `--ssl.auto-key` option like this:
 
 ```
-arangodb --sslAutoKeyFile
+arangodb --ssl.auto-key
 ```
 
 All starters used to make a cluster must be using SSL or not.
@@ -253,94 +253,87 @@ Note that all starters can use different server key files.
 
 Additional SSL options:
 
-* `--sslCAFile=path`
+* `--ssl.ca-path=path`
 
 Configure the servers to require a client certificate in their communication to the servers using the CA certificate in a file with given path.
 
-* `--sslAutoServerName=name` 
+* `--ssl.auto-server-name=name` 
 
-name of the server that will be used in the self-signed certificate created by the `--sslAutoKeyFile` option.
+name of the server that will be used in the self-signed certificate created by the `--ssl.auto-key` option.
 
-* `--sslAutoOrganization=name` 
+* `--ssl.auto-organization=name` 
 
-name of the server that will be used in the self-signed certificate created by the `--sslAutoKeyFile` option.
+name of the server that will be used in the self-signed certificate created by the `--ssl.auto-key` option.
 
 Esoteric options
 ----------------
 
-* `--masterPort=int`
+* `--starter.port=int`
 
 port for arangodb master (default 8528).
 
 This is the port used for communication of the `arangodb` instances
 amongst each other.
 
-* `--arangod=path`
+* `--server.arangod-path=path`
 
 path to the `arangod` executable (default varies from platform to
 platform, an executable is searched in various places).
 
 This option only has to be specified if the standard search fails.
 
-* `--jsDir=path`
+* `--server.js-dir=path`
 
 path to JS library directory (default varies from platform to platform,
 this is coupled to the search for the executable).
 
 This option only has to be specified if the standard search fails.
 
-* `--startCoordinator=bool`
+* `--cluster.start-coordinator=bool`
 
 This indicates whether or not a coordinator instance should be started 
 (default true).
 
-* `--startDBserver=bool`
+* `--cluster.start-dbserver=bool`
 
 This indicates whether or not a DB server instance should be started 
 (default true).
 
-* `--rr=path`
+* `--server.rr-path=path`
 
 path to rr executable to use if non-empty (default ""). Expert and
 debugging only.
 
-* `--verbose=bool`
+* `--log.verbose=bool`
 
 show more information (default false).
 
-* `--uniquePortOffsets=bool`
+* `--starter.unique-port-offsets=bool`
 
 If set to true, all port offsets (of slaves) will be made globally unique.
 By default (value is false), port offsets will be unique per slave address.
 
-* `--dockerUser=user`
+* `--docker.user=user`
 
 `user` is an expression to be used for `docker run` with the `--user` 
 option. One can give a user id or a user id and a group id, separated
 by a colon. The purpose of this option is to limit the access rights
 of the process in the Docker container.
 
-* `--dockerEndpoint=endpoint`
+* `--docker.endpoint=endpoint`
 
 `endpoint` is the URL used to reach the docker host. This is needed to run 
 the executable in docker. The default value is "unix:///var/run/docker.sock".
 
-* `--dockerNetworkMode=mode`
+* `--docker.net-mode=mode`
 
-If `dockerNetworkMode` is set, all docker container will be started 
+If `docker.net-mode` is set, all docker container will be started 
 with the `--net=<mode>` option.
 
-* `--dockerPrivileged=bool`
+* `--docker.privileged=bool`
 
-If `dockerPrivileged` is set, all docker container will be started 
+If `docker.privileged` is set, all docker container will be started 
 with the `--privileged` option turned on.
-
-* `--dockerNetHost=bool` (deprecated)
-
-If `dockerNetHost` is set, all docker container will be started 
-with the `--net=host` option.
-
-This option is deprecated, use `--dockerNetworkMode=host` instead.
 
 HTTP API
 --------
@@ -368,7 +361,7 @@ Technical explanation as to what happens
 The procedure is essentially that the first instance of `arangodb` (aka
 the "master") offers an HTTP service on port 8528 for peers to register.
 Every instance that registers becomes a slave. As soon as there are
-`agencySize` peers, every instance of `arangodb` starts up an agent (if
+`cluster-agency-size` peers, every instance of `arangodb` starts up an agent (if
 it is one of the first 3), a DBserver, and a coordinator. The necessary
 command line options to link the `arangod` instances up are generated
 automatically. The cluster bootstraps and can be used.
