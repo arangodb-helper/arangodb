@@ -1,5 +1,6 @@
 # Changes from version 0.6.0 to master 
 
+- Renamed github repository from github.com/arangodb-helper/ArangoDBStarter to github.com/arangodb-helper/arangodb.
 - When an `--sslKeyFile` (or `--sslAutoKeyFile`) argument is given, the starter will serve it's API over TLS using the same certificate as the database server(s).
 - Starter will detect the name of the docker container is it running in automatically (if running in docker and not set using `--dockerContainer`)
 - Changed default master port from 4000 to 8528. That results in a coordinator/single server to be available on well known port 8529

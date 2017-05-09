@@ -31,8 +31,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arangodb/ArangoDBStarter/client"
-	"github.com/arangodb/ArangoDBStarter/service"
+	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/service"
 )
 
 const (

@@ -33,7 +33,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/arangodb/ArangoDBStarter/client"
+	"github.com/arangodb-helper/arangodb/client"
 )
 
 var (

@@ -2,12 +2,12 @@ Starting an ArangoDB cluster the easy way
 =========================================
 Downloading Releases
 --------------------
-You can download precompiled ArangoDBStarter binaries via [the github releases page](https://github.com/arangodb-helper/ArangoDBStarter/releases).
+You can download precompiled `arangodb` binaries via [the github releases page](https://github.com/arangodb-helper/arangodb/releases).
 
 Building
 --------
 
-If you want to compile ArangoDBStarter yourselves just do
+If you want to compile `arangodb` yourselves just do
 
 ```
 make local
@@ -65,9 +65,9 @@ other installation files automatically. If this fails, use the
 
 Running in Docker 
 -----------------
-You can run ArangoDBStarter using our ready made docker container. 
+You can run `arangodb` using our ready made docker container. 
 
-When using ArangoDBStarter in a Docker container it will also run all 
+When using `arangodb` in a Docker container it will also run all 
 servers in a docker using the `arangodb/arangodb:latest` docker image.
 If you wish to run a specific docker image for the servers, specify it using
 the `--docker` argument.
