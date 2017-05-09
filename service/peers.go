@@ -43,7 +43,8 @@ type Peer struct {
 func (p Peer) CreateStarterURL(relPath string) string {
 	addr := net.JoinHostPort(p.Address, strconv.Itoa(p.Port))
 	relPath = strings.TrimPrefix(relPath, "/")
-	return fmt.Sprintf("http://%s/%s", addr, relPath)
+	scheme := NewURLSchemes(p.IsSecure).Browser
+	return fmt.Sprintf("%s://%s/%s", scheme, addr, relPath)
 }
 
 // Peer information.

@@ -29,7 +29,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/pkg/errors"
 )
@@ -39,7 +38,7 @@ func NewArangoStarterClient(endpoint url.URL) (API, error) {
 	endpoint.Path = ""
 	return &client{
 		endpoint: endpoint,
-		client:   &http.Client{Timeout: time.Second * 15},
+		client:   DefaultHTTPClient(),
 	}, nil
 }
 

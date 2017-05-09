@@ -32,6 +32,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/arangodb/ArangoDBStarter/client"
+)
+
+var (
+	httpClient = client.DefaultHTTPClient()
 )
 
 type HelloRequest struct {
@@ -86,9 +92,21 @@ func (s *Service) startHTTPServer() {
 			s.log.Fatalf("Failed to get HTTP port info: %#v", err)
 		}
 		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
-		s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
-		if err := http.ListenAndServe(addr, mux); err != nil {
-			s.log.Errorf("Failed to listen on %s: %v", addr, err)
+		server := &http.Server{
+			Addr:    addr,
+			Handler: mux,
+		}
+		if s.tlsConfig != nil {
+			s.log.Infof("Listening on %s (%s) using TLS", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
+			server.TLSConfig = s.tlsConfig
+			if err := server.ListenAndServeTLS("", ""); err != nil {
+				s.log.Errorf("Failed to listen on %s: %v", addr, err)
+			}
+		} else {
+			s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
+			if err := server.ListenAndServe(); err != nil {
+				s.log.Errorf("Failed to listen on %s: %v", addr, err)
+			}
 		}
 	}()
 }

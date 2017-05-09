@@ -56,7 +56,8 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		})
 		buf := bytes.Buffer{}
 		buf.Write(b)
-		r, e := http.Post(fmt.Sprintf("http://%s/hello", masterAddr), "application/json", &buf)
+		scheme := NewURLSchemes(s.IsSecure()).Browser
+		r, e := httpClient.Post(fmt.Sprintf("%s://%s/hello", scheme, masterAddr), "application/json", &buf)
 		if e != nil {
 			s.log.Infof("Cannot start because of error from master: %v", e)
 			time.Sleep(time.Second)
@@ -110,7 +111,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		}
 		time.Sleep(time.Second)
 		master := s.myPeers.Peers[0]
-		r, err := http.Get(master.CreateStarterURL("/hello"))
+		r, err := httpClient.Get(master.CreateStarterURL("/hello"))
 		if err != nil {
 			s.log.Errorf("Failed to connect to master: %v", err)
 			time.Sleep(time.Second * 2)
@@ -138,7 +139,7 @@ func (s *Service) sendMasterGoodbye() error {
 	if err != nil {
 		return maskAny(err)
 	}
-	resp, err := http.Post(u, "application/json", bytes.NewReader(data))
+	resp, err := httpClient.Post(u, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return maskAny(err)
 	}

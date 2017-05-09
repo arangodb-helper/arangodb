@@ -93,11 +93,12 @@ type Service struct {
 	myPeers             peers
 	startRunningWaiter  context.Context
 	startRunningTrigger context.CancelFunc
-	announcePort        int        // Port I can be reached on from the outside
-	isNetHost           bool       // Is this process running in a container with `--net=host` or running outside a container?
-	mutex               sync.Mutex // Mutex used to protect access to this datastructure
-	logMutex            sync.Mutex // Mutex used to synchronize server log output
-	allowSameDataDir    bool       // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
+	announcePort        int         // Port I can be reached on from the outside
+	tlsConfig           *tls.Config // Server side TLS config (if any)
+	isNetHost           bool        // Is this process running in a container with `--net=host` or running outside a container?
+	mutex               sync.Mutex  // Mutex used to protect access to this datastructure
+	logMutex            sync.Mutex  // Mutex used to synchronize server log output
+	allowSameDataDir    bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
 	isLocalSlave        bool
 	servers             struct {
 		agentProc       Process
@@ -131,6 +132,18 @@ func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service
 		return nil, maskAny(fmt.Errorf("Unknown mode '%s'", config.Mode))
 	}
 
+	// Load certificates (if needed)
+	var tlsConfig *tls.Config
+	if config.SslKeyFile != "" {
+		cert, err := LoadKeyFile(config.SslKeyFile)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		tlsConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+	}
+
 	ctx, trigger := context.WithCancel(context.Background())
 	return &Service{
 		Config:              config,
@@ -139,6 +152,7 @@ func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service
 		startRunningWaiter:  ctx,
 		startRunningTrigger: trigger,
 		isLocalSlave:        isLocalSlave,
+		tlsConfig:           tlsConfig,
 	}, nil
 }
 
