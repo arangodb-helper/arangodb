@@ -128,13 +128,13 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), true)
+		testSingle(t, secureStarterEndpoint(0), true)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, secureStarterEndpoint(0))
 }
 
 // TestDockerSingleAutoContainerName runs the arangodb starter in docker with `--mode=single` automatic detection of its container name.

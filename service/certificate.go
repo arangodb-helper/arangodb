@@ -23,15 +23,20 @@
 package service
 
 import (
+	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/big"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -63,6 +68,28 @@ func pemBlockForKey(priv interface{}) *pem.Block {
 	default:
 		return nil
 	}
+}
+
+// Attempt to parse the given private key DER block. OpenSSL 0.9.8 generates
+// PKCS#1 private keys by default, while OpenSSL 1.0.0 generates PKCS#8 keys.
+// OpenSSL ecparam generates SEC1 EC private keys for ECDSA. We try all three.
+func parsePrivateKey(der []byte) (crypto.PrivateKey, error) {
+	if key, err := x509.ParsePKCS1PrivateKey(der); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParsePKCS8PrivateKey(der); err == nil {
+		switch key := key.(type) {
+		case *rsa.PrivateKey, *ecdsa.PrivateKey:
+			return key, nil
+		default:
+			return nil, maskAny(errors.New("tls: found unknown private key type in PKCS#8 wrapping"))
+		}
+	}
+	if key, err := x509.ParseECPrivateKey(der); err == nil {
+		return key, nil
+	}
+
+	return nil, maskAny(errors.New("tls: failed to parse private key"))
 }
 
 // CreateCertificate creates a self-signed certificate according to the given configuration.
@@ -125,4 +152,40 @@ func CreateCertificate(options CreateCertificateOptions, folder string) (string,
 	pem.Encode(f, pemBlockForKey(priv))
 
 	return f.Name(), nil
+}
+
+// LoadKeyFile loads a SSL keyfile formatted for the arangod server.
+func LoadKeyFile(keyFile string) (tls.Certificate, error) {
+	raw, err := ioutil.ReadFile(keyFile)
+	if err != nil {
+		return tls.Certificate{}, maskAny(err)
+	}
+
+	result := tls.Certificate{}
+	for {
+		var derBlock *pem.Block
+		derBlock, raw = pem.Decode(raw)
+		if derBlock == nil {
+			break
+		}
+		if derBlock.Type == "CERTIFICATE" {
+			result.Certificate = append(result.Certificate, derBlock.Bytes)
+		} else if derBlock.Type == "PRIVATE KEY" || strings.HasSuffix(derBlock.Type, " PRIVATE KEY") {
+			if result.PrivateKey == nil {
+				result.PrivateKey, err = parsePrivateKey(derBlock.Bytes)
+				if err != nil {
+					return tls.Certificate{}, maskAny(err)
+				}
+			}
+		}
+	}
+
+	if len(result.Certificate) == 0 {
+		return tls.Certificate{}, maskAny(fmt.Errorf("No certificates found in %s", keyFile))
+	}
+	if result.PrivateKey == nil {
+		return tls.Certificate{}, maskAny(fmt.Errorf("No private key found in %s", keyFile))
+	}
+
+	return result, nil
 }

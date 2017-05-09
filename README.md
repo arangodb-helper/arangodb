@@ -237,6 +237,9 @@ arangodb --sslAutoKeyFile
 All starters used to make a cluster must be using SSL or not.
 You cannot have one starter using SSL and another not using SSL.
 
+If you start a starter using SSL, it's own HTTP server (see API) will also
+use SSL.
+
 Note that all starters can use different server key files.
 
 Additional SSL options:
