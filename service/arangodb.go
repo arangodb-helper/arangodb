@@ -770,22 +770,22 @@ func (s *Service) Run(rootCtx context.Context) {
 	if s.OwnAddress == "" && s.isSingleMode() && !useDockerRunner {
 		addr, err := GuessOwnAddress()
 		if err != nil {
-			s.log.Fatalf("OwnAddress must be specified, it cannot be guessed because: %v", err)
+			s.log.Fatalf("starter.address must be specified, it cannot be guessed because: %v", err)
 		}
-		s.log.Infof("Using auto-detected OwnAddress: %s", addr)
+		s.log.Infof("Using auto-detected starter.address: %s", addr)
 		s.OwnAddress = addr
 	}
 
 	// Find the port mapping if running in a docker container
 	if s.RunningInDocker {
 		if s.OwnAddress == "" {
-			s.log.Fatal("OwnAddress must be specified")
+			s.log.Fatal("starter.address must be specified")
 		}
 		if s.DockerContainerName == "" {
-			s.log.Fatal("DockerContainerName must be specified")
+			s.log.Fatal("docker.container must be specified")
 		}
 		if s.DockerEndpoint == "" {
-			s.log.Fatal("DockerEndpoint must be specified")
+			s.log.Fatal("docker.endpoint must be specified")
 		}
 		hostPort, isNetHost, networkMode, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainerName, s.MasterPort)
 		if err != nil {
@@ -819,7 +819,7 @@ func (s *Service) Run(rootCtx context.Context) {
 		s.allowSameDataDir = true
 	} else {
 		if s.RunningInDocker {
-			s.log.Fatalf("When running in docker, you must provide a --dockerEndpoint=<endpoint> and --docker=<image>")
+			s.log.Fatalf("When running in docker, you must provide a --docker.endpoint=<endpoint> and --docker.image=<image>")
 		}
 		runner = NewProcessRunner(s.log)
 		s.log.Debug("Using process runner")

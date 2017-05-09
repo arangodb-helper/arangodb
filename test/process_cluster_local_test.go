@@ -28,8 +28,56 @@ import (
 	"time"
 )
 
-// TestProcessClusterLocal runs `arangodb --local`
+// TestProcessClusterLocal runs `arangodb --starter.local`
 func TestProcessClusterLocal(t *testing.T) {
+	needTestMode(t, testModeProcess)
+	dataDir := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDir)
+
+	start := time.Now()
+
+	child := Spawn(t, "${STARTER} --starter.local")
+	defer child.Close()
+
+	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
+		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(5), false)
+		testCluster(t, insecureStarterEndpoint(10), false)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	SendIntrAndWait(t, child)
+}
+
+// TestProcessClusterLocal runs `arangodb --starter.local`, stopping it through the `/shutdown` API.
+func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
+	needTestMode(t, testModeProcess)
+	dataDir := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDir)
+
+	start := time.Now()
+
+	child := Spawn(t, "${STARTER} --starter.local")
+	defer child.Close()
+
+	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
+		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(5), false)
+		testCluster(t, insecureStarterEndpoint(10), false)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+}
+
+// TestOldProcessClusterLocal runs `arangodb --local`
+func TestOldProcessClusterLocal(t *testing.T) {
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -50,28 +98,4 @@ func TestProcessClusterLocal(t *testing.T) {
 		t.Log("Waiting for termination")
 	}
 	SendIntrAndWait(t, child)
-}
-
-// TestProcessClusterLocal runs `arangodb --local`, stopping it through the `/shutdown` API.
-func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
-	needTestMode(t, testModeProcess)
-	dataDir := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDir)
-
-	start := time.Now()
-
-	child := Spawn(t, "${STARTER} --local")
-	defer child.Close()
-
-	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
-		testCluster(t, insecureStarterEndpoint(5), false)
-		testCluster(t, insecureStarterEndpoint(10), false)
-	}
-
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
 }

@@ -41,6 +41,7 @@ import (
 	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // Configuration data with defaults:
@@ -55,7 +56,7 @@ var (
 	projectBuild   = "dev"
 	cmdMain        = cobra.Command{
 		Use:   projectName,
-		Short: "Start ArangoDB clusters with ease",
+		Short: "Start ArangoDB clusters & single servers with ease",
 		Run:   cmdMainRun,
 	}
 	log                  = logging.MustGetLogger(projectName)
@@ -95,36 +96,89 @@ var (
 
 func init() {
 	f := cmdMain.Flags()
-	f.IntVar(&agencySize, "agencySize", 3, "Number of agents in the cluster")
-	f.StringVar(&id, "id", "", "Unique identifier of this peer")
-	f.StringVar(&arangodPath, "arangod", "/usr/sbin/arangod", "Path of arangod")
-	f.StringVar(&arangodJSPath, "jsDir", "/usr/share/arangodb3/js", "Path of arango JS")
-	f.IntVar(&masterPort, "masterPort", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
-	f.StringVar(&rrPath, "rr", "", "Path of rr")
-	f.BoolVar(&startCoordinator, "startCoordinator", true, "should a coordinator instance be started")
-	f.BoolVar(&startDBserver, "startDBserver", true, "should a dbserver instance be started")
-	f.BoolVar(&startLocalSlaves, "local", false, "If set, local slaves will be started to create a machine local (test) cluster")
-	f.StringVar(&mode, "mode", "cluster", "Set the mode of operation to use (cluster|single)")
-	f.StringVar(&dataDir, "dataDir", getEnvVar("DATA_DIR", "."), "directory to store all data")
-	f.StringVar(&ownAddress, "ownAddress", "", "address under which this server is reachable, needed for running arangodb in docker or the case of --agencySize 1 in the master")
-	f.StringVar(&masterAddress, "join", "", "join a cluster with master at address addr")
-	f.BoolVar(&verbose, "verbose", false, "Turn on debug logging")
+
+	f.StringVar(&masterAddress, "starter.join", "", "join a cluster with master at given address")
+	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single)")
+	f.BoolVar(&startLocalSlaves, "starter.local", false, "If set, local slaves will be started to create a machine local (test) cluster")
+	f.StringVar(&ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
+	f.StringVar(&id, "starter.id", "", "Unique identifier of this peer")
+	f.IntVar(&masterPort, "starter.port", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
+	f.BoolVar(&allPortOffsetsUnique, "starter.unique-port-offsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
+
+	f.StringVar(&dataDir, "data.dir", getEnvVar("DATA_DIR", "."), "directory to store all data")
+
+	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
+
+	f.IntVar(&agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
+	f.BoolVar(&startCoordinator, "cluster.start-coordinator", true, "should a coordinator instance be started")
+	f.BoolVar(&startDBserver, "cluster.start-dbserver", true, "should a dbserver instance be started")
+
+	f.StringVar(&arangodPath, "server.arangod-path", "/usr/sbin/arangod", "Path of arangod")
+	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
+	f.StringVar(&rrPath, "server.rr-path", "", "Path of rr")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
-	f.StringVar(&dockerEndpoint, "dockerEndpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
-	f.StringVar(&dockerImage, "docker", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
-	f.StringVar(&dockerUser, "dockerUser", "", "use the given name as user to run the Docker container")
-	f.StringVar(&dockerContainerName, "dockerContainer", "", "name of the docker container that is running this process")
-	f.DurationVar(&dockerGCDelay, "dockerGCDelay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
-	f.BoolVar(&dockerNetHost, "dockerNetHost", false, "Run containers with --net=host. (deprecated, use --dockerNetworkMode=host instead)")
-	f.StringVar(&dockerNetworkMode, "dockerNetworkMode", "", "Run containers with --net=<value>")
-	f.BoolVar(&dockerPrivileged, "dockerPrivileged", false, "Run containers with --privileged")
-	f.BoolVar(&allPortOffsetsUnique, "uniquePortOffsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
-	f.StringVar(&jwtSecretFile, "jwtSecretFile", "", "name of a plain text file containing a JWT secret used for server authentication")
-	f.StringVar(&sslKeyFile, "sslKeyFile", "", "path of a PEM encoded file containing a server certificate + private key")
-	f.StringVar(&sslCAFile, "sslCAFile", "", "path of a PEM encoded file containing a CA certificate used for client authentication")
-	f.BoolVar(&sslAutoKeyFile, "sslAutoKeyFile", false, "If set, a self-signed certificate will be created and used as --sslKeyFile")
-	f.StringVar(&sslAutoServerName, "sslAutoServerName", "", "Server name put into self-signed certificate. See --sslAutoKeyFile")
-	f.StringVar(&sslAutoOrganization, "sslAutoOrganization", "ArangoDB", "Organization name put into self-signed certificate. See --sslAutoKeyFile")
+
+	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
+	f.StringVar(&dockerImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&dockerUser, "docker.user", "", "use the given name as user to run the Docker container")
+	f.StringVar(&dockerContainerName, "docker.container", "", "name of the docker container that is running this process")
+	f.DurationVar(&dockerGCDelay, "docker.gc-delay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
+	f.BoolVar(&dockerNetHost, "docker.net-host", false, "Run containers with --net=host")
+	f.Lookup("docker.net-host").Deprecated = "use --docker.net-mode=host instead"
+	f.StringVar(&dockerNetworkMode, "docker.net-mode", "", "Run containers with --net=<value>")
+	f.BoolVar(&dockerPrivileged, "docker.privileged", false, "Run containers with --privileged")
+
+	f.StringVar(&jwtSecretFile, "auth.jwt-secret-path", "", "name of a plain text file containing a JWT secret used for server authentication")
+
+	f.StringVar(&sslKeyFile, "ssl.key-path", "", "path of a PEM encoded file containing a server certificate + private key")
+	f.StringVar(&sslCAFile, "ssl.ca-path", "", "path of a PEM encoded file containing a CA certificate used for client authentication")
+	f.BoolVar(&sslAutoKeyFile, "ssl.auto-key", false, "If set, a self-signed certificate will be created and used as --ssl.key-path")
+	f.StringVar(&sslAutoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
+	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
+
+	f.SetNormalizeFunc(normalizeOptionNames)
+}
+
+var (
+	obsoleteOptionNameMap = map[string]string{
+		"id":                  "starter.id",
+		"masterPort":          "starter.port",
+		"local":               "starter.local",
+		"mode":                "starter.mode",
+		"ownAddress":          "starter.address",
+		"join":                "starter.join",
+		"uniquePortOffsets":   "starter.unique-port-offsets",
+		"startCoordinator":    "cluster.start-coordinator",
+		"startDBserver":       "cluster.start-dbserver",
+		"agencySize":          "cluster.agency-size",
+		"dataDir":             "data.dir",
+		"verbose":             "log.verbose",
+		"arangod":             "server.arangod-path",
+		"jsDir":               "server.js-dir",
+		"rr":                  "server.rr-path",
+		"dockerEndpoint":      "docker.endpoint",
+		"docker":              "docker.image",
+		"dockerContainer":     "docker.container",
+		"dockerUser":          "docker.user",
+		"dockerGCDelay":       "docker.gc-delay",
+		"dockerNetHost":       "docker.net-host",
+		"dockerNetworkMode":   "docker.net-mode",
+		"dockerPrivileged":    "docker.privileged",
+		"jwtSecretFile":       "auth.jwt-secret-path",
+		"sslKeyPath":          "ssl.key-path",
+		"sslCAFile":           "ssl.ca-path",
+		"sslAutoKeyFile":      "ssl.auto-key",
+		"sslAutoServerName":   "ssl.auto-server-name",
+		"sslAutoOrganization": "ssl.auto-organization",
+	}
+)
+
+// normalizeOptionNames provides support for obsolete option names.
+func normalizeOptionNames(f *pflag.FlagSet, name string) pflag.NormalizedName {
+	if newName, found := obsoleteOptionNameMap[name]; found {
+		name = newName
+	}
+	return pflag.NormalizedName(name)
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
@@ -231,19 +285,19 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 
 	// Some plausibility checks:
 	if agencySize%2 == 0 || agencySize <= 0 {
-		log.Fatal("Error: agencySize needs to be a positive, odd number.")
+		log.Fatal("Error: cluster.agency-size needs to be a positive, odd number.")
 	}
 	if agencySize == 1 && ownAddress == "" {
-		log.Fatal("Error: if agencySize==1, ownAddress must be given.")
+		log.Fatal("Error: if cluster.agency-size==1, starter.address must be given.")
 	}
 	if dockerImage != "" && rrPath != "" {
-		log.Fatal("Error: using --dockerImage and --rr is not possible.")
+		log.Fatal("Error: using --docker.image and --server.rr-path is not possible.")
 	}
 	if dockerNetHost {
 		if dockerNetworkMode == "" {
 			dockerNetworkMode = "host"
 		} else if dockerNetworkMode != "host" {
-			log.Fatal("Error: cannot set --dockerNetHost and --dockerNetworkMode at the same time")
+			log.Fatal("Error: cannot set --docker.net-host and --docker.net-mode at the same time")
 		}
 	}
 	log.Debugf("Using %s as default arangod executable.", arangodPath)
@@ -280,7 +334,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	// Auto create key file (if needed)
 	if sslAutoKeyFile {
 		if sslKeyFile != "" {
-			log.Fatalf("Cannot specify both --sslAutoKeyFile and --sslKeyFile")
+			log.Fatalf("Cannot specify both --ssl.auto-key and --ssl.key-path")
 		}
 		hosts := []string{"arangod.server"}
 		if sslAutoServerName != "" {
