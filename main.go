@@ -209,6 +209,10 @@ func main() {
 func cmdMainRun(cmd *cobra.Command, args []string) {
 	log.Infof("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
 
+	if len(args) > 0 {
+		log.Fatalf("Expected no arguments, got %q", args)
+	}
+
 	// Setup log level
 	if verbose {
 		logging.SetLevel(logging.DEBUG, projectName)
