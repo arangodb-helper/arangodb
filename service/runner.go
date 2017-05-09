@@ -41,7 +41,7 @@ type Runner interface {
 	Start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error)
 
 	// Create a command that a user should use to start a slave arangodb instance.
-	CreateStartArangodbCommand(index int, masterIP string, masterPort string) string
+	CreateStartArangodbCommand(myDataDir string, index int, masterIP string, masterPort string) string
 
 	// Cleanup after all processes are dead and have been cleaned themselves
 	Cleanup() error

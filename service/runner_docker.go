@@ -267,7 +267,7 @@ func (r *dockerRunner) pullImage(image string) error {
 	return nil
 }
 
-func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, masterPort string) string {
+func (r *dockerRunner) CreateStartArangodbCommand(myDataDir string, index int, masterIP string, masterPort string) string {
 	addr := masterIP
 	hostPort := DefaultMasterPort + (portOffsetIncrement * (index - 1))
 	if masterPort != "" {

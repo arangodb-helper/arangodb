@@ -106,7 +106,7 @@ func (s *Service) showSlaveStartCommands(runner Runner) {
 		if s.announcePort != s.MasterPort {
 			port = strconv.Itoa(s.announcePort)
 		}
-		fmt.Println(runner.CreateStartArangodbCommand(index, s.OwnAddress, port))
+		fmt.Println(runner.CreateStartArangodbCommand(s.DataDir, index, s.OwnAddress, port))
 		fmt.Println()
 	}
 }

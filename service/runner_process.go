@@ -30,6 +30,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -97,7 +98,7 @@ func (r *processRunner) Start(command string, args []string, volumes []Volume, p
 	return &process{log: r.log, p: c.Process, isChild: true}, nil
 }
 
-func (r *processRunner) CreateStartArangodbCommand(index int, masterIP string, masterPort string) string {
+func (r *processRunner) CreateStartArangodbCommand(myDataDir string, index int, masterIP string, masterPort string) string {
 	if masterIP == "" {
 		masterIP = "127.0.0.1"
 	}
@@ -105,7 +106,13 @@ func (r *processRunner) CreateStartArangodbCommand(index int, masterIP string, m
 	if masterPort != "" {
 		addr = net.JoinHostPort(addr, masterPort)
 	}
-	return fmt.Sprintf("arangodb --data.dir=./db%d --starter.join %s", index, addr)
+	var dataDir string
+	if strings.HasSuffix(myDataDir, "1") {
+		dataDir = fmt.Sprintf("%s%d", myDataDir[:len(myDataDir)-1], index)
+	} else {
+		dataDir = fmt.Sprintf("./db%d", index)
+	}
+	return fmt.Sprintf("arangodb --data.dir=%s --starter.join %s", dataDir, addr)
 }
 
 // Cleanup after all processes are dead and have been cleaned themselves
