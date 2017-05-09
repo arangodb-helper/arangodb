@@ -3,7 +3,7 @@ MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
 COPY bin/linux/amd64/arangodb /app/
 
-EXPOSE 4000 
+EXPOSE 8528 
 
 VOLUME /data
 
@@ -14,6 +14,6 @@ ENV DATA_DIR=/data
 ENV RUNNING_IN_DOCKER=true
 
 # Docker image containing arangod.
-ENV DOCKER_IMAGE=arangodb/arangodb:3.1.12
+ENV DOCKER_IMAGE=arangodb/arangodb:latest
 
 ENTRYPOINT ["/app/arangodb"]

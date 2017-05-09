@@ -1,3 +1,25 @@
+//
+// DISCLAIMER
+//
+// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Copyright holder is ArangoDB GmbH, Cologne, Germany
+//
+// Author Ewout Prangsma
+//
+
 package service
 
 import (
@@ -10,6 +32,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/arangodb-helper/arangodb/client"
+)
+
+var (
+	httpClient = client.DefaultHTTPClient()
 )
 
 type HelloRequest struct {
@@ -47,14 +75,16 @@ type ServerProcess struct {
 // startHTTPServer initializes and runs the HTTP server.
 // If will return directly after starting it.
 func (s *Service) startHTTPServer() {
-	http.HandleFunc("/hello", s.helloHandler)
-	http.HandleFunc("/goodbye", s.goodbyeHandler)
-	http.HandleFunc("/process", s.processListHandler)
-	http.HandleFunc("/logs/agent", s.agentLogsHandler)
-	http.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
-	http.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
-	http.HandleFunc("/version", s.versionHandler)
-	http.HandleFunc("/shutdown", s.shutdownHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/hello", s.helloHandler)
+	mux.HandleFunc("/goodbye", s.goodbyeHandler)
+	mux.HandleFunc("/process", s.processListHandler)
+	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
+	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
+	mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
+	mux.HandleFunc("/logs/single", s.singleLogsHandler)
+	mux.HandleFunc("/version", s.versionHandler)
+	mux.HandleFunc("/shutdown", s.shutdownHandler)
 
 	go func() {
 		containerPort, hostPort, err := s.getHTTPServerPort()
@@ -62,9 +92,21 @@ func (s *Service) startHTTPServer() {
 			s.log.Fatalf("Failed to get HTTP port info: %#v", err)
 		}
 		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
-		s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
-		if err := http.ListenAndServe(addr, nil); err != nil {
-			s.log.Errorf("Failed to listen on %s: %v", addr, err)
+		server := &http.Server{
+			Addr:    addr,
+			Handler: mux,
+		}
+		if s.tlsConfig != nil {
+			s.log.Infof("Listening on %s (%s) using TLS", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
+			server.TLSConfig = s.tlsConfig
+			if err := server.ListenAndServeTLS("", ""); err != nil {
+				s.log.Errorf("Failed to listen on %s: %v", addr, err)
+			}
+		} else {
+			s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
+			if err := server.ListenAndServe(); err != nil {
+				s.log.Errorf("Failed to listen on %s: %v", addr, err)
+			}
 		}
 	}()
 }
@@ -105,7 +147,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				Port:       hostPort,
 				PortOffset: 0,
 				DataDir:    s.DataDir,
-				HasAgent:   true,
+				HasAgent:   !s.isSingleMode(),
 				IsSecure:   s.IsSecure(),
 			},
 		}
@@ -181,6 +223,11 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
+			// In single server mode, do not accept new slaves
+			if s.isSingleMode() {
+				writeError(w, http.StatusBadRequest, "In single server mode, slaves cannot be added.")
+				return
+			}
 			// ID not yet found, add it
 			newPeer := Peer{
 				ID:         req.SlaveID,
@@ -188,7 +235,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				Port:       slavePort,
 				PortOffset: s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique),
 				DataDir:    req.DataDir,
-				HasAgent:   len(s.myPeers.Peers) < s.AgencySize,
+				HasAgent:   (len(s.myPeers.Peers) < s.AgencySize) && !s.isSingleMode(),
 				IsSecure:   req.IsSecure,
 			}
 			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
@@ -263,39 +310,34 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 		if myPeer.HasAgent {
 			expectedServers = 3
 		}
-		if p := s.servers.agentProc; p != nil {
-			resp.Servers = append(resp.Servers, ServerProcess{
-				Type:        "agent",
+
+		createServerProcess := func(serverType ServerType, p Process) ServerProcess {
+			return ServerProcess{
+				Type:        serverType.String(),
 				IP:          ip,
-				Port:        s.MasterPort + portOffset + portOffsetAgent,
+				Port:        s.MasterPort + portOffset + serverType.PortOffset(),
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
 				ContainerIP: p.ContainerIP(),
 				IsSecure:    s.IsSecure(),
-			})
+			}
+		}
+
+		if p := s.servers.agentProc; p != nil {
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeAgent, p))
 		}
 		if p := s.servers.coordinatorProc; p != nil {
-			resp.Servers = append(resp.Servers, ServerProcess{
-				Type:        "coordinator",
-				IP:          ip,
-				Port:        s.MasterPort + portOffset + portOffsetCoordinator,
-				ProcessID:   p.ProcessID(),
-				ContainerID: p.ContainerID(),
-				ContainerIP: p.ContainerIP(),
-				IsSecure:    s.IsSecure(),
-			})
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeCoordinator, p))
 		}
 		if p := s.servers.dbserverProc; p != nil {
-			resp.Servers = append(resp.Servers, ServerProcess{
-				Type:        "dbserver",
-				IP:          ip,
-				Port:        s.MasterPort + portOffset + portOffsetDBServer,
-				ProcessID:   p.ProcessID(),
-				ContainerID: p.ContainerID(),
-				ContainerIP: p.ContainerIP(),
-				IsSecure:    s.IsSecure(),
-			})
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeDBServer, p))
 		}
+		if p := s.servers.singleProc; p != nil {
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
+		}
+	}
+	if s.isSingleMode() {
+		expectedServers = 1
 	}
 	resp.ServersStarted = len(resp.Servers) == expectedServers
 	b, err := json.Marshal(resp)
@@ -310,7 +352,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 // If there is no agent running a 404 is returned.
 func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 	if s.needsAgent() {
-		s.logsHandler(w, r, "agent", portOffsetAgent)
+		s.logsHandler(w, r, ServerTypeAgent)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -318,25 +360,28 @@ func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 // dbserverLogsHandler servers the entire dbserver log.
 func (s *Service) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.logsHandler(w, r, "dbserver", portOffsetDBServer)
+	s.logsHandler(w, r, ServerTypeDBServer)
 }
 
 // coordinatorLogsHandler servers the entire coordinator log.
 func (s *Service) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.logsHandler(w, r, "coordinator", portOffsetCoordinator)
+	s.logsHandler(w, r, ServerTypeCoordinator)
 }
 
-func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, mode string, serverPortOffset int) {
-	myPeer, found := s.myPeers.PeerByID(s.ID)
-	if !found {
+// singleLogsHandler servers the entire single server log.
+func (s *Service) singleLogsHandler(w http.ResponseWriter, r *http.Request) {
+	s.logsHandler(w, r, ServerTypeSingle)
+}
+
+func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, serverType ServerType) {
+	// Find log path
+	myHostDir, err := s.serverHostDir(serverType)
+	if err != nil {
 		// Not ready yet
 		w.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
-	// Find log path
-	portOffset := myPeer.PortOffset
-	myPort := s.MasterPort + portOffset + serverPortOffset
-	logPath := filepath.Join(s.DataDir, fmt.Sprintf("%s%d", mode, myPort), "arangod.log")
+	logPath := filepath.Join(myHostDir, logFileName)
 	s.log.Debugf("Fetching logs in %s", logPath)
 	rd, err := os.Open(logPath)
 	if os.IsNotExist(err) {

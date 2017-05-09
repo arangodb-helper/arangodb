@@ -1,7 +1,10 @@
-PROJECT := ArangoDBStarter
+PROJECT := arangodb
 SCRIPTDIR := $(shell pwd)
 ROOTDIR := $(shell cd $(SCRIPTDIR) && pwd)
-VERSION:= $(shell cat $(ROOTDIR)/VERSION)
+VERSION := $(shell cat $(ROOTDIR)/VERSION)
+VERSION_MAJOR_MINOR_PATCH := $(shell echo $(VERSION) | cut -f 1 -d '+')
+VERSION_MAJOR_MINOR := $(shell echo $(VERSION_MAJOR_MINOR_PATCH) | cut -f 1,2 -d '.')
+VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
 DOCKERCLI := $(shell which docker)
 
@@ -9,14 +12,14 @@ GOBUILDDIR := $(SCRIPTDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
 BINDIR := $(ROOTDIR)/bin
 
-ORGPATH := github.com/arangodb
+ORGPATH := github.com/arangodb-helper
 ORGDIR := $(GOBUILDDIR)/src/$(ORGPATH)
 REPONAME := $(PROJECT)
 REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.7.4-alpine
+GOVERSION := 1.8.1-alpine
 
 ifndef GOOS
 	GOOS := linux
@@ -37,7 +40,7 @@ BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
 RELEASE := $(GOBUILDDIR)/bin/release 
 GHRELEASE := $(GOBUILDDIR)/bin/github-release 
 
-SOURCES := $(shell find $(SRCDIR) -name '*.go')
+SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 
 .PHONY: all clean deps docker build build-local
 
@@ -72,6 +75,8 @@ $(GOBUILDDIR):
 	@rm -f $(REPODIR) && ln -s ../../../.. $(REPODIR)
 	@rm -f $(GOBUILDDIR)/src/github.com/aktau && ln -s ../../../vendor/github.com/aktau $(GOBUILDDIR)/src/github.com/aktau
 	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../vendor/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
+	@rm -f $(GOBUILDDIR)/src/github.com/kballard && ln -s ../../../vendor/github.com/kballard $(GOBUILDDIR)/src/github.com/kballard
+	@rm -f $(GOBUILDDIR)/src/github.com/shavac && ln -s ../../../vendor/github.com/shavac $(GOBUILDDIR)/src/github.com/shavac
 	@rm -f $(GOBUILDDIR)/src/github.com/voxelbrain && ln -s ../../../vendor/github.com/voxelbrain $(GOBUILDDIR)/src/github.com/voxelbrain
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
@@ -98,7 +103,13 @@ endif
 
 docker-push-version: docker
 	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
+	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
+	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR)
+	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:latest
 	docker push arangodb/arangodb-starter:$(VERSION)
+	docker push arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
+	docker push arangodb/arangodb-starter:$(VERSION_MAJOR)
+	docker push arangodb/arangodb-starter:latest
 
 $(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
 	GOPATH=$(GOBUILDDIR) go build -o $(RELEASE) $(REPOPATH)/tools/release
@@ -114,3 +125,33 @@ release-minor: $(RELEASE)
 
 release-major: $(RELEASE)
 	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=major 
+
+TESTCONTAINER := arangodb-starter-test
+
+test-images:
+	docker pull arangodb/arangodb:latest
+	docker build -t arangodb-golang -f test/Dockerfile-arangodb-golang .
+
+# Run all integration tests
+run-tests: run-tests-local-process run-tests-docker
+
+run-tests-local-process: build test-images
+	@-docker rm -f -v $(TESTCONTAINER) &> /dev/null
+	docker run \
+		--rm \
+		--name=$(TESTCONTAINER) \
+		-v $(ROOTDIR):/usr/code \
+		-e GOPATH=/usr/code/.gobuild \
+		-e DATA_DIR=/tmp \
+		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
+		-e TEST_MODES=localprocess \
+		-w /usr/code/ \
+		arangodb-golang \
+		go test -v $(REPOPATH)/test
+
+run-tests-docker: docker
+	GOPATH=$(GOBUILDDIR) TEST_MODES=docker go test -v $(REPOPATH)/test
+
+# Run all integration tests on the local system
+run-tests-local: local
+	GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess docker" STARTER=$(ROOTDIR)/arangodb go test -v $(REPOPATH)/test

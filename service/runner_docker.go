@@ -1,3 +1,25 @@
+//
+// DISCLAIMER
+//
+// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Copyright holder is ArangoDB GmbH, Cologne, Germany
+//
+// Author Ewout Prangsma
+//
+
 package service
 
 import (
@@ -19,10 +41,12 @@ import (
 const (
 	stopContainerTimeout = 60 // Seconds before a container is killed (after graceful stop)
 	containerFileName    = "CONTAINER"
+	createdByKey         = "created-by"
+	createdByValue       = "arangodb-starter"
 )
 
-// NewDockerRunner creates a runner that starts processes on the local OS.
-func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, netHost, privileged bool) (Runner, error) {
+// NewDockerRunner creates a runner that starts processes in a docker container.
+func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, networkMode string, privileged bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		return nil, maskAny(err)
@@ -35,7 +59,7 @@ func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom str
 		volumesFrom:  volumesFrom,
 		containerIDs: make(map[string]time.Time),
 		gcDelay:      gcDelay,
-		netHost:      netHost,
+		networkMode:  networkMode,
 		privileged:   privileged,
 	}, nil
 }
@@ -51,7 +75,7 @@ type dockerRunner struct {
 	containerIDs map[string]time.Time
 	gcOnce       sync.Once
 	gcDelay      time.Duration
-	netHost      bool
+	networkMode  string
 	privileged   bool
 }
 
@@ -154,6 +178,9 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 			Tty:          true,
 			User:         r.user,
 			ExposedPorts: make(map[docker.Port]struct{}),
+			Labels: map[string]string{
+				createdByKey: createdByValue,
+			},
 		},
 		HostConfig: &docker.HostConfig{
 			PortBindings:    make(map[docker.Port][]docker.PortBinding),
@@ -173,8 +200,8 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 			opts.HostConfig.Binds = append(opts.HostConfig.Binds, bind)
 		}
 	}
-	if r.netHost {
-		opts.HostConfig.NetworkMode = "host"
+	if r.networkMode != "" && r.networkMode != "default" {
+		opts.HostConfig.NetworkMode = r.networkMode
 	} else {
 		for _, p := range ports {
 			dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
@@ -242,16 +269,23 @@ func (r *dockerRunner) pullImage(image string) error {
 
 func (r *dockerRunner) CreateStartArangodbCommand(index int, masterIP string, masterPort string) string {
 	addr := masterIP
-	hostPort := 4000 + (portOffsetIncrement * (index - 1))
+	hostPort := DefaultMasterPort + (portOffsetIncrement * (index - 1))
 	if masterPort != "" {
 		addr = net.JoinHostPort(addr, masterPort)
 		masterPortI, _ := strconv.Atoi(masterPort)
 		hostPort = masterPortI + (portOffsetIncrement * (index - 1))
 	}
+	var netArgs string
+	if r.networkMode == "" || r.networkMode == "default" {
+		netArgs = fmt.Sprintf("-p %d:%d", hostPort, DefaultMasterPort)
+	} else {
+		netArgs = fmt.Sprintf("--net=%s", r.networkMode)
+	}
 	lines := []string{
 		fmt.Sprintf("docker volume create arangodb%d &&", index),
-		fmt.Sprintf("docker run -it --name=adb%d --rm -p %d:4000 -v arangodb%d:/data -v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter", index, hostPort, index),
-		fmt.Sprintf("--dockerContainer=adb%d --ownAddress=%s --join=%s", index, masterIP, addr),
+		fmt.Sprintf("docker run -it --name=adb%d --rm %s -v arangodb%d:/data", index, netArgs, index),
+		fmt.Sprintf("-v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter"),
+		fmt.Sprintf("--starter.address=%s --starter.join=%s", masterIP, addr),
 	}
 	return strings.Join(lines, " \\\n    ")
 }
@@ -271,7 +305,7 @@ func (r *dockerRunner) Cleanup() error {
 			r.log.Warningf("Failed to remove container %s: %#v", id, err)
 		}
 	}
-	r.containerIDs = nil
+	r.containerIDs = make(map[string]time.Time)
 
 	return nil
 }
@@ -280,14 +314,18 @@ func (r *dockerRunner) Cleanup() error {
 func (r *dockerRunner) recordContainerID(id string) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	r.containerIDs[id] = time.Now()
+	if r.containerIDs != nil {
+		r.containerIDs[id] = time.Now()
+	}
 }
 
 // unrecordContainerID removes an ID from the list of created containers
 func (r *dockerRunner) unrecordContainerID(id string) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	delete(r.containerIDs, id)
+	if r.containerIDs != nil {
+		delete(r.containerIDs, id)
+	}
 }
 
 // gc performs continues garbage collection of stopped old containers
@@ -368,6 +406,20 @@ func (p *dockerContainer) ContainerIP() string {
 		return ns.IPAddress
 	}
 	return ""
+}
+
+// HostPort returns the port on the host that is used to access the given port of the process.
+func (p *dockerContainer) HostPort(containerPort int) (int, error) {
+	if hostConfig := p.container.HostConfig; hostConfig != nil {
+		if hostConfig.NetworkMode == "host" {
+			return containerPort, nil
+		}
+		dockerPort := docker.Port(fmt.Sprintf("%d/tcp", containerPort))
+		if binding, ok := hostConfig.PortBindings[dockerPort]; ok && len(binding) > 0 {
+			return strconv.Atoi(binding[0].HostPort)
+		}
+	}
+	return 0, fmt.Errorf("Cannot find port mapping.")
 }
 
 func (p *dockerContainer) Wait() {

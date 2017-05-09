@@ -1,3 +1,25 @@
+//
+// DISCLAIMER
+//
+// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Copyright holder is ArangoDB GmbH, Cologne, Germany
+//
+// Author Ewout Prangsma
+//
+
 package service
 
 import (
@@ -11,6 +33,7 @@ import (
 	"time"
 )
 
+// startSlave starts the Service as slave.
 func (s *Service) startSlave(peerAddress string, runner Runner) {
 	masterPort := s.MasterPort
 	if host, port, err := net.SplitHostPort(peerAddress); err == nil {
@@ -33,7 +56,8 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		})
 		buf := bytes.Buffer{}
 		buf.Write(b)
-		r, e := http.Post(fmt.Sprintf("http://%s/hello", masterAddr), "application/json", &buf)
+		scheme := NewURLSchemes(s.IsSecure()).Browser
+		r, e := httpClient.Post(fmt.Sprintf("%s://%s/hello", scheme, masterAddr), "application/json", &buf)
 		if e != nil {
 			s.log.Infof("Cannot start because of error from master: %v", e)
 			time.Sleep(time.Second)
@@ -62,6 +86,15 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		break
 	}
 
+	// Check HTTP server port
+	containerHTTPPort, _, err := s.getHTTPServerPort()
+	if err != nil {
+		s.log.Fatalf("Cannot find HTTP server info: %#v", err)
+	}
+	if !IsPortOpen(containerHTTPPort) {
+		s.log.Fatalf("Port %d is already in use", containerHTTPPort)
+	}
+
 	// Run the HTTP service so we can forward other clients
 	s.startHTTPServer()
 
@@ -71,14 +104,14 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 	}
 	for {
 		if len(s.myPeers.Peers) >= s.AgencySize {
-			s.log.Infof("Starting service as slave with id '%s'...", s.ID)
+			s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
 			s.saveSetup()
 			s.startRunning(runner)
 			return
 		}
 		time.Sleep(time.Second)
 		master := s.myPeers.Peers[0]
-		r, err := http.Get(master.CreateStarterURL("/hello"))
+		r, err := httpClient.Get(master.CreateStarterURL("/hello"))
 		if err != nil {
 			s.log.Errorf("Failed to connect to master: %v", err)
 			time.Sleep(time.Second * 2)
@@ -106,7 +139,7 @@ func (s *Service) sendMasterGoodbye() error {
 	if err != nil {
 		return maskAny(err)
 	}
-	resp, err := http.Post(u, "application/json", bytes.NewReader(data))
+	resp, err := httpClient.Post(u, "application/json", bytes.NewReader(data))
 	if err != nil {
 		return maskAny(err)
 	}
