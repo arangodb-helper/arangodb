@@ -35,7 +35,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arangodb/ArangoDBStarter/client"
+	"github.com/arangodb-helper/arangodb/client"
 	shell "github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
 	"github.com/shavac/gexpect"

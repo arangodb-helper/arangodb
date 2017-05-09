@@ -1,4 +1,4 @@
-PROJECT := ArangoDBStarter
+PROJECT := arangodb
 SCRIPTDIR := $(shell pwd)
 ROOTDIR := $(shell cd $(SCRIPTDIR) && pwd)
 VERSION := $(shell cat $(ROOTDIR)/VERSION)
@@ -12,7 +12,7 @@ GOBUILDDIR := $(SCRIPTDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
 BINDIR := $(ROOTDIR)/bin
 
-ORGPATH := github.com/arangodb
+ORGPATH := github.com/arangodb-helper
 ORGDIR := $(GOBUILDDIR)/src/$(ORGPATH)
 REPONAME := $(PROJECT)
 REPODIR := $(ORGDIR)/$(REPONAME)

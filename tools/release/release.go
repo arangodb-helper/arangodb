@@ -49,7 +49,7 @@ func init() {
 	flag.StringVar(&releaseType, "type", "patch", "Type of release to build (major|minor|patch)")
 	flag.StringVar(&ghRelease, "github-release", ".gobuild/bin/github-release", "Full path of github-release tool")
 	flag.StringVar(&ghUser, "github-user", "arangodb-helper", "Github account name to create release in")
-	flag.StringVar(&ghRepo, "github-repo", "ArangoDBStarter", "Github repository name to create release in")
+	flag.StringVar(&ghRepo, "github-repo", "arangodb", "Github repository name to create release in")
 	flag.StringVar(&binFolder, "bin-folder", "./bin", "Folder containing binaries")
 }
 
