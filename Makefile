@@ -57,6 +57,11 @@ else
 	GOPATH=$(GOBUILDDIR) go build -o arangodb $(REPOPATH)
 endif
 
+ifeq ("$(TRAVIS)", "true")
+	IP := $(shell hostname -I)
+	echo Using IP=$(IP)
+endif
+
 build: $(BIN)
 
 build-local: build 
@@ -150,7 +155,7 @@ run-tests-local-process: build test-images
 		go test -v $(REPOPATH)/test
 
 run-tests-docker: docker
-	GOPATH=$(GOBUILDDIR) TEST_MODES=docker go test -v $(REPOPATH)/test
+	GOPATH=$(GOBUILDDIR) TEST_MODES=docker IP=$(IP) go test -v $(REPOPATH)/test
 
 # Run all integration tests on the local system
 run-tests-local: local
