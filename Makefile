@@ -35,6 +35,11 @@ ifndef DOCKERNAMESPACE
 	DOCKERNAMESPACE := arangodb
 endif
 
+ifdef TRAVIS
+	IP := $(shell hostname -I)
+	echo Using IP=$(IP)
+endif
+
 BINNAME := arangodb$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
 RELEASE := $(GOBUILDDIR)/bin/release 
@@ -55,11 +60,6 @@ ifneq ("$(DOCKERCLI)", "")
 else
 	@${MAKE} deps
 	GOPATH=$(GOBUILDDIR) go build -o arangodb $(REPOPATH)
-endif
-
-ifeq ("$(TRAVIS)", "true")
-	IP := $(shell hostname -I)
-	echo Using IP=$(IP)
 endif
 
 build: $(BIN)
