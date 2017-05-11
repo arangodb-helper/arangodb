@@ -46,14 +46,14 @@ This will use port 8528 to wait for colleagues (3 are needed for a
 resilient agency). On host B: (can be the same as A):
 
 ```
-arangodb --join A
+arangodb --starter.join A
 ```
 
 This will contact A on port 8528 and register. On host C: (can be same
 as A or B):
 
 ```
-arangodb --join A
+arangodb --starter.join A
 ```
 
 This will contact A on port 8528 and register.
