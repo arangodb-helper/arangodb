@@ -2,7 +2,7 @@
 
 - Changed option naming scheme (see `arangodb --help` for all new names). Old names are still accepted.
 - Renamed github repository from `github.com/arangodb-helper/ArangoDBStarter` to `github.com/arangodb-helper/arangodb`.
-- When an `--ssl.key-path` (or `--ssl.auto-key`) argument is given, the starter will serve it's API over TLS using the same certificate as the database server(s).
+- When an `--ssl.keyfile` (or `--ssl.auto-key`) argument is given, the starter will serve it's API over TLS using the same certificate as the database server(s).
 - Starter will detect the name of the docker container is it running in automatically (if running in docker and not set using `--docker.container`)
 - Changed default master port from 4000 to 8528. That results in a coordinator/single server to be available on well known port 8529
 - Added `--starter.mode=single` argument, used to start a single server database instead of a cluster (#28)

@@ -70,7 +70,7 @@ directory.
 
 The `arangodb` program will find the ArangoDB executable and the
 other installation files automatically. If this fails, use the
-`--server.arangod-path` and `--server.js-dir` options described below.
+`--server.arangod` and `--server.js-dir` options described below.
 
 Running in Docker 
 -----------------
@@ -215,7 +215,7 @@ For example:
 
 ```
 echo "MakeThisSecretMuchStronger" > jwtSecret 
-arangodb --auth.jwt-secret-path=./jwtSecret
+arangodb --auth.jwt-secret=./jwtSecret
 ```
 
 All starters used in the cluster must have the same JWT secret.
@@ -228,10 +228,10 @@ The arango starter by default creates a cluster that uses no unencrypted connect
 To create a cluster that uses encrypted connections, you can use an existing server key file (.pem format)
 or let the starter create one for you.
 
-To use an existing server key file use the `--ssl.key-path` option like this:
+To use an existing server key file use the `--ssl.keyfile` option like this:
 
 ```
-arangodb --ssl.key-path=myServer.pem
+arangodb --ssl.keyfile=myServer.pem
 ```
 
 Go to the [SSL manual](https://docs.arangodb.com/3.1/Manual/Administration/Configuration/SSL.html) for more
@@ -253,7 +253,7 @@ Note that all starters can use different server key files.
 
 Additional SSL options:
 
-* `--ssl.ca-path=path`
+* `--ssl.cafile=path`
 
 Configure the servers to require a client certificate in their communication to the servers using the CA certificate in a file with given path.
 
@@ -275,7 +275,7 @@ port for arangodb master (default 8528).
 This is the port used for communication of the `arangodb` instances
 amongst each other.
 
-* `--server.arangod-path=path`
+* `--server.arangod=path`
 
 path to the `arangod` executable (default varies from platform to
 platform, an executable is searched in various places).
@@ -299,7 +299,7 @@ This indicates whether or not a coordinator instance should be started
 This indicates whether or not a DB server instance should be started 
 (default true).
 
-* `--server.rr-path=path`
+* `--server.rr=path`
 
 path to rr executable to use if non-empty (default ""). Expert and
 debugging only.
