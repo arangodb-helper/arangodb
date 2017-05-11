@@ -1,5 +1,6 @@
 # Changes from version 0.6.0 to master 
 
+- Added `--server.storage-engine` option, used to change the storage engine of the `arangod` instances (#48)
 - Changed option naming scheme (see `arangodb --help` for all new names). Old names are still accepted.
 - Renamed github repository from `github.com/arangodb-helper/ArangoDBStarter` to `github.com/arangodb-helper/arangodb`.
 - When an `--ssl.keyfile` (or `--ssl.auto-key`) argument is given, the starter will serve it's API over TLS using the same certificate as the database server(s).

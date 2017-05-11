@@ -75,6 +75,7 @@ var (
 	masterAddress        string
 	verbose              bool
 	serverThreads        int
+	serverStorageEngine  string
 	allPortOffsetsUnique bool
 	jwtSecretFile        string
 	sslKeyFile           string
@@ -117,6 +118,7 @@ func init() {
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
 	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
+	f.StringVar(&serverStorageEngine, "server.storage-engine", "mmfiles", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&dockerImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
@@ -378,6 +380,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		MasterAddress:        masterAddress,
 		Verbose:              verbose,
 		ServerThreads:        serverThreads,
+		ServerStorageEngine:  serverStorageEngine,
 		AllPortOffsetsUnique: allPortOffsetsUnique,
 		JwtSecret:            jwtSecret,
 		SslKeyFile:           sslKeyFile,
