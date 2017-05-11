@@ -289,6 +289,11 @@ this is coupled to the search for the executable).
 
 This option only has to be specified if the standard search fails.
 
+* `--server.storage-engine=mmfiles|rocksdb` 
+
+Sets the storage engine used by the `arangod` servers. 
+The value `rocksdb` is only allowed on `arangod` version 3.2 and up.
+
 * `--cluster.start-coordinator=bool`
 
 This indicates whether or not a coordinator instance should be started 
