@@ -1,4 +1,4 @@
-# Changes from version 0.6.0 to master 
+# Changes from version 0.6.0 to 0.7.0
 
 - Added `--server.storage-engine` option, used to change the storage engine of the `arangod` instances (#48)
 - Changed option naming scheme (see `arangodb --help` for all new names). Old names are still accepted.
