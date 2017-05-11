@@ -113,9 +113,9 @@ func init() {
 	f.BoolVar(&startCoordinator, "cluster.start-coordinator", true, "should a coordinator instance be started")
 	f.BoolVar(&startDBserver, "cluster.start-dbserver", true, "should a dbserver instance be started")
 
-	f.StringVar(&arangodPath, "server.arangod-path", "/usr/sbin/arangod", "Path of arangod")
+	f.StringVar(&arangodPath, "server.arangod", "/usr/sbin/arangod", "Path of arangod")
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
-	f.StringVar(&rrPath, "server.rr-path", "", "Path of rr")
+	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
@@ -128,11 +128,11 @@ func init() {
 	f.StringVar(&dockerNetworkMode, "docker.net-mode", "", "Run containers with --net=<value>")
 	f.BoolVar(&dockerPrivileged, "docker.privileged", false, "Run containers with --privileged")
 
-	f.StringVar(&jwtSecretFile, "auth.jwt-secret-path", "", "name of a plain text file containing a JWT secret used for server authentication")
+	f.StringVar(&jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
 
-	f.StringVar(&sslKeyFile, "ssl.key-path", "", "path of a PEM encoded file containing a server certificate + private key")
-	f.StringVar(&sslCAFile, "ssl.ca-path", "", "path of a PEM encoded file containing a CA certificate used for client authentication")
-	f.BoolVar(&sslAutoKeyFile, "ssl.auto-key", false, "If set, a self-signed certificate will be created and used as --ssl.key-path")
+	f.StringVar(&sslKeyFile, "ssl.keyfile", "", "path of a PEM encoded file containing a server certificate + private key")
+	f.StringVar(&sslCAFile, "ssl.cafile", "", "path of a PEM encoded file containing a CA certificate used for client authentication")
+	f.BoolVar(&sslAutoKeyFile, "ssl.auto-key", false, "If set, a self-signed certificate will be created and used as --ssl.keyfile")
 	f.StringVar(&sslAutoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
 	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
 
@@ -153,9 +153,9 @@ var (
 		"agencySize":          "cluster.agency-size",
 		"dataDir":             "data.dir",
 		"verbose":             "log.verbose",
-		"arangod":             "server.arangod-path",
+		"arangod":             "server.arangod",
 		"jsDir":               "server.js-dir",
-		"rr":                  "server.rr-path",
+		"rr":                  "server.rr",
 		"dockerEndpoint":      "docker.endpoint",
 		"docker":              "docker.image",
 		"dockerContainer":     "docker.container",
@@ -164,9 +164,9 @@ var (
 		"dockerNetHost":       "docker.net-host",
 		"dockerNetworkMode":   "docker.net-mode",
 		"dockerPrivileged":    "docker.privileged",
-		"jwtSecretFile":       "auth.jwt-secret-path",
-		"sslKeyPath":          "ssl.key-path",
-		"sslCAFile":           "ssl.ca-path",
+		"jwtSecretFile":       "auth.jwt-secret",
+		"sslKeyPath":          "ssl.keyfile",
+		"sslCAFile":           "ssl.cafile",
 		"sslAutoKeyFile":      "ssl.auto-key",
 		"sslAutoServerName":   "ssl.auto-server-name",
 		"sslAutoOrganization": "ssl.auto-organization",
@@ -291,7 +291,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		log.Fatal("Error: if cluster.agency-size==1, starter.address must be given.")
 	}
 	if dockerImage != "" && rrPath != "" {
-		log.Fatal("Error: using --docker.image and --server.rr-path is not possible.")
+		log.Fatal("Error: using --docker.image and --server.rr is not possible.")
 	}
 	if dockerNetHost {
 		if dockerNetworkMode == "" {
@@ -334,7 +334,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	// Auto create key file (if needed)
 	if sslAutoKeyFile {
 		if sslKeyFile != "" {
-			log.Fatalf("Cannot specify both --ssl.auto-key and --ssl.key-path")
+			log.Fatalf("Cannot specify both --ssl.auto-key and --ssl.keyfile")
 		}
 		hosts := []string{"arangod.server"}
 		if sslAutoServerName != "" {
