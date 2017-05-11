@@ -64,8 +64,9 @@ type Config struct {
 	OwnAddress           string // IP address of used to reach this process
 	MasterAddress        string
 	Verbose              bool
-	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
-	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
+	ServerThreads        int    // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
+	ServerStorageEngine  string // mmfiles | rocksdb
+	AllPortOffsetsUnique bool   // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
 	JwtSecret            string
 	SslKeyFile           string // Path containing an x509 certificate + private key to be used by the servers.
 	SslCAFile            string // Path containing an x509 CA certificate used to authenticate clients.
@@ -343,6 +344,9 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		if s.JwtSecret != "" {
 			serverSection.Settings["authentication"] = "true"
 			serverSection.Settings["jwt-secret"] = s.JwtSecret
+		}
+		if s.ServerStorageEngine == "rocksdb" {
+			serverSection.Settings["storage-engine"] = "rocksdb"
 		}
 		config := configFile{
 			serverSection,
