@@ -36,7 +36,7 @@ ifndef DOCKERNAMESPACE
 endif
 
 ifdef TRAVIS
-	IP := $(shell hostname -I)
+	IP := $(shell hostname -I | cut -d ' ' -f 1)
 	echo Using IP=$(IP)
 endif
 
