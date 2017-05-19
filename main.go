@@ -47,8 +47,9 @@ import (
 // Configuration data with defaults:
 
 const (
-	projectName          = "arangodb"
-	defaultDockerGCDelay = time.Minute * 10
+	projectName               = "arangodb"
+	defaultDockerGCDelay      = time.Minute * 10
+	defaultDockerStarterImage = "arangodb/arangodb-starter"
 )
 
 var (
@@ -85,6 +86,7 @@ var (
 	sslCAFile            string
 	dockerEndpoint       string
 	dockerImage          string
+	dockerStarterImage   = defaultDockerStarterImage
 	dockerUser           string
 	dockerContainerName  string
 	dockerGCDelay        time.Duration
@@ -277,12 +279,20 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Auto detect docker container ID (if needed)
-	if isRunningInDocker() && dockerContainerName == "" {
-		id, err := findDockerContainerName(dockerEndpoint)
+	if isRunningInDocker() {
+		info, err := findDockerContainerInfo(dockerEndpoint)
 		if err != nil {
-			log.Fatalf("Cannot find docker container name. Please specify using --dockerContainer=...")
+			if dockerContainerName == "" {
+				log.Fatalf("Cannot find docker container name. Please specify using --dockerContainer=...")
+			}
+		} else {
+			if dockerContainerName == "" {
+				dockerContainerName = info.Name
+			}
+			if info.ImageName != "" {
+				dockerStarterImage = info.ImageName
+			}
 		}
-		dockerContainerName = id
 	}
 
 	// Some plausibility checks:
@@ -389,6 +399,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		DockerContainerName:  dockerContainerName,
 		DockerEndpoint:       dockerEndpoint,
 		DockerImage:          dockerImage,
+		DockerStarterImage:   dockerStarterImage,
 		DockerUser:           dockerUser,
 		DockerGCDelay:        dockerGCDelay,
 		DockerNetworkMode:    dockerNetworkMode,

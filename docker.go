@@ -35,6 +35,11 @@ const (
 	cgroupDockerMarker = ":/docker/"
 )
 
+type containerInfo struct {
+	Name      string
+	ImageName string
+}
+
 // isRunningInDocker checks if the process is running in a docker container.
 func isRunningInDocker() bool {
 	if os.Getenv("RUNNING_IN_DOCKER") != "true" {
@@ -46,8 +51,8 @@ func isRunningInDocker() bool {
 	return true
 }
 
-// findDockerContainerName find the name (or if not possible the ID) of the container that is used to run this process.
-func findDockerContainerName(dockerEndpoint string) (string, error) {
+// findDockerContainerInfo find information (name or if not possible the ID, image-name) of the container that is used to run this process.
+func findDockerContainerInfo(dockerEndpoint string) (containerInfo, error) {
 	findID := func() (string, error) {
 		raw, err := ioutil.ReadFile("/proc/self/cgroup")
 		if err != nil {
@@ -68,21 +73,30 @@ func findDockerContainerName(dockerEndpoint string) (string, error) {
 
 	id, err := findID()
 	if err != nil {
-		return "", maskAny(err)
+		return containerInfo{}, maskAny(err)
 	}
+	info := containerInfo{Name: id}
 
 	// Find name for container with ID.
 	client, err := docker.NewClient(dockerEndpoint)
 	if err != nil {
-		return id, nil // fallback to ID
+		return info, nil // fallback to ID
 	}
 	container, err := client.InspectContainer(id)
 	if err != nil {
-		return id, nil // fallback to ID
+		return info, nil // fallback to ID
 	}
 
 	if name := container.Name; name != "" {
-		return name, nil
+		info.Name = name
 	}
-	return id, nil // fallback to ID
+	info.ImageName = container.Image
+
+	// Try to inspect image for more naming info
+	image, err := client.InspectImage(container.Image)
+	if err == nil && len(image.RepoTags) > 0 {
+		info.ImageName = image.RepoTags[0]
+	}
+
+	return info, nil
 }

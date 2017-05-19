@@ -98,7 +98,7 @@ func (r *processRunner) Start(command string, args []string, volumes []Volume, p
 	return &process{log: r.log, p: c.Process, isChild: true}, nil
 }
 
-func (r *processRunner) CreateStartArangodbCommand(myDataDir string, index int, masterIP string, masterPort string) string {
+func (r *processRunner) CreateStartArangodbCommand(myDataDir string, index int, masterIP, masterPort, starterImageName string) string {
 	if masterIP == "" {
 		masterIP = "127.0.0.1"
 	}
