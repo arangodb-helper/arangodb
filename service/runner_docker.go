@@ -267,7 +267,7 @@ func (r *dockerRunner) pullImage(image string) error {
 	return nil
 }
 
-func (r *dockerRunner) CreateStartArangodbCommand(myDataDir string, index int, masterIP string, masterPort string) string {
+func (r *dockerRunner) CreateStartArangodbCommand(myDataDir string, index int, masterIP, masterPort, starterImageName string) string {
 	addr := masterIP
 	hostPort := DefaultMasterPort + (portOffsetIncrement * (index - 1))
 	if masterPort != "" {
@@ -284,7 +284,7 @@ func (r *dockerRunner) CreateStartArangodbCommand(myDataDir string, index int, m
 	lines := []string{
 		fmt.Sprintf("docker volume create arangodb%d &&", index),
 		fmt.Sprintf("docker run -it --name=adb%d --rm %s -v arangodb%d:/data", index, netArgs, index),
-		fmt.Sprintf("-v /var/run/docker.sock:/var/run/docker.sock arangodb/arangodb-starter"),
+		fmt.Sprintf("-v /var/run/docker.sock:/var/run/docker.sock %s", starterImageName),
 		fmt.Sprintf("--starter.address=%s --starter.join=%s", masterIP, addr),
 	}
 	return strings.Join(lines, " \\\n    ")

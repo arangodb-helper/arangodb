@@ -74,6 +74,7 @@ type Config struct {
 	DockerContainerName string // Name of the container running this process
 	DockerEndpoint      string // Where to reach the docker daemon
 	DockerImage         string // Name of Arangodb docker image
+	DockerStarterImage  string
 	DockerUser          string
 	DockerGCDelay       time.Duration
 	DockerNetworkMode   string
