@@ -279,7 +279,9 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Auto detect docker container ID (if needed)
+	runningInDocker := false
 	if isRunningInDocker() {
+		runningInDocker = true
 		info, err := findDockerContainerInfo(dockerEndpoint)
 		if err != nil {
 			if dockerContainerName == "" {
@@ -312,8 +314,6 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 			log.Fatal("Error: cannot set --docker.net-host and --docker.net-mode at the same time")
 		}
 	}
-	log.Debugf("Using %s as default arangod executable.", arangodPath)
-	log.Debugf("Using %s as default JS dir.", arangodJSPath)
 
 	// Expand home-dis (~) in paths
 	arangodPath = mustExpand(arangodPath)
@@ -323,6 +323,16 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	jwtSecretFile = mustExpand(jwtSecretFile)
 	sslKeyFile = mustExpand(sslKeyFile)
 	sslCAFile = mustExpand(sslCAFile)
+
+	// Check database executable
+	if !runningInDocker {
+		if _, err := os.Stat(arangodPath); os.IsNotExist(err) {
+			log.Errorf("Cannot find arangod (expected at %s).", arangodPath)
+			log.Fatal("Please install ArangoDB locally or run the ArangoDB starter in docker (see README for details).")
+		}
+		log.Debugf("Using %s as default arangod executable.", arangodPath)
+		log.Debugf("Using %s as default JS dir.", arangodJSPath)
+	}
 
 	// Sort out work directory:
 	if len(dataDir) == 0 {
