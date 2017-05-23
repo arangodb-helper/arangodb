@@ -86,70 +86,6 @@ type Config struct {
 	ProjectBuild   string
 }
 
-type PassthroughOption struct {
-	Name   string
-	Values struct {
-		All          []string
-		Coordinators []string
-		DBServers    []string
-		Agents       []string
-	}
-}
-
-// valueForServerType returns the value for the given option for a specific server type.
-// If no value is given for the specific server type, any value for `all` is returned.
-func (o *PassthroughOption) valueForServerType(serverType ServerType) []string {
-	var result []string
-	switch serverType {
-	case ServerTypeSingle:
-		result = o.Values.All
-	case ServerTypeCoordinator:
-		result = o.Values.Coordinators
-	case ServerTypeDBServer:
-		result = o.Values.DBServers
-	case ServerTypeAgent:
-		result = o.Values.Agents
-	}
-	if len(result) > 0 {
-		return result
-	}
-	return o.Values.All
-}
-
-// formattedOptionName returns the option ready to be used in a command line argument,
-// prefixed with `--`.
-func (o *PassthroughOption) formattedOptionName() string {
-	return "--" + o.Name
-}
-
-// sectionName returns the name of the configuration section this option belongs to.
-func (o *PassthroughOption) sectionName() string {
-	return strings.SplitN(o.Name, ".", 2)[0]
-}
-
-// sectionKey returns the name of this option within its configuration section.
-func (o *PassthroughOption) sectionKey() string {
-	parts := strings.SplitN(o.Name, ".", 2)
-	if len(parts) > 1 {
-		return parts[1]
-	}
-	return ""
-}
-
-func (c *Config) passthroughOptionValuesForServerType(name string, serverType ServerType) []string {
-	for _, ptOpt := range c.PassthroughOptions {
-		if ptOpt.Name != name {
-			continue
-		}
-		values := ptOpt.valueForServerType(serverType)
-		if len(values) > 0 {
-			return values
-		}
-		return nil
-	}
-	return nil
-}
-
 // Service implements the actual starter behavior of the ArangoDB starter.
 type Service struct {
 	Config
@@ -551,7 +487,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		}
 		// Append all values
 		for _, value := range values {
-			args = append(args, ptOpt.formattedOptionName(), value)
+			args = append(args, ptOpt.FormattedOptionName(), value)
 		}
 	}
 	return

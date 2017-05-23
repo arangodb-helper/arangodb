@@ -169,6 +169,9 @@ func init() {
 			fullPrefix := "--" + ptPrefix.Prefix + "."
 			if strings.HasPrefix(a, fullPrefix) {
 				option := getPassthroughOption(a, fullPrefix)
+				if option.IsForbidden() {
+					log.Fatalf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
+				}
 				f.StringSliceVar(ptPrefix.FieldSelector(option), ptPrefix.Prefix+"."+option.Name, nil, fmt.Sprintf("Passed through to %s as --%s", ptPrefix.Usage, option.Name))
 			}
 		}
