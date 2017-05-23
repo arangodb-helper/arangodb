@@ -47,7 +47,6 @@ var (
 		"cluster.my-role",
 		"cluster.my-local-info",
 		"database.directory",
-		"foxx.queues",
 		"javascript.startup-directory",
 		"javascript.app-path",
 		"server.endpoint",
