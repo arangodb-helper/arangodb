@@ -56,6 +56,17 @@ func (cf configFile) WriteTo(w io.Writer) (int64, error) {
 	return x, nil
 }
 
+// FindSection searches for a section with given name and returns it.
+// If not found, nil is returned.
+func (cf configFile) FindSection(sectionName string) *configSection {
+	for _, sect := range cf {
+		if sect.Name == sectionName {
+			return sect
+		}
+	}
+	return nil
+}
+
 type configSection struct {
 	Name     string
 	Settings map[string]string

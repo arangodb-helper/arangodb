@@ -70,6 +70,7 @@ type Config struct {
 	JwtSecret            string
 	SslKeyFile           string // Path containing an x509 certificate + private key to be used by the servers.
 	SslCAFile            string // Path containing an x509 CA certificate used to authenticate clients.
+	PassthroughOptions   []PassthroughOption
 
 	DockerContainerName string // Name of the container running this process
 	DockerEndpoint      string // Where to reach the docker daemon
@@ -83,6 +84,70 @@ type Config struct {
 
 	ProjectVersion string
 	ProjectBuild   string
+}
+
+type PassthroughOption struct {
+	Name   string
+	Values struct {
+		All          []string
+		Coordinators []string
+		DBServers    []string
+		Agents       []string
+	}
+}
+
+// valueForServerType returns the value for the given option for a specific server type.
+// If no value is given for the specific server type, any value for `all` is returned.
+func (o *PassthroughOption) valueForServerType(serverType ServerType) []string {
+	var result []string
+	switch serverType {
+	case ServerTypeSingle:
+		result = o.Values.All
+	case ServerTypeCoordinator:
+		result = o.Values.Coordinators
+	case ServerTypeDBServer:
+		result = o.Values.DBServers
+	case ServerTypeAgent:
+		result = o.Values.Agents
+	}
+	if len(result) > 0 {
+		return result
+	}
+	return o.Values.All
+}
+
+// formattedOptionName returns the option ready to be used in a command line argument,
+// prefixed with `--`.
+func (o *PassthroughOption) formattedOptionName() string {
+	return "--" + o.Name
+}
+
+// sectionName returns the name of the configuration section this option belongs to.
+func (o *PassthroughOption) sectionName() string {
+	return strings.SplitN(o.Name, ".", 2)[0]
+}
+
+// sectionKey returns the name of this option within its configuration section.
+func (o *PassthroughOption) sectionKey() string {
+	parts := strings.SplitN(o.Name, ".", 2)
+	if len(parts) > 1 {
+		return parts[1]
+	}
+	return ""
+}
+
+func (c *Config) passthroughOptionValuesForServerType(name string, serverType ServerType) []string {
+	for _, ptOpt := range c.PassthroughOptions {
+		if ptOpt.Name != name {
+			continue
+		}
+		values := ptOpt.valueForServerType(serverType)
+		if len(values) > 0 {
+			return values
+		}
+		return nil
+	}
+	return nil
 }
 
 // Service implements the actual starter behavior of the ArangoDB starter.
@@ -302,6 +367,11 @@ func (s *Service) testInstance(ctx context.Context, address string, port int) (u
 	}
 }
 
+type optionPair struct {
+	Key   string
+	Value string
+}
+
 // makeBaseArgs returns the command line arguments needed to run an arangod server of given type.
 func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, serverType ServerType) (args []string, configVolumes []Volume) {
 	hostConfFileName := filepath.Join(myHostDir, confFileName)
@@ -319,6 +389,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		})
 	}
 
+	var config configFile
 	if _, err := os.Stat(hostConfFileName); os.IsNotExist(err) {
 		var threads, v8Contexts string
 		logLevel := "INFO"
@@ -349,7 +420,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		if s.ServerStorageEngine == "rocksdb" {
 			serverSection.Settings["storage-engine"] = "rocksdb"
 		}
-		config := configFile{
+		config = configFile{
 			serverSection,
 			&configSection{
 				Name: "log",
@@ -396,63 +467,91 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 	args = append(args,
 		executable,
 		"-c", slasher(containerConfFileName),
-		"--database.directory", slasher(filepath.Join(myContainerDir, "data")),
-		"--javascript.startup-directory", slasher(jsStartup),
-		"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps")),
-		"--log.file", slasher(filepath.Join(myContainerDir, logFileName)),
-		"--log.force-direct", "false",
+	)
+
+	options := make([]optionPair, 0, 32)
+	options = append(options,
+		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
+		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
+		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
+		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, logFileName))},
+		optionPair{"--log.force-direct", "false"},
 	)
 	if s.ServerThreads != 0 {
-		args = append(args, "--server.threads", strconv.Itoa(s.ServerThreads))
+		options = append(options,
+			optionPair{"--server.threads", strconv.Itoa(s.ServerThreads)})
 	}
 	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch serverType {
 	case ServerTypeAgent:
-		args = append(args,
-			"--agency.activate", "true",
-			"--agency.my-address", myTCPURL,
-			"--agency.size", strconv.Itoa(s.AgencySize),
-			"--agency.supervision", "true",
-			"--foxx.queues", "false",
-			"--server.statistics", "false",
+		options = append(options,
+			optionPair{"--agency.activate", "true"},
+			optionPair{"--agency.my-address", myTCPURL},
+			optionPair{"--agency.size", strconv.Itoa(s.AgencySize)},
+			optionPair{"--agency.supervision", "true"},
+			optionPair{"--foxx.queues", "false"},
+			optionPair{"--server.statistics", "false"},
 		)
 		for _, p := range s.myPeers.Peers {
 			if p.HasAgent && p.ID != s.ID {
-				args = append(args,
-					"--agency.endpoint",
-					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent))),
+				options = append(options,
+					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent)))},
 				)
 			}
 		}
 	case ServerTypeDBServer:
-		args = append(args,
-			"--cluster.my-address", myTCPURL,
-			"--cluster.my-role", "PRIMARY",
-			"--cluster.my-local-info", myTCPURL,
-			"--foxx.queues", "false",
-			"--server.statistics", "true",
+		options = append(options,
+			optionPair{"--cluster.my-address", myTCPURL},
+			optionPair{"--cluster.my-role", "PRIMARY"},
+			optionPair{"--cluster.my-local-info", myTCPURL},
+			optionPair{"--foxx.queues", "false"},
+			optionPair{"--server.statistics", "true"},
 		)
 	case ServerTypeCoordinator:
-		args = append(args,
-			"--cluster.my-address", myTCPURL,
-			"--cluster.my-role", "COORDINATOR",
-			"--cluster.my-local-info", myTCPURL,
-			"--foxx.queues", "true",
-			"--server.statistics", "true",
+		options = append(options,
+			optionPair{"--cluster.my-address", myTCPURL},
+			optionPair{"--cluster.my-role", "COORDINATOR"},
+			optionPair{"--cluster.my-local-info", myTCPURL},
+			optionPair{"--foxx.queues", "true"},
+			optionPair{"--server.statistics", "true"},
 		)
 	case ServerTypeSingle:
-		args = append(args,
-			"--foxx.queues", "true",
-			"--server.statistics", "true",
+		options = append(options,
+			optionPair{"--foxx.queues", "true"},
+			optionPair{"--server.statistics", "true"},
 		)
 	}
 	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
 		for i := 0; i < s.AgencySize; i++ {
 			p := s.myPeers.Peers[i]
-			args = append(args,
-				"--cluster.agency-endpoint",
-				fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent))),
+			options = append(options,
+				optionPair{"--cluster.agency-endpoint",
+					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent)))},
 			)
+		}
+	}
+	for _, opt := range options {
+		ptValues := s.passthroughOptionValuesForServerType(strings.TrimPrefix(opt.Key, "--"), serverType)
+		if len(ptValues) > 0 {
+			s.log.Warningf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
+		} else {
+			args = append(args, opt.Key, opt.Value)
+		}
+	}
+	for _, ptOpt := range s.PassthroughOptions {
+		values := ptOpt.valueForServerType(serverType)
+		if len(values) == 0 {
+			continue
+		}
+		// Look for overrides of configuration sections
+		if section := config.FindSection(ptOpt.sectionName()); section != nil {
+			if confValue, found := section.Settings[ptOpt.sectionKey()]; found {
+				s.log.Warningf("Pass through option %s conflicts with automatically generated configuration option with value '%s'", ptOpt.Name, confValue)
+			}
+		}
+		// Append all values
+		for _, value := range values {
+			args = append(args, ptOpt.formattedOptionName(), value)
 		}
 	}
 	return
