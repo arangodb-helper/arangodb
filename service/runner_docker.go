@@ -43,6 +43,7 @@ const (
 	containerFileName    = "CONTAINER"
 	createdByKey         = "created-by"
 	createdByValue       = "arangodb-starter"
+	dockerDataDir        = "/data"
 )
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
@@ -84,11 +85,11 @@ type dockerContainer struct {
 	container *docker.Container
 }
 
-func (r *dockerRunner) GetContainerDir(hostDir string) string {
+func (r *dockerRunner) GetContainerDir(hostDir, defaultContainerDir string) string {
 	if r.volumesFrom != "" {
 		return hostDir
 	}
-	return "/data"
+	return defaultContainerDir
 }
 
 // GetRunningServer checks if there is already a server process running in the given server directory.
@@ -283,7 +284,7 @@ func (r *dockerRunner) CreateStartArangodbCommand(myDataDir string, index int, m
 	}
 	lines := []string{
 		fmt.Sprintf("docker volume create arangodb%d &&", index),
-		fmt.Sprintf("docker run -it --name=adb%d --rm %s -v arangodb%d:/data", index, netArgs, index),
+		fmt.Sprintf("docker run -it --name=adb%d --rm %s -v arangodb%d:%s", index, netArgs, index, dockerDataDir),
 		fmt.Sprintf("-v /var/run/docker.sock:/var/run/docker.sock %s", starterImageName),
 		fmt.Sprintf("--starter.address=%s --starter.join=%s", masterIP, addr),
 	}

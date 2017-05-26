@@ -1,5 +1,6 @@
 # Changes from version 0.7.0 to master
 
+- Added `--rocksdb.encryption-keyfile` option.
 - Added pass through options. See README.
 - Changed `--data.dir` option to `--starter.data-dir`
 

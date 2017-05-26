@@ -55,7 +55,7 @@ type process struct {
 	isChild bool
 }
 
-func (r *processRunner) GetContainerDir(hostDir string) string {
+func (r *processRunner) GetContainerDir(hostDir, defaultContainerDir string) string {
 	return hostDir
 }
 

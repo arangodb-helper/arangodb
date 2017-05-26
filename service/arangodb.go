@@ -50,27 +50,28 @@ const (
 
 // Config holds all configuration for a single service.
 type Config struct {
-	ID                   string // Unique identifier of this peer
-	Mode                 string // Service mode cluster|single
-	AgencySize           int
-	ArangodPath          string
-	ArangodJSPath        string
-	MasterPort           int
-	RrPath               string
-	StartCoordinator     bool
-	StartDBserver        bool
-	StartLocalSlaves     bool // If set, start sufficient slave (Service's) locally.
-	DataDir              string
-	OwnAddress           string // IP address of used to reach this process
-	MasterAddress        string
-	Verbose              bool
-	ServerThreads        int    // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
-	ServerStorageEngine  string // mmfiles | rocksdb
-	AllPortOffsetsUnique bool   // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
-	JwtSecret            string
-	SslKeyFile           string // Path containing an x509 certificate + private key to be used by the servers.
-	SslCAFile            string // Path containing an x509 CA certificate used to authenticate clients.
-	PassthroughOptions   []PassthroughOption
+	ID                       string // Unique identifier of this peer
+	Mode                     string // Service mode cluster|single
+	AgencySize               int
+	ArangodPath              string
+	ArangodJSPath            string
+	MasterPort               int
+	RrPath                   string
+	StartCoordinator         bool
+	StartDBserver            bool
+	StartLocalSlaves         bool // If set, start sufficient slave (Service's) locally.
+	DataDir                  string
+	OwnAddress               string // IP address of used to reach this process
+	MasterAddress            string
+	Verbose                  bool
+	ServerThreads            int    // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
+	ServerStorageEngine      string // mmfiles | rocksdb
+	AllPortOffsetsUnique     bool   // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
+	JwtSecret                string
+	SslKeyFile               string // Path containing an x509 certificate + private key to be used by the servers.
+	SslCAFile                string // Path containing an x509 CA certificate used to authenticate clients.
+	RocksDBEncryptionKeyFile string // Path containing encryption key for RocksDB encryption.
+	PassthroughOptions       []PassthroughOption
 
 	DockerContainerName string // Name of the container running this process
 	DockerEndpoint      string // Where to reach the docker daemon
@@ -417,6 +418,10 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		options = append(options,
 			optionPair{"--server.threads", strconv.Itoa(s.ServerThreads)})
 	}
+	if s.RocksDBEncryptionKeyFile != "" {
+		options = append(options,
+			optionPair{"--rocksdb.encryption-keyfile", s.RocksDBEncryptionKeyFile})
+	}
 	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch serverType {
 	case ServerTypeAgent:
@@ -555,7 +560,7 @@ func (s *Service) startArangod(runner Runner, myHostAddress string, serverType S
 	}
 
 	s.log.Infof("Starting %s on port %d", serverType, myPort)
-	myContainerDir := runner.GetContainerDir(myHostDir)
+	myContainerDir := runner.GetContainerDir(myHostDir, dockerDataDir)
 	args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHostAddress, strconv.Itoa(myPort), serverType)
 	vols = addDataVolumes(vols, myHostDir, myContainerDir)
 	s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), s.serverExecutable(), args)

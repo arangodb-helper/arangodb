@@ -30,7 +30,7 @@ type Volume struct {
 
 type Runner interface {
 	// Map the given host directory to a container directory
-	GetContainerDir(hostDir string) string
+	GetContainerDir(hostDir, defaultContainerDir string) string
 
 	// GetRunningServer checks if there is already a server process running in the given server directory.
 	// If that is the case, its process is returned.

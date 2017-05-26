@@ -60,40 +60,41 @@ var (
 		Short: "Start ArangoDB clusters & single servers with ease",
 		Run:   cmdMainRun,
 	}
-	log                  = logging.MustGetLogger(projectName)
-	id                   string
-	agencySize           int
-	arangodPath          string
-	arangodJSPath        string
-	masterPort           int
-	rrPath               string
-	startCoordinator     bool
-	startDBserver        bool
-	startLocalSlaves     bool
-	mode                 string
-	dataDir              string
-	ownAddress           string
-	masterAddress        string
-	verbose              bool
-	serverThreads        int
-	serverStorageEngine  string
-	allPortOffsetsUnique bool
-	jwtSecretFile        string
-	sslKeyFile           string
-	sslAutoKeyFile       bool
-	sslAutoServerName    string
-	sslAutoOrganization  string
-	sslCAFile            string
-	dockerEndpoint       string
-	dockerImage          string
-	dockerStarterImage   = defaultDockerStarterImage
-	dockerUser           string
-	dockerContainerName  string
-	dockerGCDelay        time.Duration
-	dockerNetHost        bool // Deprecated
-	dockerNetworkMode    string
-	dockerPrivileged     bool
-	passthroughOptions   = make(map[string]*service.PassthroughOption)
+	log                      = logging.MustGetLogger(projectName)
+	id                       string
+	agencySize               int
+	arangodPath              string
+	arangodJSPath            string
+	masterPort               int
+	rrPath                   string
+	startCoordinator         bool
+	startDBserver            bool
+	startLocalSlaves         bool
+	mode                     string
+	dataDir                  string
+	ownAddress               string
+	masterAddress            string
+	verbose                  bool
+	serverThreads            int
+	serverStorageEngine      string
+	allPortOffsetsUnique     bool
+	jwtSecretFile            string
+	sslKeyFile               string
+	sslAutoKeyFile           bool
+	sslAutoServerName        string
+	sslAutoOrganization      string
+	sslCAFile                string
+	rocksDBEncryptionKeyFile string
+	dockerEndpoint           string
+	dockerImage              string
+	dockerStarterImage       = defaultDockerStarterImage
+	dockerUser               string
+	dockerContainerName      string
+	dockerGCDelay            time.Duration
+	dockerNetHost            bool // Deprecated
+	dockerNetworkMode        string
+	dockerPrivileged         bool
+	passthroughOptions       = make(map[string]*service.PassthroughOption)
 
 	maskAny = errors.WithStack
 )
@@ -121,6 +122,7 @@ func init() {
 	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
 	f.StringVar(&serverStorageEngine, "server.storage-engine", "mmfiles", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")
+	f.StringVar(&rocksDBEncryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&dockerImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
@@ -358,6 +360,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	jwtSecretFile = mustExpand(jwtSecretFile)
 	sslKeyFile = mustExpand(sslKeyFile)
 	sslCAFile = mustExpand(sslCAFile)
+	rocksDBEncryptionKeyFile = mustExpand(rocksDBEncryptionKeyFile)
 
 	// Check database executable
 	if !runningInDocker {
@@ -420,37 +423,38 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 
 	// Create service
 	serviceConfig := service.Config{
-		ID:                   id,
-		Mode:                 mode,
-		AgencySize:           agencySize,
-		ArangodPath:          arangodPath,
-		ArangodJSPath:        arangodJSPath,
-		MasterPort:           masterPort,
-		RrPath:               rrPath,
-		StartCoordinator:     startCoordinator,
-		StartDBserver:        startDBserver,
-		StartLocalSlaves:     startLocalSlaves,
-		DataDir:              dataDir,
-		OwnAddress:           ownAddress,
-		MasterAddress:        masterAddress,
-		Verbose:              verbose,
-		ServerThreads:        serverThreads,
-		ServerStorageEngine:  serverStorageEngine,
-		AllPortOffsetsUnique: allPortOffsetsUnique,
-		JwtSecret:            jwtSecret,
-		SslKeyFile:           sslKeyFile,
-		SslCAFile:            sslCAFile,
-		RunningInDocker:      isRunningInDocker(),
-		DockerContainerName:  dockerContainerName,
-		DockerEndpoint:       dockerEndpoint,
-		DockerImage:          dockerImage,
-		DockerStarterImage:   dockerStarterImage,
-		DockerUser:           dockerUser,
-		DockerGCDelay:        dockerGCDelay,
-		DockerNetworkMode:    dockerNetworkMode,
-		DockerPrivileged:     dockerPrivileged,
-		ProjectVersion:       projectVersion,
-		ProjectBuild:         projectBuild,
+		ID:                       id,
+		Mode:                     mode,
+		AgencySize:               agencySize,
+		ArangodPath:              arangodPath,
+		ArangodJSPath:            arangodJSPath,
+		MasterPort:               masterPort,
+		RrPath:                   rrPath,
+		StartCoordinator:         startCoordinator,
+		StartDBserver:            startDBserver,
+		StartLocalSlaves:         startLocalSlaves,
+		DataDir:                  dataDir,
+		OwnAddress:               ownAddress,
+		MasterAddress:            masterAddress,
+		Verbose:                  verbose,
+		ServerThreads:            serverThreads,
+		ServerStorageEngine:      serverStorageEngine,
+		AllPortOffsetsUnique:     allPortOffsetsUnique,
+		JwtSecret:                jwtSecret,
+		SslKeyFile:               sslKeyFile,
+		SslCAFile:                sslCAFile,
+		RocksDBEncryptionKeyFile: rocksDBEncryptionKeyFile,
+		RunningInDocker:          isRunningInDocker(),
+		DockerContainerName:      dockerContainerName,
+		DockerEndpoint:           dockerEndpoint,
+		DockerImage:              dockerImage,
+		DockerStarterImage:       dockerStarterImage,
+		DockerUser:               dockerUser,
+		DockerGCDelay:            dockerGCDelay,
+		DockerNetworkMode:        dockerNetworkMode,
+		DockerPrivileged:         dockerPrivileged,
+		ProjectVersion:           projectVersion,
+		ProjectBuild:             projectBuild,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
