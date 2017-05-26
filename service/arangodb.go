@@ -482,7 +482,7 @@ func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress strin
 		// Look for overrides of configuration sections
 		if section := config.FindSection(ptOpt.sectionName()); section != nil {
 			if confValue, found := section.Settings[ptOpt.sectionKey()]; found {
-				s.log.Warningf("Pass through option %s conflicts with automatically generated configuration option with value '%s'", ptOpt.Name, confValue)
+				s.log.Warningf("Pass through option %s overrides generated configuration option with value '%s'", ptOpt.Name, confValue)
 			}
 		}
 		// Append all values
