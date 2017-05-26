@@ -108,8 +108,7 @@ func init() {
 	f.StringVar(&id, "starter.id", "", "Unique identifier of this peer")
 	f.IntVar(&masterPort, "starter.port", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
 	f.BoolVar(&allPortOffsetsUnique, "starter.unique-port-offsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
-
-	f.StringVar(&dataDir, "data.dir", getEnvVar("DATA_DIR", "."), "directory to store all data")
+	f.StringVar(&dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
 
 	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 
@@ -190,7 +189,8 @@ var (
 		"startCoordinator":    "cluster.start-coordinator",
 		"startDBserver":       "cluster.start-dbserver",
 		"agencySize":          "cluster.agency-size",
-		"dataDir":             "data.dir",
+		"dataDir":             "starter.data-dir",
+		"data.dir":            "starter.data-dir",
 		"verbose":             "log.verbose",
 		"arangod":             "server.arangod",
 		"jsDir":               "server.js-dir",

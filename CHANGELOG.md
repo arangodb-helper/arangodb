@@ -1,6 +1,7 @@
 # Changes from version 0.7.0 to master
 
 - Added pass through options. See README.
+- Changed `--data.dir` option to `--starter.data-dir`
 
 # Changes from version 0.6.0 to 0.7.0
 

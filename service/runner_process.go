@@ -112,7 +112,7 @@ func (r *processRunner) CreateStartArangodbCommand(myDataDir string, index int, 
 	} else {
 		dataDir = fmt.Sprintf("./db%d", index)
 	}
-	return fmt.Sprintf("arangodb --data.dir=%s --starter.join %s", dataDir, addr)
+	return fmt.Sprintf("arangodb --starter.data-dir=%s --starter.join %s", dataDir, addr)
 }
 
 // Cleanup after all processes are dead and have been cleaned themselves

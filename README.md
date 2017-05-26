@@ -65,7 +65,7 @@ the console.
 Additional servers can be added in the same way.
 
 If two or more of the `arangodb` instances run on the same machine,
-one has to use the `--data.dir` option to let each use a different
+one has to use the `--starter.data-dir` option to let each use a different
 directory.
 
 The `arangodb` program will find the ArangoDB executable and the
@@ -148,7 +148,7 @@ docker run -it --name=adb --rm -p 8528:8528 \
 Common options 
 --------------
 
-* `--data.dir=path`
+* `--starter.data-dir=path`
 
 `path` is the directory in which all data is stored. (default "./")
 
