@@ -93,6 +93,7 @@ var (
 	dockerNetHost        bool // Deprecated
 	dockerNetworkMode    string
 	dockerPrivileged     bool
+	passthroughOptions   = make(map[string]*service.PassthroughOption)
 
 	maskAny = errors.WithStack
 )
@@ -141,6 +142,40 @@ func init() {
 	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
 
 	f.SetNormalizeFunc(normalizeOptionNames)
+
+	// Setup passthrough arguments
+	getPassthroughOption := func(arg, prefix string) *service.PassthroughOption {
+		arg = arg[len(prefix):]
+		name := strings.TrimSpace(strings.Split(arg, "=")[0])
+		result, found := passthroughOptions[name]
+		if !found {
+			result = &service.PassthroughOption{Name: name}
+			passthroughOptions[name] = result
+		}
+		return result
+	}
+	passthroughPrefixes := []struct {
+		Prefix        string
+		Usage         string
+		FieldSelector func(option *service.PassthroughOption) *[]string
+	}{
+		{"all", "all server instances", func(option *service.PassthroughOption) *[]string { return &option.Values.All }},
+		{"coordinators", "all coordinator instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Coordinators }},
+		{"dbservers", "all dbserver instances", func(option *service.PassthroughOption) *[]string { return &option.Values.DBServers }},
+		{"agents", "all agent instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Agents }},
+	}
+	for _, a := range os.Args {
+		for _, ptPrefix := range passthroughPrefixes {
+			fullPrefix := "--" + ptPrefix.Prefix + "."
+			if strings.HasPrefix(a, fullPrefix) {
+				option := getPassthroughOption(a, fullPrefix)
+				if option.IsForbidden() {
+					log.Fatalf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
+				}
+				f.StringSliceVar(ptPrefix.FieldSelector(option), ptPrefix.Prefix+"."+option.Name, nil, fmt.Sprintf("Passed through to %s as --%s", ptPrefix.Usage, option.Name))
+			}
+		}
+	}
 }
 
 var (
@@ -384,7 +419,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	go handleSignal(sigChannel, cancel)
 
 	// Create service
-	service, err := service.NewService(log, service.Config{
+	serviceConfig := service.Config{
 		ID:                   id,
 		Mode:                 mode,
 		AgencySize:           agencySize,
@@ -416,7 +451,11 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		DockerPrivileged:     dockerPrivileged,
 		ProjectVersion:       projectVersion,
 		ProjectBuild:         projectBuild,
-	}, false)
+	}
+	for _, ptOpt := range passthroughOptions {
+		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
+	}
+	service, err := service.NewService(log, serviceConfig, false)
 	if err != nil {
 		log.Fatalf("Failed to create service: %#v", err)
 	}
