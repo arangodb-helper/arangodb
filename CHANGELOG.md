@@ -1,3 +1,7 @@
+# Changes from version 0.7.0 to master
+
+- Added pass through options. See README.
+
 # Changes from version 0.6.0 to 0.7.0
 
 - Added `--server.storage-engine` option, used to change the storage engine of the `arangod` instances (#48)

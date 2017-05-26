@@ -265,6 +265,29 @@ name of the server that will be used in the self-signed certificate created by t
 
 name of the server that will be used in the self-signed certificate created by the `--ssl.auto-key` option.
 
+Other database options
+----------------------
+
+Options for `arangod` that are not supported by the starter can still be passed to
+the database servers using a pass through option.
+Every option that start with a pass through prefix is passed through to the commandline
+of one or more server instances.
+
+* `--all.<section>.<key>=<value>` is pass as `--<section>.<key>=<value>` to all servers started by this starter.
+* `--coordinators.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all coordinators started by this starter.
+* `--dbservers.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all dbservers started by this starter.
+* `--agents.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all agents started by this starter.
+
+Some options are essential to the function of the starter. Therefore these options cannot be passed through like this.
+
+Example:
+
+To activate HTTP request logging at debug level for all coordinators, use a command like this.
+
+```
+arangodb --coordinators.log.level=requests=debug
+```
+
 Esoteric options
 ----------------
 
