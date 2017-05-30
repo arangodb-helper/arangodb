@@ -1,4 +1,4 @@
-# Changes from version 0.7.0 to master
+# Changes from version 0.7.0 to 0.7.1
 
 - Added `--rocksdb.encryption-keyfile` option.
 - Added pass through options. See README.
