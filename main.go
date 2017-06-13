@@ -281,6 +281,13 @@ func findExecutable() {
 			"/usr/sbin/arangod",
 		)
 	}
+	// Add local folder to search path
+	if exePath, err := os.Executable(); err == nil {
+		folder := filepath.Dir(exePath)
+		pathList = append(pathList, filepath.Join(folder, "arangod"+filepath.Ext(exePath)))
+	}
+
+	// Search to search path for the first path that exists.
 	for _, p := range pathList {
 		if _, e := os.Stat(filepath.Clean(filepath.FromSlash(p))); e == nil || !os.IsNotExist(e) {
 			arangodPath, _ = filepath.Abs(filepath.FromSlash(p))
