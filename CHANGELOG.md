@@ -1,3 +1,7 @@
+# Changes from version 0.7.1 to 0.7.2
+
+- Added path containing starter executable to search path for `arangod`.
+
 # Changes from version 0.7.0 to 0.7.1
 
 - Added `--rocksdb.encryption-keyfile` option.
