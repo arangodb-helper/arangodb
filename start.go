@@ -79,8 +79,9 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 		}
 	})
 
-	log.Infof("Found child args: %#v", childArgs)
+	log.Debugf("Found child args: %#v", childArgs)
 
+	// Start detached child
 	c := exec.Command(exePath, childArgs...)
 	c.Stderr = os.Stderr
 	c.Stdout = os.Stdout
