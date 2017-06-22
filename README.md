@@ -145,6 +145,31 @@ docker run -it --name=adb --rm -p 8528:8528 \
     --starter.mode=single
 ```
 
+Starting & stopping in detached mode 
+------------------------------------
+
+If you want the starter to detach and run as a background process, use the `start` 
+command. This is typically used by developers running tests only.
+
+```
+arangodb start --starter.local=true [--starter.wait]
+```
+
+This command will make the starter run another starter process in the background 
+(that starts all ArangoDB servers), wait for it's HTTP API to be available and
+then exit. The starter that was started in the background will keep running until you stop it.
+
+The `--starter.wait` option makes the `start` command wait until all ArangoDB server 
+are really up, before ending the master process.
+
+To stop a starter use this command.
+
+```
+arangodb stop
+```
+
+Make sure to match the arguments given to start the starter (`--starter.port` & `--ssl.*`).
+
 Common options 
 --------------
 
