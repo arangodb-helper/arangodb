@@ -91,10 +91,10 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 
 	// Start detached child
 	c := exec.Command(exePath, childArgs...)
-	c.Stderr = os.Stderr
-	c.Stdout = os.Stdout
-	c.Stdin = os.Stdin
-	c.Start()
+	if err := c.Start(); err != nil {
+		log.Fatalf("Failed to start detached child: %#v", err)
+	}
+	c.Process.Release()
 
 	// Create starter client
 	scheme := "http"
@@ -111,6 +111,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Wait for detached starter to be alive
+	log.Info("Waiting for starter API to be available...")
 	rootCtx := context.Background()
 	for {
 		ctx, cancel := context.WithTimeout(rootCtx, time.Second)
@@ -124,6 +125,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 
 	// Wait until all servers ready (if needed)
 	if waitForServers {
+		log.Info("Waiting for database instances to be available...")
 		for {
 			var err error
 			ctx, cancel := context.WithTimeout(rootCtx, time.Second)
@@ -147,5 +149,6 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 			}
 			time.Sleep(time.Millisecond * 100)
 		}
+		log.Info("Database instances are available.")
 	}
 }
