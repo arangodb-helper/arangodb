@@ -1,3 +1,8 @@
+# Changes from version 0.7.2 to master
+
+- Added `start` command to run starter in detached mode.
+- Added `stop` command to stop a running starter using its HTTP API.
+
 # Changes from version 0.7.1 to 0.7.2
 
 - Added path containing starter executable to search path for `arangod`.

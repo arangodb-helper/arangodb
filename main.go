@@ -100,7 +100,7 @@ var (
 )
 
 func init() {
-	f := cmdMain.Flags()
+	f := cmdMain.PersistentFlags()
 
 	f.StringVar(&masterAddress, "starter.join", "", "join a cluster with master at given address")
 	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single)")
@@ -316,12 +316,33 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Setup log level
+	configureLogging()
+
+	// Interrupt signal:
+	sigChannel := make(chan os.Signal)
+	rootCtx, cancel := context.WithCancel(context.Background())
+	signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM)
+	go handleSignal(sigChannel, cancel)
+
+	// Create service
+	service := mustPrepareService(true)
+
+	// Run the service
+	service.Run(rootCtx)
+}
+
+// configureLogging configures the log object according to command line arguments.
+func configureLogging() {
 	if verbose {
 		logging.SetLevel(logging.DEBUG, projectName)
 	} else {
 		logging.SetLevel(logging.INFO, projectName)
 	}
+}
 
+// mustPrepareService creates a new Service for the configured arguments,
+// creating & checking settings where needed.
+func mustPrepareService(generateAutoKeyFile bool) *service.Service {
 	// Auto detect docker container ID (if needed)
 	runningInDocker := false
 	if isRunningInDocker() {
@@ -399,7 +420,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Auto create key file (if needed)
-	if sslAutoKeyFile {
+	if sslAutoKeyFile && generateAutoKeyFile {
 		if sslKeyFile != "" {
 			log.Fatalf("Cannot specify both --ssl.auto-key and --ssl.keyfile")
 		}
@@ -421,12 +442,6 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		sslKeyFile = keyFile
 		log.Infof("Using self-signed certificate: %s", sslKeyFile)
 	}
-
-	// Interrupt signal:
-	sigChannel := make(chan os.Signal)
-	rootCtx, cancel := context.WithCancel(context.Background())
-	signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM)
-	go handleSignal(sigChannel, cancel)
 
 	// Create service
 	serviceConfig := service.Config{
@@ -471,8 +486,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to create service: %#v", err)
 	}
 
-	// Run the service
-	service.Run(rootCtx)
+	return service
 }
 
 // getEnvVar returns the value of the environment variable with given key of the given default

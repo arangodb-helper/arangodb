@@ -245,8 +245,8 @@ func (s *Service) serverExecutable() string {
 	return s.ArangodPath
 }
 
-// testInstance checks the `up` status of an arangod server instance.
-func (s *Service) testInstance(ctx context.Context, address string, port int) (up bool, version string, cancelled bool) {
+// TestInstance checks the `up` status of an arangod server instance.
+func (s *Service) TestInstance(ctx context.Context, address string, port int) (up bool, version string, cancelled bool) {
 	instanceUp := make(chan string)
 	go func() {
 		client := &http.Client{Timeout: time.Second * 10}
@@ -544,7 +544,7 @@ func (s *Service) startArangod(runner Runner, myHostAddress string, serverType S
 	if p != nil {
 		s.log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		up, _, _ := s.testInstance(ctx, myHostAddress, myPort)
+		up, _, _ := s.TestInstance(ctx, myHostAddress, myPort)
 		cancel()
 		if up {
 			s.log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
@@ -639,7 +639,7 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 				if err != nil {
 					s.log.Fatalf("Cannot collect serverPort: %#v", err)
 				}
-				if up, version, cancelled := s.testInstance(ctx, myHostAddress, port); !cancelled {
+				if up, version, cancelled := s.TestInstance(ctx, myHostAddress, port); !cancelled {
 					if up {
 						s.log.Infof("%s up and running (version %s).", serverType, version)
 						if (serverType == ServerTypeCoordinator && !s.isLocalSlave) || serverType == ServerTypeSingle {
