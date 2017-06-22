@@ -1,4 +1,4 @@
-# Changes from version 0.7.2 to master
+# Changes from version 0.7.2 to 0.8.0
 
 - Added `start` command to run starter in detached mode.
 - Added `stop` command to stop a running starter using its HTTP API.
