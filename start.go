@@ -58,7 +58,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 	configureLogging()
 
 	// Build service
-	service := mustPrepareService(false)
+	service := mustPrepareService(true)
 
 	// Find executable
 	exePath, err := os.Executable()
@@ -70,14 +70,22 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 	childArgs := make([]string, 0, len(os.Args))
 	cmd.InheritedFlags().VisitAll(func(f *pflag.Flag) {
 		if f.Changed {
-			a := "--" + f.Name
-			value := f.Value.String()
-			if value != "" {
-				a = a + "=" + value
+			switch f.Name {
+			case "ssl.auto-key", "ssl.auto-server-name", "ssl.auto-organization", "ssl.keyfile":
+				// Do not pass these along
+			default:
+				a := "--" + f.Name
+				value := f.Value.String()
+				if value != "" {
+					a = a + "=" + value
+				}
+				childArgs = append(childArgs, a)
 			}
-			childArgs = append(childArgs, a)
 		}
 	})
+	if service.SslKeyFile != "" {
+		childArgs = append(childArgs, "--ssl.keyfile="+service.SslKeyFile)
+	}
 
 	log.Debugf("Found child args: %#v", childArgs)
 
