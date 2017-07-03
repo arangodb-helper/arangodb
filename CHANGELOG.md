@@ -1,3 +1,7 @@
+# Changes from version 0.8.0 to master 
+
+- In cluster mode the minimum agency size has been lowered to 1 (DO NOT USE IN PRODUCTION). 
+
 # Changes from version 0.7.2 to 0.8.0
 
 - Added `start` command to run starter in detached mode.
