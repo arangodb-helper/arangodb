@@ -127,8 +127,8 @@ func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service
 	// Check mode & flags
 	switch config.Mode {
 	case "cluster":
-		if config.AgencySize < 3 {
-			return nil, maskAny(fmt.Errorf("AgentSize must be >= 3"))
+		if config.AgencySize < 1 {
+			return nil, maskAny(fmt.Errorf("AgentSize must be >= 1"))
 		}
 	case "single":
 		config.AgencySize = 1
