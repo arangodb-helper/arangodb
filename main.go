@@ -94,6 +94,7 @@ var (
 	dockerNetHost            bool // Deprecated
 	dockerNetworkMode        string
 	dockerPrivileged         bool
+	dockerTTY                bool
 	passthroughOptions       = make(map[string]*service.PassthroughOption)
 
 	maskAny = errors.WithStack
@@ -133,6 +134,7 @@ func init() {
 	f.Lookup("docker.net-host").Deprecated = "use --docker.net-mode=host instead"
 	f.StringVar(&dockerNetworkMode, "docker.net-mode", "", "Run containers with --net=<value>")
 	f.BoolVar(&dockerPrivileged, "docker.privileged", false, "Run containers with --privileged")
+	f.BoolVar(&dockerTTY, "docker.tty", true, "Run containers with TTY enabled")
 
 	f.StringVar(&jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
 
@@ -142,7 +144,7 @@ func init() {
 	f.StringVar(&sslAutoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
 	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
 
-	f.SetNormalizeFunc(normalizeOptionNames)
+	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
 	// Setup passthrough arguments
 	getPassthroughOption := func(arg, prefix string) *service.PassthroughOption {
@@ -475,6 +477,7 @@ func mustPrepareService(generateAutoKeyFile bool) *service.Service {
 		DockerGCDelay:            dockerGCDelay,
 		DockerNetworkMode:        dockerNetworkMode,
 		DockerPrivileged:         dockerPrivileged,
+		DockerTTY:                dockerTTY,
 		ProjectVersion:           projectVersion,
 		ProjectBuild:             projectBuild,
 	}

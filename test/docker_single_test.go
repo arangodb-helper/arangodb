@@ -38,7 +38,7 @@ func TestDockerSingle(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -58,7 +58,7 @@ func TestDockerSingle(t *testing.T) {
 
 	cID := createDockerID("starter-test-single-")
 	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm",
@@ -69,6 +69,7 @@ func TestDockerSingle(t *testing.T) {
 		"--docker.container=" + cID,
 		"--starter.address=$IP",
 		"--starter.mode=single",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -92,7 +93,7 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -113,7 +114,7 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 
 	cID := createDockerID("starter-test-single-")
 	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm",
@@ -125,6 +126,7 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 		"--starter.address=$IP",
 		"--starter.mode=single",
 		"--ssl.auto-key",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -148,7 +150,7 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -167,7 +169,7 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 
 	cID := createDockerID("starter-test-single-")
 	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm",
@@ -177,6 +179,7 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--starter.address=$IP",
 		"--starter.mode=single",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -200,7 +203,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -221,7 +224,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 
 	cID := createDockerID("starter-test-single-")
 	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm",
@@ -233,6 +236,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 		"--starter.mode=single",
 		"--server.storage-engine=rocksdb",
 		"--docker.image=arangodb/arangodb-preview:3.2.devel",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -256,7 +260,7 @@ func TestOldDockerSingleAutoKeyFile(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -275,7 +279,7 @@ func TestOldDockerSingleAutoKeyFile(t *testing.T) {
 
 	cID := createDockerID("starter-test-single-")
 	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm",
@@ -287,6 +291,7 @@ func TestOldDockerSingleAutoKeyFile(t *testing.T) {
 		"--ownAddress=$IP",
 		"--mode=single",
 		"--sslAutoKeyFile",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)

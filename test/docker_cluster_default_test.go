@@ -38,7 +38,7 @@ func TestDockerClusterDefault(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -65,7 +65,7 @@ func TestDockerClusterDefault(t *testing.T) {
 
 	cID1 := createDockerID("starter-test-cluster-default1-")
 	dockerRun1 := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID1,
 		"--rm",
@@ -75,13 +75,14 @@ func TestDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID1,
 		"--starter.address=$IP",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
 	cID2 := createDockerID("starter-test-cluster-default2-")
 	dockerRun2 := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID2,
 		"--rm",
@@ -91,6 +92,7 @@ func TestDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID2,
 		"--starter.address=$IP",
+		createDockerImageOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun2.Close()
@@ -98,7 +100,7 @@ func TestDockerClusterDefault(t *testing.T) {
 
 	cID3 := createDockerID("starter-test-cluster-default3-")
 	dockerRun3 := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID3,
 		"--rm",
@@ -108,6 +110,7 @@ func TestDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID3,
 		"--starter.address=$IP",
+		createDockerImageOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun3.Close()
@@ -136,7 +139,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -163,7 +166,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 
 	cID1 := createDockerID("starter-test-cluster-default1-")
 	dockerRun1 := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID1,
 		"--rm",
@@ -173,13 +176,14 @@ func TestOldDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID1,
 		"--ownAddress=$IP",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
 	cID2 := createDockerID("starter-test-cluster-default2-")
 	dockerRun2 := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID2,
 		"--rm",
@@ -189,6 +193,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID2,
 		"--ownAddress=$IP",
+		createDockerImageOptions(),
 		fmt.Sprintf("--join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun2.Close()
@@ -196,7 +201,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 
 	cID3 := createDockerID("starter-test-cluster-default3-")
 	dockerRun3 := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID3,
 		"--rm",
@@ -206,6 +211,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID3,
 		"--ownAddress=$IP",
+		createDockerImageOptions(),
 		fmt.Sprintf("--join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun3.Close()
