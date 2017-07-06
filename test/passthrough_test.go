@@ -39,7 +39,7 @@ func TestPassthroughConflict(t *testing.T) {
 	defer child.Close()
 
 	expr := regexp.MustCompile("is essential to the starters behavior and cannot be overwritten")
-	if _, err := child.ExpectTimeout(time.Second*15, expr); err != nil {
+	if err := child.ExpectTimeout(time.Second*15, expr); err != nil {
 		t.Errorf("Expected errors message, got %#v", err)
 	}
 }

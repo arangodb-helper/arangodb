@@ -38,7 +38,6 @@ import (
 	"github.com/arangodb-helper/arangodb/client"
 	shell "github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
-	"github.com/shavac/gexpect"
 )
 
 const (
@@ -75,7 +74,7 @@ func needTestMode(t *testing.T, testMode string) {
 }
 
 // Spawn a command an return its process.
-func Spawn(t *testing.T, command string) *gexpect.SubProcess {
+func Spawn(t *testing.T, command string) *SubProcess {
 	args, err := shell.Split(os.ExpandEnv(command))
 	if err != nil {
 		t.Fatal(describe(err))
@@ -83,7 +82,7 @@ func Spawn(t *testing.T, command string) *gexpect.SubProcess {
 	if isVerbose {
 		t.Log(args, len(args))
 	}
-	p, err := gexpect.NewSubProcess(args[0], args[1:]...)
+	p, err := NewSubProcess(args[0], args[1:]...)
 	if err != nil {
 		t.Fatal(describe(err))
 	}
@@ -105,7 +104,7 @@ func SetUniqueDataDir(t *testing.T) string {
 }
 
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
-func WaitUntilStarterReady(t *testing.T, what string, starters ...*gexpect.SubProcess) bool {
+func WaitUntilStarterReady(t *testing.T, what string, starters ...*SubProcess) bool {
 	g := sync.WaitGroup{}
 	result := true
 	for _, starter := range starters {
@@ -113,7 +112,7 @@ func WaitUntilStarterReady(t *testing.T, what string, starters ...*gexpect.SubPr
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			if _, err := starter.ExpectTimeout(time.Minute, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what))); err != nil {
+			if err := starter.ExpectTimeout(time.Minute, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what))); err != nil {
 				result = false
 				t.Errorf("Starter is not ready in time: %s", describe(err))
 			}
@@ -125,7 +124,7 @@ func WaitUntilStarterReady(t *testing.T, what string, starters ...*gexpect.SubPr
 
 // SendIntrAndWait stops all all given starter processes by sending a Ctrl-C into it.
 // It then waits until the process has terminated.
-func SendIntrAndWait(t *testing.T, starters ...*gexpect.SubProcess) bool {
+func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 	g := sync.WaitGroup{}
 	result := true
 	for _, starter := range starters {
@@ -141,7 +140,7 @@ func SendIntrAndWait(t *testing.T, starters ...*gexpect.SubProcess) bool {
 	}
 	time.Sleep(time.Second)
 	for _, starter := range starters {
-		starter.Term.SendIntr()
+		starter.SendIntr()
 		//starter.Send(ctrlC)
 	}
 	g.Wait()

@@ -38,7 +38,7 @@ func TestDockerClusterLocal(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -58,7 +58,7 @@ func TestDockerClusterLocal(t *testing.T) {
 
 	cID := createDockerID("starter-test-local-cluster-")
 	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm",
@@ -92,7 +92,7 @@ func TestOldDockerClusterLocal(t *testing.T) {
 	}
 	/*
 		docker volume create arangodb1
-		docker run -it --name=adb1 --rm -p 8528:8528 \
+		docker run -i --name=adb1 --rm -p 8528:8528 \
 			-v arangodb1:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
@@ -111,7 +111,7 @@ func TestOldDockerClusterLocal(t *testing.T) {
 
 	cID := createDockerID("starter-test-local-cluster-")
 	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -it",
+		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm",

@@ -81,6 +81,7 @@ type Config struct {
 	DockerGCDelay       time.Duration
 	DockerNetworkMode   string
 	DockerPrivileged    bool
+	DockerTTY           bool
 	RunningInDocker     bool
 
 	ProjectVersion string
@@ -832,7 +833,7 @@ func (s *Service) Run(rootCtx context.Context) {
 		if s.DockerEndpoint == "" {
 			s.log.Fatal("docker.endpoint must be specified")
 		}
-		hostPort, isNetHost, networkMode, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainerName, s.MasterPort)
+		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainerName, s.MasterPort)
 		if err != nil {
 			s.log.Fatalf("Failed to detect port mapping: %#v", err)
 			return
@@ -843,6 +844,9 @@ func (s *Service) Run(rootCtx context.Context) {
 		}
 		s.announcePort = hostPort
 		s.isNetHost = isNetHost
+		if !hasTTY {
+			s.DockerTTY = false
+		}
 	} else {
 		s.announcePort = s.MasterPort
 		s.isNetHost = true // Not running in container so always true
@@ -852,7 +856,7 @@ func (s *Service) Run(rootCtx context.Context) {
 	var runner Runner
 	if useDockerRunner {
 		var err error
-		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainerName, s.DockerGCDelay, s.DockerNetworkMode, s.DockerPrivileged)
+		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainerName, s.DockerGCDelay, s.DockerNetworkMode, s.DockerPrivileged, s.DockerTTY)
 		if err != nil {
 			s.log.Fatalf("Failed to create docker runner: %#v", err)
 		}

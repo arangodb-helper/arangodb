@@ -385,8 +385,14 @@ with the `--net=<mode>` option.
 
 * `--docker.privileged=bool`
 
-If `docker.privileged` is set, all docker container will be started 
+If `docker.privileged` is set, all docker containers will be started 
 with the `--privileged` option turned on.
+
+* `--docker.tty=bool` 
+
+If `docker.tty` is set, all docker containers will be started with a TTY.
+If the starter itself is running in a docker container without a TTY 
+this option is overwritten to `false`.
 
 HTTP API
 --------
