@@ -5,4 +5,8 @@ services:
 
 language: go
 
-script: make run-tests
+env:
+  - TEST_SUITE=run-tests-local-process
+  - TEST_SUITE=run-tests-docker
+
+script: make $TEST_SUITE
