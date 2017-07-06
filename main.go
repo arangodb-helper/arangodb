@@ -142,7 +142,7 @@ func init() {
 	f.StringVar(&sslAutoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
 	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
 
-	f.SetNormalizeFunc(normalizeOptionNames)
+	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
 	// Setup passthrough arguments
 	getPassthroughOption := func(arg, prefix string) *service.PassthroughOption {
