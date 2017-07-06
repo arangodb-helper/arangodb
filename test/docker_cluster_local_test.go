@@ -69,6 +69,7 @@ func TestDockerClusterLocal(t *testing.T) {
 		"--docker.container=" + cID,
 		"--starter.address=$IP",
 		"--starter.local",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -122,6 +123,7 @@ func TestOldDockerClusterLocal(t *testing.T) {
 		"--dockerContainer=" + cID,
 		"--ownAddress=$IP",
 		"--local",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)

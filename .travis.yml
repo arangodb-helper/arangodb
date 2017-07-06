@@ -6,7 +6,9 @@ services:
 language: go
 
 env:
-  - TEST_SUITE=run-tests-local-process
-  - TEST_SUITE=run-tests-docker
+  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb:latest
+  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb:latest
+  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb-preview:latest
+  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb-preview:latest
 
 script: make $TEST_SUITE

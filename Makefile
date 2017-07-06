@@ -31,6 +31,10 @@ ifeq ("$(GOOS)", "windows")
 	GOEXE := .exe
 endif
 
+ifndef ARANGODB
+	ARANGODB := arangodb/arangodb:latest
+endif
+
 ifndef DOCKERNAMESPACE
 	DOCKERNAMESPACE := arangodb
 endif
@@ -134,8 +138,8 @@ release-major: $(RELEASE)
 TESTCONTAINER := arangodb-starter-test
 
 test-images:
-	docker pull arangodb/arangodb:latest
-	docker build -t arangodb-golang -f test/Dockerfile-arangodb-golang .
+	docker pull $(ARANGODB)
+	docker build --build-arg "from=$(ARANGODB)" -t arangodb-golang -f test/Dockerfile-arangodb-golang .
 
 # Run all integration tests
 run-tests: run-tests-local-process run-tests-docker
@@ -155,7 +159,7 @@ run-tests-local-process: build test-images
 		go test -v $(REPOPATH)/test
 
 run-tests-docker: docker
-	GOPATH=$(GOBUILDDIR) TEST_MODES=docker IP=$(IP) go test -v $(REPOPATH)/test
+	GOPATH=$(GOBUILDDIR) TEST_MODES=docker IP=$(IP) ARANGODB=$(ARANGODB) go test -v $(REPOPATH)/test
 
 # Run all integration tests on the local system
 run-tests-local: local

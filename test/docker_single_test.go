@@ -69,6 +69,7 @@ func TestDockerSingle(t *testing.T) {
 		"--docker.container=" + cID,
 		"--starter.address=$IP",
 		"--starter.mode=single",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -125,6 +126,7 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 		"--starter.address=$IP",
 		"--starter.mode=single",
 		"--ssl.auto-key",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -177,6 +179,7 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--starter.address=$IP",
 		"--starter.mode=single",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -233,6 +236,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 		"--starter.mode=single",
 		"--server.storage-engine=rocksdb",
 		"--docker.image=arangodb/arangodb-preview:3.2.devel",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
@@ -287,6 +291,7 @@ func TestOldDockerSingleAutoKeyFile(t *testing.T) {
 		"--ownAddress=$IP",
 		"--mode=single",
 		"--sslAutoKeyFile",
+		createDockerImageOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
