@@ -36,7 +36,7 @@ func TestProcessClusterLocal(t *testing.T) {
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --starter.local")
+	child := Spawn(t, "${STARTER} --starter.local "+createEnvironmentStarterOptions())
 	defer child.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
@@ -60,7 +60,7 @@ func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --starter.local")
+	child := Spawn(t, "${STARTER} --starter.local "+createEnvironmentStarterOptions())
 	defer child.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
@@ -84,7 +84,7 @@ func TestOldProcessClusterLocal(t *testing.T) {
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --local")
+	child := Spawn(t, "${STARTER} --local "+createEnvironmentStarterOptions())
 	defer child.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {

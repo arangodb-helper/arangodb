@@ -1,5 +1,6 @@
 # Changes from version 0.8.0 to master 
 
+- Added `--starter.debug-cluster` option that adds a trail of status codes to the log when starting servers. (intended mostly for internal testing)
 - Made database image used in test configurable using `ARANGODB` make variable.
 - Added `--docker.tty` option for controlling the TTY flag of started docker containers.
 - In cluster mode the minimum agency size has been lowered to 1 (DO NOT USE IN PRODUCTION). 

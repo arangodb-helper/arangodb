@@ -75,7 +75,7 @@ func TestDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID1,
 		"--starter.address=$IP",
-		createDockerImageOptions(),
+		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
@@ -92,7 +92,7 @@ func TestDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID2,
 		"--starter.address=$IP",
-		createDockerImageOptions(),
+		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun2.Close()
@@ -110,7 +110,7 @@ func TestDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID3,
 		"--starter.address=$IP",
-		createDockerImageOptions(),
+		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun3.Close()
@@ -176,7 +176,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID1,
 		"--ownAddress=$IP",
-		createDockerImageOptions(),
+		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
@@ -193,7 +193,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID2,
 		"--ownAddress=$IP",
-		createDockerImageOptions(),
+		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun2.Close()
@@ -211,7 +211,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--dockerContainer=" + cID3,
 		"--ownAddress=$IP",
-		createDockerImageOptions(),
+		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun3.Close()

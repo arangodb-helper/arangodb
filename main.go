@@ -96,6 +96,7 @@ var (
 	dockerPrivileged         bool
 	dockerTTY                bool
 	passthroughOptions       = make(map[string]*service.PassthroughOption)
+	debugCluster             bool
 
 	maskAny = errors.WithStack
 )
@@ -111,6 +112,7 @@ func init() {
 	f.IntVar(&masterPort, "starter.port", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
 	f.BoolVar(&allPortOffsetsUnique, "starter.unique-port-offsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
 	f.StringVar(&dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
+	f.BoolVar(&debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
 
 	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 
@@ -480,6 +482,7 @@ func mustPrepareService(generateAutoKeyFile bool) *service.Service {
 		DockerTTY:                dockerTTY,
 		ProjectVersion:           projectVersion,
 		ProjectBuild:             projectBuild,
+		DebugCluster:             debugCluster,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)

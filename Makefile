@@ -154,6 +154,7 @@ run-tests-local-process: build test-images
 		-e DATA_DIR=/tmp \
 		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
 		-e TEST_MODES=localprocess \
+		-e DEBUG_CLUSTER=$(DEBUG_CLUSTER) \
 		-w /usr/code/ \
 		arangodb-golang \
 		go test -v $(REPOPATH)/test

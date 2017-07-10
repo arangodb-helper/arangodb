@@ -36,17 +36,17 @@ func TestProcessClusterDefault(t *testing.T) {
 
 	start := time.Now()
 
-	master := Spawn(t, "${STARTER}")
+	master := Spawn(t, "${STARTER} "+createEnvironmentStarterOptions())
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1")
+	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1")
+	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
@@ -70,17 +70,17 @@ func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 
 	start := time.Now()
 
-	master := Spawn(t, "${STARTER}")
+	master := Spawn(t, "${STARTER} "+createEnvironmentStarterOptions())
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1")
+	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1")
+	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
@@ -106,17 +106,17 @@ func TestOldProcessClusterDefault(t *testing.T) {
 
 	start := time.Now()
 
-	master := Spawn(t, "${STARTER}")
+	master := Spawn(t, "${STARTER} "+createEnvironmentStarterOptions())
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --join 127.0.0.1")
+	slave1 := Spawn(t, "${STARTER} --join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --join 127.0.0.1")
+	slave2 := Spawn(t, "${STARTER} --join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
