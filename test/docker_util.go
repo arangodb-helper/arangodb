@@ -26,7 +26,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -80,12 +79,4 @@ func createDockerID(prefix string) string {
 		panic(err)
 	}
 	return prefix + hex.EncodeToString(b)
-}
-
-func createDockerImageOptions() string {
-	if image := os.Getenv("ARANGODB"); image == "" {
-		return ""
-	} else {
-		return fmt.Sprintf("--docker.image=%s", image)
-	}
 }

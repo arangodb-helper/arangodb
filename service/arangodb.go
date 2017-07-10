@@ -72,6 +72,7 @@ type Config struct {
 	SslCAFile                string // Path containing an x509 CA certificate used to authenticate clients.
 	RocksDBEncryptionKeyFile string // Path containing encryption key for RocksDB encryption.
 	PassthroughOptions       []PassthroughOption
+	DebugCluster             bool
 
 	DockerContainerName string // Name of the container running this process
 	DockerEndpoint      string // Where to reach the docker daemon
@@ -247,9 +248,15 @@ func (s *Service) serverExecutable() string {
 }
 
 // TestInstance checks the `up` status of an arangod server instance.
-func (s *Service) TestInstance(ctx context.Context, address string, port int) (up bool, version string, cancelled bool) {
+func (s *Service) TestInstance(ctx context.Context, address string, port int, statusChanged chan int) (up bool, version string, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan string)
+	statusCodes := make(chan int)
+	if statusChanged != nil {
+		defer close(statusChanged)
+	}
 	go func() {
+		defer close(instanceUp)
+		defer close(statusCodes)
 		client := &http.Client{Timeout: time.Second * 10}
 		scheme := "http"
 		if s.IsSecure() {
@@ -260,22 +267,22 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int) (u
 				},
 			}
 		}
-		makeRequest := func() (string, error) {
+		makeRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
-				return "", maskAny(err)
+				return "", -1, maskAny(err)
 			}
 			if err := addJwtHeader(req, s.JwtSecret); err != nil {
-				return "", maskAny(err)
+				return "", -2, maskAny(err)
 			}
 			resp, err := client.Do(req)
 			if err != nil {
-				return "", maskAny(err)
+				return "", -3, maskAny(err)
 			}
 			if resp.StatusCode != 200 {
-				return "", maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+				return "", resp.StatusCode, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
 			}
 			versionResponse := struct {
 				Version string `json:"version"`
@@ -283,25 +290,37 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int) (u
 			defer resp.Body.Close()
 			decoder := json.NewDecoder(resp.Body)
 			if err := decoder.Decode(&versionResponse); err != nil {
-				return "", maskAny(fmt.Errorf("Unexpected version response: %#v", err))
+				return "", -4, maskAny(fmt.Errorf("Unexpected version response: %#v", err))
 			}
-			return versionResponse.Version, nil
+			return versionResponse.Version, resp.StatusCode, nil
 		}
 
 		for i := 0; i < 300; i++ {
-			if version, err := makeRequest(); err == nil {
+			if version, statusCode, err := makeRequest(); err == nil {
 				instanceUp <- version
 				break
+			} else {
+				statusCodes <- statusCode
 			}
 			time.Sleep(time.Millisecond * 500)
 		}
 		instanceUp <- ""
 	}()
-	select {
-	case version := <-instanceUp:
-		return version != "", version, false
-	case <-ctx.Done():
-		return false, "", true
+	statusTrail = make([]int, 0, 16)
+	for {
+		select {
+		case version := <-instanceUp:
+			return version != "", version, statusTrail, false
+		case statusCode := <-statusCodes:
+			if len(statusTrail) == 0 || statusTrail[len(statusTrail)-1] != statusCode {
+				statusTrail = append(statusTrail, statusCode)
+				if statusChanged != nil {
+					statusChanged <- statusCode
+				}
+			}
+		case <-ctx.Done():
+			return false, "", statusTrail, true
+		}
 	}
 }
 
@@ -545,7 +564,7 @@ func (s *Service) startArangod(runner Runner, myHostAddress string, serverType S
 	if p != nil {
 		s.log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		up, _, _ := s.TestInstance(ctx, myHostAddress, myPort)
+		up, _, _, _ := s.TestInstance(ctx, myHostAddress, myPort, nil)
 		cancel()
 		if up {
 			s.log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
@@ -640,7 +659,20 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 				if err != nil {
 					s.log.Fatalf("Cannot collect serverPort: %#v", err)
 				}
-				if up, version, cancelled := s.TestInstance(ctx, myHostAddress, port); !cancelled {
+				statusChanged := make(chan int)
+				go func() {
+					for {
+						statusCode, ok := <-statusChanged
+						if ok {
+							if s.DebugCluster {
+								s.log.Infof("%s status changed to %d", serverType, statusCode)
+							} else {
+								s.log.Debugf("%s status changed to %d", serverType, statusCode)
+							}
+						}
+					}
+				}()
+				if up, version, statusTrail, cancelled := s.TestInstance(ctx, myHostAddress, port, statusChanged); !cancelled {
 					if up {
 						s.log.Infof("%s up and running (version %s).", serverType, version)
 						if (serverType == ServerTypeCoordinator && !s.isLocalSlave) || serverType == ServerTypeSingle {
@@ -663,7 +695,7 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 							}
 						}
 					} else {
-						s.log.Warningf("%s not ready after 5min!", serverType)
+						s.log.Warningf("%s not ready after 5min!: Status trail: %#v", serverType, statusTrail)
 					}
 				}
 			}()
@@ -683,7 +715,7 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 		if isRecentFailure {
 			if !portInUse {
 				s.log.Infof("%s has terminated, quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
-				if recentFailures >= minRecentFailuresForLog {
+				if recentFailures >= minRecentFailuresForLog && s.DebugCluster {
 					// Show logs of the server
 					s.showRecentLogs(serverType)
 				}

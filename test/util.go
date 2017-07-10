@@ -75,6 +75,7 @@ func needTestMode(t *testing.T, testMode string) {
 
 // Spawn a command an return its process.
 func Spawn(t *testing.T, command string) *SubProcess {
+	command = strings.TrimSpace(command)
 	args, err := shell.Split(os.ExpandEnv(command))
 	if err != nil {
 		t.Fatal(describe(err))
@@ -119,6 +120,13 @@ func WaitUntilStarterReady(t *testing.T, what string, starters ...*SubProcess) b
 		}()
 	}
 	g.Wait()
+	if !result && os.Getenv("DEBUG_CLUSTER") == "interactive" {
+		// Halt forever
+		fmt.Println("Cluster not ready in time, halting forever for debugging")
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
 	return result
 }
 
@@ -201,4 +209,12 @@ func WaitUntilStarterGone(t *testing.T, endpoint string) {
 		}
 		time.Sleep(time.Millisecond * 200)
 	}
+}
+
+func createEnvironmentStarterOptions() string {
+	result := []string{"--starter.debug-cluster"}
+	if image := os.Getenv("ARANGODB"); image != "" {
+		result = append(result, fmt.Sprintf("--docker.image=%s", image))
+	}
+	return strings.Join(result, " ")
 }

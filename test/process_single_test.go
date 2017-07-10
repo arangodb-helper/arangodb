@@ -36,7 +36,7 @@ func TestProcessSingle(t *testing.T) {
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --starter.mode=single")
+	child := Spawn(t, "${STARTER} --starter.mode=single "+createEnvironmentStarterOptions())
 	defer child.Close()
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
@@ -58,7 +58,7 @@ func TestProcessSingleShutdownViaAPI(t *testing.T) {
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --starter.mode=single")
+	child := Spawn(t, "${STARTER} --starter.mode=single "+createEnvironmentStarterOptions())
 	defer child.Close()
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
@@ -80,7 +80,7 @@ func TestProcessSingleAutoKeyFile(t *testing.T) {
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --starter.mode=single --ssl.auto-key")
+	child := Spawn(t, "${STARTER} --starter.mode=single --ssl.auto-key "+createEnvironmentStarterOptions())
 	defer child.Close()
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
@@ -102,7 +102,7 @@ func TestOldProcessSingle(t *testing.T) {
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --mode=single")
+	child := Spawn(t, "${STARTER} --mode=single "+createEnvironmentStarterOptions())
 	defer child.Close()
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
@@ -124,7 +124,7 @@ func TestOldProcessSingleAutoKeyFile(t *testing.T) {
 
 	start := time.Now()
 
-	child := Spawn(t, "${STARTER} --mode=single --sslAutoKeyFile")
+	child := Spawn(t, "${STARTER} --mode=single --sslAutoKeyFile "+createEnvironmentStarterOptions())
 	defer child.Close()
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
