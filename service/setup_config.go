@@ -26,7 +26,8 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"path/filepath"
-	"sync"
+
+	logging "github.com/op/go-logging"
 )
 
 const (
@@ -38,19 +39,25 @@ const (
 
 // SetupConfigFile is the JSON structure stored in the setup file of this process.
 type SetupConfigFile struct {
-	Version          string `json:"version"` // Version of the process that created this. If the structure or semantics changed, you must increase this version.
-	ID               string `json:"id"`      // My unique peer ID
-	Peers            peers  `json:"peers"`
-	StartLocalSlaves bool   `json:"start-local-slaves,omitempty"`
+	Version          string      `json:"version"` // Version of the process that created this. If the structure or semantics changed, you must increase this version.
+	ID               string      `json:"id"`      // My unique peer ID
+	Peers            peers       `json:"peers"`
+	StartLocalSlaves bool        `json:"start-local-slaves,omitempty"`
+	Mode             ServiceMode `json:"mode,omitempty"` // Starter mode (cluster|single)
+	SslKeyFile       string      `json:"ssl-keyfile,omitempty"`
+	JwtSecret        string      `json:"jwt-secret,omitempty"`
 }
 
 // saveSetup saves the current peer configuration to disk.
 func (s *Service) saveSetup() error {
 	cfg := SetupConfigFile{
 		Version:          SetupConfigVersion,
-		ID:               s.ID,
+		ID:               s.id,
 		Peers:            s.myPeers,
-		StartLocalSlaves: s.StartLocalSlaves,
+		StartLocalSlaves: s.startedLocalSlaves,
+		Mode:             s.mode,
+		SslKeyFile:       s.sslKeyFile,
+		JwtSecret:        s.jwtSecret,
 	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
@@ -66,30 +73,42 @@ func (s *Service) saveSetup() error {
 
 // relaunch tries to read a setup.json config file and relaunch when that file exists and is valid.
 // Returns true on relaunch or false to continue with a fresh start.
-func (s *Service) relaunch(runner Runner) bool {
+func ReadSetupConfig(log *logging.Logger, dataDir string, bsCfg BootstrapConfig) (BootstrapConfig, peers, bool, error) {
 	// Is this a new start or a restart?
-	if setupContent, err := ioutil.ReadFile(filepath.Join(s.DataDir, setupFileName)); err == nil {
+	if setupContent, err := ioutil.ReadFile(filepath.Join(dataDir, setupFileName)); err == nil {
 		// Could read file
 		var cfg SetupConfigFile
 		if err := json.Unmarshal(setupContent, &cfg); err == nil {
 			if cfg.Version == SetupConfigVersion {
-				s.myPeers = cfg.Peers
-				s.ID = cfg.ID
-				s.AgencySize = s.myPeers.AgencySize
-				s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
+				// Reload data from config
+				//s.myPeers = cfg.Peers
+				bsCfg.ID = cfg.ID
+				//s.AgencySize = s.myPeers.AgencySize
+				if cfg.Mode != "" {
+					bsCfg.Mode = cfg.Mode
+				}
+				if cfg.SslKeyFile != "" {
+					bsCfg.SslKeyFile = cfg.SslKeyFile
+				}
+				if cfg.JwtSecret != "" {
+					bsCfg.JwtSecret = cfg.JwtSecret
+				}
+
+				// Relaunch service from config
+				/*s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
 				s.startHTTPServer()
 				wg := &sync.WaitGroup{}
 				if cfg.StartLocalSlaves {
 					s.startLocalSlaves(wg, cfg.Peers.Peers)
 				}
 				s.startRunning(runner)
-				wg.Wait()
-				return true
+				wg.Wait()*/
+				return bsCfg, cfg.Peers, true, nil
 			}
-			s.log.Warningf("%s is outdated. Starting fresh...", setupFileName)
+			log.Warningf("%s is outdated. Starting fresh...", setupFileName)
 		} else {
-			s.log.Warningf("Failed to unmarshal existing %s: %#v", setupFileName, err)
+			log.Warningf("Failed to unmarshal existing %s: %#v", setupFileName, err)
 		}
 	}
-	return false
+	return bsCfg, peers{}, false, nil
 }

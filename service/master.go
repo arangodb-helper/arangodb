@@ -34,7 +34,7 @@ import (
 )
 
 // startMaster starts the Service as master.
-func (s *Service) startMaster(runner Runner) {
+func (s *Service) startMaster(runner Runner, bsCfg BootstrapConfig) {
 	// Check HTTP server port
 	containerHTTPPort, _, err := s.getHTTPServerPort()
 	if err != nil {
@@ -48,31 +48,31 @@ func (s *Service) startMaster(runner Runner) {
 	s.startHTTPServer()
 
 	// Permanent loop:
-	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
+	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
 
 	if s.AgencySize == 1 {
 		s.myPeers.Peers = []Peer{
 			Peer{
-				ID:         s.ID,
+				ID:         s.id,
 				Address:    s.OwnAddress,
 				Port:       s.announcePort,
 				PortOffset: 0,
 				DataDir:    s.DataDir,
-				HasAgent:   !s.isSingleMode(),
+				HasAgent:   !s.mode.IsSingleMode(),
 				IsSecure:   s.IsSecure(),
 			},
 		}
 		s.myPeers.AgencySize = s.AgencySize
 		s.saveSetup()
 		s.log.Info("Starting service...")
-		s.startRunning(runner)
+		s.startRunning(runner, bsCfg)
 		return
 	}
 
 	wg := sync.WaitGroup{}
-	if s.StartLocalSlaves {
+	if bsCfg.StartLocalSlaves {
 		// Start additional local slaves
-		s.createAndStartLocalSlaves(&wg)
+		s.createAndStartLocalSlaves(&wg, bsCfg)
 	} else {
 		// Show commands needed to start slaves
 		s.log.Infof("Waiting for %d servers to show up.\n", s.AgencySize)
@@ -85,7 +85,7 @@ func (s *Service) startMaster(runner Runner) {
 		case <-s.startRunningWaiter.Done():
 			s.saveSetup()
 			s.log.Info("Starting service...")
-			s.startRunning(runner)
+			s.startRunning(runner, bsCfg)
 			return
 		default:
 		}

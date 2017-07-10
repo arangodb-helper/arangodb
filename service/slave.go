@@ -34,7 +34,7 @@ import (
 )
 
 // startSlave starts the Service as slave.
-func (s *Service) startSlave(peerAddress string, runner Runner) {
+func (s *Service) startSlave(peerAddress string, runner Runner, bsCfg BootstrapConfig) {
 	masterPort := s.MasterPort
 	if host, port, err := net.SplitHostPort(peerAddress); err == nil {
 		peerAddress = host
@@ -49,7 +49,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 		}
 		b, _ := json.Marshal(HelloRequest{
 			DataDir:      s.DataDir,
-			SlaveID:      s.ID,
+			SlaveID:      s.id,
 			SlaveAddress: s.OwnAddress,
 			SlavePort:    hostPort,
 			IsSecure:     s.IsSecure(),
@@ -104,9 +104,9 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 	}
 	for {
 		if len(s.myPeers.Peers) >= s.AgencySize {
-			s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
+			s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
 			s.saveSetup()
-			s.startRunning(runner)
+			s.startRunning(runner, bsCfg)
 			return
 		}
 		time.Sleep(time.Second)
@@ -128,13 +128,13 @@ func (s *Service) startSlave(peerAddress string, runner Runner) {
 // sendMasterGoodbye informs the master that we're leaving for good.
 func (s *Service) sendMasterGoodbye() error {
 	master := s.myPeers.Peers[0]
-	if s.ID == master.ID {
+	if s.id == master.ID {
 		// I'm the master, do nothing
 		return nil
 	}
 	u := master.CreateStarterURL("/goodbye")
 	s.log.Infof("Saying goodbye to master at %s", u)
-	req := GoodbyeRequest{SlaveID: s.ID}
+	req := GoodbyeRequest{SlaveID: s.id}
 	data, err := json.Marshal(req)
 	if err != nil {
 		return maskAny(err)

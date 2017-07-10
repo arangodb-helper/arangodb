@@ -32,7 +32,7 @@ import (
 )
 
 // createAndStartLocalSlaves creates additional peers for local slaves and starts services for them.
-func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup) {
+func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup, bsCfg BootstrapConfig) {
 	peers := make([]Peer, 0, s.AgencySize)
 	for index := 2; index <= s.AgencySize; index++ {
 		p := Peer{}
@@ -45,12 +45,12 @@ func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup) {
 		p.DataDir = filepath.Join(s.DataDir, fmt.Sprintf("local-slave-%d", index-1))
 		peers = append(peers, p)
 	}
-	s.startLocalSlaves(wg, peers)
+	s.startLocalSlaves(wg, bsCfg, peers)
 }
 
 // startLocalSlaves starts additional services for local slaves based on the given peers.
-func (s *Service) startLocalSlaves(wg *sync.WaitGroup, peers []Peer) {
-	s.log = s.mustCreateIDLogger(s.ID)
+func (s *Service) startLocalSlaves(wg *sync.WaitGroup, bsCfg BootstrapConfig, peers []Peer) {
+	s.log = s.mustCreateIDLogger(s.id)
 	s.log.Infof("Starting %d local slaves...", len(peers)-1)
 	masterAddr := s.OwnAddress
 	if masterAddr == "" {
@@ -58,16 +58,21 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, peers []Peer) {
 	}
 	masterAddr = net.JoinHostPort(masterAddr, strconv.Itoa(s.announcePort))
 	for index, p := range peers {
-		if p.ID == s.ID {
+		if p.ID == s.id {
 			continue
 		}
+		slaveLog := s.mustCreateIDLogger(p.ID)
+		slaveBsCfg := bsCfg
+		slaveBsCfg.ID = p.ID
+		slaveBsCfg.StartLocalSlaves = false
+		os.MkdirAll(p.DataDir, 0755)
+
+		// Read existing setup.json (if any)
+		slaveBsCfg, myPeers, relaunch, _ := ReadSetupConfig(slaveLog, p.DataDir, slaveBsCfg)
 		config := s.Config
-		config.ID = p.ID
 		config.DataDir = p.DataDir
 		config.MasterAddress = masterAddr
-		config.StartLocalSlaves = false
-		os.MkdirAll(config.DataDir, 0755)
-		slaveService, err := NewService(s.mustCreateIDLogger(config.ID), config, true)
+		slaveService, err := NewService(slaveLog, config, true)
 		if err != nil {
 			s.log.Errorf("Failed to create local slave service %d: %#v", index, err)
 			continue
@@ -75,7 +80,7 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, peers []Peer) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			slaveService.Run(s.ctx)
+			slaveService.Run(s.ctx, slaveBsCfg, myPeers, relaunch)
 		}()
 	}
 }

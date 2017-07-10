@@ -52,32 +52,14 @@ type GoodbyeRequest struct {
 	SlaveID string // Unique ID of the slave that should be removed.
 }
 
-type ProcessListResponse struct {
-	ServersStarted bool            `json:"servers-started,omitempty"` // True if the server have all been started
-	Servers        []ServerProcess `json:"servers,omitempty"`         // List of servers started by ArangoDB
-}
-
-type VersionResponse struct {
-	Version string `json:"version"`
-	Build   string `json:"build"`
-}
-
-type ServerProcess struct {
-	Type        string `json:"type"`                   // agent | coordinator | dbserver
-	IP          string `json:"ip"`                     // IP address needed to reach the server
-	Port        int    `json:"port"`                   // Port needed to reach the server
-	ProcessID   int    `json:"pid,omitempty"`          // PID of the process (0 when running in docker)
-	ContainerID string `json:"container-id,omitempty"` // ID of docker container running the server
-	ContainerIP string `json:"container-ip,omitempty"` // IP address of docker container running the server
-	IsSecure    bool   `json:"is-secure,omitempty"`    // If set, this server is using an SSL connection
-}
-
 // startHTTPServer initializes and runs the HTTP server.
 // If will return directly after starting it.
 func (s *Service) startHTTPServer() {
 	mux := http.NewServeMux()
+	// Starter to starter API
 	mux.HandleFunc("/hello", s.helloHandler)
 	mux.HandleFunc("/goodbye", s.goodbyeHandler)
+	// External API
 	mux.HandleFunc("/process", s.processListHandler)
 	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
 	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
@@ -142,12 +124,12 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 		_, hostPort, _ := s.getHTTPServerPort()
 		s.myPeers.Peers = []Peer{
 			Peer{
-				ID:         s.ID,
+				ID:         s.id,
 				Address:    myself,
 				Port:       hostPort,
 				PortOffset: 0,
 				DataDir:    s.DataDir,
-				HasAgent:   !s.isSingleMode(),
+				HasAgent:   !s.mode.IsSingleMode(),
 				IsSecure:   s.IsSecure(),
 			},
 		}
@@ -224,7 +206,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// In single server mode, do not accept new slaves
-			if s.isSingleMode() {
+			if s.mode.IsSingleMode() {
 				writeError(w, http.StatusBadRequest, "In single server mode, slaves cannot be added.")
 				return
 			}
@@ -235,7 +217,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				Port:       slavePort,
 				PortOffset: s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique),
 				DataDir:    req.DataDir,
-				HasAgent:   (len(s.myPeers.Peers) < s.AgencySize) && !s.isSingleMode(),
+				HasAgent:   (len(s.myPeers.Peers) < s.AgencySize) && !s.mode.IsSingleMode(),
 				IsSecure:   req.IsSecure,
 			}
 			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
@@ -301,9 +283,9 @@ func (s *Service) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 	// Gather processes
-	resp := ProcessListResponse{}
+	resp := client.ProcessList{}
 	expectedServers := 2
-	myPeer, found := s.myPeers.PeerByID(s.ID)
+	myPeer, found := s.myPeers.PeerByID(s.id)
 	if found {
 		portOffset := myPeer.PortOffset
 		ip := myPeer.Address
@@ -311,9 +293,9 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 			expectedServers = 3
 		}
 
-		createServerProcess := func(serverType ServerType, p Process) ServerProcess {
-			return ServerProcess{
-				Type:        serverType.String(),
+		createServerProcess := func(serverType ServerType, p Process) client.ServerProcess {
+			return client.ServerProcess{
+				Type:        client.ServerType(serverType),
 				IP:          ip,
 				Port:        s.MasterPort + portOffset + serverType.PortOffset(),
 				ProcessID:   p.ProcessID(),
@@ -336,7 +318,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
 		}
 	}
-	if s.isSingleMode() {
+	if s.mode.IsSingleMode() {
 		expectedServers = 1
 	}
 	resp.ServersStarted = len(resp.Servers) == expectedServers
@@ -401,7 +383,7 @@ func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, serverType
 
 // versionHandler returns a JSON object containing the current version & build number.
 func (s *Service) versionHandler(w http.ResponseWriter, r *http.Request) {
-	v := VersionResponse{
+	v := client.VersionInfo{
 		Version: s.ProjectVersion,
 		Build:   s.ProjectBuild,
 	}
@@ -452,10 +434,10 @@ func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 	containerPort = s.MasterPort
 	hostPort = s.announcePort
 	if s.announcePort == s.MasterPort && len(s.myPeers.Peers) > 0 {
-		if myPeer, ok := s.myPeers.PeerByID(s.ID); ok {
+		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
 			containerPort += myPeer.PortOffset
 		} else {
-			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.ID))
+			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.id))
 		}
 	}
 	if s.isNetHost {

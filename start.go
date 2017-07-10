@@ -58,7 +58,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 	configureLogging()
 
 	// Build service
-	service := mustPrepareService(true)
+	service, bsCfg := mustPrepareService(true)
 
 	// Find executable
 	exePath, err := os.Executable()
@@ -83,8 +83,8 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 			}
 		}
 	})
-	if service.SslKeyFile != "" {
-		childArgs = append(childArgs, "--ssl.keyfile="+service.SslKeyFile)
+	if bsCfg.SslKeyFile != "" {
+		childArgs = append(childArgs, "--ssl.keyfile="+bsCfg.SslKeyFile)
 	}
 
 	log.Debugf("Found child args: %#v", childArgs)
