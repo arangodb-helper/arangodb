@@ -394,6 +394,11 @@ If `docker.tty` is set, all docker containers will be started with a TTY.
 If the starter itself is running in a docker container without a TTY 
 this option is overwritten to `false`.
 
+* `--starter.debug-cluster=bool`
+
+IF `starter.debug-cluster` is set, the start will record the status codes it receives
+upon "server ready" requests to the log. This option is mainly intended for internal testing.
+
 HTTP API
 --------
 
