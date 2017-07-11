@@ -58,7 +58,7 @@ type GoodbyeRequest struct {
 
 // startHTTPServer initializes and runs the HTTP server.
 // If will return directly after starting it.
-func (s *Service) startHTTPServer() {
+func (s *Service) startHTTPServer(config Config) {
 	mux := http.NewServeMux()
 	// Starter to starter API
 	mux.HandleFunc("/hello", s.helloHandler)
@@ -83,13 +83,13 @@ func (s *Service) startHTTPServer() {
 			Handler: mux,
 		}
 		if s.tlsConfig != nil {
-			s.log.Infof("Listening on %s (%s) using TLS", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
+			s.log.Infof("Listening on %s (%s) using TLS", addr, net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort)))
 			server.TLSConfig = s.tlsConfig
 			if err := server.ListenAndServeTLS("", ""); err != nil {
 				s.log.Errorf("Failed to listen on %s: %v", addr, err)
 			}
 		} else {
-			s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
+			s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort)))
 			if err := server.ListenAndServe(); err != nil {
 				s.log.Errorf("Failed to listen on %s: %v", addr, err)
 			}
@@ -191,7 +191,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 			for i, p := range s.myPeers.Peers {
 				if p.ID == req.SlaveID {
 					s.myPeers.Peers[i].Port = req.SlavePort
-					if s.AllPortOffsetsUnique {
+					if s.cfg.AllPortOffsetsUnique {
 						s.myPeers.Peers[i].Address = slaveAddr
 					} else {
 						// Slave address may not change
@@ -210,7 +210,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// ID not yet found, add it
-			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique)
+			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.cfg.AllPortOffsetsUnique)
 			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
 			if req.Agent != nil {
 				hasAgent = *req.Agent
@@ -233,7 +233,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 			// Save updated configuration
 			s.saveSetup()
 			// Trigger start running (if needed)
-			s.startRunningTrigger()
+			s.bootstrapCompleted.trigger()
 		}
 	}
 	b, err := json.Marshal(s.myPeers)
@@ -324,7 +324,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 			return client.ServerProcess{
 				Type:        client.ServerType(serverType),
 				IP:          ip,
-				Port:        s.MasterPort + portOffset + serverType.PortOffset(),
+				Port:        s.cfg.MasterPort + portOffset + serverType.PortOffset(),
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
 				ContainerIP: p.ContainerIP(),
@@ -431,8 +431,8 @@ func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, serverType
 // versionHandler returns a JSON object containing the current version & build number.
 func (s *Service) versionHandler(w http.ResponseWriter, r *http.Request) {
 	v := client.VersionInfo{
-		Version: s.ProjectVersion,
-		Build:   s.ProjectBuild,
+		Version: s.cfg.ProjectVersion,
+		Build:   s.cfg.ProjectBuild,
 	}
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -462,7 +462,7 @@ func (s *Service) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Stop my services
-	s.cancel()
+	s.Stop()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -478,9 +478,9 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
-	containerPort = s.MasterPort
+	containerPort = s.cfg.MasterPort
 	hostPort = s.announcePort
-	if s.announcePort == s.MasterPort && len(s.myPeers.Peers) > 0 {
+	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.Peers) > 0 {
 		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
 			containerPort += myPeer.PortOffset
 		} else {

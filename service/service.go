@@ -44,7 +44,6 @@ const (
 
 // Config holds all configuration for a single service.
 type Config struct {
-	//AgencySize           int
 	ArangodPath          string
 	ArangodJSPath        string
 	MasterPort           int
@@ -73,21 +72,108 @@ type Config struct {
 	ProjectBuild   string
 }
 
+// UseDockerRunner returns true if the docker runner should be used.
+// (instead of the local process runner).
+func (c Config) UseDockerRunner() bool {
+	return c.DockerEndpoint != "" && c.DockerImage != ""
+}
+
+// GuessOwnAddress fills in the OwnAddress field if needed and returns an update config.
+func (c Config) GuessOwnAddress(log *logging.Logger, bsCfg BootstrapConfig) Config {
+	// Guess own IP address if not specified
+	if c.OwnAddress == "" && bsCfg.Mode.IsSingleMode() && !c.UseDockerRunner() {
+		addr, err := GuessOwnAddress()
+		if err != nil {
+			log.Fatalf("starter.address must be specified, it cannot be guessed because: %v", err)
+		}
+		log.Infof("Using auto-detected starter.address: %s", addr)
+		c.OwnAddress = addr
+	}
+	return c
+}
+
+// GetNetworkEnvironment loads information about the network environment
+// based on the given config and returns an updated config, the announce port and isNetHost.
+func (c Config) GetNetworkEnvironment(log *logging.Logger) (Config, int, bool) {
+	// Find the port mapping if running in a docker container
+	if c.RunningInDocker {
+		if c.OwnAddress == "" {
+			log.Fatal("starter.address must be specified")
+		}
+		if c.DockerContainerName == "" {
+			log.Fatal("docker.container must be specified")
+		}
+		if c.DockerEndpoint == "" {
+			log.Fatal("docker.endpoint must be specified")
+		}
+		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(c.DockerEndpoint, c.DockerContainerName, c.MasterPort)
+		if err != nil {
+			log.Fatalf("Failed to detect port mapping: %#v", err)
+		}
+		if c.DockerNetworkMode == "" && networkMode != "" && networkMode != "default" {
+			log.Infof("Auto detected network mode: %s", networkMode)
+			c.DockerNetworkMode = networkMode
+		}
+		if !hasTTY {
+			c.DockerTTY = false
+		}
+		return c, hostPort, isNetHost
+	}
+	// Not running as container, so net=host
+	return c, c.MasterPort, true
+}
+
+// CreateRunner creates a process runner based on given configuration.
+// Returns: Runner, updated configuration, allowSameDataDir
+func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
+	var runner Runner
+	if c.UseDockerRunner() {
+		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerImage, c.DockerUser, c.DockerContainerName,
+			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
+		if err != nil {
+			log.Fatalf("Failed to create docker runner: %#v", err)
+		}
+		log.Debug("Using docker runner")
+		// Set executables to their image path's
+		c.ArangodPath = "/usr/sbin/arangod"
+		c.ArangodJSPath = "/usr/share/arangodb3/js"
+		// Docker setup uses different volumes with same dataDir, allow that
+		allowSameDataDir := true
+
+		return runner, c, allowSameDataDir
+	}
+
+	// We must not be running in docker
+	if c.RunningInDocker {
+		log.Fatalf("When running in docker, you must provide a --docker.endpoint=<endpoint> and --docker.image=<image>")
+	}
+
+	// Use process runner
+	runner = NewProcessRunner(log)
+	log.Debug("Using process runner")
+
+	return runner, c, false
+}
+
 // Service implements the actual starter behavior of the ArangoDB starter.
 type Service struct {
-	Config
-	id                   string      // Unique identifier of this peer
-	mode                 ServiceMode // Service mode cluster|single
-	startedLocalSlaves   bool
-	jwtSecret            string // JWT secret used for arangod communication
-	sslKeyFile           string // Path containing an x509 certificate + private key to be used by the servers.
-	log                  *logging.Logger
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	state                State // Current service state (bootstrapMaster, bootstrapSlave, running)
-	myPeers              ClusterConfig
-	startRunningWaiter   context.Context
-	startRunningTrigger  context.CancelFunc
+	cfg                Config
+	id                 string      // Unique identifier of this peer
+	mode               ServiceMode // Service mode cluster|single
+	startedLocalSlaves bool
+	jwtSecret          string // JWT secret used for arangod communication
+	sslKeyFile         string // Path containing an x509 certificate + private key to be used by the servers.
+	log                *logging.Logger
+	stopPeer           struct {
+		ctx     context.Context    // Context to wait on for stopping the entire peer
+		trigger context.CancelFunc // Triggers a stop of the entire peer
+	}
+	state              State // Current service state (bootstrapMaster, bootstrapSlave, running)
+	myPeers            ClusterConfig
+	bootstrapCompleted struct {
+		ctx     context.Context    // Context to wait on for the bootstrap state to be completed. Once trigger the cluster config is complete.
+		trigger context.CancelFunc // Triggers the end of the bootstrap state
+	}
 	announcePort         int         // Port I can be reached on from the outside
 	tlsConfig            *tls.Config // Server side TLS config (if any)
 	isNetHost            bool        // Is this process running in a container with `--net=host` or running outside a container?
@@ -96,20 +182,18 @@ type Service struct {
 	isLocalSlave         bool
 	learnOwnAddress      bool // If set, the HTTP server will update my peer with address information gathered from a /hello request.
 	runtimeServerManager runtimeServerManager
-	stop_                bool
 }
 
 // NewService creates a new Service instance from the given config.
-func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service, error) {
-	ctx, trigger := context.WithCancel(context.Background())
-	return &Service{
-		Config:              config,
-		log:                 log,
-		state:               stateStart,
-		startRunningWaiter:  ctx,
-		startRunningTrigger: trigger,
-		isLocalSlave:        isLocalSlave,
-	}, nil
+func NewService(ctx context.Context, log *logging.Logger, config Config, isLocalSlave bool) *Service {
+	s := &Service{
+		cfg:          config,
+		log:          log,
+		state:        stateStart,
+		isLocalSlave: isLocalSlave,
+	}
+	s.bootstrapCompleted.ctx, s.bootstrapCompleted.trigger = context.WithCancel(ctx)
+	return s
 }
 
 const (
@@ -152,7 +236,7 @@ func (s *Service) serverPort(serverType ServerType) (int, error) {
 	}
 	// Find log path
 	portOffset := myPeer.PortOffset
-	return s.MasterPort + portOffset + serverType.PortOffset(), nil
+	return s.cfg.MasterPort + portOffset + serverType.PortOffset(), nil
 }
 
 // serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
@@ -161,7 +245,7 @@ func (s *Service) serverHostDir(serverType ServerType) (string, error) {
 	if err != nil {
 		return "", maskAny(err)
 	}
-	return filepath.Join(s.DataDir, fmt.Sprintf("%s%d", serverType, myPort)), nil
+	return filepath.Join(s.cfg.DataDir, fmt.Sprintf("%s%d", serverType, myPort)), nil
 }
 
 // serverExecutable returns the path of the server's executable.
@@ -272,11 +356,11 @@ func (s *Service) IsLocalSlave() bool {
 
 // Stop the peer
 func (s *Service) Stop() {
-	s.cancel()
+	s.stopPeer.trigger()
 }
 
 // startRunning starts all relevant servers and keeps the running.
-func (s *Service) startRunning(runner Runner, bsCfg BootstrapConfig) {
+func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConfig) {
 	// Always start running as slave. Runtime process will elect master
 	s.state = stateRunningSlave
 
@@ -286,13 +370,13 @@ func (s *Service) startRunning(runner Runner, bsCfg BootstrapConfig) {
 	}
 
 	// Start the runtime server manager
-	s.runtimeServerManager.Run(s.ctx, s.log, s, runner, s.Config, bsCfg)
+	s.runtimeServerManager.Run(s.stopPeer.ctx, s.log, s, runner, config, bsCfg)
 }
 
 // Run runs the service in either master or slave mode.
 func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers ClusterConfig, shouldRelaunch bool) error {
 	// Prepare a context that is cancelled when we need to stop
-	s.ctx, s.cancel = context.WithCancel(rootCtx)
+	s.stopPeer.ctx, s.stopPeer.trigger = context.WithCancel(rootCtx)
 
 	// Load settings from BootstrapConfig
 	s.id = bsCfg.ID
@@ -313,101 +397,41 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	}
 
 	// Load certificates (if needed)
-	if bsCfg.SslKeyFile != "" {
-		cert, err := LoadKeyFile(bsCfg.SslKeyFile)
-		if err != nil {
-			return maskAny(err)
-		}
-		s.tlsConfig = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-		}
+	var err error
+	if s.tlsConfig, err = bsCfg.CreateTLSConfig(); err != nil {
+		return maskAny(err)
 	}
-
-	// Decide what type of process runner to use.
-	useDockerRunner := s.DockerEndpoint != "" && s.DockerImage != ""
 
 	// Guess own IP address if not specified
-	if s.OwnAddress == "" && bsCfg.Mode.IsSingleMode() && !useDockerRunner {
-		addr, err := GuessOwnAddress()
-		if err != nil {
-			s.log.Fatalf("starter.address must be specified, it cannot be guessed because: %v", err)
-		}
-		s.log.Infof("Using auto-detected starter.address: %s", addr)
-		s.OwnAddress = addr
-	}
+	s.cfg = s.cfg.GuessOwnAddress(s.log, bsCfg)
 
 	// Find the port mapping if running in a docker container
-	if s.RunningInDocker {
-		if s.OwnAddress == "" {
-			s.log.Fatal("starter.address must be specified")
-		}
-		if s.DockerContainerName == "" {
-			s.log.Fatal("docker.container must be specified")
-		}
-		if s.DockerEndpoint == "" {
-			s.log.Fatal("docker.endpoint must be specified")
-		}
-		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainerName, s.MasterPort)
-		if err != nil {
-			s.log.Fatalf("Failed to detect port mapping: %#v", err)
-			return maskAny(err)
-		}
-		if s.DockerNetworkMode == "" && networkMode != "" && networkMode != "default" {
-			s.log.Infof("Auto detected network mode: %s", networkMode)
-			s.DockerNetworkMode = networkMode
-		}
-		s.announcePort = hostPort
-		s.isNetHost = isNetHost
-		if !hasTTY {
-			s.DockerTTY = false
-		}
-	} else {
-		s.announcePort = s.MasterPort
-		s.isNetHost = true // Not running in container so always true
-	}
+	s.cfg, s.announcePort, s.isNetHost = s.cfg.GetNetworkEnvironment(s.log)
 
 	// Create a runner
 	var runner Runner
-	if useDockerRunner {
-		var err error
-		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainerName, s.DockerGCDelay, s.DockerNetworkMode, s.DockerPrivileged, s.DockerTTY)
-		if err != nil {
-			s.log.Fatalf("Failed to create docker runner: %#v", err)
-		}
-		s.log.Debug("Using docker runner")
-		// Set executables to their image path's
-		s.ArangodPath = "/usr/sbin/arangod"
-		s.ArangodJSPath = "/usr/share/arangodb3/js"
-		// Docker setup uses different volumes with same dataDir, allow that
-		s.allowSameDataDir = true
-	} else {
-		if s.RunningInDocker {
-			s.log.Fatalf("When running in docker, you must provide a --docker.endpoint=<endpoint> and --docker.image=<image>")
-		}
-		runner = NewProcessRunner(s.log)
-		s.log.Debug("Using process runner")
-	}
+	runner, s.cfg, s.allowSameDataDir = s.cfg.CreateRunner(s.log)
 
 	// Is this a new start or a restart?
 	if shouldRelaunch {
 		s.myPeers = myPeers
-		s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
-		s.startHTTPServer()
+		s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.id, s.cfg.OwnAddress, s.announcePort)
+		s.startHTTPServer(s.cfg)
 		wg := &sync.WaitGroup{}
 		if bsCfg.StartLocalSlaves {
-			s.startLocalSlaves(wg, bsCfg, myPeers.Peers)
+			s.startLocalSlaves(wg, s.cfg, bsCfg, myPeers.Peers)
 		}
-		s.startRunning(runner, bsCfg)
+		s.startRunning(runner, s.cfg, bsCfg)
 		wg.Wait()
 	} else {
 		// Bootstrap new cluster
 		// Do we have to register?
-		if s.MasterAddress != "" {
+		if s.cfg.MasterAddress != "" {
 			s.state = stateBootstrapSlave
-			s.bootstrapSlave(s.MasterAddress, runner, bsCfg)
+			s.bootstrapSlave(s.cfg.MasterAddress, runner, s.cfg, bsCfg)
 		} else {
 			s.state = stateBootstrapMaster
-			s.bootstrapMaster(s.ctx, runner, bsCfg)
+			s.bootstrapMaster(s.stopPeer.ctx, runner, s.cfg, bsCfg)
 		}
 	}
 

@@ -34,8 +34,8 @@ import (
 )
 
 // bootstrapSlave starts the Service as slave and begins bootstrapping the cluster from nothing.
-func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg BootstrapConfig) {
-	masterPort := s.MasterPort
+func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Config, bsCfg BootstrapConfig) {
+	masterPort := config.MasterPort
 	if host, port, err := net.SplitHostPort(peerAddress); err == nil {
 		peerAddress = host
 		masterPort, _ = strconv.Atoi(port)
@@ -48,9 +48,9 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg Bootst
 			s.log.Fatalf("Failed to get HTTP server port: %#v", err)
 		}
 		b, _ := json.Marshal(HelloRequest{
-			DataDir:      s.DataDir,
+			DataDir:      config.DataDir,
 			SlaveID:      s.id,
-			SlaveAddress: s.OwnAddress,
+			SlaveAddress: config.OwnAddress,
 			SlavePort:    hostPort,
 			IsSecure:     s.IsSecure(),
 			Agent:        copyBoolRef(bsCfg.StartAgent),
@@ -99,7 +99,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg Bootst
 	}
 
 	// Run the HTTP service so we can forward other clients
-	s.startHTTPServer()
+	s.startHTTPServer(config)
 
 	// Wait until we can start:
 	if s.myPeers.AgencySize > 1 {
@@ -127,9 +127,9 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg Bootst
 		}
 	}
 
-	s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
+	s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
 	s.saveSetup()
-	s.startRunning(runner, bsCfg)
+	s.startRunning(runner, config, bsCfg)
 }
 
 // sendMasterGoodbye informs the master that we're leaving for good.

@@ -511,10 +511,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
 	}
-	service, err := service.NewService(log, serviceConfig, false)
-	if err != nil {
-		log.Fatalf("Failed to create service: %#v", err)
-	}
+	service := service.NewService(context.Background(), log, serviceConfig, false)
 
 	return service, bsCfg
 }

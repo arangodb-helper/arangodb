@@ -64,7 +64,7 @@ func (s *Service) saveSetup() error {
 		s.log.Errorf("Cannot serialize config: %#v", err)
 		return maskAny(err)
 	}
-	if err := ioutil.WriteFile(filepath.Join(s.DataDir, setupFileName), b, 0644); err != nil {
+	if err := ioutil.WriteFile(filepath.Join(s.cfg.DataDir, setupFileName), b, 0644); err != nil {
 		s.log.Errorf("Error writing setup: %#v", err)
 		return maskAny(err)
 	}
