@@ -113,9 +113,11 @@ func WaitUntilStarterReady(t *testing.T, what string, starters ...*SubProcess) b
 		g.Add(1)
 		go func() {
 			defer g.Done()
+			started := time.Now()
 			if err := starter.ExpectTimeout(time.Minute*2, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what))); err != nil {
 				result = false
-				t.Errorf("Starter is not ready in time: %s", describe(err))
+				timeSpan := time.Since(started)
+				t.Errorf("Starter is not ready in time (after %s): %s", timeSpan, describe(err))
 			}
 		}()
 	}
