@@ -37,7 +37,8 @@ import (
 )
 
 var (
-	maskAny = errors.WithStack
+	maskAny     = errors.WithStack
+	stdoutMutex sync.Mutex
 )
 
 type SubProcess struct {
@@ -143,7 +144,7 @@ func (sp *SubProcess) Wait() error {
 // ExpectTimeout waits for the output of the process to match the given expression, or until a timeout occurs.
 // If a match on the given expression is found, the process output is discard until the end of the match and
 // nil is returned, otherwise a timeout error is returned.
-func (sp *SubProcess) ExpectTimeout(timeout time.Duration, re *regexp.Regexp) error {
+func (sp *SubProcess) ExpectTimeout(timeout time.Duration, re *regexp.Regexp, id string) error {
 	found := make(chan struct{})
 
 	sp.mutex.Lock()
@@ -155,10 +156,15 @@ func (sp *SubProcess) ExpectTimeout(timeout time.Duration, re *regexp.Regexp) er
 	select {
 	case <-time.After(timeout):
 		// Return timeout error
+		var output []byte
 		sp.mutex.Lock()
-		fmt.Printf("Timeout while waiting for '%s'\nOutput so far:\n", re)
-		os.Stdout.Write(sp.output.Bytes())
-		defer sp.mutex.Unlock()
+		output = sp.output.Bytes()
+		sp.mutex.Unlock()
+
+		stdoutMutex.Lock()
+		defer stdoutMutex.Unlock()
+		fmt.Printf("Timeout while waiting for '%s' in %s\nOutput so far:\n", re, id)
+		os.Stdout.Write(output)
 		return errors.New("Timeout")
 	case <-found:
 		// Success
