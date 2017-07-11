@@ -105,7 +105,8 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 	defer s.mutex.Unlock()
 
 	s.log.Debugf("Received request from %s", r.RemoteAddr)
-	if s.state == stateSlave {
+	if s.state == stateBootstrapSlave {
+		// Redirect to bootstrap master
 		header := w.Header()
 		if len(s.myPeers.Peers) > 0 {
 			master := s.myPeers.Peers[0]
@@ -249,10 +250,18 @@ func (s *Service) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	// Check method
 	if r.Method != "POST" {
 		writeError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+
+	// Check running state
+	if !s.state.IsRunning() {
+		writeError(w, http.StatusServiceUnavailable, "Have not reached running state yet")
+		return
+	}
+
 	var req GoodbyeRequest
 	defer r.Body.Close()
 	body, err := ioutil.ReadAll(r.Body)
@@ -323,16 +332,16 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if p := s.servers.agentProc; p != nil {
+		if p := s.runtimeServerManager.agentProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeAgent, p))
 		}
-		if p := s.servers.coordinatorProc; p != nil {
+		if p := s.runtimeServerManager.coordinatorProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeCoordinator, p))
 		}
-		if p := s.servers.dbserverProc; p != nil {
+		if p := s.runtimeServerManager.dbserverProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeDBServer, p))
 		}
-		if p := s.servers.singleProc; p != nil {
+		if p := s.runtimeServerManager.singleProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
 		}
 	}

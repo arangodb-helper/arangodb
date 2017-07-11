@@ -162,3 +162,13 @@ func (p ClusterConfig) HaveEnoughAgents() bool {
 	}
 	return count >= p.AgencySize
 }
+
+// IsSecure returns true if any of the peers is secure.
+func (p ClusterConfig) IsSecure() bool {
+	for _, x := range p.Peers {
+		if x.IsSecure {
+			return true
+		}
+	}
+	return false
+}

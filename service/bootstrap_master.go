@@ -23,6 +23,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -34,7 +35,7 @@ import (
 )
 
 // bootstrapMaster starts the Service as master and begins bootstrapping the cluster from nothing.
-func (s *Service) bootstrapMaster(runner Runner, bsCfg BootstrapConfig) {
+func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, bsCfg BootstrapConfig) {
 	// Check HTTP server port
 	containerHTTPPort, _, err := s.getHTTPServerPort()
 	if err != nil {
@@ -88,7 +89,8 @@ func (s *Service) bootstrapMaster(runner Runner, bsCfg BootstrapConfig) {
 			return
 		default:
 		}
-		if s.stop {
+		if ctx.Err() != nil {
+			// Context is cancelled, stop now
 			break
 		}
 	}
