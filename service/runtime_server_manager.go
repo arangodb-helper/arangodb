@@ -50,7 +50,7 @@ type runtimeServerManager struct {
 // runtimeServerManagerContext provides a context for the runtimeServerManager.
 type runtimeServerManagerContext interface {
 	// ClusterConfig returns the current cluster configuration and the current peer
-	ClusterConfig() (ClusterConfig, Peer, ServiceMode)
+	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
 
 	// serverPort returns the port number on which my server of given type will listen.
 	serverPort(serverType ServerType) (int, error)
@@ -290,27 +290,30 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 // Run starts all relevant servers and keeps the running.
 func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner, config Config, bsCfg BootstrapConfig) {
 	_, myPeer, mode := runtimeContext.ClusterConfig()
+	if myPeer == nil {
+		log.Fatal("Cannot find my own peer in cluster configuration")
+	}
 
 	if mode.IsClusterMode() {
 		// Start agent:
 		if myPeer.HasAgent() {
-			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, myPeer, ServerTypeAgent, &s.agentProc)
+			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, &s.agentProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start DBserver:
 		if bsCfg.StartDBserver == nil || *bsCfg.StartDBserver {
-			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, myPeer, ServerTypeDBServer, &s.dbserverProc)
+			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeDBServer, &s.dbserverProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start Coordinator:
 		if bsCfg.StartCoordinator == nil || *bsCfg.StartCoordinator {
-			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, myPeer, ServerTypeCoordinator, &s.coordinatorProc)
+			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeCoordinator, &s.coordinatorProc)
 		}
 	} else if mode.IsSingleMode() {
 		// Start Single server:
-		go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, myPeer, ServerTypeSingle, &s.singleProc)
+		go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSingle, &s.singleProc)
 	}
 
 	// Wait until context is cancelled, then we'll stop

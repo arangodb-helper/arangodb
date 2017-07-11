@@ -222,9 +222,37 @@ func (s *Service) IsSecure() bool {
 }
 
 // ClusterConfig returns the current cluster configuration and the current peer
-func (s *Service) ClusterConfig() (ClusterConfig, Peer, ServiceMode) {
-	myPeer, _ := s.myPeers.PeerByID(s.id)
-	return s.myPeers, myPeer, s.mode
+func (s *Service) ClusterConfig() (ClusterConfig, *Peer, ServiceMode) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if myPeer, found := s.myPeers.PeerByID(s.id); !found {
+		return s.myPeers, nil, s.mode
+	} else {
+		return s.myPeers, &myPeer, s.mode
+	}
+}
+
+// removePeerByID alters the cluster configuration, removing the peer with given id.
+func (s *Service) removePeerByID(id string) (peerRemoved bool, err error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Check running state
+	if !s.state.IsRunning() {
+		return false, fmt.Errorf("Have not reached running state yet")
+	}
+
+	if peerRemoved = s.myPeers.RemovePeerByID(id); !peerRemoved {
+		return peerRemoved, nil
+	}
+
+	// Peer has been removed, update stored config
+	s.log.Info("Saving setup")
+	if err := s.saveSetup(); err != nil {
+		s.log.Errorf("Failed to save setup: %#v", err)
+	}
+	return true, nil
 }
 
 // serverPort returns the port number on which my server of given type will listen.
@@ -357,6 +385,148 @@ func (s *Service) IsLocalSlave() bool {
 // Stop the peer
 func (s *Service) Stop() {
 	s.stopPeer.trigger()
+}
+
+// HandleHello handles a hello request.
+// If req==nil, this is a GET request, otherwise it is a POST request.
+func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloRequest, serviceNotAvailable, redirectTo, badRequest, internalError statusCallback) ClusterConfig {
+	// Claim exclusive access to our data structures
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.state == stateBootstrapSlave {
+		// Redirect to bootstrap master
+		if len(s.myPeers.Peers) > 0 {
+			master := s.myPeers.Peers[0]
+			redirectTo(master.CreateStarterURL("/hello"))
+			return ClusterConfig{}
+		} else {
+			badRequest("No master known.")
+			return ClusterConfig{}
+		}
+	}
+
+	// Learn my own address (if needed)
+	if s.learnOwnAddress {
+		_, hostPort, _ := s.getHTTPServerPort()
+		myPeer, found := s.myPeers.PeerByID(s.id)
+		if found {
+			myPeer.Address = ownAddress
+			myPeer.Port = hostPort
+			s.myPeers.UpdatePeerByID(myPeer)
+			s.learnOwnAddress = false
+		}
+	}
+
+	// Is this a POST request?
+	if req != nil {
+		slaveAddr := req.SlaveAddress
+		if slaveAddr == "" {
+			host, _, err := net.SplitHostPort(remoteAddress)
+			if err != nil {
+				badRequest("SlaveAddress must be set.")
+				return ClusterConfig{}
+			}
+			slaveAddr = normalizeHostName(host)
+		} else {
+			slaveAddr = normalizeHostName(slaveAddr)
+		}
+		slavePort := req.SlavePort
+
+		// Check request
+		if req.SlaveID == "" {
+			badRequest("SlaveID must be set.")
+			return ClusterConfig{}
+		}
+
+		// Check datadir
+		if !s.allowSameDataDir {
+			for _, p := range s.myPeers.Peers {
+				if p.Address == slaveAddr && p.DataDir == req.DataDir && p.ID != req.SlaveID {
+					badRequest("Cannot use same directory as peer.")
+					return ClusterConfig{}
+				}
+			}
+		}
+
+		// Check IsSecure, cannot mix secure / non-secure
+		if req.IsSecure != s.IsSecure() {
+			badRequest("Cannot mix secure / non-secure peers.")
+			return ClusterConfig{}
+		}
+
+		// If slaveID already known, then return data right away.
+		_, idFound := s.myPeers.PeerByID(req.SlaveID)
+		if idFound {
+			// ID already found, update peer data
+			for i, p := range s.myPeers.Peers {
+				if p.ID == req.SlaveID {
+					s.myPeers.Peers[i].Port = req.SlavePort
+					if s.cfg.AllPortOffsetsUnique {
+						s.myPeers.Peers[i].Address = slaveAddr
+					} else {
+						// Slave address may not change
+						if p.Address != slaveAddr {
+							badRequest("Cannot change slave address while using an existing ID.")
+							return ClusterConfig{}
+						}
+					}
+					s.myPeers.Peers[i].DataDir = req.DataDir
+				}
+			}
+		} else {
+			// In single server mode, do not accept new slaves
+			if s.mode.IsSingleMode() {
+				badRequest("In single server mode, slaves cannot be added.")
+				return ClusterConfig{}
+			}
+			// ID not yet found, add it
+			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.cfg.AllPortOffsetsUnique)
+			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
+			if req.Agent != nil {
+				hasAgent = *req.Agent
+			}
+			hasDBServer := true
+			if req.DBServer != nil {
+				hasDBServer = *req.DBServer
+			}
+			hasCoordinator := true
+			if req.Coordinator != nil {
+				hasCoordinator = *req.Coordinator
+			}
+			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, req.IsSecure)
+			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
+			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
+		}
+
+		// Start the running the servers if we have enough agents
+		if s.myPeers.HaveEnoughAgents() {
+			// Save updated configuration
+			s.saveSetup()
+			// Trigger start running (if needed)
+			s.bootstrapCompleted.trigger()
+		}
+	}
+
+	return s.myPeers
+}
+
+// startHTTPServer initializes and runs the HTTP server.
+// If will return directly after starting it.
+func (s *Service) startHTTPServer(config Config) {
+	// Create address to listen on
+	containerPort, hostPort, err := s.getHTTPServerPort()
+	if err != nil {
+		s.log.Fatalf("Failed to get HTTP port info: %#v", err)
+	}
+	containerAddr := fmt.Sprintf("0.0.0.0:%d", containerPort)
+	hostAddr := net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
+
+	// Create HTTP server
+	server := newHTTPServer(s.log, s, &s.runtimeServerManager, config)
+
+	// Start HTTP server
+	server.Start(hostAddr, containerAddr, s.tlsConfig)
 }
 
 // startRunning starts all relevant servers and keeps the running.
