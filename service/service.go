@@ -28,6 +28,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -185,8 +186,15 @@ func (s *Service) serverExecutable() string {
 	return s.ArangodPath
 }
 
+// StatusItem contain a single point in time for a status feedback channel.
+type StatusItem struct {
+	PrevStatusCode int
+	StatusCode     int
+	Duration       time.Duration
+}
+
 // TestInstance checks the `up` status of an arangod server instance.
-func (s *Service) TestInstance(ctx context.Context, address string, port int, statusChanged chan int) (up bool, version string, statusTrail []int, cancelled bool) {
+func (s *Service) TestInstance(ctx context.Context, address string, port int, statusChanged chan StatusItem) (up bool, version string, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan string)
 	statusCodes := make(chan int)
 	if statusChanged != nil {
@@ -245,15 +253,24 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 		instanceUp <- ""
 	}()
 	statusTrail = make([]int, 0, 16)
+	startTime := time.Now()
 	for {
 		select {
 		case version := <-instanceUp:
 			return version != "", version, statusTrail, false
 		case statusCode := <-statusCodes:
-			if len(statusTrail) == 0 || statusTrail[len(statusTrail)-1] != statusCode {
+			lastStatusCode := math.MinInt32
+			if len(statusTrail) == 0 {
+				lastStatusCode = statusTrail[len(statusTrail)-1]
+			}
+			if len(statusTrail) == 0 || lastStatusCode != statusCode {
 				statusTrail = append(statusTrail, statusCode)
-				if statusChanged != nil {
-					statusChanged <- statusCode
+			}
+			if statusChanged != nil {
+				statusChanged <- StatusItem{
+					PrevStatusCode: lastStatusCode,
+					StatusCode:     statusCode,
+					Duration:       time.Since(startTime),
 				}
 			}
 		case <-ctx.Done():
@@ -388,15 +405,22 @@ func (s *Service) runArangod(runner Runner, bsCfg BootstrapConfig, myPeer Peer, 
 				if err != nil {
 					s.log.Fatalf("Cannot collect serverPort: %#v", err)
 				}
-				statusChanged := make(chan int)
+				statusChanged := make(chan StatusItem)
 				go func() {
+					showLogDuration := time.Minute
 					for {
-						statusCode, ok := <-statusChanged
+						statusItem, ok := <-statusChanged
 						if ok {
-							if s.DebugCluster {
-								s.log.Infof("%s status changed to %d", serverType, statusCode)
-							} else {
-								s.log.Debugf("%s status changed to %d", serverType, statusCode)
+							if statusItem.PrevStatusCode != statusItem.StatusCode {
+								if s.DebugCluster {
+									s.log.Infof("%s status changed to %d", serverType, statusItem.StatusCode)
+								} else {
+									s.log.Debugf("%s status changed to %d", serverType, statusItem.StatusCode)
+								}
+							}
+							if statusItem.Duration > showLogDuration {
+								showLogDuration = statusItem.Duration + time.Second*30
+								s.showRecentLogs(serverType)
 							}
 						}
 					}
