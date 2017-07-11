@@ -1,5 +1,7 @@
 # Changes from version 0.8.0 to master 
 
+- The `--rocksdb.encryption-keyfile` is now passed through the database servers in the `arangod.conf` file (it was passed as command line argument before).
+  If you use this setting in an existing cluster, make sure the manually add this setting to all `arangod.conf` files before restarting the starters.
 - Added `--starter.debug-cluster` option that adds a trail of status codes to the log when starting servers. (intended mostly for internal testing)
 - Made database image used in test configurable using `ARANGODB` make variable.
 - Added `--docker.tty` option for controlling the TTY flag of started docker containers.
