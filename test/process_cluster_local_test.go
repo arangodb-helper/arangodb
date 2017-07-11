@@ -30,6 +30,7 @@ import (
 
 // TestProcessClusterLocal runs `arangodb --starter.local`
 func TestProcessClusterLocal(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -54,6 +55,7 @@ func TestProcessClusterLocal(t *testing.T) {
 
 // TestProcessClusterLocal runs `arangodb --starter.local`, stopping it through the `/shutdown` API.
 func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -78,6 +80,7 @@ func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
 
 // TestOldProcessClusterLocal runs `arangodb --local`
 func TestOldProcessClusterLocal(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)

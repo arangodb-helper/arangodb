@@ -30,6 +30,7 @@ import (
 
 // TestProcessClusterDefault starts a master starter, followed by 2 slave starters.
 func TestProcessClusterDefault(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
@@ -64,6 +65,7 @@ func TestProcessClusterDefault(t *testing.T) {
 
 // TestProcessClusterDefaultShutdownViaAPI starts a master starter, followed by 2 slave starters, shutting all down through the API.
 func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
@@ -100,6 +102,7 @@ func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 
 // TestOldProcessClusterDefault starts a master starter, followed by 2 slave starters.
 func TestOldProcessClusterDefault(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
