@@ -33,8 +33,8 @@ import (
 	"time"
 )
 
-// startSlave starts the Service as slave.
-func (s *Service) startSlave(peerAddress string, runner Runner, bsCfg BootstrapConfig) {
+// bootstrapSlave starts the Service as slave and begins bootstrapping the cluster from nothing.
+func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg BootstrapConfig) {
 	masterPort := s.MasterPort
 	if host, port, err := net.SplitHostPort(peerAddress); err == nil {
 		peerAddress = host
@@ -53,6 +53,9 @@ func (s *Service) startSlave(peerAddress string, runner Runner, bsCfg BootstrapC
 			SlaveAddress: s.OwnAddress,
 			SlavePort:    hostPort,
 			IsSecure:     s.IsSecure(),
+			Agent:        copyBoolRef(bsCfg.StartAgent),
+			DBServer:     copyBoolRef(bsCfg.StartDBserver),
+			Coordinator:  copyBoolRef(bsCfg.StartCoordinator),
 		})
 		buf := bytes.Buffer{}
 		buf.Write(b)
@@ -82,7 +85,7 @@ func (s *Service) startSlave(peerAddress string, runner Runner, bsCfg BootstrapC
 			s.log.Warningf("Cannot parse body from master: %v", e)
 			return
 		}
-		s.AgencySize = s.myPeers.AgencySize
+		//s.AgencySize = s.myPeers.AgencySize
 		break
 	}
 
@@ -99,30 +102,34 @@ func (s *Service) startSlave(peerAddress string, runner Runner, bsCfg BootstrapC
 	s.startHTTPServer()
 
 	// Wait until we can start:
-	if s.AgencySize > 1 {
-		s.log.Infof("Waiting for %d servers to show up...", s.AgencySize)
+	if s.myPeers.AgencySize > 1 {
+		s.log.Infof("Waiting for %d servers to show up...", s.myPeers.AgencySize)
 	}
 	for {
-		if len(s.myPeers.Peers) >= s.AgencySize {
-			s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
-			s.saveSetup()
-			s.startRunning(runner, bsCfg)
-			return
-		}
-		time.Sleep(time.Second)
-		master := s.myPeers.Peers[0]
-		r, err := httpClient.Get(master.CreateStarterURL("/hello"))
-		if err != nil {
-			s.log.Errorf("Failed to connect to master: %v", err)
-			time.Sleep(time.Second * 2)
+		if s.myPeers.HaveEnoughAgents() {
+			// We have enough peers for a valid agency
+			break
 		} else {
-			defer r.Body.Close()
-			body, _ := ioutil.ReadAll(r.Body)
-			var newPeers peers
-			json.Unmarshal(body, &newPeers)
-			s.myPeers.Peers = newPeers.Peers
+			// Wait a bit until we have enough peers for a valid agency
+			time.Sleep(time.Second)
+			master := s.myPeers.Peers[0]
+			r, err := httpClient.Get(master.CreateStarterURL("/hello"))
+			if err != nil {
+				s.log.Errorf("Failed to connect to master: %v", err)
+				time.Sleep(time.Second * 2)
+			} else {
+				defer r.Body.Close()
+				body, _ := ioutil.ReadAll(r.Body)
+				var clusterConfig ClusterConfig
+				json.Unmarshal(body, &clusterConfig)
+				s.myPeers = clusterConfig
+			}
 		}
 	}
+
+	s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
+	s.saveSetup()
+	s.startRunning(runner, bsCfg)
 }
 
 // sendMasterGoodbye informs the master that we're leaving for good.

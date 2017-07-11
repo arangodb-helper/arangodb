@@ -25,9 +25,7 @@ package service
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -48,13 +46,11 @@ const (
 
 // Config holds all configuration for a single service.
 type Config struct {
-	AgencySize           int
+	//AgencySize           int
 	ArangodPath          string
 	ArangodJSPath        string
 	MasterPort           int
 	RrPath               string
-	StartCoordinator     bool
-	StartDBserver        bool
 	DataDir              string
 	OwnAddress           string // IP address of used to reach this process
 	MasterAddress        string
@@ -91,7 +87,7 @@ type Service struct {
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	state               State
-	myPeers             peers
+	myPeers             ClusterConfig
 	startRunningWaiter  context.Context
 	startRunningTrigger context.CancelFunc
 	announcePort        int         // Port I can be reached on from the outside
@@ -101,6 +97,7 @@ type Service struct {
 	logMutex            sync.Mutex  // Mutex used to synchronize server log output
 	allowSameDataDir    bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
 	isLocalSlave        bool
+	learnOwnAddress     bool // If set, the HTTP server will update my peer with address information gathered from a /hello request.
 	servers             struct {
 		agentProc       Process
 		dbserverProc    Process
@@ -121,15 +118,6 @@ func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service
 		startRunningTrigger: trigger,
 		isLocalSlave:        isLocalSlave,
 	}, nil
-}
-
-// createUniqueID creates a new random ID.
-func createUniqueID() (string, error) {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		return "", maskAny(err)
-	}
-	return hex.EncodeToString(b), nil
 }
 
 // State of the service.
@@ -158,21 +146,6 @@ const (
 	confFileName = "arangod.conf"
 	logFileName  = "arangod.log"
 )
-
-// normalizeHostName normalizes all loopback addresses to "localhost"
-func normalizeHostName(host string) string {
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() {
-			return "localhost"
-		}
-	}
-	return host
-}
-
-// For Windows we need to change backslashes to slashes, strangely enough:
-func slasher(s string) string {
-	return strings.Replace(s, "\\", "/", -1)
-}
 
 // IsSecure returns true when the cluster is using SSL for connections, false otherwise.
 func (s *Service) IsSecure() bool {
@@ -395,7 +368,7 @@ func (s *Service) showRecentLogs(serverType ServerType) {
 }
 
 // runArangod starts a single Arango server of the given type and keeps restarting it when needed.
-func (s *Service) runArangod(runner Runner, bsCfg BootstrapConfig, myPeer Peer, serverType ServerType, processVar *Process, runProcess_ *bool) {
+func (s *Service) runArangod(runner Runner, bsCfg BootstrapConfig, myPeer Peer, serverType ServerType, processVar *Process) {
 	restart := 0
 	recentFailures := 0
 	for {
@@ -507,25 +480,24 @@ func (s *Service) startRunning(runner Runner, bsCfg BootstrapConfig) {
 
 	if s.mode.IsClusterMode() {
 		// Start agent:
-		if s.needsAgent() {
-			runAlways := true
-			go s.runArangod(runner, bsCfg, myPeer, ServerTypeAgent, &s.servers.agentProc, &runAlways)
+		if myPeer.HasAgent() {
+			go s.runArangod(runner, bsCfg, myPeer, ServerTypeAgent, &s.servers.agentProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start DBserver:
-		if s.StartDBserver {
-			go s.runArangod(runner, bsCfg, myPeer, ServerTypeDBServer, &s.servers.dbserverProc, &s.StartDBserver)
+		if bsCfg.StartDBserver == nil || *bsCfg.StartDBserver {
+			go s.runArangod(runner, bsCfg, myPeer, ServerTypeDBServer, &s.servers.dbserverProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start Coordinator:
-		if s.StartCoordinator {
-			go s.runArangod(runner, bsCfg, myPeer, ServerTypeCoordinator, &s.servers.coordinatorProc, &s.StartCoordinator)
+		if bsCfg.StartCoordinator == nil || *bsCfg.StartCoordinator {
+			go s.runArangod(runner, bsCfg, myPeer, ServerTypeCoordinator, &s.servers.coordinatorProc)
 		}
 	} else if s.mode.IsSingleMode() {
 		// Start Single server:
-		go s.runArangod(runner, bsCfg, myPeer, ServerTypeSingle, &s.servers.singleProc, nil)
+		go s.runArangod(runner, bsCfg, myPeer, ServerTypeSingle, &s.servers.singleProc)
 	}
 
 	for {
@@ -588,7 +560,7 @@ func (s *Service) startRunning(runner Runner, bsCfg BootstrapConfig) {
 }
 
 // Run runs the service in either master or slave mode.
-func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers peers, shouldRelaunch bool) error {
+func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers ClusterConfig, shouldRelaunch bool) error {
 	s.ctx, s.cancel = context.WithCancel(rootCtx)
 	go func() {
 		select {
@@ -606,11 +578,11 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers pe
 
 	// Check mode & flags
 	if bsCfg.Mode.IsClusterMode() {
-		if s.Config.AgencySize < 1 {
+		if bsCfg.AgencySize < 1 {
 			return maskAny(fmt.Errorf("AgentSize must be >= 1"))
 		}
 	} else if bsCfg.Mode.IsSingleMode() {
-		s.Config.AgencySize = 1
+		bsCfg.AgencySize = 1
 	} else {
 		return maskAny(fmt.Errorf("Unknown mode '%s'", bsCfg.Mode))
 	}
@@ -703,22 +675,16 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers pe
 		s.startRunning(runner, bsCfg)
 		wg.Wait()
 	} else {
-		// Bootstrap new
+		// Bootstrap new cluster
 		// Do we have to register?
 		if s.MasterAddress != "" {
 			s.state = stateSlave
-			s.startSlave(s.MasterAddress, runner, bsCfg)
+			s.bootstrapSlave(s.MasterAddress, runner, bsCfg)
 		} else {
 			s.state = stateMaster
-			s.startMaster(runner, bsCfg)
+			s.bootstrapMaster(runner, bsCfg)
 		}
 	}
 
 	return nil
-}
-
-// needsAgent returns true if the agent should run in this instance
-func (s *Service) needsAgent() bool {
-	myPeer, ok := s.myPeers.PeerByID(s.id)
-	return ok && myPeer.HasAgent
 }

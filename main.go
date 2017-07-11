@@ -67,8 +67,9 @@ var (
 	arangodJSPath            string
 	masterPort               int
 	rrPath                   string
-	startCoordinator         bool
-	startDBserver            bool
+	startAgent               []bool
+	startDBserver            []bool
+	startCoordinator         []bool
 	startLocalSlaves         bool
 	mode                     string
 	dataDir                  string
@@ -117,8 +118,9 @@ func init() {
 	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 
 	f.IntVar(&agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
-	f.BoolVar(&startCoordinator, "cluster.start-coordinator", true, "should a coordinator instance be started")
-	f.BoolVar(&startDBserver, "cluster.start-dbserver", true, "should a dbserver instance be started")
+	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
+	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
+	f.BoolSliceVar(&startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
 
 	f.StringVar(&arangodPath, "server.arangod", "/usr/sbin/arangod", "Path of arangod")
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
@@ -452,11 +454,28 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		log.Infof("Using self-signed certificate: %s", sslKeyFile)
 	}
 
+	getOptionalBool := func(flagName string, v []bool) *bool {
+		switch len(v) {
+		case 0:
+			return nil
+		case 1:
+			x := v[0]
+			return &x
+		default:
+			log.Fatalf("Expected 0 or 1 %s options, got %d", flagName, len(v))
+			return nil
+		}
+	}
+
 	// Create service
 	bsCfg := service.BootstrapConfig{
 		ID:                       id,
 		Mode:                     service.ServiceMode(mode),
+		AgencySize:               agencySize,
 		StartLocalSlaves:         startLocalSlaves,
+		StartAgent:               getOptionalBool("cluster.start-agent", startAgent),
+		StartDBserver:            getOptionalBool("cluster.start-dbserver", startDBserver),
+		StartCoordinator:         getOptionalBool("cluster.start-coordinator", startCoordinator),
 		ServerStorageEngine:      serverStorageEngine,
 		JwtSecret:                jwtSecret,
 		SslKeyFile:               sslKeyFile,
@@ -465,13 +484,10 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 	bsCfg.Initialize()
 	serviceConfig := service.Config{
-		AgencySize:           agencySize,
 		ArangodPath:          arangodPath,
 		ArangodJSPath:        arangodJSPath,
 		MasterPort:           masterPort,
 		RrPath:               rrPath,
-		StartCoordinator:     startCoordinator,
-		StartDBserver:        startDBserver,
 		DataDir:              dataDir,
 		OwnAddress:           ownAddress,
 		MasterAddress:        masterAddress,

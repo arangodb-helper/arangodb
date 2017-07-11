@@ -204,13 +204,13 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 		options = append(options,
 			optionPair{"--agency.activate", "true"},
 			optionPair{"--agency.my-address", myTCPURL},
-			optionPair{"--agency.size", strconv.Itoa(s.AgencySize)},
+			optionPair{"--agency.size", strconv.Itoa(s.myPeers.AgencySize)},
 			optionPair{"--agency.supervision", "true"},
 			optionPair{"--foxx.queues", "false"},
 			optionPair{"--server.statistics", "false"},
 		)
 		for _, p := range s.myPeers.Peers {
-			if p.HasAgent && p.ID != s.id {
+			if p.HasAgent() && p.ID != s.id {
 				options = append(options,
 					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent)))},
 				)
@@ -239,7 +239,7 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 		)
 	}
 	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
-		for i := 0; i < s.AgencySize; i++ {
+		for i := 0; i < s.myPeers.AgencySize; i++ {
 			p := s.myPeers.Peers[i]
 			options = append(options,
 				optionPair{"--cluster.agency-endpoint",
