@@ -108,14 +108,17 @@ func SetUniqueDataDir(t *testing.T) string {
 func WaitUntilStarterReady(t *testing.T, what string, starters ...*SubProcess) bool {
 	g := sync.WaitGroup{}
 	result := true
-	for _, starter := range starters {
+	for index, starter := range starters {
 		starter := starter // Used in nested function
 		g.Add(1)
+		id := fmt.Sprintf("starter-%d", index+1)
 		go func() {
 			defer g.Done()
-			if err := starter.ExpectTimeout(time.Minute, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what))); err != nil {
+			started := time.Now()
+			if err := starter.ExpectTimeout(time.Minute*2, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
 				result = false
-				t.Errorf("Starter is not ready in time: %s", describe(err))
+				timeSpan := time.Since(started)
+				t.Errorf("Starter is not ready in time (after %s): %s", timeSpan, describe(err))
 			}
 		}()
 	}
@@ -211,10 +214,12 @@ func WaitUntilStarterGone(t *testing.T, endpoint string) {
 	}
 }
 
-func createEnvironmentStarterOptions() string {
+func createEnvironmentStarterOptions(skipDockerImage ...bool) string {
 	result := []string{"--starter.debug-cluster"}
 	if image := os.Getenv("ARANGODB"); image != "" {
-		result = append(result, fmt.Sprintf("--docker.image=%s", image))
+		if len(skipDockerImage) == 0 || !skipDockerImage[0] {
+			result = append(result, fmt.Sprintf("--docker.image=%s", image))
+		}
 	}
 	return strings.Join(result, " ")
 }

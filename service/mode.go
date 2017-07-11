@@ -20,26 +20,21 @@
 // Author Ewout Prangsma
 //
 
-package test
+package service
 
-import (
-	"os"
-	"regexp"
-	"testing"
-	"time"
+type ServiceMode string
+
+const (
+	ServiceModeCluster = ServiceMode("cluster")
+	ServiceModeSingle  = ServiceMode("single")
 )
 
-// TestPassthroughConflict runs `arangodb --starter.local --all.ssl.keyfile=foo`
-func TestPassthroughConflict(t *testing.T) {
-	needTestMode(t, testModeProcess)
-	dataDir := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDir)
+// IsClusterMode returns true when the service is running in cluster mode.
+func (m ServiceMode) IsClusterMode() bool {
+	return m == "cluster"
+}
 
-	child := Spawn(t, "${STARTER} --starter.local --all.ssl.keyfile=foo")
-	defer child.Close()
-
-	expr := regexp.MustCompile("is essential to the starters behavior and cannot be overwritten")
-	if err := child.ExpectTimeout(time.Second*15, expr, "starter-passthrough"); err != nil {
-		t.Errorf("Expected errors message, got %#v", err)
-	}
+// IsSingleMode returns true when the service is running in single server mode.
+func (m ServiceMode) IsSingleMode() bool {
+	return m == "single"
 }

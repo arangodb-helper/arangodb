@@ -33,8 +33,8 @@ import (
 	logging "github.com/op/go-logging"
 )
 
-// startMaster starts the Service as master.
-func (s *Service) startMaster(runner Runner) {
+// bootstrapMaster starts the Service as master and begins bootstrapping the cluster from nothing.
+func (s *Service) bootstrapMaster(runner Runner, bsCfg BootstrapConfig) {
 	// Check HTTP server port
 	containerHTTPPort, _, err := s.getHTTPServerPort()
 	if err != nil {
@@ -44,38 +44,37 @@ func (s *Service) startMaster(runner Runner) {
 		s.log.Fatalf("Port %d is already in use", containerHTTPPort)
 	}
 
+	// Create initial cluster configuration
+	hasAgent := boolFromRef(bsCfg.StartAgent, !s.mode.IsSingleMode())
+	hasDBServer := boolFromRef(bsCfg.StartDBserver, true)
+	hasCoordinator := boolFromRef(bsCfg.StartCoordinator, true)
+	s.myPeers.Peers = []Peer{
+		NewPeer(s.id, s.OwnAddress, s.announcePort, 0, s.DataDir, hasAgent, hasDBServer, hasCoordinator, s.IsSecure()),
+	}
+	s.myPeers.AgencySize = bsCfg.AgencySize
+	s.learnOwnAddress = s.OwnAddress == ""
+
 	// Start HTTP listener
 	s.startHTTPServer()
 
 	// Permanent loop:
-	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.ID, s.OwnAddress, s.announcePort)
+	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
 
-	if s.AgencySize == 1 {
-		s.myPeers.Peers = []Peer{
-			Peer{
-				ID:         s.ID,
-				Address:    s.OwnAddress,
-				Port:       s.announcePort,
-				PortOffset: 0,
-				DataDir:    s.DataDir,
-				HasAgent:   !s.isSingleMode(),
-				IsSecure:   s.IsSecure(),
-			},
-		}
-		s.myPeers.AgencySize = s.AgencySize
+	if s.mode.IsSingleMode() || s.myPeers.HaveEnoughAgents() {
+		// We have all the agents that we need, start a single server/cluster right now
 		s.saveSetup()
 		s.log.Info("Starting service...")
-		s.startRunning(runner)
+		s.startRunning(runner, bsCfg)
 		return
 	}
 
 	wg := sync.WaitGroup{}
-	if s.StartLocalSlaves {
+	if bsCfg.StartLocalSlaves {
 		// Start additional local slaves
-		s.createAndStartLocalSlaves(&wg)
+		s.createAndStartLocalSlaves(&wg, bsCfg)
 	} else {
 		// Show commands needed to start slaves
-		s.log.Infof("Waiting for %d servers to show up.\n", s.AgencySize)
+		s.log.Infof("Waiting for %d servers to show up.\n", s.myPeers.AgencySize)
 		s.showSlaveStartCommands(runner)
 	}
 
@@ -85,7 +84,7 @@ func (s *Service) startMaster(runner Runner) {
 		case <-s.startRunningWaiter.Done():
 			s.saveSetup()
 			s.log.Info("Starting service...")
-			s.startRunning(runner)
+			s.startRunning(runner, bsCfg)
 			return
 		default:
 		}
@@ -101,7 +100,7 @@ func (s *Service) startMaster(runner Runner) {
 func (s *Service) showSlaveStartCommands(runner Runner) {
 	s.log.Infof("Use the following commands to start other servers:")
 	fmt.Println()
-	for index := 2; index <= s.AgencySize; index++ {
+	for index := 2; index <= s.myPeers.AgencySize; index++ {
 		port := ""
 		if s.announcePort != s.MasterPort {
 			port = strconv.Itoa(s.announcePort)

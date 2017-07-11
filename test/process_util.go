@@ -22,24 +22,10 @@
 
 package test
 
-import (
-	"os"
-	"regexp"
-	"testing"
-	"time"
-)
+import "testing"
 
-// TestPassthroughConflict runs `arangodb --starter.local --all.ssl.keyfile=foo`
-func TestPassthroughConflict(t *testing.T) {
-	needTestMode(t, testModeProcess)
-	dataDir := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDir)
-
-	child := Spawn(t, "${STARTER} --starter.local --all.ssl.keyfile=foo")
-	defer child.Close()
-
-	expr := regexp.MustCompile("is essential to the starters behavior and cannot be overwritten")
-	if err := child.ExpectTimeout(time.Second*15, expr, "starter-passthrough"); err != nil {
-		t.Errorf("Expected errors message, got %#v", err)
-	}
+func removeArangodProcesses(t *testing.T) {
+	c := Spawn(t, "pkill -9 arangod")
+	defer c.Close()
+	c.Wait()
 }

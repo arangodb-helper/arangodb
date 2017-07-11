@@ -222,6 +222,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 
 	start := time.Now()
 
+	skipDockerImage := true
 	cID := createDockerID("starter-test-single-")
 	dockerRun := Spawn(t, strings.Join([]string{
 		"docker run -i",
@@ -236,7 +237,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 		"--starter.mode=single",
 		"--server.storage-engine=rocksdb",
 		"--docker.image=arangodb/arangodb-preview:3.2.devel",
-		createEnvironmentStarterOptions(),
+		createEnvironmentStarterOptions(skipDockerImage),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)

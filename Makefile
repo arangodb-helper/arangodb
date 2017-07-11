@@ -44,6 +44,8 @@ ifdef TRAVIS
 	echo Using IP=$(IP)
 endif
 
+TEST_TIMEOUT := 20m
+
 BINNAME := arangodb$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
 RELEASE := $(GOBUILDDIR)/bin/release 
@@ -157,11 +159,11 @@ run-tests-local-process: build test-images
 		-e DEBUG_CLUSTER=$(DEBUG_CLUSTER) \
 		-w /usr/code/ \
 		arangodb-golang \
-		go test -v $(REPOPATH)/test
+		go test -timeout $(TEST_TIMEOUT) -v $(REPOPATH)/test
 
 run-tests-docker: docker
-	GOPATH=$(GOBUILDDIR) TEST_MODES=docker IP=$(IP) ARANGODB=$(ARANGODB) go test -v $(REPOPATH)/test
+	GOPATH=$(GOBUILDDIR) TEST_MODES=docker IP=$(IP) ARANGODB=$(ARANGODB) go test -timeout $(TEST_TIMEOUT) -v $(REPOPATH)/test
 
 # Run all integration tests on the local system
 run-tests-local: local
-	GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess docker" STARTER=$(ROOTDIR)/arangodb go test -v $(REPOPATH)/test
+	GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess docker" STARTER=$(ROOTDIR)/arangodb go test -timeout $(TEST_TIMEOUT) -v $(REPOPATH)/test

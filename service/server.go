@@ -40,44 +40,30 @@ var (
 	httpClient = client.DefaultHTTPClient()
 )
 
+// HelloRequest is the data structure send of the wire in a `/hello` POST request.
 type HelloRequest struct {
 	SlaveID      string // Unique ID of the slave
 	SlaveAddress string // IP address used to reach the slave (if empty, this will be derived from the request)
 	SlavePort    int    // Port used to reach the slave
 	DataDir      string // Directory used for data by this slave
 	IsSecure     bool   // If set, servers started by this peer are using an SSL connection
+	Agent        *bool  `json:",omitempty"` // If not nil, sets if server gets an agent or not. If nil, default handling applies
+	DBServer     *bool  `json:",omitempty"` // If not nil, sets if server gets an dbserver or not. If nil, default handling applies
+	Coordinator  *bool  `json:",omitempty"` // If not nil, sets if server gets an coordinator or not. If nil, default handling applies
 }
 
 type GoodbyeRequest struct {
 	SlaveID string // Unique ID of the slave that should be removed.
 }
 
-type ProcessListResponse struct {
-	ServersStarted bool            `json:"servers-started,omitempty"` // True if the server have all been started
-	Servers        []ServerProcess `json:"servers,omitempty"`         // List of servers started by ArangoDB
-}
-
-type VersionResponse struct {
-	Version string `json:"version"`
-	Build   string `json:"build"`
-}
-
-type ServerProcess struct {
-	Type        string `json:"type"`                   // agent | coordinator | dbserver
-	IP          string `json:"ip"`                     // IP address needed to reach the server
-	Port        int    `json:"port"`                   // Port needed to reach the server
-	ProcessID   int    `json:"pid,omitempty"`          // PID of the process (0 when running in docker)
-	ContainerID string `json:"container-id,omitempty"` // ID of docker container running the server
-	ContainerIP string `json:"container-ip,omitempty"` // IP address of docker container running the server
-	IsSecure    bool   `json:"is-secure,omitempty"`    // If set, this server is using an SSL connection
-}
-
 // startHTTPServer initializes and runs the HTTP server.
 // If will return directly after starting it.
 func (s *Service) startHTTPServer() {
 	mux := http.NewServeMux()
+	// Starter to starter API
 	mux.HandleFunc("/hello", s.helloHandler)
 	mux.HandleFunc("/goodbye", s.goodbyeHandler)
+	// External API
 	mux.HandleFunc("/process", s.processListHandler)
 	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
 	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
@@ -132,7 +118,7 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Learn my own address (if needed)
-	if len(s.myPeers.Peers) == 0 {
+	if s.learnOwnAddress {
 		host, _, err := net.SplitHostPort(r.Host)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot derive own host address: %v", err))
@@ -140,19 +126,13 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		myself := normalizeHostName(host)
 		_, hostPort, _ := s.getHTTPServerPort()
-		s.myPeers.Peers = []Peer{
-			Peer{
-				ID:         s.ID,
-				Address:    myself,
-				Port:       hostPort,
-				PortOffset: 0,
-				DataDir:    s.DataDir,
-				HasAgent:   !s.isSingleMode(),
-				IsSecure:   s.IsSecure(),
-			},
+		myPeer, found := s.myPeers.PeerByID(s.id)
+		if found {
+			myPeer.Address = myself
+			myPeer.Port = hostPort
+			s.myPeers.UpdatePeerByID(myPeer)
+			s.learnOwnAddress = false
 		}
-		s.log.Infof("Added master '%s': %s, portOffset: %d", s.myPeers.Peers[0].ID, s.myPeers.Peers[0].Address, s.myPeers.Peers[0].PortOffset)
-		s.myPeers.AgencySize = s.AgencySize
 	}
 
 	if r.Method == "POST" {
@@ -224,25 +204,35 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// In single server mode, do not accept new slaves
-			if s.isSingleMode() {
+			if s.mode.IsSingleMode() {
 				writeError(w, http.StatusBadRequest, "In single server mode, slaves cannot be added.")
 				return
 			}
 			// ID not yet found, add it
-			newPeer := Peer{
-				ID:         req.SlaveID,
-				Address:    slaveAddr,
-				Port:       slavePort,
-				PortOffset: s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique),
-				DataDir:    req.DataDir,
-				HasAgent:   (len(s.myPeers.Peers) < s.AgencySize) && !s.isSingleMode(),
-				IsSecure:   req.IsSecure,
+			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique)
+			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
+			if req.Agent != nil {
+				hasAgent = *req.Agent
 			}
+			hasDBServer := true
+			if req.DBServer != nil {
+				hasDBServer = *req.DBServer
+			}
+			hasCoordinator := true
+			if req.Coordinator != nil {
+				hasCoordinator = *req.Coordinator
+			}
+			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, req.IsSecure)
 			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
 			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
-			if len(s.myPeers.Peers) == s.AgencySize {
-				s.startRunningTrigger()
-			}
+		}
+
+		// Start the running the servers if we have enough agents
+		if s.myPeers.HaveEnoughAgents() {
+			// Save updated configuration
+			s.saveSetup()
+			// Trigger start running (if needed)
+			s.startRunningTrigger()
 		}
 	}
 	b, err := json.Marshal(s.myPeers)
@@ -300,20 +290,30 @@ func (s *Service) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
+	// Claim exclusive access to our data structures
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	// Gather processes
-	resp := ProcessListResponse{}
-	expectedServers := 2
-	myPeer, found := s.myPeers.PeerByID(s.ID)
+	resp := client.ProcessList{}
+	expectedServers := 0
+	myPeer, found := s.myPeers.PeerByID(s.id)
 	if found {
 		portOffset := myPeer.PortOffset
 		ip := myPeer.Address
-		if myPeer.HasAgent {
-			expectedServers = 3
+		if myPeer.HasAgent() {
+			expectedServers++
+		}
+		if myPeer.HasDBServer() {
+			expectedServers++
+		}
+		if myPeer.HasCoordinator() {
+			expectedServers++
 		}
 
-		createServerProcess := func(serverType ServerType, p Process) ServerProcess {
-			return ServerProcess{
-				Type:        serverType.String(),
+		createServerProcess := func(serverType ServerType, p Process) client.ServerProcess {
+			return client.ServerProcess{
+				Type:        client.ServerType(serverType),
 				IP:          ip,
 				Port:        s.MasterPort + portOffset + serverType.PortOffset(),
 				ProcessID:   p.ProcessID(),
@@ -336,7 +336,7 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
 		}
 	}
-	if s.isSingleMode() {
+	if s.mode.IsSingleMode() {
 		expectedServers = 1
 	}
 	resp.ServersStarted = len(resp.Servers) == expectedServers
@@ -351,7 +351,11 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 // agentLogsHandler servers the entire agent log (if any).
 // If there is no agent running a 404 is returned.
 func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
-	if s.needsAgent() {
+	s.mutex.Lock()
+	myPeer, found := s.myPeers.PeerByID(s.id)
+	s.mutex.Unlock()
+
+	if found && myPeer.HasAgent() {
 		s.logsHandler(w, r, ServerTypeAgent)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
@@ -360,12 +364,28 @@ func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 // dbserverLogsHandler servers the entire dbserver log.
 func (s *Service) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.logsHandler(w, r, ServerTypeDBServer)
+	s.mutex.Lock()
+	myPeer, found := s.myPeers.PeerByID(s.id)
+	s.mutex.Unlock()
+
+	if found && myPeer.HasDBServer() {
+		s.logsHandler(w, r, ServerTypeDBServer)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
 }
 
 // coordinatorLogsHandler servers the entire coordinator log.
 func (s *Service) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.logsHandler(w, r, ServerTypeCoordinator)
+	s.mutex.Lock()
+	myPeer, found := s.myPeers.PeerByID(s.id)
+	s.mutex.Unlock()
+
+	if found && myPeer.HasCoordinator() {
+		s.logsHandler(w, r, ServerTypeCoordinator)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
 }
 
 // singleLogsHandler servers the entire single server log.
@@ -401,7 +421,7 @@ func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, serverType
 
 // versionHandler returns a JSON object containing the current version & build number.
 func (s *Service) versionHandler(w http.ResponseWriter, r *http.Request) {
-	v := VersionResponse{
+	v := client.VersionInfo{
 		Version: s.ProjectVersion,
 		Build:   s.ProjectBuild,
 	}
@@ -452,10 +472,10 @@ func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 	containerPort = s.MasterPort
 	hostPort = s.announcePort
 	if s.announcePort == s.MasterPort && len(s.myPeers.Peers) > 0 {
-		if myPeer, ok := s.myPeers.PeerByID(s.ID); ok {
+		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
 			containerPort += myPeer.PortOffset
 		} else {
-			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.ID))
+			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.id))
 		}
 	}
 	if s.isNetHost {

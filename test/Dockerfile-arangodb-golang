@@ -28,7 +28,7 @@ RUN set -eux; \
 	esac; \
 	\
 	url="https://golang.org/dl/go${GOLANG_VERSION}.${goRelArch}.tar.gz"; \
-	wget -O go.tgz "$url"; \
+	wget -q -O go.tgz "$url"; \
 	tar -C /usr/local -xzf go.tgz; \
 	rm go.tgz; \
 	\

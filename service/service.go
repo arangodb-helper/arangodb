@@ -25,17 +25,14 @@ package service
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"math"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,29 +47,19 @@ const (
 
 // Config holds all configuration for a single service.
 type Config struct {
-	ID                       string // Unique identifier of this peer
-	Mode                     string // Service mode cluster|single
-	AgencySize               int
-	ArangodPath              string
-	ArangodJSPath            string
-	MasterPort               int
-	RrPath                   string
-	StartCoordinator         bool
-	StartDBserver            bool
-	StartLocalSlaves         bool // If set, start sufficient slave (Service's) locally.
-	DataDir                  string
-	OwnAddress               string // IP address of used to reach this process
-	MasterAddress            string
-	Verbose                  bool
-	ServerThreads            int    // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
-	ServerStorageEngine      string // mmfiles | rocksdb
-	AllPortOffsetsUnique     bool   // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
-	JwtSecret                string
-	SslKeyFile               string // Path containing an x509 certificate + private key to be used by the servers.
-	SslCAFile                string // Path containing an x509 CA certificate used to authenticate clients.
-	RocksDBEncryptionKeyFile string // Path containing encryption key for RocksDB encryption.
-	PassthroughOptions       []PassthroughOption
-	DebugCluster             bool
+	//AgencySize           int
+	ArangodPath          string
+	ArangodJSPath        string
+	MasterPort           int
+	RrPath               string
+	DataDir              string
+	OwnAddress           string // IP address of used to reach this process
+	MasterAddress        string
+	Verbose              bool
+	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
+	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
+	PassthroughOptions   []PassthroughOption
+	DebugCluster         bool
 
 	DockerContainerName string // Name of the container running this process
 	DockerEndpoint      string // Where to reach the docker daemon
@@ -92,11 +79,16 @@ type Config struct {
 // Service implements the actual starter behavior of the ArangoDB starter.
 type Service struct {
 	Config
+	id                  string      // Unique identifier of this peer
+	mode                ServiceMode // Service mode cluster|single
+	startedLocalSlaves  bool
+	jwtSecret           string // JWT secret used for arangod communication
+	sslKeyFile          string // Path containing an x509 certificate + private key to be used by the servers.
 	log                 *logging.Logger
 	ctx                 context.Context
 	cancel              context.CancelFunc
 	state               State
-	myPeers             peers
+	myPeers             ClusterConfig
 	startRunningWaiter  context.Context
 	startRunningTrigger context.CancelFunc
 	announcePort        int         // Port I can be reached on from the outside
@@ -106,6 +98,7 @@ type Service struct {
 	logMutex            sync.Mutex  // Mutex used to synchronize server log output
 	allowSameDataDir    bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
 	isLocalSlave        bool
+	learnOwnAddress     bool // If set, the HTTP server will update my peer with address information gathered from a /hello request.
 	servers             struct {
 		agentProc       Process
 		dbserverProc    Process
@@ -117,39 +110,6 @@ type Service struct {
 
 // NewService creates a new Service instance from the given config.
 func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service, error) {
-	// Create unique ID
-	if config.ID == "" {
-		var err error
-		config.ID, err = createUniqueID()
-		if err != nil {
-			return nil, maskAny(err)
-		}
-	}
-
-	// Check mode & flags
-	switch config.Mode {
-	case "cluster":
-		if config.AgencySize < 1 {
-			return nil, maskAny(fmt.Errorf("AgentSize must be >= 1"))
-		}
-	case "single":
-		config.AgencySize = 1
-	default:
-		return nil, maskAny(fmt.Errorf("Unknown mode '%s'", config.Mode))
-	}
-
-	// Load certificates (if needed)
-	var tlsConfig *tls.Config
-	if config.SslKeyFile != "" {
-		cert, err := LoadKeyFile(config.SslKeyFile)
-		if err != nil {
-			return nil, maskAny(err)
-		}
-		tlsConfig = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-		}
-	}
-
 	ctx, trigger := context.WithCancel(context.Background())
 	return &Service{
 		Config:              config,
@@ -158,17 +118,7 @@ func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service
 		startRunningWaiter:  ctx,
 		startRunningTrigger: trigger,
 		isLocalSlave:        isLocalSlave,
-		tlsConfig:           tlsConfig,
 	}, nil
-}
-
-// createUniqueID creates a new random ID.
-func createUniqueID() (string, error) {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		return "", maskAny(err)
-	}
-	return hex.EncodeToString(b), nil
 }
 
 // State of the service.
@@ -198,32 +148,21 @@ const (
 	logFileName  = "arangod.log"
 )
 
-// normalizeHostName normalizes all loopback addresses to "localhost"
-func normalizeHostName(host string) string {
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() {
-			return "localhost"
-		}
-	}
-	return host
-}
-
-// For Windows we need to change backslashes to slashes, strangely enough:
-func slasher(s string) string {
-	return strings.Replace(s, "\\", "/", -1)
-}
-
 // IsSecure returns true when the cluster is using SSL for connections, false otherwise.
 func (s *Service) IsSecure() bool {
-	return s.SslKeyFile != ""
+	if s.sslKeyFile != "" {
+		return true
+	}
+	myPeer, found := s.myPeers.PeerByID(s.id)
+	return found && myPeer.IsSecure
 }
 
 // serverPort returns the port number on which my server of given type will listen.
 func (s *Service) serverPort(serverType ServerType) (int, error) {
-	myPeer, found := s.myPeers.PeerByID(s.ID)
+	myPeer, found := s.myPeers.PeerByID(s.id)
 	if !found {
 		// Cannot find my own peer.
-		return 0, maskAny(fmt.Errorf("Cannot find peer %s", s.ID))
+		return 0, maskAny(fmt.Errorf("Cannot find peer %s", s.id))
 	}
 	// Find log path
 	portOffset := myPeer.PortOffset
@@ -247,8 +186,15 @@ func (s *Service) serverExecutable() string {
 	return s.ArangodPath
 }
 
+// StatusItem contain a single point in time for a status feedback channel.
+type StatusItem struct {
+	PrevStatusCode int
+	StatusCode     int
+	Duration       time.Duration
+}
+
 // TestInstance checks the `up` status of an arangod server instance.
-func (s *Service) TestInstance(ctx context.Context, address string, port int, statusChanged chan int) (up bool, version string, statusTrail []int, cancelled bool) {
+func (s *Service) TestInstance(ctx context.Context, address string, port int, statusChanged chan StatusItem) (up bool, version string, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan string)
 	statusCodes := make(chan int)
 	if statusChanged != nil {
@@ -274,7 +220,7 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 			if err != nil {
 				return "", -1, maskAny(err)
 			}
-			if err := addJwtHeader(req, s.JwtSecret); err != nil {
+			if err := addJwtHeader(req, s.jwtSecret); err != nil {
 				return "", -2, maskAny(err)
 			}
 			resp, err := client.Do(req)
@@ -307,15 +253,24 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 		instanceUp <- ""
 	}()
 	statusTrail = make([]int, 0, 16)
+	startTime := time.Now()
 	for {
 		select {
 		case version := <-instanceUp:
 			return version != "", version, statusTrail, false
 		case statusCode := <-statusCodes:
-			if len(statusTrail) == 0 || statusTrail[len(statusTrail)-1] != statusCode {
+			lastStatusCode := math.MinInt32
+			if len(statusTrail) > 0 {
+				lastStatusCode = statusTrail[len(statusTrail)-1]
+			}
+			if len(statusTrail) == 0 || lastStatusCode != statusCode {
 				statusTrail = append(statusTrail, statusCode)
-				if statusChanged != nil {
-					statusChanged <- statusCode
+			}
+			if statusChanged != nil {
+				statusChanged <- StatusItem{
+					PrevStatusCode: lastStatusCode,
+					StatusCode:     statusCode,
+					Duration:       time.Since(startTime),
 				}
 			}
 		case <-ctx.Done():
@@ -324,226 +279,8 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 	}
 }
 
-type optionPair struct {
-	Key   string
-	Value string
-}
-
-// makeBaseArgs returns the command line arguments needed to run an arangod server of given type.
-func (s *Service) makeBaseArgs(myHostDir, myContainerDir string, myAddress string, myPort string, serverType ServerType) (args []string, configVolumes []Volume) {
-	hostConfFileName := filepath.Join(myHostDir, confFileName)
-	containerConfFileName := filepath.Join(myContainerDir, confFileName)
-	scheme := "tcp"
-	if s.IsSecure() {
-		scheme = "ssl"
-	}
-
-	if runtime.GOOS != "linux" {
-		configVolumes = append(configVolumes, Volume{
-			HostPath:      hostConfFileName,
-			ContainerPath: containerConfFileName,
-			ReadOnly:      true,
-		})
-	}
-
-	var config configFile
-	if _, err := os.Stat(hostConfFileName); os.IsNotExist(err) {
-		var threads, v8Contexts string
-		logLevel := "INFO"
-		switch serverType {
-		// Parameters are: port, server threads, log level, v8-contexts
-		case ServerTypeAgent:
-			threads = "8"
-			v8Contexts = "1"
-		case ServerTypeDBServer:
-			threads = "4"
-			v8Contexts = "4"
-		case ServerTypeCoordinator, ServerTypeSingle:
-			threads = "16"
-			v8Contexts = "4"
-		}
-		serverSection := &configSection{
-			Name: "server",
-			Settings: map[string]string{
-				"endpoint":       fmt.Sprintf("%s://[::]:%s", scheme, myPort),
-				"threads":        threads,
-				"authentication": "false",
-			},
-		}
-		if s.JwtSecret != "" {
-			serverSection.Settings["authentication"] = "true"
-			serverSection.Settings["jwt-secret"] = s.JwtSecret
-		}
-		if s.ServerStorageEngine == "rocksdb" {
-			serverSection.Settings["storage-engine"] = "rocksdb"
-		}
-		config = configFile{
-			serverSection,
-			&configSection{
-				Name: "log",
-				Settings: map[string]string{
-					"level": logLevel,
-				},
-			},
-			&configSection{
-				Name: "javascript",
-				Settings: map[string]string{
-					"v8-contexts": v8Contexts,
-				},
-			},
-		}
-		if s.IsSecure() {
-			sslSection := &configSection{
-				Name: "ssl",
-				Settings: map[string]string{
-					"keyfile": s.SslKeyFile,
-				},
-			}
-			if s.SslCAFile != "" {
-				sslSection.Settings["cafile"] = s.SslCAFile
-			}
-			config = append(config, sslSection)
-		}
-
-		out, e := os.Create(hostConfFileName)
-		if e != nil {
-			s.log.Fatalf("Could not create configuration file %s, error: %#v", hostConfFileName, e)
-		}
-		_, err := config.WriteTo(out)
-		out.Close()
-		if err != nil {
-			s.log.Fatalf("Cannot create config file: %v", err)
-		}
-	}
-	args = make([]string, 0, 40)
-	executable := s.ArangodPath
-	jsStartup := s.ArangodJSPath
-	if s.RrPath != "" {
-		args = append(args, s.RrPath)
-	}
-	args = append(args,
-		executable,
-		"-c", slasher(containerConfFileName),
-	)
-
-	options := make([]optionPair, 0, 32)
-	options = append(options,
-		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
-		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
-		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
-		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, logFileName))},
-		optionPair{"--log.force-direct", "false"},
-	)
-	if s.ServerThreads != 0 {
-		options = append(options,
-			optionPair{"--server.threads", strconv.Itoa(s.ServerThreads)})
-	}
-	if s.RocksDBEncryptionKeyFile != "" {
-		options = append(options,
-			optionPair{"--rocksdb.encryption-keyfile", s.RocksDBEncryptionKeyFile})
-	}
-	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
-	switch serverType {
-	case ServerTypeAgent:
-		options = append(options,
-			optionPair{"--agency.activate", "true"},
-			optionPair{"--agency.my-address", myTCPURL},
-			optionPair{"--agency.size", strconv.Itoa(s.AgencySize)},
-			optionPair{"--agency.supervision", "true"},
-			optionPair{"--foxx.queues", "false"},
-			optionPair{"--server.statistics", "false"},
-		)
-		for _, p := range s.myPeers.Peers {
-			if p.HasAgent && p.ID != s.ID {
-				options = append(options,
-					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent)))},
-				)
-			}
-		}
-	case ServerTypeDBServer:
-		options = append(options,
-			optionPair{"--cluster.my-address", myTCPURL},
-			optionPair{"--cluster.my-role", "PRIMARY"},
-			optionPair{"--cluster.my-local-info", myTCPURL},
-			optionPair{"--foxx.queues", "false"},
-			optionPair{"--server.statistics", "true"},
-		)
-	case ServerTypeCoordinator:
-		options = append(options,
-			optionPair{"--cluster.my-address", myTCPURL},
-			optionPair{"--cluster.my-role", "COORDINATOR"},
-			optionPair{"--cluster.my-local-info", myTCPURL},
-			optionPair{"--foxx.queues", "true"},
-			optionPair{"--server.statistics", "true"},
-		)
-	case ServerTypeSingle:
-		options = append(options,
-			optionPair{"--foxx.queues", "true"},
-			optionPair{"--server.statistics", "true"},
-		)
-	}
-	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
-		for i := 0; i < s.AgencySize; i++ {
-			p := s.myPeers.Peers[i]
-			options = append(options,
-				optionPair{"--cluster.agency-endpoint",
-					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent)))},
-			)
-		}
-	}
-	for _, opt := range options {
-		ptValues := s.passthroughOptionValuesForServerType(strings.TrimPrefix(opt.Key, "--"), serverType)
-		if len(ptValues) > 0 {
-			s.log.Warningf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
-		} else {
-			args = append(args, opt.Key, opt.Value)
-		}
-	}
-	for _, ptOpt := range s.PassthroughOptions {
-		values := ptOpt.valueForServerType(serverType)
-		if len(values) == 0 {
-			continue
-		}
-		// Look for overrides of configuration sections
-		if section := config.FindSection(ptOpt.sectionName()); section != nil {
-			if confValue, found := section.Settings[ptOpt.sectionKey()]; found {
-				s.log.Warningf("Pass through option %s overrides generated configuration option with value '%s'", ptOpt.Name, confValue)
-			}
-		}
-		// Append all values
-		for _, value := range values {
-			args = append(args, ptOpt.FormattedOptionName(), value)
-		}
-	}
-	return
-}
-
-// writeCommand writes the command used to start a server in a file with given path.
-func (s *Service) writeCommand(filename string, executable string, args []string) {
-	content := strings.Join(args, " \\\n") + "\n"
-	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		if err := ioutil.WriteFile(filename, []byte(content), 0755); err != nil {
-			s.log.Errorf("Failed to write command to %s: %#v", filename, err)
-		}
-	}
-}
-
-// addDataVolumes extends the list of volumes with given host+container pair if running on linux.
-func addDataVolumes(configVolumes []Volume, hostPath, containerPath string) []Volume {
-	if runtime.GOOS == "linux" {
-		return []Volume{
-			Volume{
-				HostPath:      hostPath,
-				ContainerPath: containerPath,
-				ReadOnly:      false,
-			},
-		}
-	}
-	return configVolumes
-}
-
 // startArangod starts a single Arango server of the given type.
-func (s *Service) startArangod(runner Runner, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
+func (s *Service) startArangod(runner Runner, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
 	myPort, err := s.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -581,14 +318,23 @@ func (s *Service) startArangod(runner Runner, myHostAddress string, serverType S
 
 	s.log.Infof("Starting %s on port %d", serverType, myPort)
 	myContainerDir := runner.GetContainerDir(myHostDir, dockerDataDir)
-	args, vols := s.makeBaseArgs(myHostDir, myContainerDir, myHostAddress, strconv.Itoa(myPort), serverType)
-	vols = addDataVolumes(vols, myHostDir, myContainerDir)
+	// Create/read arangod.conf
+	confVolumes, config, err := createArangodConf(s.log, bsCfg, myHostDir, myContainerDir, strconv.Itoa(myPort), serverType)
+	if err != nil {
+		return nil, false, maskAny(err)
+	}
+	// Create arangod command line arguments
+	args := s.createArangodArgs(myContainerDir, myHostAddress, strconv.Itoa(myPort), serverType, config)
 	s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), s.serverExecutable(), args)
+	// Collect volumes
+	configVolumes := collectConfigVolumes(config)
+	vols := addVolume(append(confVolumes, configVolumes...), myHostDir, myContainerDir, false)
+	// Start process/container
 	containerNamePrefix := ""
 	if s.DockerContainerName != "" {
 		containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainerName)
 	}
-	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, s.ID, restart, myHostAddress, myPort)
+	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, s.id, restart, myHostAddress, myPort)
 	ports := []int{myPort}
 	if p, err := runner.Start(args[0], args[1:], vols, ports, containerName, myHostDir); err != nil {
 		return nil, false, maskAny(err)
@@ -639,13 +385,13 @@ func (s *Service) showRecentLogs(serverType ServerType) {
 }
 
 // runArangod starts a single Arango server of the given type and keeps restarting it when needed.
-func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, processVar *Process, runProcess_ *bool) {
+func (s *Service) runArangod(runner Runner, bsCfg BootstrapConfig, myPeer Peer, serverType ServerType, processVar *Process) {
 	restart := 0
 	recentFailures := 0
 	for {
 		myHostAddress := myPeer.Address
 		startTime := time.Now()
-		p, portInUse, err := s.startArangod(runner, myHostAddress, serverType, restart)
+		p, portInUse, err := s.startArangod(runner, bsCfg, myHostAddress, serverType, restart)
 		if err != nil {
 			s.log.Errorf("Error while starting %s: %#v", serverType, err)
 			if !portInUse {
@@ -659,15 +405,22 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 				if err != nil {
 					s.log.Fatalf("Cannot collect serverPort: %#v", err)
 				}
-				statusChanged := make(chan int)
+				statusChanged := make(chan StatusItem)
 				go func() {
+					showLogDuration := time.Minute
 					for {
-						statusCode, ok := <-statusChanged
+						statusItem, ok := <-statusChanged
 						if ok {
-							if s.DebugCluster {
-								s.log.Infof("%s status changed to %d", serverType, statusCode)
-							} else {
-								s.log.Debugf("%s status changed to %d", serverType, statusCode)
+							if statusItem.PrevStatusCode != statusItem.StatusCode {
+								if s.DebugCluster {
+									s.log.Infof("%s status changed to %d", serverType, statusItem.StatusCode)
+								} else {
+									s.log.Debugf("%s status changed to %d", serverType, statusItem.StatusCode)
+								}
+							}
+							if statusItem.Duration > showLogDuration {
+								showLogDuration = statusItem.Duration + time.Second*30
+								s.showRecentLogs(serverType)
 							}
 						}
 					}
@@ -742,34 +495,33 @@ func (s *Service) runArangod(runner Runner, myPeer Peer, serverType ServerType, 
 }
 
 // startRunning starts all relevant servers and keeps the running.
-func (s *Service) startRunning(runner Runner) {
+func (s *Service) startRunning(runner Runner, bsCfg BootstrapConfig) {
 	s.state = stateRunning
-	myPeer, ok := s.myPeers.PeerByID(s.ID)
+	myPeer, ok := s.myPeers.PeerByID(s.id)
 	if !ok {
-		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.ID)
+		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.id)
 	}
 
-	if s.isClusterMode() {
+	if s.mode.IsClusterMode() {
 		// Start agent:
-		if s.needsAgent() {
-			runAlways := true
-			go s.runArangod(runner, myPeer, ServerTypeAgent, &s.servers.agentProc, &runAlways)
+		if myPeer.HasAgent() {
+			go s.runArangod(runner, bsCfg, myPeer, ServerTypeAgent, &s.servers.agentProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start DBserver:
-		if s.StartDBserver {
-			go s.runArangod(runner, myPeer, ServerTypeDBServer, &s.servers.dbserverProc, &s.StartDBserver)
+		if bsCfg.StartDBserver == nil || *bsCfg.StartDBserver {
+			go s.runArangod(runner, bsCfg, myPeer, ServerTypeDBServer, &s.servers.dbserverProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start Coordinator:
-		if s.StartCoordinator {
-			go s.runArangod(runner, myPeer, ServerTypeCoordinator, &s.servers.coordinatorProc, &s.StartCoordinator)
+		if bsCfg.StartCoordinator == nil || *bsCfg.StartCoordinator {
+			go s.runArangod(runner, bsCfg, myPeer, ServerTypeCoordinator, &s.servers.coordinatorProc)
 		}
-	} else if s.isSingleMode() {
+	} else if s.mode.IsSingleMode() {
 		// Start Single server:
-		go s.runArangod(runner, myPeer, ServerTypeSingle, &s.servers.singleProc, nil)
+		go s.runArangod(runner, bsCfg, myPeer, ServerTypeSingle, &s.servers.singleProc)
 	}
 
 	for {
@@ -832,7 +584,7 @@ func (s *Service) startRunning(runner Runner) {
 }
 
 // Run runs the service in either master or slave mode.
-func (s *Service) Run(rootCtx context.Context) {
+func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers ClusterConfig, shouldRelaunch bool) error {
 	s.ctx, s.cancel = context.WithCancel(rootCtx)
 	go func() {
 		select {
@@ -841,11 +593,40 @@ func (s *Service) Run(rootCtx context.Context) {
 		}
 	}()
 
+	// Load settings from BootstrapConfig
+	s.id = bsCfg.ID
+	s.mode = bsCfg.Mode
+	s.startedLocalSlaves = bsCfg.StartLocalSlaves
+	s.jwtSecret = bsCfg.JwtSecret
+	s.sslKeyFile = bsCfg.SslKeyFile
+
+	// Check mode & flags
+	if bsCfg.Mode.IsClusterMode() {
+		if bsCfg.AgencySize < 1 {
+			return maskAny(fmt.Errorf("AgentSize must be >= 1"))
+		}
+	} else if bsCfg.Mode.IsSingleMode() {
+		bsCfg.AgencySize = 1
+	} else {
+		return maskAny(fmt.Errorf("Unknown mode '%s'", bsCfg.Mode))
+	}
+
+	// Load certificates (if needed)
+	if bsCfg.SslKeyFile != "" {
+		cert, err := LoadKeyFile(bsCfg.SslKeyFile)
+		if err != nil {
+			return maskAny(err)
+		}
+		s.tlsConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+	}
+
 	// Decide what type of process runner to use.
 	useDockerRunner := s.DockerEndpoint != "" && s.DockerImage != ""
 
 	// Guess own IP address if not specified
-	if s.OwnAddress == "" && s.isSingleMode() && !useDockerRunner {
+	if s.OwnAddress == "" && bsCfg.Mode.IsSingleMode() && !useDockerRunner {
 		addr, err := GuessOwnAddress()
 		if err != nil {
 			s.log.Fatalf("starter.address must be specified, it cannot be guessed because: %v", err)
@@ -868,7 +649,7 @@ func (s *Service) Run(rootCtx context.Context) {
 		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainerName, s.MasterPort)
 		if err != nil {
 			s.log.Fatalf("Failed to detect port mapping: %#v", err)
-			return
+			return maskAny(err)
 		}
 		if s.DockerNetworkMode == "" && networkMode != "" && networkMode != "default" {
 			s.log.Infof("Auto detected network mode: %s", networkMode)
@@ -907,32 +688,27 @@ func (s *Service) Run(rootCtx context.Context) {
 	}
 
 	// Is this a new start or a restart?
-	if s.relaunch(runner) {
-		return
-	}
-
-	// Do we have to register?
-	if s.MasterAddress != "" {
-		s.state = stateSlave
-		s.startSlave(s.MasterAddress, runner)
+	if shouldRelaunch {
+		s.myPeers = myPeers
+		s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
+		s.startHTTPServer()
+		wg := &sync.WaitGroup{}
+		if bsCfg.StartLocalSlaves {
+			s.startLocalSlaves(wg, bsCfg, myPeers.Peers)
+		}
+		s.startRunning(runner, bsCfg)
+		wg.Wait()
 	} else {
-		s.state = stateMaster
-		s.startMaster(runner)
+		// Bootstrap new cluster
+		// Do we have to register?
+		if s.MasterAddress != "" {
+			s.state = stateSlave
+			s.bootstrapSlave(s.MasterAddress, runner, bsCfg)
+		} else {
+			s.state = stateMaster
+			s.bootstrapMaster(runner, bsCfg)
+		}
 	}
-}
 
-// isClusterMode returns true when the service is running in cluster mode.
-func (s *Service) isClusterMode() bool {
-	return s.Mode == "cluster"
-}
-
-// isSingleMode returns true when the service is running in single server mode.
-func (s *Service) isSingleMode() bool {
-	return s.Mode == "single"
-}
-
-// needsAgent returns true if the agent should run in this instance
-func (s *Service) needsAgent() bool {
-	myPeer, ok := s.myPeers.PeerByID(s.ID)
-	return ok && myPeer.HasAgent
+	return nil
 }

@@ -25,6 +25,7 @@ package service
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"strings"
 )
 
@@ -81,4 +82,42 @@ func (s *configSection) WriteTo(w io.Writer) (int64, error) {
 	lines = append(lines, "")
 	n, err := w.Write([]byte(strings.Join(lines, "\n")))
 	return int64(n), maskAny(err)
+}
+
+// readConfigFile loads the content of a config file.
+func readConfigFile(path string) (configFile, error) {
+	content, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	lines := strings.Split(string(content), "\n")
+	config := configFile{}
+	var section *configSection
+	for _, line := range lines {
+		idx := strings.Index(line, "#")
+		if idx >= 0 {
+			line = line[:idx]
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			name := strings.TrimSpace(line[1 : len(line)-2])
+			section = &configSection{
+				Name:     name,
+				Settings: make(map[string]string),
+			}
+			config = append(config, section)
+		} else if section != nil {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			section.Settings[key] = value
+		}
+	}
+	return config, nil
 }

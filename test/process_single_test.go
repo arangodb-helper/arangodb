@@ -30,6 +30,7 @@ import (
 
 // TestProcessSingle runs `arangodb --starter.mode=single`
 func TestProcessSingle(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -52,6 +53,7 @@ func TestProcessSingle(t *testing.T) {
 
 // TestProcessSingleShutdownViaAPI runs `arangodb --starter.mode=single`, stopping it through the `/shutdown` API.
 func TestProcessSingleShutdownViaAPI(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -74,6 +76,7 @@ func TestProcessSingleShutdownViaAPI(t *testing.T) {
 
 // TestProcessSingleAutoKeyFile runs `arangodb --starter.mode=single --ssl.auto-key`
 func TestProcessSingleAutoKeyFile(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -96,6 +99,7 @@ func TestProcessSingleAutoKeyFile(t *testing.T) {
 
 // TestOldProcessSingle runs `arangodb --mode=single`
 func TestOldProcessSingle(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
@@ -118,6 +122,7 @@ func TestOldProcessSingle(t *testing.T) {
 
 // TestOldProcessSingleAutoKeyFile runs `arangodb --mode=single --sslAutoKeyFile`
 func TestOldProcessSingleAutoKeyFile(t *testing.T) {
+	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
