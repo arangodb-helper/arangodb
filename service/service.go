@@ -260,7 +260,7 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 			return version != "", version, statusTrail, false
 		case statusCode := <-statusCodes:
 			lastStatusCode := math.MinInt32
-			if len(statusTrail) == 0 {
+			if len(statusTrail) > 0 {
 				lastStatusCode = statusTrail[len(statusTrail)-1]
 			}
 			if len(statusTrail) == 0 || lastStatusCode != statusCode {
