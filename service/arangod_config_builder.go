@@ -198,6 +198,10 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		options = append(options,
 			optionPair{"--server.threads", strconv.Itoa(config.ServerThreads)})
 	}
+	if config.DebugCluster {
+		options = append(options,
+			optionPair{"--log.level", "startup=trace"})
+	}
 	scheme := NewURLSchemes(clusterConfig.IsSecure()).Arangod
 	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch serverType {
