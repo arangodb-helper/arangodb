@@ -197,6 +197,10 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 		options = append(options,
 			optionPair{"--server.threads", strconv.Itoa(s.ServerThreads)})
 	}
+	if s.DebugCluster {
+		options = append(options,
+			optionPair{"--log.level", "startup=trace"})
+	}
 	scheme := NewURLSchemes(s.IsSecure()).Arangod
 	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch serverType {
