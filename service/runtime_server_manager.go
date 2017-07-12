@@ -257,7 +257,7 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 			isRecentFailure = false
 		}
 
-		if isRecentFailure {
+		if isRecentFailure && !s.stopping {
 			if !portInUse {
 				log.Infof("%s has terminated, quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
 				if recentFailures >= minRecentFailuresForLog && config.DebugCluster {
@@ -273,6 +273,10 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 			}
 		} else {
 			log.Infof("%s has terminated", serverType)
+			if config.DebugCluster && !s.stopping {
+				// Show logs of the server
+				s.showRecentLogs(log, runtimeContext, serverType)
+			}
 		}
 		if portInUse {
 			time.Sleep(time.Second)
