@@ -174,14 +174,15 @@ type Service struct {
 		ctx     context.Context    // Context to wait on for the bootstrap state to be completed. Once trigger the cluster config is complete.
 		trigger context.CancelFunc // Triggers the end of the bootstrap state
 	}
-	announcePort         int         // Port I can be reached on from the outside
-	tlsConfig            *tls.Config // Server side TLS config (if any)
-	isNetHost            bool        // Is this process running in a container with `--net=host` or running outside a container?
-	mutex                sync.Mutex  // Mutex used to protect access to this datastructure
-	allowSameDataDir     bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
-	isLocalSlave         bool
-	learnOwnAddress      bool // If set, the HTTP server will update my peer with address information gathered from a /hello request.
-	runtimeServerManager runtimeServerManager
+	announcePort          int         // Port I can be reached on from the outside
+	tlsConfig             *tls.Config // Server side TLS config (if any)
+	isNetHost             bool        // Is this process running in a container with `--net=host` or running outside a container?
+	mutex                 sync.Mutex  // Mutex used to protect access to this datastructure
+	allowSameDataDir      bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
+	isLocalSlave          bool
+	learnOwnAddress       bool // If set, the HTTP server will update my peer with address information gathered from a /hello request.
+	runtimeServerManager  runtimeServerManager
+	runtimeClusterManager runtimeClusterManager
 }
 
 // NewService creates a new Service instance from the given config.
@@ -511,6 +512,32 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 	return s.myPeers
 }
 
+// ChangeState alters the current state of the service
+func (s *Service) ChangeState(newState State) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.state = newState
+}
+
+// PrepareDatabaseServerRequestFunc returns a function that is used to
+// prepare a request to a database server (including authentication).
+func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
+	return func(req *http.Request) error {
+		addJwtHeader(req, s.jwtSecret)
+		return nil
+	}
+}
+
+// UpdateClusterConfig updates the current cluster configuration.
+func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// TODO only update when changed
+	s.myPeers = newConfig
+	s.saveSetup()
+}
+
 // startHTTPServer initializes and runs the HTTP server.
 // If will return directly after starting it.
 func (s *Service) startHTTPServer(config Config) {
@@ -539,8 +566,24 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.id)
 	}
 
+	wg := sync.WaitGroup{}
+
 	// Start the runtime server manager
-	s.runtimeServerManager.Run(s.stopPeer.ctx, s.log, s, runner, config, bsCfg)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runtimeServerManager.Run(s.stopPeer.ctx, s.log, s, runner, config, bsCfg)
+	}()
+
+	// Start the runtime cluster manager
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runtimeClusterManager.Run(s.stopPeer.ctx, s.log, s)
+	}()
+
+	// Wait until managers have terminated
+	wg.Wait()
 }
 
 // Run runs the service in either master or slave mode.

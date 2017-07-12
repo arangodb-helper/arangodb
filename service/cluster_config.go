@@ -25,8 +25,12 @@ package service
 import (
 	"fmt"
 	"net"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/arangodb-helper/arangodb/service/agency"
 )
 
 // Peer contains all persistent settings of a starter.
@@ -171,4 +175,22 @@ func (p ClusterConfig) IsSecure() bool {
 		}
 	}
 	return false
+}
+
+// CreateAgencyAPI creates a client for the agency
+func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error) (agency.API, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.Peers {
+		if p.HasAgent() {
+			port := p.Port + p.PortOffset + ServerType(ServerTypeAgent).PortOffset()
+			scheme := NewURLSchemes(p.IsSecure).Browser
+			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+			if err != nil {
+				return nil, maskAny(err)
+			}
+			endpoints = append(endpoints, *u)
+		}
+	}
+	return agency.NewAgencyClient(endpoints, prepareRequest)
 }
