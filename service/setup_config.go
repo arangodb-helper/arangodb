@@ -27,14 +27,19 @@ import (
 	"io/ioutil"
 	"path/filepath"
 
+	"github.com/coreos/go-semver/semver"
 	logging "github.com/op/go-logging"
 )
 
-const (
+var (
 	// SetupConfigVersion is the semantic version of the process that created this.
 	// If the structure of SetupConfigFile (or any underlying fields) or its semantics change, you must increase this version.
-	SetupConfigVersion = "0.2.1"
-	setupFileName      = "setup.json"
+	setupConfigVersion    = *semver.New("0.2.2") // Current version
+	minSetupConfigVersion = *semver.New("0.2.1") // Minimum version that we can support
+)
+
+const (
+	setupFileName = "setup.json"
 )
 
 // SetupConfigFile is the JSON structure stored in the setup file of this process.
@@ -51,7 +56,7 @@ type SetupConfigFile struct {
 // saveSetup saves the current peer configuration to disk.
 func (s *Service) saveSetup() error {
 	cfg := SetupConfigFile{
-		Version:          SetupConfigVersion,
+		Version:          setupConfigVersion.String(),
 		ID:               s.id,
 		Peers:            s.myPeers,
 		StartLocalSlaves: s.startedLocalSlaves,
@@ -75,33 +80,42 @@ func (s *Service) saveSetup() error {
 // Returns true on relaunch or false to continue with a fresh start.
 func ReadSetupConfig(log *logging.Logger, dataDir string, bsCfg BootstrapConfig) (BootstrapConfig, ClusterConfig, bool, error) {
 	// Is this a new start or a restart?
-	if setupContent, err := ioutil.ReadFile(filepath.Join(dataDir, setupFileName)); err == nil {
-		// Could read file
-		var cfg SetupConfigFile
-		if err := json.Unmarshal(setupContent, &cfg); err == nil {
-			if cfg.Version == SetupConfigVersion {
-				// Reload data from config
-				//s.myPeers = cfg.Peers
-				bsCfg.ID = cfg.ID
-				if cfg.Mode != "" {
-					bsCfg.Mode = cfg.Mode
-				}
-				bsCfg.StartLocalSlaves = cfg.StartLocalSlaves
-				if cfg.SslKeyFile != "" {
-					bsCfg.SslKeyFile = cfg.SslKeyFile
-				}
-				if cfg.JwtSecret != "" {
-					bsCfg.JwtSecret = cfg.JwtSecret
-				}
-				bsCfg.AgencySize = cfg.Peers.AgencySize
-
-				return bsCfg, cfg.Peers, true, nil
-			}
-			// If this happens, we need a smart upgrade procedure from old to new version.
-			log.Warningf("%s is outdated. Starting fresh...", setupFileName)
-		} else {
-			log.Warningf("Failed to unmarshal existing %s: %#v", setupFileName, err)
-		}
+	setupContent, err := ioutil.ReadFile(filepath.Join(dataDir, setupFileName))
+	if err != nil {
+		return bsCfg, ClusterConfig{}, false, nil
 	}
-	return bsCfg, ClusterConfig{}, false, nil
+	// Could read file
+	var cfg SetupConfigFile
+	if err := json.Unmarshal(setupContent, &cfg); err != nil {
+		log.Warningf("Failed to unmarshal existing %s: %#v", setupFileName, err)
+		return bsCfg, ClusterConfig{}, false, nil
+	}
+	// Parse version
+	version, err := semver.NewVersion(cfg.Version)
+	if err != nil {
+		log.Warningf("Failed to parse version '%s' in %s: %#v", cfg.Version, setupFileName, err)
+		return bsCfg, ClusterConfig{}, false, nil
+	}
+
+	// If version recent enough?
+	if version.LessThan(minSetupConfigVersion) {
+		log.Warningf("%s is outdated (version %s). Starting fresh...", setupFileName, cfg.Version)
+		return bsCfg, ClusterConfig{}, false, nil
+	}
+
+	// Reload data from config
+	bsCfg.ID = cfg.ID
+	if cfg.Mode != "" {
+		bsCfg.Mode = cfg.Mode
+	}
+	bsCfg.StartLocalSlaves = cfg.StartLocalSlaves
+	if cfg.SslKeyFile != "" {
+		bsCfg.SslKeyFile = cfg.SslKeyFile
+	}
+	if cfg.JwtSecret != "" {
+		bsCfg.JwtSecret = cfg.JwtSecret
+	}
+	bsCfg.AgencySize = cfg.Peers.AgencySize
+
+	return bsCfg, cfg.Peers, true, nil
 }
