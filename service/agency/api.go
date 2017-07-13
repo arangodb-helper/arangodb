@@ -22,17 +22,20 @@
 
 package agency
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // API abstracts the API of the ArangoDB agency
 type API interface {
 	// ReadKey reads the value of a given key in the agency.
-	ReadKey(ctx context.Context, key []string, output interface{}) error
+	ReadKey(ctx context.Context, key []string) (interface{}, error)
 
 	// WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
-	WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}) error
+	WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error
 
 	// WriteKeyIfEqualTo writes the given new value with the given key only if the existing value for that key equals
 	// to the given old value.
-	WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}) error
+	WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error
 }

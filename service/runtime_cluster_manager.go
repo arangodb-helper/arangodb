@@ -25,8 +25,10 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -81,13 +83,18 @@ func (s *runtimeClusterManager) getMasterURL(ctx context.Context) (string, error
 		return "", maskAny(err)
 	}
 	// Try to read master URL
-	var result string
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
-	if err := api.ReadKey(ctx, masterURLKey, &result); err != nil {
+	if result, err := api.ReadKey(ctx, masterURLKey); err != nil {
+		if agency.IsKeyNotFound(err) {
+			return "", nil
+		}
 		return "", maskAny(err)
+	} else if strResult, ok := result.(string); ok {
+		return strResult, nil
+	} else {
+		return "", maskAny(fmt.Errorf("Invalid value type at key: %v", reflect.TypeOf(result)))
 	}
-	return result, nil
 }
 
 // tryBecomeMaster tries to write our URL into a well known location in the agency,
@@ -101,7 +108,7 @@ func (s *runtimeClusterManager) tryBecomeMaster(ctx context.Context, ownURL stri
 	// Try to write our master URL
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
-	if err := api.WriteKeyIfEmpty(ctx, masterURLKey, ownURL); err != nil {
+	if err := api.WriteKeyIfEmpty(ctx, masterURLKey, ownURL, masterURLTTL); err != nil {
 		return maskAny(err)
 	}
 	return nil
@@ -118,7 +125,7 @@ func (s *runtimeClusterManager) tryRemainMaster(ctx context.Context, ownURL stri
 	// Try to update our master URL
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
-	if err := api.WriteKeyIfEqualTo(ctx, masterURLKey, ownURL, ownURL); err != nil {
+	if err := api.WriteKeyIfEqualTo(ctx, masterURLKey, ownURL, ownURL, masterURLTTL); err != nil {
 		return maskAny(err)
 	}
 	return nil
@@ -185,8 +192,9 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			delay = time.Second * 5
 		} else if masterURL == "" {
 			// There is currently no master, try to become master
+			log.Debug("There is no current master, try to become master")
 			if err := s.tryBecomeMaster(ctx, ownURL); err != nil {
-				log.Debugf("tried to become master but failed: %$v", err)
+				log.Debugf("tried to become master but failed: %#v", err)
 				runtimeContext.ChangeState(stateRunningSlave)
 			} else {
 				log.Info("Just became master")
@@ -196,6 +204,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			delay = masterURLTTL / 3
 		} else if masterURL == ownURL {
 			// We are the master, update our entry in the agency
+			log.Debug("We're master, try to remain it")
 			runtimeContext.ChangeState(stateRunningMaster)
 
 			// Update agency
@@ -212,6 +221,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			}
 		} else {
 			// We are slave, try to update cluster configuration from master
+			log.Debugf("We're slave, try to update cluster config from %s", masterURL)
 			runtimeContext.ChangeState(stateRunningSlave)
 
 			// Ask current master for cluster configuration

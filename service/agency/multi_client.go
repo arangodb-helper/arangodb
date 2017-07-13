@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sync"
+	"time"
 )
 
 // NewAgencyClient creates a new client implementation for an agency with multiple endpoints.
@@ -50,43 +52,76 @@ type multiClient struct {
 }
 
 // ReadKey reads the value of a given key in the agency.
-func (c *multiClient) ReadKey(ctx context.Context, key []string, output interface{}) error {
+func (c *multiClient) ReadKey(ctx context.Context, key []string) (interface{}, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	results := make(chan interface{}, len(c.clients))
+	errors := make(chan error, len(c.clients))
+	wg := sync.WaitGroup{}
 	for _, epClient := range c.clients {
-		err := epClient.ReadKey(ctx, key, output)
-		if err == nil {
-			return nil
-		}
-		// Check error
-		statusCode, ok := IsStatusError(err)
-		if !ok {
-			return maskAny(err)
-		}
-		// We have a status code, check it
-		if statusCode >= 400 && statusCode < 500 {
-			// Real error, return it
-			return maskAny(err)
-		}
-		// No permanent error, try next agent
+		wg.Add(1)
+		go func(epClient API) {
+			defer wg.Done()
+			result, err := epClient.ReadKey(ctx, key)
+			if err == nil {
+				// Success
+				results <- result
+				// Cancel all other requests
+				cancel()
+				return
+			}
+			// Check error
+			if statusCode, ok := IsStatusError(err); ok {
+				// We have a status code, check it
+				if statusCode >= 400 && statusCode < 500 {
+					// Permanent error, return it
+					errors <- maskAny(err)
+					// Cancel all other requests
+					cancel()
+					return
+				}
+			}
+			// Key not found
+			if IsKeyNotFound(err) {
+				// Permanent error, return it
+				errors <- maskAny(err)
+				// Cancel all other requests
+				cancel()
+				return
+			}
+			// No permanent error, try next agent
+		}(epClient)
 	}
-	return maskAny(fmt.Errorf("No available agents"))
+
+	// Wait for go routines to finished
+	wg.Wait()
+	cancel()
+	close(results)
+	close(errors)
+	if result, ok := <-results; ok {
+		// Return first result
+		return result, nil
+	}
+	if err, ok := <-errors; ok {
+		// Return first error
+		return nil, maskAny(err)
+	}
+	return nil, maskAny(fmt.Errorf("No available agents"))
 }
 
 // WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
-func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}) error {
+func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
 	for _, epClient := range c.clients {
-		err := epClient.WriteKeyIfEmpty(ctx, key, value)
+		err := epClient.WriteKeyIfEmpty(ctx, key, value, ttl)
 		if err == nil {
 			return nil
 		}
 		// Check error
-		statusCode, ok := IsStatusError(err)
-		if !ok {
-			return maskAny(err)
-		}
-		// We have a status code, check it
-		if statusCode >= 400 && statusCode < 500 {
-			// Real error, return it
-			return maskAny(err)
+		if statusCode, ok := IsStatusError(err); ok {
+			// We have a status code, check it
+			if statusCode >= 400 && statusCode < 500 {
+				// Real error, return it
+				return maskAny(err)
+			}
 		}
 		// No permanent error, try next agent
 	}
@@ -95,21 +130,19 @@ func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value i
 
 // WriteKeyIfEqualTo writes the given new value with the given key only if the existing value for that key equals
 // to the given old value.
-func (c *multiClient) WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}) error {
+func (c *multiClient) WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error {
 	for _, epClient := range c.clients {
-		err := epClient.WriteKeyIfEqualTo(ctx, key, newValue, oldValue)
+		err := epClient.WriteKeyIfEqualTo(ctx, key, newValue, oldValue, ttl)
 		if err == nil {
 			return nil
 		}
 		// Check error
-		statusCode, ok := IsStatusError(err)
-		if !ok {
-			return maskAny(err)
-		}
-		// We have a status code, check it
-		if statusCode >= 400 && statusCode < 500 {
-			// Real error, return it
-			return maskAny(err)
+		if statusCode, ok := IsStatusError(err); ok {
+			// We have a status code, check it
+			if statusCode >= 400 && statusCode < 500 {
+				// Real error, return it
+				return maskAny(err)
+			}
 		}
 		// No permanent error, try next agent
 	}

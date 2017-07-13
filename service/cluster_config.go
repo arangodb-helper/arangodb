@@ -77,7 +77,7 @@ func (p Peer) HasCoordinator() bool { return p.HasCoordinatorFlag == nil || *p.H
 
 // CreateStarterURL creates a URL to the relative path to the starter on this peer.
 func (p Peer) CreateStarterURL(relPath string) string {
-	addr := net.JoinHostPort(p.Address, strconv.Itoa(p.Port))
+	addr := net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset))
 	relPath = strings.TrimPrefix(relPath, "/")
 	scheme := NewURLSchemes(p.IsSecure).Browser
 	return fmt.Sprintf("%s://%s/%s", scheme, addr, relPath)
