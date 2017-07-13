@@ -10,6 +10,7 @@ var (
 	maskAny              = errors.WithStack
 	ConditionFailedError = errors.New("Condition failed")
 	KeyNotFoundError     = errors.New("Key not found")
+	redirectionError     = errors.New("redirect")
 )
 
 type StatusError struct {

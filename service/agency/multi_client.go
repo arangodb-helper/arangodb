@@ -34,11 +34,11 @@ import (
 // NewAgencyClient creates a new client implementation for an agency with multiple endpoints.
 func NewAgencyClient(endpoints []url.URL, prepareRequest func(*http.Request) error) (API, error) {
 	if len(endpoints) == 1 {
-		return newAgencyClient(endpoints[0], prepareRequest)
+		return newAgencyClient(endpoints[0], prepareRequest, true)
 	}
 	c := &multiClient{}
 	for _, ep := range endpoints {
-		epClient, err := newAgencyClient(ep, prepareRequest)
+		epClient, err := newAgencyClient(ep, prepareRequest, false)
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -53,6 +53,53 @@ type multiClient struct {
 
 // ReadKey reads the value of a given key in the agency.
 func (c *multiClient) ReadKey(ctx context.Context, key []string) (interface{}, error) {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if result, err := c.ReadKey(ctx, key); err != nil {
+			return nil, maskAny(err)
+		} else {
+			return result, nil
+		}
+	}
+	if result, err := c.handleMultiRequests(ctx, op); err != nil {
+		return nil, maskAny(err)
+	} else {
+		return result, nil
+	}
+}
+
+// WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
+func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if err := c.WriteKeyIfEmpty(ctx, key, value, ttl); err != nil {
+			return nil, maskAny(err)
+		}
+		return nil, nil
+	}
+	if _, err := c.handleMultiRequests(ctx, op); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// WriteKeyIfEqualTo writes the given new value with the given key only if the existing value for that key equals
+// to the given old value.
+func (c *multiClient) WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if err := c.WriteKeyIfEqualTo(ctx, key, newValue, oldValue, ttl); err != nil {
+			return nil, maskAny(err)
+		}
+		return nil, nil
+	}
+	if _, err := c.handleMultiRequests(ctx, op); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// handleMultiRequests starts the given operation on all endpoints
+// in parallel. The first to return a result or a permanent failure cancels
+// all other operations.
+func (c *multiClient) handleMultiRequests(ctx context.Context, operation func(context.Context, API) (interface{}, error)) (interface{}, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	results := make(chan interface{}, len(c.clients))
 	errors := make(chan error, len(c.clients))
@@ -61,7 +108,7 @@ func (c *multiClient) ReadKey(ctx context.Context, key []string) (interface{}, e
 		wg.Add(1)
 		go func(epClient API) {
 			defer wg.Done()
-			result, err := epClient.ReadKey(ctx, key)
+			result, err := operation(ctx, epClient)
 			if err == nil {
 				// Success
 				results <- result
@@ -106,45 +153,4 @@ func (c *multiClient) ReadKey(ctx context.Context, key []string) (interface{}, e
 		return nil, maskAny(err)
 	}
 	return nil, maskAny(fmt.Errorf("No available agents"))
-}
-
-// WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
-func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
-	for _, epClient := range c.clients {
-		err := epClient.WriteKeyIfEmpty(ctx, key, value, ttl)
-		if err == nil {
-			return nil
-		}
-		// Check error
-		if statusCode, ok := IsStatusError(err); ok {
-			// We have a status code, check it
-			if statusCode >= 400 && statusCode < 500 {
-				// Real error, return it
-				return maskAny(err)
-			}
-		}
-		// No permanent error, try next agent
-	}
-	return maskAny(fmt.Errorf("No available agents"))
-}
-
-// WriteKeyIfEqualTo writes the given new value with the given key only if the existing value for that key equals
-// to the given old value.
-func (c *multiClient) WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error {
-	for _, epClient := range c.clients {
-		err := epClient.WriteKeyIfEqualTo(ctx, key, newValue, oldValue, ttl)
-		if err == nil {
-			return nil
-		}
-		// Check error
-		if statusCode, ok := IsStatusError(err); ok {
-			// We have a status code, check it
-			if statusCode >= 400 && statusCode < 500 {
-				// Real error, return it
-				return maskAny(err)
-			}
-		}
-		// No permanent error, try next agent
-	}
-	return maskAny(fmt.Errorf("No available agents"))
 }

@@ -37,13 +37,19 @@ import (
 )
 
 // newAgencyClient creates a new client implementation.
-func newAgencyClient(endpoint url.URL, prepareRequest func(*http.Request) error) (API, error) {
+func newAgencyClient(endpoint url.URL, prepareRequest func(*http.Request) error, followRedirects bool) (API, error) {
 	endpoint.Path = ""
-	return &client{
+	c := &client{
 		endpoint:       endpoint,
 		client:         DefaultHTTPClient(),
 		prepareRequest: prepareRequest,
-	}, nil
+	}
+	if !followRedirects {
+		c.client.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return maskAny(redirectionError)
+		}
+	}
+	return c, nil
 }
 
 type client struct {

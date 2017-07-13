@@ -144,7 +144,7 @@ func (s *httpServer) Start(hostAddr, containerAddr string, tlsConfig *tls.Config
 // HTTP service function:
 
 func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
-	s.log.Debugf("Received request from %s", r.RemoteAddr)
+	s.log.Debugf("Received %s /hello request from %s", r.Method, r.RemoteAddr)
 
 	// Derive own address
 	host, _, err := net.SplitHostPort(r.Host)
