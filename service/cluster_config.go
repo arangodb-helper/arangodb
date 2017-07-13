@@ -28,60 +28,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/arangodb-helper/arangodb/service/agency"
 )
-
-// Peer contains all persistent settings of a starter.
-type Peer struct {
-	ID                 string // Unique of of the peer
-	Address            string // IP address of arangodb peer server
-	Port               int    // Port number of arangodb peer server
-	PortOffset         int    // Offset to add to base ports for the various servers (agent, coordinator, dbserver)
-	DataDir            string // Directory holding my data
-	HasAgentFlag       bool   `json:"HasAgent"`                 // If set, this peer is running an agent
-	HasDBServerFlag    *bool  `json:"HasDBServer,omitempty"`    // If set or is nil, this peer is running a dbserver
-	HasCoordinatorFlag *bool  `json:"HasCoordinator,omitempty"` // If set or is nil, this peer is running a coordinator
-	IsSecure           bool   // If set, servers started by this peer are using an SSL connection
-}
-
-// NewPeer initializes a new Peer instance with given values.
-func NewPeer(id, address string, port, portOffset int, dataDir string, hasAgent, hasDBServer, hasCoordinator, isSecure bool) Peer {
-	p := Peer{
-		ID:           id,
-		Address:      address,
-		Port:         port,
-		PortOffset:   portOffset,
-		DataDir:      dataDir,
-		HasAgentFlag: hasAgent,
-		IsSecure:     isSecure,
-	}
-	if !hasDBServer {
-		p.HasDBServerFlag = boolRef(false)
-	}
-	if !hasCoordinator {
-		p.HasCoordinatorFlag = boolRef(false)
-	}
-	return p
-}
-
-// HasAgent returns true if this peer is running an agent
-func (p Peer) HasAgent() bool { return p.HasAgentFlag }
-
-// HasDBServer returns true if this peer is running a dbserver
-func (p Peer) HasDBServer() bool { return p.HasDBServerFlag == nil || *p.HasDBServerFlag }
-
-// HasCoordinator returns true if this peer is running a coordinator
-func (p Peer) HasCoordinator() bool { return p.HasCoordinatorFlag == nil || *p.HasCoordinatorFlag }
-
-// CreateStarterURL creates a URL to the relative path to the starter on this peer.
-func (p Peer) CreateStarterURL(relPath string) string {
-	addr := net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset))
-	relPath = strings.TrimPrefix(relPath, "/")
-	scheme := NewURLSchemes(p.IsSecure).Browser
-	return fmt.Sprintf("%s://%s/%s", scheme, addr, relPath)
-}
 
 // ClusterConfig contains all the informtion of a cluster from a starter's point of view.
 // When this type (or any of the types used in here) is changed, increase `SetupConfigVersion`.

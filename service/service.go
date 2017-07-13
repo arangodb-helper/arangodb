@@ -407,6 +407,22 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		}
 	}
 
+	if s.state == stateRunningSlave {
+		// Redirect to running master
+		if masterURL := s.runtimeClusterManager.GetMasterURL(); masterURL != "" {
+			helloURL, err := getURLWithPath(masterURL, "/hello")
+			if err != nil {
+				internalError(err.Error())
+			} else {
+				redirectTo(helloURL)
+			}
+		} else {
+			// No master know, service unavailable
+			serviceNotAvailable("no master known")
+		}
+		return ClusterConfig{}
+	}
+
 	// Learn my own address (if needed)
 	if s.learnOwnAddress {
 		_, hostPort, _ := s.getHTTPServerPort()

@@ -29,7 +29,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"reflect"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/arangodb-helper/arangodb/service/agency"
@@ -46,7 +46,9 @@ var (
 
 // runtimeClusterManager keeps the cluster configuration up to date during a running state.
 type runtimeClusterManager struct {
+	mutex          sync.Mutex
 	runtimeContext runtimeClusterManagerContext
+	lastMasterURL  string
 }
 
 // runtimeClusterManagerContext provides a context for the runtimeClusterManager.
@@ -133,11 +135,9 @@ func (s *runtimeClusterManager) tryRemainMaster(ctx context.Context, ownURL stri
 
 // updateClusterConfiguration asks the master at given URL for the latest cluster configuration.
 func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, masterURL string) error {
-	var helloURL string
-	if strings.HasSuffix(masterURL, "/") {
-		helloURL = masterURL + "hello"
-	} else {
-		helloURL = masterURL + "/hello"
+	helloURL, err := getURLWithPath(masterURL, "/hello")
+	if err != nil {
+		return maskAny(err)
 	}
 	// Perform request
 	r, err := httpClient.Get(helloURL)
@@ -190,47 +190,54 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			// Cannot obtain master url, wait a while and try again
 			log.Debugf("Failed to get master URL, retrying in 5sec (%#v)", err)
 			delay = time.Second * 5
-		} else if masterURL == "" {
-			// There is currently no master, try to become master
-			log.Debug("There is no current master, try to become master")
-			if err := s.tryBecomeMaster(ctx, ownURL); err != nil {
-				log.Debugf("tried to become master but failed: %#v", err)
-				runtimeContext.ChangeState(stateRunningSlave)
-			} else {
-				log.Info("Just became master")
-				runtimeContext.ChangeState(stateRunningMaster)
-			}
-			// Have update delay before trying to remain master
-			delay = masterURLTTL / 3
-		} else if masterURL == ownURL {
-			// We are the master, update our entry in the agency
-			log.Debug("We're master, try to remain it")
-			runtimeContext.ChangeState(stateRunningMaster)
-
-			// Update agency
-			if err := s.tryRemainMaster(ctx, ownURL); err != nil {
-				log.Info("Failed to remain master: %#v", err)
-				runtimeContext.ChangeState(stateRunningSlave)
-
-				// Retry soon
-				delay = time.Second
-			} else {
-				// I'm still the master
-				// wait a bit before updating master URL
-				delay = masterURLTTL / 3
-			}
 		} else {
-			// We are slave, try to update cluster configuration from master
-			log.Debugf("We're slave, try to update cluster config from %s", masterURL)
-			runtimeContext.ChangeState(stateRunningSlave)
+			// Store current master
+			s.mutex.Lock()
+			s.lastMasterURL = masterURL
+			s.mutex.Unlock()
 
-			// Ask current master for cluster configuration
-			if err := s.updateClusterConfiguration(ctx, masterURL); err != nil {
-				log.Warningf("Failed to load cluster configuration from %s: %#v", masterURL, err)
+			if masterURL == "" {
+				// There is currently no master, try to become master
+				log.Debug("There is no current master, try to become master")
+				if err := s.tryBecomeMaster(ctx, ownURL); err != nil {
+					log.Debugf("tried to become master but failed: %#v", err)
+					runtimeContext.ChangeState(stateRunningSlave)
+				} else {
+					log.Info("Just became master")
+					runtimeContext.ChangeState(stateRunningMaster)
+				}
+				// Have update delay before trying to remain master
+				delay = masterURLTTL / 3
+			} else if masterURL == ownURL {
+				// We are the master, update our entry in the agency
+				log.Debug("We're master, try to remain it")
+				runtimeContext.ChangeState(stateRunningMaster)
+
+				// Update agency
+				if err := s.tryRemainMaster(ctx, ownURL); err != nil {
+					log.Info("Failed to remain master: %#v", err)
+					runtimeContext.ChangeState(stateRunningSlave)
+
+					// Retry soon
+					delay = time.Second
+				} else {
+					// I'm still the master
+					// wait a bit before updating master URL
+					delay = masterURLTTL / 3
+				}
+			} else {
+				// We are slave, try to update cluster configuration from master
+				log.Debugf("We're slave, try to update cluster config from %s", masterURL)
+				runtimeContext.ChangeState(stateRunningSlave)
+
+				// Ask current master for cluster configuration
+				if err := s.updateClusterConfiguration(ctx, masterURL); err != nil {
+					log.Warningf("Failed to load cluster configuration from %s: %#v", masterURL, err)
+				}
+
+				// Wait a bit until re-updating the configuration
+				delay = time.Second * 15
 			}
-
-			// Wait a bit until re-updating the configuration
-			delay = time.Second * 15
 		}
 
 		// Wait a bit
@@ -242,4 +249,11 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			return
 		}
 	}
+}
+
+// Get the last known URL of the master (can be empty)
+func (s *runtimeClusterManager) GetMasterURL() string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return s.lastMasterURL
 }
