@@ -82,6 +82,12 @@ func getURLWithPath(rootURL string, relPath string) (string, error) {
 	if err != nil {
 		return "", maskAny(err)
 	}
-	u.Path = relPath
-	return u.String(), nil
+	parts := strings.SplitN(relPath, "?", 2)
+	u.Path = parts[0]
+	u.RawQuery = ""
+	query := ""
+	if len(parts) > 1 {
+		query = "?" + parts[1]
+	}
+	return u.String() + query, nil
 }

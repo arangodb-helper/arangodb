@@ -390,7 +390,7 @@ func (s *Service) Stop() {
 
 // HandleHello handles a hello request.
 // If req==nil, this is a GET request, otherwise it is a POST request.
-func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloRequest, serviceNotAvailable, redirectTo, badRequest, internalError statusCallback) ClusterConfig {
+func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool, serviceNotAvailable, redirectTo, badRequest, internalError statusCallback) ClusterConfig {
 	// Claim exclusive access to our data structures
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -418,10 +418,13 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				redirectTo(helloURL)
 			}
 			return ClusterConfig{}
-		} else if req != nil {
-			// No master know, service unavailable when handling a POST request
+		} else if req != nil || isUpdateRequest {
+			// No master know, service unavailable when handling a POST of GET+update request
 			serviceNotAvailable("no master known")
 			return ClusterConfig{}
+		} else {
+			// No master know, but initial request.
+			// Just return what we know so the other starter can get started
 		}
 	}
 

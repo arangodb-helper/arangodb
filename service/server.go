@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/arangodb-helper/arangodb/client"
 	logging "github.com/op/go-logging"
@@ -87,7 +88,7 @@ type httpServerContext interface {
 
 	// Handle a hello request.
 	// If req==nil, this is a GET request, otherwise it is a POST request.
-	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, serviceNotAvailable, redirectTo, badRequest, internalError statusCallback) ClusterConfig
+	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool, serviceNotAvailable, redirectTo, badRequest, internalError statusCallback) ClusterConfig
 }
 
 // newHTTPServer initializes and an HTTP server.
@@ -153,6 +154,7 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ownAddress := normalizeHostName(host)
+	isUpdateRequest, _ := strconv.ParseBool(r.FormValue("update"))
 
 	// Prepare callbacks
 	didRespond := false
@@ -178,7 +180,7 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 	var result ClusterConfig
 	if r.Method == "GET" {
 		// Let service handle get request
-		result = s.context.HandleHello(ownAddress, r.RemoteAddr, nil, serviceNotAvailable, redirectTo, badRequest, internalError)
+		result = s.context.HandleHello(ownAddress, r.RemoteAddr, nil, isUpdateRequest, serviceNotAvailable, redirectTo, badRequest, internalError)
 	} else if r.Method == "POST" {
 		// Read request
 		var req HelloRequest
@@ -194,7 +196,7 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Let service handle post request
-		result = s.context.HandleHello(ownAddress, r.RemoteAddr, &req, serviceNotAvailable, redirectTo, badRequest, internalError)
+		result = s.context.HandleHello(ownAddress, r.RemoteAddr, &req, false, serviceNotAvailable, redirectTo, badRequest, internalError)
 	} else {
 		// Invalid method
 		writeError(w, http.StatusMethodNotAllowed, "GET or POST required")

@@ -117,6 +117,8 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			if err != nil {
 				s.log.Errorf("Failed to connect to master: %v", err)
 				time.Sleep(time.Second * 2)
+			} else if r.StatusCode != 200 {
+				s.log.Warningf("Invalid status received from master: %d", r.StatusCode)
 			} else {
 				defer r.Body.Close()
 				body, _ := ioutil.ReadAll(r.Body)

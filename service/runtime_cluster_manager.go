@@ -135,7 +135,7 @@ func (s *runtimeClusterManager) tryRemainMaster(ctx context.Context, ownURL stri
 
 // updateClusterConfiguration asks the master at given URL for the latest cluster configuration.
 func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, masterURL string) error {
-	helloURL, err := getURLWithPath(masterURL, "/hello")
+	helloURL, err := getURLWithPath(masterURL, "/hello?update=1")
 	if err != nil {
 		return maskAny(err)
 	}
@@ -143,6 +143,10 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 	r, err := httpClient.Get(helloURL)
 	if err != nil {
 		return maskAny(err)
+	}
+	// Check status
+	if r.StatusCode != 200 {
+		return maskAny(fmt.Errorf("Invalid status %d from master", r.StatusCode))
 	}
 	// Parse result
 	defer r.Body.Close()
