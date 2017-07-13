@@ -67,8 +67,6 @@ type httpServer struct {
 	masterPort           int
 }
 
-type statusCallback func(msg string)
-
 // httpServerContext provides a context for the httpServer.
 type httpServerContext interface {
 	// ClusterConfig returns the current cluster configuration and the current peer
@@ -88,7 +86,7 @@ type httpServerContext interface {
 
 	// Handle a hello request.
 	// If req==nil, this is a GET request, otherwise it is a POST request.
-	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool, serviceNotAvailable, redirectTo, badRequest, internalError statusCallback) ClusterConfig
+	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error)
 }
 
 // newHTTPServer initializes and an HTTP server.
@@ -156,31 +154,10 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 	ownAddress := normalizeHostName(host)
 	isUpdateRequest, _ := strconv.ParseBool(r.FormValue("update"))
 
-	// Prepare callbacks
-	didRespond := false
-	serviceNotAvailable := func(msg string) {
-		writeError(w, http.StatusServiceUnavailable, msg)
-		didRespond = true
-	}
-	redirectTo := func(url string) {
-		header := w.Header()
-		header.Add("Location", url)
-		w.WriteHeader(http.StatusTemporaryRedirect)
-		didRespond = true
-	}
-	badRequest := func(msg string) {
-		writeError(w, http.StatusBadRequest, msg)
-		didRespond = true
-	}
-	internalError := func(msg string) {
-		writeError(w, http.StatusInternalServerError, msg)
-		didRespond = true
-	}
-
 	var result ClusterConfig
 	if r.Method == "GET" {
 		// Let service handle get request
-		result = s.context.HandleHello(ownAddress, r.RemoteAddr, nil, isUpdateRequest, serviceNotAvailable, redirectTo, badRequest, internalError)
+		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, nil, isUpdateRequest)
 	} else if r.Method == "POST" {
 		// Read request
 		var req HelloRequest
@@ -196,15 +173,17 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Let service handle post request
-		result = s.context.HandleHello(ownAddress, r.RemoteAddr, &req, false, serviceNotAvailable, redirectTo, badRequest, internalError)
+		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, &req, false)
 	} else {
 		// Invalid method
 		writeError(w, http.StatusMethodNotAllowed, "GET or POST required")
 		return
 	}
 
-	// Send result (if no error has been send before)
-	if !didRespond {
+	// Send result or error
+	if err != nil {
+		handleError(w, err)
+	} else {
 		b, err := json.Marshal(result)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -410,6 +389,20 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	s.context.Stop()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+func handleError(w http.ResponseWriter, err error) {
+	if loc, ok := IsRedirect(err); ok {
+		header := w.Header()
+		header.Add("Location", loc)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	} else if IsBadRequest(err) {
+		writeError(w, http.StatusBadRequest, err.Error())
+	} else if IsServiceUnavailable(err) {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+	} else {
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {

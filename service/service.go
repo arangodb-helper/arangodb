@@ -36,6 +36,7 @@ import (
 	"time"
 
 	logging "github.com/op/go-logging"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -244,12 +245,13 @@ func (s *Service) removePeerByID(id string) (peerRemoved bool, err error) {
 		return false, fmt.Errorf("Have not reached running state yet")
 	}
 
+	// Do the actual remove
 	if peerRemoved = s.myPeers.RemovePeerByID(id); !peerRemoved {
 		return peerRemoved, nil
 	}
 
 	// Peer has been removed, update stored config
-	s.log.Info("Saving setup")
+	s.log.Infof("Removed peer %s, saving setup", id)
 	if err := s.saveSetup(); err != nil {
 		s.log.Errorf("Failed to save setup: %#v", err)
 	}
@@ -390,7 +392,7 @@ func (s *Service) Stop() {
 
 // HandleHello handles a hello request.
 // If req==nil, this is a GET request, otherwise it is a POST request.
-func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool, serviceNotAvailable, redirectTo, badRequest, internalError statusCallback) ClusterConfig {
+func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error) {
 	// Claim exclusive access to our data structures
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -400,11 +402,10 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		if len(s.myPeers.AllPeers) > 0 {
 			// TODO replace by bootstrap master
 			master := s.myPeers.AllPeers[0]
-			redirectTo(master.CreateStarterURL("/hello"))
-			return ClusterConfig{}
+			location := master.CreateStarterURL("/hello")
+			return ClusterConfig{}, maskAny(RedirectError{location})
 		} else {
-			badRequest("No master known.")
-			return ClusterConfig{}
+			return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "No master known"))
 		}
 	}
 
@@ -413,15 +414,13 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		if masterURL := s.runtimeClusterManager.GetMasterURL(); masterURL != "" {
 			helloURL, err := getURLWithPath(masterURL, "/hello")
 			if err != nil {
-				internalError(err.Error())
+				return ClusterConfig{}, maskAny(errors.Wrap(InternalServerError, err.Error()))
 			} else {
-				redirectTo(helloURL)
+				return ClusterConfig{}, maskAny(RedirectError{helloURL})
 			}
-			return ClusterConfig{}
 		} else if req != nil || isUpdateRequest {
 			// No master know, service unavailable when handling a POST of GET+update request
-			serviceNotAvailable("no master known")
-			return ClusterConfig{}
+			return ClusterConfig{}, maskAny(errors.Wrap(ServiceUnavailableError, "No master known"))
 		} else {
 			// No master know, but initial request.
 			// Just return what we know so the other starter can get started
@@ -446,8 +445,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		if slaveAddr == "" {
 			host, _, err := net.SplitHostPort(remoteAddress)
 			if err != nil {
-				badRequest("SlaveAddress must be set.")
-				return ClusterConfig{}
+				return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "SlaveAddress must be set."))
 			}
 			slaveAddr = normalizeHostName(host)
 		} else {
@@ -457,24 +455,21 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 
 		// Check request
 		if req.SlaveID == "" {
-			badRequest("SlaveID must be set.")
-			return ClusterConfig{}
+			return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "SlaveID must be set."))
 		}
 
 		// Check datadir
 		if !s.allowSameDataDir {
 			for _, p := range s.myPeers.AllPeers {
 				if p.Address == slaveAddr && p.DataDir == req.DataDir && p.ID != req.SlaveID {
-					badRequest("Cannot use same directory as peer.")
-					return ClusterConfig{}
+					return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "Cannot use same directory as peer."))
 				}
 			}
 		}
 
 		// Check IsSecure, cannot mix secure / non-secure
 		if req.IsSecure != s.IsSecure() {
-			badRequest("Cannot mix secure / non-secure peers.")
-			return ClusterConfig{}
+			return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "Cannot mix secure / non-secure peers."))
 		}
 
 		// If slaveID already known, then return data right away.
@@ -489,8 +484,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 					} else {
 						// Slave address may not change
 						if p.Address != slaveAddr {
-							badRequest("Cannot change slave address while using an existing ID.")
-							return ClusterConfig{}
+							return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "Cannot change slave address while using an existing ID."))
 						}
 					}
 					s.myPeers.AllPeers[i].DataDir = req.DataDir
@@ -499,8 +493,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		} else {
 			// In single server mode, do not accept new slaves
 			if s.mode.IsSingleMode() {
-				badRequest("In single server mode, slaves cannot be added.")
-				return ClusterConfig{}
+				return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "In single server mode, slaves cannot be added."))
 			}
 			// ID not yet found, add it
 			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.cfg.AllPortOffsetsUnique)
@@ -530,7 +523,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		}
 	}
 
-	return s.myPeers
+	return s.myPeers, nil
 }
 
 // ChangeState alters the current state of the service

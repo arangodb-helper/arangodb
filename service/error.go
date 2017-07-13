@@ -22,12 +22,46 @@
 
 package service
 
-import "github.com/pkg/errors"
+import (
+	"fmt"
+
+	"github.com/pkg/errors"
+)
 
 var (
-	maskAny = errors.WithStack
+	maskAny                 = errors.WithStack
+	ServiceUnavailableError = errors.New("service unavailable")
+	BadRequestError         = errors.New("bad request")
+	InternalServerError     = errors.New("internal server error")
 )
 
 type ErrorResponse struct {
 	Error string
+}
+
+type RedirectError struct {
+	Location string
+}
+
+func (e RedirectError) Error() string {
+	return fmt.Sprintf("Redirect to %s", e.Location)
+}
+
+func IsRedirect(err error) (string, bool) {
+	if rerr, ok := errors.Cause(err).(RedirectError); ok {
+		return rerr.Location, true
+	}
+	return "", false
+}
+
+func IsServiceUnavailable(err error) bool {
+	return errors.Cause(err) == ServiceUnavailableError
+}
+
+func IsBadRequest(err error) bool {
+	return errors.Cause(err) == BadRequestError
+}
+
+func InternalServer(err error) bool {
+	return errors.Cause(err) == InternalServerError
 }
