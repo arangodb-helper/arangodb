@@ -326,22 +326,26 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 
 	log.Info("Shutting down services...")
 	if p := s.singleProc; p != nil {
+		log.Debug("Terminating single server")
 		if err := p.Terminate(); err != nil {
 			log.Warningf("Failed to terminate single server: %v", err)
 		}
 	}
 	if p := s.coordinatorProc; p != nil {
+		log.Debug("Terminating coordinator")
 		if err := p.Terminate(); err != nil {
 			log.Warningf("Failed to terminate coordinator: %v", err)
 		}
 	}
 	if p := s.dbserverProc; p != nil {
+		log.Debug("Terminating dbserver")
 		if err := p.Terminate(); err != nil {
 			log.Warningf("Failed to terminate dbserver: %v", err)
 		}
 	}
 	if p := s.agentProc; p != nil {
 		time.Sleep(3 * time.Second)
+		log.Debug("Terminating agent")
 		if err := p.Terminate(); err != nil {
 			log.Warningf("Failed to terminate agent: %v", err)
 		}
