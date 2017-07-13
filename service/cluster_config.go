@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/arangodb-helper/arangodb/service/agency"
 )
@@ -35,13 +36,14 @@ import (
 // ClusterConfig contains all the informtion of a cluster from a starter's point of view.
 // When this type (or any of the types used in here) is changed, increase `SetupConfigVersion`.
 type ClusterConfig struct {
-	Peers      []Peer // All peers (index 0 is reserver for the master)
-	AgencySize int    // Number of agents
+	AllPeers     []Peer     `json:"Peers"` // All peers
+	AgencySize   int        // Number of agents
+	LastModified *time.Time `json:"LastModified,omitempty"` // Time of last modification
 }
 
 // PeerByID returns a peer with given id & true, or false if not found.
 func (p ClusterConfig) PeerByID(id string) (Peer, bool) {
-	for _, x := range p.Peers {
+	for _, x := range p.AllPeers {
 		if x.ID == id {
 			return x, true
 		}
@@ -49,36 +51,71 @@ func (p ClusterConfig) PeerByID(id string) (Peer, bool) {
 	return Peer{}, false
 }
 
+// AllAgents returns a list of all peers that have an agent.
+func (p ClusterConfig) AllAgents() []Peer {
+	var result []Peer
+	for _, x := range p.AllPeers {
+		if x.HasAgent() {
+			result = append(result, x)
+		}
+	}
+	return result
+}
+
+// Initialize a new cluster configuration
+func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int) {
+	p.AllPeers = []Peer{initialPeer}
+	p.AgencySize = agencySize
+	p.updateLastModified()
+}
+
 // UpdatePeerByID updates the peer with given id & true, or false if not found.
 func (p *ClusterConfig) UpdatePeerByID(update Peer) bool {
-	for index, x := range p.Peers {
+	for index, x := range p.AllPeers {
 		if x.ID == update.ID {
-			p.Peers[index] = update
+			p.AllPeers[index] = update
+			p.updateLastModified()
 			return true
 		}
 	}
 	return false
 }
 
+// AddPeer adds the given peer to the list of all peers, only if the id is not yet one of the peers.
+// Returns true of success, false otherwise
+func (p *ClusterConfig) AddPeer(newPeer Peer) bool {
+	for _, x := range p.AllPeers {
+		if x.ID == newPeer.ID {
+			return false
+		}
+	}
+	p.AllPeers = append(p.AllPeers, newPeer)
+	p.updateLastModified()
+	return true
+}
+
 // RemovePeerByID removes the peer with given ID.
 func (p *ClusterConfig) RemovePeerByID(id string) bool {
-	newPeers := make([]Peer, 0, len(p.Peers))
+	newPeers := make([]Peer, 0, len(p.AllPeers))
 	found := false
-	for _, x := range p.Peers {
+	for _, x := range p.AllPeers {
 		if x.ID != id {
 			newPeers = append(newPeers, x)
 		} else {
 			found = true
 		}
 	}
-	p.Peers = newPeers
+	if found {
+		p.AllPeers = newPeers
+		p.updateLastModified()
+	}
 	return found
 }
 
 // IDs returns the IDs of all peers.
 func (p ClusterConfig) IDs() []string {
-	list := make([]string, 0, len(p.Peers))
-	for _, x := range p.Peers {
+	list := make([]string, 0, len(p.AllPeers))
+	for _, x := range p.AllPeers {
 		list = append(list, x.ID)
 	}
 	return list
@@ -89,7 +126,7 @@ func (p ClusterConfig) GetFreePortOffset(peerAddress string, allPortOffsetsUniqu
 	portOffset := 0
 	for {
 		found := false
-		for _, p := range p.Peers {
+		for _, p := range p.AllPeers {
 			if p.PortOffset == portOffset {
 				if allPortOffsetsUnique || p.Address == peerAddress {
 					found = true
@@ -108,7 +145,7 @@ func (p ClusterConfig) GetFreePortOffset(peerAddress string, allPortOffsetsUniqu
 // is greater or equal to AgencySize.
 func (p ClusterConfig) HaveEnoughAgents() bool {
 	count := 0
-	for _, x := range p.Peers {
+	for _, x := range p.AllPeers {
 		if x.HasAgent() {
 			count++
 		}
@@ -118,7 +155,7 @@ func (p ClusterConfig) HaveEnoughAgents() bool {
 
 // IsSecure returns true if any of the peers is secure.
 func (p ClusterConfig) IsSecure() bool {
-	for _, x := range p.Peers {
+	for _, x := range p.AllPeers {
 		if x.IsSecure {
 			return true
 		}
@@ -130,7 +167,7 @@ func (p ClusterConfig) IsSecure() bool {
 func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error) (agency.API, error) {
 	// Build endpoint list
 	var endpoints []url.URL
-	for _, p := range p.Peers {
+	for _, p := range p.AllPeers {
 		if p.HasAgent() {
 			port := p.Port + p.PortOffset + ServerType(ServerTypeAgent).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
@@ -142,4 +179,10 @@ func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error)
 		}
 	}
 	return agency.NewAgencyClient(endpoints, prepareRequest)
+}
+
+// Set the LastModified timestamp to now.
+func (p *ClusterConfig) updateLastModified() {
+	ts := time.Now()
+	p.LastModified = &ts
 }

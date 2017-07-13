@@ -112,7 +112,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 		} else {
 			// Wait a bit until we have enough peers for a valid agency
 			time.Sleep(time.Second)
-			master := s.myPeers.Peers[0]
+			master := s.myPeers.AllPeers[0] // TODO replace with bootstrap master
 			r, err := httpClient.Get(master.CreateStarterURL("/hello"))
 			if err != nil {
 				s.log.Errorf("Failed to connect to master: %v", err)
@@ -134,7 +134,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 
 // sendMasterGoodbye informs the master that we're leaving for good.
 func (s *Service) sendMasterGoodbye() error {
-	master := s.myPeers.Peers[0]
+	master := s.myPeers.AllPeers[0] // TODO replace with bootstrap master
 	if s.id == master.ID {
 		// I'm the master, do nothing
 		return nil

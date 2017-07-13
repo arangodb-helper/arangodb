@@ -423,7 +423,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 	containerPort = s.cfg.MasterPort
 	hostPort = s.announcePort
-	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.Peers) > 0 {
+	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.AllPeers) > 0 {
 		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
 			containerPort += myPeer.PortOffset
 		} else {

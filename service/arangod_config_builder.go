@@ -214,8 +214,8 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 			optionPair{"--foxx.queues", "false"},
 			optionPair{"--server.statistics", "false"},
 		)
-		for _, p := range clusterConfig.Peers {
-			if p.HasAgent() && p.ID != myPeerID {
+		for _, p := range clusterConfig.AllAgents() {
+			if p.ID != myPeerID {
 				options = append(options,
 					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(config.MasterPort+p.PortOffset+_portOffsetAgent)))},
 				)
@@ -244,13 +244,11 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		)
 	}
 	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
-		for _, p := range clusterConfig.Peers {
-			if p.HasAgent() {
-				options = append(options,
-					optionPair{"--cluster.agency-endpoint",
-						fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(config.MasterPort+p.PortOffset+_portOffsetAgent)))},
-				)
-			}
+		for _, p := range clusterConfig.AllAgents() {
+			options = append(options,
+				optionPair{"--cluster.agency-endpoint",
+					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(config.MasterPort+p.PortOffset+_portOffsetAgent)))},
+			)
 		}
 	}
 	for _, opt := range options {

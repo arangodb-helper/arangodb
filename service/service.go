@@ -397,8 +397,9 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 
 	if s.state == stateBootstrapSlave {
 		// Redirect to bootstrap master
-		if len(s.myPeers.Peers) > 0 {
-			master := s.myPeers.Peers[0]
+		if len(s.myPeers.AllPeers) > 0 {
+			// TODO replace by bootstrap master
+			master := s.myPeers.AllPeers[0]
 			redirectTo(master.CreateStarterURL("/hello"))
 			return ClusterConfig{}
 		} else {
@@ -416,11 +417,12 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			} else {
 				redirectTo(helloURL)
 			}
-		} else {
-			// No master know, service unavailable
+			return ClusterConfig{}
+		} else if req != nil {
+			// No master know, service unavailable when handling a POST request
 			serviceNotAvailable("no master known")
+			return ClusterConfig{}
 		}
-		return ClusterConfig{}
 	}
 
 	// Learn my own address (if needed)
@@ -458,7 +460,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 
 		// Check datadir
 		if !s.allowSameDataDir {
-			for _, p := range s.myPeers.Peers {
+			for _, p := range s.myPeers.AllPeers {
 				if p.Address == slaveAddr && p.DataDir == req.DataDir && p.ID != req.SlaveID {
 					badRequest("Cannot use same directory as peer.")
 					return ClusterConfig{}
@@ -476,11 +478,11 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		_, idFound := s.myPeers.PeerByID(req.SlaveID)
 		if idFound {
 			// ID already found, update peer data
-			for i, p := range s.myPeers.Peers {
+			for i, p := range s.myPeers.AllPeers {
 				if p.ID == req.SlaveID {
-					s.myPeers.Peers[i].Port = req.SlavePort
+					s.myPeers.AllPeers[i].Port = req.SlavePort
 					if s.cfg.AllPortOffsetsUnique {
-						s.myPeers.Peers[i].Address = slaveAddr
+						s.myPeers.AllPeers[i].Address = slaveAddr
 					} else {
 						// Slave address may not change
 						if p.Address != slaveAddr {
@@ -488,7 +490,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 							return ClusterConfig{}
 						}
 					}
-					s.myPeers.Peers[i].DataDir = req.DataDir
+					s.myPeers.AllPeers[i].DataDir = req.DataDir
 				}
 			}
 		} else {
@@ -512,7 +514,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				hasCoordinator = *req.Coordinator
 			}
 			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, req.IsSecure)
-			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
+			s.myPeers.AddPeer(newPeer)
 			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
 		}
 
@@ -548,6 +550,12 @@ func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
 func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	// Perform checks to validate the new config
+	if _, found := newConfig.PeerByID(s.id); !found {
+		s.log.Warningf("Updated cluster config does not contain myself. Rejecting")
+		return
+	}
 
 	// TODO only update when changed
 	s.myPeers = newConfig
@@ -648,7 +656,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 		s.startHTTPServer(s.cfg)
 		wg := &sync.WaitGroup{}
 		if bsCfg.StartLocalSlaves {
-			s.startLocalSlaves(wg, s.cfg, bsCfg, myPeers.Peers)
+			s.startLocalSlaves(wg, s.cfg, bsCfg, myPeers.AllPeers)
 		}
 		s.startRunning(runner, s.cfg, bsCfg)
 		wg.Wait()
