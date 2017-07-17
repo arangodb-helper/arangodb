@@ -133,7 +133,6 @@ func (c *multiClient) IsCleanedOut(ctx context.Context, serverID string) (bool, 
 	if err != nil {
 		return false, maskAny(err)
 	}
-	fmt.Printf("CleanedOutServers: %#v\n", r.CleanedServerIDs)
 	for _, id := range r.CleanedServerIDs {
 		if id == serverID {
 			return true, nil
