@@ -240,27 +240,27 @@ func (s *Service) ClusterConfig() (ClusterConfig, *Peer, ServiceMode) {
 // HandleGoodbye removes the database servers started by the peer with given id
 // from the cluster and alters the cluster configuration, removing the peer.
 func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
+	// Find peer
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	ctx := context.Background()
+	peer, peerFound := s.myPeers.PeerByID(id)
+	state := s.state
+	s.mutex.Unlock()
 
 	// Check state
-	if s.state != stateRunningMaster {
+	if state != stateRunningMaster {
 		return false, maskAny(errors.Wrapf(client.PreconditionFailedError, "Invalid state %d", s.state))
 	}
 
-	// Find peer
-	peer, found := s.myPeers.PeerByID(id)
-	if !found {
+	// Check peer
+	if !peerFound {
 		return false, nil // Peer not found
 	}
-
-	// Check peer
 	if peer.HasAgent() {
 		return false, maskAny(errors.Wrap(client.PreconditionFailedError, "Cannot remove peer with agent"))
 	}
 
 	// Prepare cluster client
+	ctx := context.Background()
 	c, err := s.myPeers.CreateClusterAPI(s.PrepareDatabaseServerRequestFunc())
 	if err != nil {
 		return false, maskAny(err)
@@ -325,6 +325,8 @@ func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
 	}
 
 	// Remove peer from cluster configuration
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.log.Infof("Removing peer %s from cluster configuration", id)
 	s.myPeers.RemovePeerByID(id)
 
