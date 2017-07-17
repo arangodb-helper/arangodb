@@ -30,7 +30,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/service/agency"
+	"github.com/arangodb-helper/arangodb/service/arangod"
 )
 
 // ClusterConfig contains all the informtion of a cluster from a starter's point of view.
@@ -164,7 +164,7 @@ func (p ClusterConfig) IsSecure() bool {
 }
 
 // CreateAgencyAPI creates a client for the agency
-func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error) (agency.API, error) {
+func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error) (arangod.AgencyAPI, error) {
 	// Build endpoint list
 	var endpoints []url.URL
 	for _, p := range p.AllPeers {
@@ -178,7 +178,33 @@ func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error)
 			endpoints = append(endpoints, *u)
 		}
 	}
-	return agency.NewAgencyClient(endpoints, prepareRequest)
+	c, err := arangod.NewClusterClient(endpoints, prepareRequest)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return c.Agency(), nil
+}
+
+// CreateClusterAPI creates a client for the cluster
+func (p ClusterConfig) CreateClusterAPI(prepareRequest func(*http.Request) error) (arangod.ClusterAPI, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.AllPeers {
+		if p.HasCoordinator() {
+			port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
+			scheme := NewURLSchemes(p.IsSecure).Browser
+			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+			if err != nil {
+				return nil, maskAny(err)
+			}
+			endpoints = append(endpoints, *u)
+		}
+	}
+	c, err := arangod.NewClusterClient(endpoints, prepareRequest)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return c.Cluster(), nil
 }
 
 // Set the LastModified timestamp to now.

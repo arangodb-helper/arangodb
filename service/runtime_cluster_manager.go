@@ -32,7 +32,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/service/agency"
+	"github.com/arangodb-helper/arangodb/service/arangod"
 	logging "github.com/op/go-logging"
 )
 
@@ -68,7 +68,7 @@ type runtimeClusterManagerContext interface {
 }
 
 // Create a client for the agency
-func (s *runtimeClusterManager) createAgencyAPI() (agency.API, error) {
+func (s *runtimeClusterManager) createAgencyAPI() (arangod.AgencyAPI, error) {
 	prepareReq := s.runtimeContext.PrepareDatabaseServerRequestFunc()
 	// Get cluster config
 	clusterConfig, _, _ := s.runtimeContext.ClusterConfig()
@@ -88,7 +88,7 @@ func (s *runtimeClusterManager) getMasterURL(ctx context.Context) (string, error
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 	if result, err := api.ReadKey(ctx, masterURLKey); err != nil {
-		if agency.IsKeyNotFound(err) {
+		if arangod.IsKeyNotFound(err) {
 			return "", nil
 		}
 		return "", maskAny(err)

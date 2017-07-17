@@ -20,7 +20,7 @@
 // Author Ewout Prangsma
 //
 
-package agency
+package arangod
 
 import (
 	"bytes"
@@ -36,8 +36,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-// newAgencyClient creates a new client implementation.
-func newAgencyClient(endpoint url.URL, prepareRequest func(*http.Request) error, followRedirects bool) (API, error) {
+// NewServerClient creates a new client implementation for a single server.
+func NewServerClient(endpoint url.URL, prepareRequest func(*http.Request) error, followRedirects bool) (API, error) {
 	endpoint.Path = ""
 	c := &client{
 		endpoint:       endpoint,
@@ -61,6 +61,23 @@ type client struct {
 const (
 	contentTypeJSON = "application/json"
 )
+
+// Agency returns API of the agency
+func (c *client) Agency() AgencyAPI {
+	return c
+}
+
+// Server returns API of single server
+// Returns an error when multiple endpoints are configured.
+func (c *client) Server() (ServerAPI, error) {
+	return c, nil
+}
+
+// Cluster returns API of the cluster.
+// Endpoints must be URL's of one or more coordinators of the cluster.
+func (c *client) Cluster() ClusterAPI {
+	return c
+}
 
 // ReadKey reads the value of a given key in the agency.
 func (c *client) ReadKey(ctx context.Context, key []string) (interface{}, error) {
@@ -176,15 +193,14 @@ func (c *client) write(ctx context.Context, key []string, value interface{}, con
 		},
 	}
 
-	reqBody, err := json.Marshal(writeTxs)
+	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		return maskAny(err)
 	}
-	//fmt.Printf("Sending `%s` to %s\n", string(reqBody), url)
-	req, err := http.NewRequest("POST", url, bytes.NewReader(reqBody))
-	if err != nil {
+	if err := setJSONRequestBody(req, writeTxs); err != nil {
 		return maskAny(err)
 	}
+
 	if ctx != nil {
 		req = req.WithContext(ctx)
 	}
@@ -216,6 +232,162 @@ func (c *client) write(ctx context.Context, key []string, value interface{}, con
 	return nil
 }
 
+type idResponse struct {
+	ID string `json:"id,omitempty"`
+}
+
+// Gets the ID of this server in the cluster.
+// ID will be empty for single servers.
+func (c *client) ID(ctx context.Context) (string, error) {
+	url := c.createURL("/_admin/server/id", nil)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if c.prepareRequest != nil {
+		if err := c.prepareRequest(req); err != nil {
+			return "", maskAny(err)
+		}
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	var result idResponse
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return "", maskAny(err)
+	}
+
+	// Success
+	return result.ID, nil
+}
+
+// Shutdown a specific server, optionally removing it from its cluster.
+func (c *client) Shutdown(ctx context.Context, removeFromCluster bool) error {
+	q := url.Values{}
+	if removeFromCluster {
+		q.Add("remove_from_cluster", "1")
+	}
+	url := c.createURL("/_admin/shutdown", q)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if c.prepareRequest != nil {
+		if err := c.prepareRequest(req); err != nil {
+			return maskAny(err)
+		}
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := c.handleResponse(resp, "DELETE", url, nil); err != nil {
+		return maskAny(err)
+	}
+
+	// Success
+	return nil
+}
+
+type cleanOutServerRequest struct {
+	Server string `json:"server"`
+}
+
+// CleanOutServer triggers activities to clean out a DBServers.
+func (c *client) CleanOutServer(ctx context.Context, serverID string) error {
+	url := c.createURL("/_admin/cluster/cleanOutServer", nil)
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := setJSONRequestBody(req, cleanOutServerRequest{Server: serverID}); err != nil {
+		return maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if c.prepareRequest != nil {
+		if err := c.prepareRequest(req); err != nil {
+			return maskAny(err)
+		}
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := c.handleResponse(resp, "POST", url, nil); err != nil {
+		return maskAny(err)
+	}
+
+	// Success
+	return nil
+}
+
+// IsCleanedOut checks if the dbserver with given ID has been cleaned out.
+func (c *client) IsCleanedOut(ctx context.Context, serverID string) (bool, error) {
+	r, err := c.NumberOfServers(ctx)
+	if err != nil {
+		return false, maskAny(err)
+	}
+	for _, id := range r.CleanedServerIDs {
+		if id == serverID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// NumberOfServers returns the number of coordinator & dbservers in a clusters and the
+// ID's of cleaned out servers.
+func (c *client) NumberOfServers(ctx context.Context) (NumberOfServersResponse, error) {
+	url := c.createURL("/_admin/cluster/numberOfServers", nil)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return NumberOfServersResponse{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if c.prepareRequest != nil {
+		if err := c.prepareRequest(req); err != nil {
+			return NumberOfServersResponse{}, maskAny(err)
+		}
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return NumberOfServersResponse{}, maskAny(err)
+	}
+	var result NumberOfServersResponse
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return NumberOfServersResponse{}, maskAny(err)
+	}
+
+	// Success
+	return result, nil
+}
+
+// setJSONRequestBody sets the content of the given request as JSON encoded value.
+func setJSONRequestBody(req *http.Request, content interface{}) error {
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		return maskAny(err)
+	}
+	req.ContentLength = int64(len(encoded))
+	req.Body = ioutil.NopCloser(bytes.NewReader(encoded))
+	return nil
+}
+
 // handleResponse checks the given response status and decodes any JSON result.
 func (c *client) handleResponse(resp *http.Response, method, url string, result interface{}) error {
 	// Read response body into memory
@@ -225,7 +397,7 @@ func (c *client) handleResponse(resp *http.Response, method, url string, result 
 		return maskAny(errors.Wrapf(err, "Failed reading response data from %s request to %s: %v", method, url, err))
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return maskAny(StatusError{resp.StatusCode})
 	}
 

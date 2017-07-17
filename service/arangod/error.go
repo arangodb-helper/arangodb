@@ -20,22 +20,41 @@
 // Author Ewout Prangsma
 //
 
-package agency
+package arangod
 
 import (
-	"context"
-	"time"
+	"fmt"
+
+	"github.com/pkg/errors"
 )
 
-// API abstracts the API of the ArangoDB agency
-type API interface {
-	// ReadKey reads the value of a given key in the agency.
-	ReadKey(ctx context.Context, key []string) (interface{}, error)
+var (
+	maskAny              = errors.WithStack
+	ConditionFailedError = errors.New("Condition failed")
+	KeyNotFoundError     = errors.New("Key not found")
+	redirectionError     = errors.New("redirect")
+)
 
-	// WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
-	WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error
+type StatusError struct {
+	StatusCode int
+}
 
-	// WriteKeyIfEqualTo writes the given new value with the given key only if the existing value for that key equals
-	// to the given old value.
-	WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error
+func (e StatusError) Error() string {
+	return fmt.Sprintf("Status %d", e.StatusCode)
+}
+
+func IsStatusError(err error) (int, bool) {
+	err = errors.Cause(err)
+	if serr, ok := err.(StatusError); ok {
+		return serr.StatusCode, true
+	}
+	return 0, false
+}
+
+func IsConditionFailed(err error) bool {
+	return errors.Cause(err) == ConditionFailedError
+}
+
+func IsKeyNotFound(err error) bool {
+	return errors.Cause(err) == KeyNotFoundError
 }

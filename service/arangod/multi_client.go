@@ -20,7 +20,7 @@
 // Author Ewout Prangsma
 //
 
-package agency
+package arangod
 
 import (
 	"context"
@@ -31,14 +31,14 @@ import (
 	"time"
 )
 
-// NewAgencyClient creates a new client implementation for an agency with multiple endpoints.
-func NewAgencyClient(endpoints []url.URL, prepareRequest func(*http.Request) error) (API, error) {
+// NewClusterClient creates a new client implementation for a cluster with multiple endpoints.
+func NewClusterClient(endpoints []url.URL, prepareRequest func(*http.Request) error) (API, error) {
 	if len(endpoints) == 1 {
-		return newAgencyClient(endpoints[0], prepareRequest, true)
+		return NewServerClient(endpoints[0], prepareRequest, true)
 	}
 	c := &multiClient{}
 	for _, ep := range endpoints {
-		epClient, err := newAgencyClient(ep, prepareRequest, false)
+		epClient, err := NewServerClient(ep, prepareRequest, false)
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -51,10 +51,27 @@ type multiClient struct {
 	clients []API
 }
 
+// Agency returns API of the agency
+func (c *multiClient) Agency() AgencyAPI {
+	return c
+}
+
+// Server returns API of single server
+// Returns an error when multiple endpoints are configured.
+func (c *multiClient) Server() (ServerAPI, error) {
+	return nil, maskAny(fmt.Errorf("Not supported for multiple endpoints"))
+}
+
+// Cluster returns API of the cluster.
+// Endpoints must be URL's of one or more coordinators of the cluster.
+func (c *multiClient) Cluster() ClusterAPI {
+	return c
+}
+
 // ReadKey reads the value of a given key in the agency.
 func (c *multiClient) ReadKey(ctx context.Context, key []string) (interface{}, error) {
 	op := func(ctx context.Context, c API) (interface{}, error) {
-		if result, err := c.ReadKey(ctx, key); err != nil {
+		if result, err := c.Agency().ReadKey(ctx, key); err != nil {
 			return nil, maskAny(err)
 		} else {
 			return result, nil
@@ -70,7 +87,7 @@ func (c *multiClient) ReadKey(ctx context.Context, key []string) (interface{}, e
 // WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
 func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
 	op := func(ctx context.Context, c API) (interface{}, error) {
-		if err := c.WriteKeyIfEmpty(ctx, key, value, ttl); err != nil {
+		if err := c.Agency().WriteKeyIfEmpty(ctx, key, value, ttl); err != nil {
 			return nil, maskAny(err)
 		}
 		return nil, nil
@@ -85,7 +102,7 @@ func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value i
 // to the given old value.
 func (c *multiClient) WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error {
 	op := func(ctx context.Context, c API) (interface{}, error) {
-		if err := c.WriteKeyIfEqualTo(ctx, key, newValue, oldValue, ttl); err != nil {
+		if err := c.Agency().WriteKeyIfEqualTo(ctx, key, newValue, oldValue, ttl); err != nil {
 			return nil, maskAny(err)
 		}
 		return nil, nil
@@ -94,6 +111,52 @@ func (c *multiClient) WriteKeyIfEqualTo(ctx context.Context, key []string, newVa
 		return maskAny(err)
 	}
 	return nil
+}
+
+// CleanOutServer triggers activities to clean out a DBServers.
+func (c *multiClient) CleanOutServer(ctx context.Context, serverID string) error {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if err := c.Cluster().CleanOutServer(ctx, serverID); err != nil {
+			return nil, maskAny(err)
+		}
+		return nil, nil
+	}
+	if _, err := c.handleMultiRequests(ctx, op); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// IsCleanedOut checks if the dbserver with given ID has been cleaned out.
+func (c *multiClient) IsCleanedOut(ctx context.Context, serverID string) (bool, error) {
+	r, err := c.NumberOfServers(ctx)
+	if err != nil {
+		return false, maskAny(err)
+	}
+	fmt.Printf("CleanedOutServers: %#v\n", r.CleanedServerIDs)
+	for _, id := range r.CleanedServerIDs {
+		if id == serverID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// NumberOfServers returns the number of coordinator & dbservers in a clusters and the
+// ID's of cleaned out servers.
+func (c *multiClient) NumberOfServers(ctx context.Context) (NumberOfServersResponse, error) {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if result, err := c.Cluster().NumberOfServers(ctx); err != nil {
+			return NumberOfServersResponse{}, maskAny(err)
+		} else {
+			return result, nil
+		}
+	}
+	if result, err := c.handleMultiRequests(ctx, op); err != nil {
+		return NumberOfServersResponse{}, maskAny(err)
+	} else {
+		return result.(NumberOfServersResponse), nil
+	}
 }
 
 // handleMultiRequests starts the given operation on all endpoints
@@ -152,5 +215,5 @@ func (c *multiClient) handleMultiRequests(ctx context.Context, operation func(co
 		// Return first error
 		return nil, maskAny(err)
 	}
-	return nil, maskAny(fmt.Errorf("No available agents"))
+	return nil, maskAny(fmt.Errorf("All %d servers responded with temporary failure", len(c.clients)))
 }

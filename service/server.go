@@ -42,6 +42,10 @@ var (
 	httpClient = client.DefaultHTTPClient()
 )
 
+const (
+	contentTypeJSON = "application/json"
+)
+
 // HelloRequest is the data structure send of the wire in a `/hello` POST request.
 type HelloRequest struct {
 	SlaveID      string // Unique ID of the slave
@@ -72,14 +76,13 @@ type httpServerContext interface {
 	// ClusterConfig returns the current cluster configuration and the current peer
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
 
-	// removePeerByID alters the cluster configuration, removing the peer with given id.
-	removePeerByID(id string) (peerRemoved bool, err error)
-
 	// serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
 	serverHostDir(serverType ServerType) (string, error)
 
-	// sendMasterGoodbye informs the master that we're leaving for good.
-	sendMasterGoodbye() error
+	// sendMasterLeaveCluster informs the master that we're leaving for good.
+	// The master will remove the database servers from the cluster and update
+	// the cluster configuration.
+	sendMasterLeaveCluster() error
 
 	// Stop the peer
 	Stop()
@@ -87,6 +90,10 @@ type httpServerContext interface {
 	// Handle a hello request.
 	// If req==nil, this is a GET request, otherwise it is a POST request.
 	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error)
+
+	// HandleGoodbye removes the database servers started by the peer with given id
+	// from the cluster and alters the cluster configuration, removing the peer.
+	HandleGoodbye(id string) (peerRemoved bool, err error)
 }
 
 // newHTTPServer initializes and an HTTP server.
@@ -158,38 +165,40 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		// Let service handle get request
 		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, nil, isUpdateRequest)
+		if err != nil {
+			handleError(w, err)
+			return
+		}
 	} else if r.Method == "POST" {
 		// Read request
 		var req HelloRequest
 		defer r.Body.Close()
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
+		if body, err := ioutil.ReadAll(r.Body); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot read request body: %v", err.Error()))
 			return
-		}
-		if err := json.Unmarshal(body, &req); err != nil {
+		} else if err := json.Unmarshal(body, &req); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot parse request body: %v", err.Error()))
 			return
 		}
 
 		// Let service handle post request
 		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, &req, false)
+		if err != nil {
+			handleError(w, err)
+			return
+		}
 	} else {
 		// Invalid method
 		writeError(w, http.StatusMethodNotAllowed, "GET or POST required")
 		return
 	}
 
-	// Send result or error
+	// Send result
+	b, err := json.Marshal(result)
 	if err != nil {
-		handleError(w, err)
+		writeError(w, http.StatusInternalServerError, err.Error())
 	} else {
-		b, err := json.Marshal(result)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-		} else {
-			w.Write(b)
-		}
+		w.Write(b)
 	}
 }
 
@@ -220,10 +229,10 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove the peer
-	s.log.Infof("Removing peer %s", req.SlaveID)
-	if removed, err := s.context.removePeerByID(req.SlaveID); err != nil {
+	s.log.Infof("Goodbye requested for peer %s", req.SlaveID)
+	if removed, err := s.context.HandleGoodbye(req.SlaveID); err != nil {
 		// Failure
-		writeError(w, http.StatusServiceUnavailable, err.Error())
+		handleError(w, err)
 	} else if !removed {
 		// ID not found
 		writeError(w, http.StatusNotFound, "Unknown ID")
@@ -378,9 +387,9 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 
 	if r.FormValue("mode") == "goodbye" {
 		// Inform the master we're leaving for good
-		if err := s.context.sendMasterGoodbye(); err != nil {
+		if err := s.context.sendMasterLeaveCluster(); err != nil {
 			s.log.Errorf("Failed to send master goodbye: %#v", err)
-			writeError(w, http.StatusInternalServerError, err.Error())
+			handleError(w, err)
 			return
 		}
 	}
@@ -396,10 +405,14 @@ func handleError(w http.ResponseWriter, err error) {
 		header := w.Header()
 		header.Add("Location", loc)
 		w.WriteHeader(http.StatusTemporaryRedirect)
-	} else if IsBadRequest(err) {
+	} else if client.IsBadRequest(err) {
 		writeError(w, http.StatusBadRequest, err.Error())
-	} else if IsServiceUnavailable(err) {
+	} else if client.IsPreconditionFailed(err) {
+		writeError(w, http.StatusPreconditionFailed, err.Error())
+	} else if client.IsServiceUnavailable(err) {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
+	} else if st, ok := client.IsStatusError(err); ok {
+		writeError(w, st, err.Error())
 	} else {
 		writeError(w, http.StatusInternalServerError, err.Error())
 	}
@@ -409,24 +422,9 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	if message == "" {
 		message = "Unknown error"
 	}
-	resp := ErrorResponse{Error: message}
+	resp := client.ErrorResponse{Error: message}
 	b, _ := json.Marshal(resp)
+	w.Header().Set("Content-Type", contentTypeJSON)
 	w.WriteHeader(status)
 	w.Write(b)
-}
-
-func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
-	containerPort = s.cfg.MasterPort
-	hostPort = s.announcePort
-	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.AllPeers) > 0 {
-		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
-			containerPort += myPeer.PortOffset
-		} else {
-			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.id))
-		}
-	}
-	if s.isNetHost {
-		hostPort = containerPort
-	}
-	return containerPort, hostPort, nil
 }

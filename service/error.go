@@ -29,15 +29,8 @@ import (
 )
 
 var (
-	maskAny                 = errors.WithStack
-	ServiceUnavailableError = errors.New("service unavailable")
-	BadRequestError         = errors.New("bad request")
-	InternalServerError     = errors.New("internal server error")
+	maskAny = errors.WithStack
 )
-
-type ErrorResponse struct {
-	Error string
-}
 
 type RedirectError struct {
 	Location string
@@ -52,16 +45,4 @@ func IsRedirect(err error) (string, bool) {
 		return rerr.Location, true
 	}
 	return "", false
-}
-
-func IsServiceUnavailable(err error) bool {
-	return errors.Cause(err) == ServiceUnavailableError
-}
-
-func IsBadRequest(err error) bool {
-	return errors.Cause(err) == BadRequestError
-}
-
-func InternalServer(err error) bool {
-	return errors.Cause(err) == InternalServerError
 }

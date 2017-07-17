@@ -20,7 +20,7 @@
 // Author Ewout Prangsma
 //
 
-package agency
+package arangod
 
 import (
 	"crypto/tls"

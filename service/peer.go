@@ -25,8 +25,12 @@ package service
 import (
 	"fmt"
 	"net"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/arangodb-helper/arangodb/service/arangod"
 )
 
 // Peer contains all persistent settings of a starter.
@@ -77,4 +81,42 @@ func (p Peer) CreateStarterURL(relPath string) string {
 	relPath = strings.TrimPrefix(relPath, "/")
 	scheme := NewURLSchemes(p.IsSecure).Browser
 	return fmt.Sprintf("%s://%s/%s", scheme, addr, relPath)
+}
+
+// CreateDBServerAPI creates a client for the dbserver of the peer
+func (p Peer) CreateDBServerAPI(prepareRequest func(*http.Request) error) (arangod.ServerAPI, error) {
+	if p.HasDBServer() {
+		port := p.Port + p.PortOffset + ServerType(ServerTypeDBServer).PortOffset()
+		scheme := NewURLSchemes(p.IsSecure).Browser
+		u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		c, err := arangod.NewServerClient(*u, prepareRequest, true)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		return c.Server()
+	} else {
+		return nil, maskAny(fmt.Errorf("Peer has no dbserver"))
+	}
+}
+
+// CreateCoordinatorAPI creates a client for the coordinator of the peer
+func (p Peer) CreateCoordinatorAPI(prepareRequest func(*http.Request) error) (arangod.ServerAPI, error) {
+	if p.HasCoordinator() {
+		port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
+		scheme := NewURLSchemes(p.IsSecure).Browser
+		u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		c, err := arangod.NewServerClient(*u, prepareRequest, true)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		return c.Server()
+	} else {
+		return nil, maskAny(fmt.Errorf("Peer has no coordinator"))
+	}
 }

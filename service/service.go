@@ -23,6 +23,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -35,6 +36,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/client"
 	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
 )
@@ -235,27 +237,143 @@ func (s *Service) ClusterConfig() (ClusterConfig, *Peer, ServiceMode) {
 	}
 }
 
-// removePeerByID alters the cluster configuration, removing the peer with given id.
-func (s *Service) removePeerByID(id string) (peerRemoved bool, err error) {
+// HandleGoodbye removes the database servers started by the peer with given id
+// from the cluster and alters the cluster configuration, removing the peer.
+func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+	ctx := context.Background()
 
-	// Check running state
-	if !s.state.IsRunning() {
-		return false, fmt.Errorf("Have not reached running state yet")
+	// Check state
+	if s.state != stateRunningMaster {
+		return false, maskAny(errors.Wrapf(client.PreconditionFailedError, "Invalid state %d", s.state))
 	}
 
-	// Do the actual remove
-	if peerRemoved = s.myPeers.RemovePeerByID(id); !peerRemoved {
-		return peerRemoved, nil
+	// Find peer
+	peer, found := s.myPeers.PeerByID(id)
+	if !found {
+		return false, nil // Peer not found
 	}
+
+	// Check peer
+	if peer.HasAgent() {
+		return false, maskAny(errors.Wrap(client.PreconditionFailedError, "Cannot remove peer with agent"))
+	}
+
+	// Prepare cluster client
+	c, err := s.myPeers.CreateClusterAPI(s.PrepareDatabaseServerRequestFunc())
+	if err != nil {
+		return false, maskAny(err)
+	}
+
+	// Remove dbserver from cluster (if any)
+	if peer.HasDBServer() {
+		// Find id of dbserver
+		s.log.Info("Finding server ID of dbserver")
+		sc, err := peer.CreateDBServerAPI(s.PrepareDatabaseServerRequestFunc())
+		if err != nil {
+			return false, maskAny(err)
+		}
+		sid, err := sc.ID(ctx)
+		if err != nil {
+			return false, maskAny(err)
+		}
+		// Clean out DB server
+		s.log.Infof("Starting cleanout of dbserver %s", sid)
+		if err := c.CleanOutServer(ctx, sid); err != nil {
+			s.log.Warningf("Cleanout requested of dbserver %s failed: %#v", sid, err)
+			return false, maskAny(err)
+		}
+		// Wait until server is cleaned out
+		s.log.Infof("Waiting for cleanout of dbserver %s to finish", sid)
+		for {
+			if cleanedOut, err := c.IsCleanedOut(ctx, sid); err != nil {
+				s.log.Warningf("IsCleanedOut request of dbserver %s failed: %#v", sid, err)
+				return false, maskAny(err)
+			} else if cleanedOut {
+				break
+			}
+			// Wait a bit
+			time.Sleep(time.Millisecond * 250)
+		}
+		// Remove dbserver from cluster
+		s.log.Infof("Removing dbserver %s from cluster", sid)
+		if err := sc.Shutdown(ctx, true); err != nil {
+			s.log.Warningf("Shutdown request of dbserver %s failed: %#v", sid, err)
+			return false, maskAny(err)
+		}
+	}
+
+	// Remove coordinator from cluster (if any)
+	if peer.HasCoordinator() {
+		// Find id of coordinator
+		s.log.Info("Finding server ID of coordinator")
+		sc, err := peer.CreateCoordinatorAPI(s.PrepareDatabaseServerRequestFunc())
+		if err != nil {
+			return false, maskAny(err)
+		}
+		sid, err := sc.ID(ctx)
+		if err != nil {
+			return false, maskAny(err)
+		}
+		// Remove coordinator from cluster
+		s.log.Infof("Removing coordinator %s from cluster", sid)
+		if err := sc.Shutdown(ctx, true); err != nil {
+			s.log.Warningf("Shutdown request of coordinator %s failed: %#v", sid, err)
+			return false, maskAny(err)
+		}
+	}
+
+	// Remove peer from cluster configuration
+	s.log.Infof("Removing peer %s from cluster configuration", id)
+	s.myPeers.RemovePeerByID(id)
 
 	// Peer has been removed, update stored config
-	s.log.Infof("Removed peer %s, saving setup", id)
+	s.log.Infof("Removed peer %s from cluster configuration, saving setup", id)
 	if err := s.saveSetup(); err != nil {
 		s.log.Errorf("Failed to save setup: %#v", err)
 	}
 	return true, nil
+}
+
+// sendMasterLeaveCluster informs the master that we're leaving for good.
+func (s *Service) sendMasterLeaveCluster() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Check state
+	switch s.state {
+	case stateRunningMaster:
+		return maskAny(errors.Wrap(client.PreconditionFailedError, "Running master cannot be removed from cluster"))
+	case stateRunningSlave:
+	// OK
+	default:
+		return maskAny(errors.Wrapf(client.PreconditionFailedError, "Invalid state %d", s.state))
+	}
+
+	// Build URL
+	masterURL := s.runtimeClusterManager.GetMasterURL()
+	if masterURL == "" {
+		return maskAny(errors.Wrap(client.PreconditionFailedError, "Running master is not yet known"))
+	}
+	u, err := getURLWithPath(masterURL, "/goodbye")
+	if err != nil {
+		return maskAny(err)
+	}
+	s.log.Infof("Saying goodbye to master at %s", u)
+	req := GoodbyeRequest{SlaveID: s.id}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	resp, err := httpClient.Post(u, contentTypeJSON, bytes.NewReader(data))
+	if err != nil {
+		return maskAny(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return maskAny(client.ParseResponseError(resp, nil))
+	}
+	return nil
 }
 
 // serverPort returns the port number on which my server of given type will listen.
@@ -405,25 +523,27 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			location := master.CreateStarterURL("/hello")
 			return ClusterConfig{}, maskAny(RedirectError{location})
 		} else {
-			return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "No master known"))
+			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "No master known"))
 		}
 	}
 
 	if s.state == stateRunningSlave {
 		// Redirect to running master
 		if masterURL := s.runtimeClusterManager.GetMasterURL(); masterURL != "" {
+			s.log.Debugf("Redirecting hello request to %s", masterURL)
 			helloURL, err := getURLWithPath(masterURL, "/hello")
 			if err != nil {
-				return ClusterConfig{}, maskAny(errors.Wrap(InternalServerError, err.Error()))
+				return ClusterConfig{}, maskAny(errors.Wrap(client.InternalServerError, err.Error()))
 			} else {
 				return ClusterConfig{}, maskAny(RedirectError{helloURL})
 			}
 		} else if req != nil || isUpdateRequest {
 			// No master know, service unavailable when handling a POST of GET+update request
-			return ClusterConfig{}, maskAny(errors.Wrap(ServiceUnavailableError, "No master known"))
+			return ClusterConfig{}, maskAny(errors.Wrap(client.ServiceUnavailableError, "No master known"))
 		} else {
 			// No master know, but initial request.
 			// Just return what we know so the other starter can get started
+			s.log.Debugf("Initial hello request from %s without known running master", remoteAddress)
 		}
 	}
 
@@ -445,7 +565,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		if slaveAddr == "" {
 			host, _, err := net.SplitHostPort(remoteAddress)
 			if err != nil {
-				return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "SlaveAddress must be set."))
+				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "SlaveAddress must be set."))
 			}
 			slaveAddr = normalizeHostName(host)
 		} else {
@@ -455,21 +575,21 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 
 		// Check request
 		if req.SlaveID == "" {
-			return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "SlaveID must be set."))
+			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "SlaveID must be set."))
 		}
 
 		// Check datadir
 		if !s.allowSameDataDir {
 			for _, p := range s.myPeers.AllPeers {
 				if p.Address == slaveAddr && p.DataDir == req.DataDir && p.ID != req.SlaveID {
-					return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "Cannot use same directory as peer."))
+					return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot use same directory as peer."))
 				}
 			}
 		}
 
 		// Check IsSecure, cannot mix secure / non-secure
 		if req.IsSecure != s.IsSecure() {
-			return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "Cannot mix secure / non-secure peers."))
+			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot mix secure / non-secure peers."))
 		}
 
 		// If slaveID already known, then return data right away.
@@ -484,7 +604,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 					} else {
 						// Slave address may not change
 						if p.Address != slaveAddr {
-							return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "Cannot change slave address while using an existing ID."))
+							return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot change slave address while using an existing ID."))
 						}
 					}
 					s.myPeers.AllPeers[i].DataDir = req.DataDir
@@ -493,7 +613,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		} else {
 			// In single server mode, do not accept new slaves
 			if s.mode.IsSingleMode() {
-				return ClusterConfig{}, maskAny(errors.Wrap(BadRequestError, "In single server mode, slaves cannot be added."))
+				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "In single server mode, slaves cannot be added."))
 			}
 			// ID not yet found, add it
 			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.cfg.AllPortOffsetsUnique)
@@ -556,6 +676,23 @@ func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
 	// TODO only update when changed
 	s.myPeers = newConfig
 	s.saveSetup()
+}
+
+func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
+	containerPort = s.cfg.MasterPort
+	hostPort = s.announcePort
+	s.log.Infof("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.myPeers.AllPeers))
+	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.AllPeers) > 0 {
+		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
+			containerPort += myPeer.PortOffset
+		} else {
+			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.id))
+		}
+	}
+	if s.isNetHost {
+		hostPort = containerPort
+	}
+	return containerPort, hostPort, nil
 }
 
 // startHTTPServer initializes and runs the HTTP server.
