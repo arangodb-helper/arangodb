@@ -60,7 +60,11 @@ This will contact A on port 8528 and register.
 
 From the moment on when 3 have joined, each will fire up an agent, a 
 coordinator and a dbserver and the cluster is up. Ports are shown on
-the console.
+the console, the starter uses the next few ports above the starter
+port. That is, if one uses port 8528 for the starter, the coordinator
+will use 8529 (=8528+1), the dbserver 8530 (=8528+2), and the agent 8531
+(=8528+3). See below under `--starter.port` for how to change the
+starter default port.
 
 Additional servers can be added in the same way.
 
@@ -318,7 +322,9 @@ Esoteric options
 
 * `--starter.port=int`
 
-port for arangodb master (default 8528).
+port for arangodb master (default 8528). See below under "Technical
+explanation as to what happens" for a description of how the ports of
+the other servers are derived from this number.
 
 This is the port used for communication of the `arangodb` instances
 amongst each other.
