@@ -132,6 +132,7 @@ type writeUpdate struct {
 	Operation string      `json:"op,omitempty"`
 	New       interface{} `json:"new,omitempty"`
 	TTL       int64       `json:"ttl,omitempty"`
+	URL       string      `json:"url,omitempty"`
 }
 
 type writeCondition struct {
@@ -226,6 +227,169 @@ func (c *client) write(ctx context.Context, key []string, value interface{}, con
 	if result.Results[0] == 0 {
 		// Condition failed
 		return maskAny(ConditionFailedError)
+	}
+
+	// Success
+	return nil
+}
+
+// RemoveKeyIfEqualTo removes the given key only if the existing value for that key equals
+// to the given old value.
+func (c *client) RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue interface{}) error {
+	url := c.createURL("/_api/agency/write", nil)
+
+	condition := writeCondition{
+		Old: oldValue,
+	}
+	fullKey := createFullKey(key)
+	writeTxs := writeTransactions{
+		writeTransaction{
+			// Update
+			map[string]interface{}{
+				fullKey: writeUpdate{
+					Operation: "delete",
+				},
+			},
+			// Condition
+			map[string]interface{}{
+				fullKey: condition,
+			},
+		},
+	}
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := setJSONRequestBody(req, writeTxs); err != nil {
+		return maskAny(err)
+	}
+
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if c.prepareRequest != nil {
+		if err := c.prepareRequest(req); err != nil {
+			return maskAny(err)
+		}
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	var result writeResult
+	if err := c.handleResponse(resp, "POST", url, &result); err != nil {
+		return maskAny(err)
+	}
+	// "results" should be 1 long
+	if len(result.Results) != 1 {
+		return maskAny(fmt.Errorf("Expected results of 1 long, got %d", len(result.Results)))
+	}
+
+	// If results[0] == 0, condition failed, otherwise success
+	if result.Results[0] == 0 {
+		// Condition failed
+		return maskAny(ConditionFailedError)
+	}
+
+	// Success
+	return nil
+}
+
+// Register a URL to receive notification callbacks when the value of the given key changes
+func (c *client) RegisterChangeCallback(ctx context.Context, key []string, cbURL string) error {
+	url := c.createURL("/_api/agency/write", nil)
+
+	fullKey := createFullKey(key)
+	writeTxs := writeTransactions{
+		writeTransaction{
+			// Update
+			map[string]interface{}{
+				fullKey: writeUpdate{
+					Operation: "observe",
+					URL:       cbURL,
+				},
+			},
+		},
+	}
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := setJSONRequestBody(req, writeTxs); err != nil {
+		return maskAny(err)
+	}
+
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if c.prepareRequest != nil {
+		if err := c.prepareRequest(req); err != nil {
+			return maskAny(err)
+		}
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	var result writeResult
+	if err := c.handleResponse(resp, "POST", url, &result); err != nil {
+		return maskAny(err)
+	}
+	// "results" should be 1 long
+	if len(result.Results) != 1 {
+		return maskAny(fmt.Errorf("Expected results of 1 long, got %d", len(result.Results)))
+	}
+
+	// Success
+	return nil
+}
+
+// Register a URL to receive notification callbacks when the value of the given key changes
+func (c *client) UnregisterChangeCallback(ctx context.Context, key []string, cbURL string) error {
+	url := c.createURL("/_api/agency/write", nil)
+
+	fullKey := createFullKey(key)
+	writeTxs := writeTransactions{
+		writeTransaction{
+			// Update
+			map[string]interface{}{
+				fullKey: writeUpdate{
+					Operation: "unobserve",
+					URL:       cbURL,
+				},
+			},
+		},
+	}
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := setJSONRequestBody(req, writeTxs); err != nil {
+		return maskAny(err)
+	}
+
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if c.prepareRequest != nil {
+		if err := c.prepareRequest(req); err != nil {
+			return maskAny(err)
+		}
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	var result writeResult
+	if err := c.handleResponse(resp, "POST", url, &result); err != nil {
+		return maskAny(err)
+	}
+	// "results" should be 1 long
+	if len(result.Results) != 1 {
+		return maskAny(fmt.Errorf("Expected results of 1 long, got %d", len(result.Results)))
 	}
 
 	// Success

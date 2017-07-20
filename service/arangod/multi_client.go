@@ -113,6 +113,49 @@ func (c *multiClient) WriteKeyIfEqualTo(ctx context.Context, key []string, newVa
 	return nil
 }
 
+// RemoveKeyIfEqualTo removes the given key only if the existing value for that key equals
+// to the given old value.
+func (c *multiClient) RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue interface{}) error {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if err := c.Agency().RemoveKeyIfEqualTo(ctx, key, oldValue); err != nil {
+			return nil, maskAny(err)
+		}
+		return nil, nil
+	}
+	if _, err := c.handleMultiRequests(ctx, op); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// Register a URL to receive notification callbacks when the value of the given key changes
+func (c *multiClient) RegisterChangeCallback(ctx context.Context, key []string, cbURL string) error {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if err := c.Agency().RegisterChangeCallback(ctx, key, cbURL); err != nil {
+			return nil, maskAny(err)
+		}
+		return nil, nil
+	}
+	if _, err := c.handleMultiRequests(ctx, op); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// Register a URL to receive notification callbacks when the value of the given key changes
+func (c *multiClient) UnregisterChangeCallback(ctx context.Context, key []string, cbURL string) error {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if err := c.Agency().UnregisterChangeCallback(ctx, key, cbURL); err != nil {
+			return nil, maskAny(err)
+		}
+		return nil, nil
+	}
+	if _, err := c.handleMultiRequests(ctx, op); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
 // CleanOutServer triggers activities to clean out a DBServers.
 func (c *multiClient) CleanOutServer(ctx context.Context, serverID string) error {
 	op := func(ctx context.Context, c API) (interface{}, error) {

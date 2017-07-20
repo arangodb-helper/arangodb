@@ -53,6 +53,15 @@ type AgencyAPI interface {
 	// WriteKeyIfEqualTo writes the given new value with the given key only if the existing value for that key equals
 	// to the given old value.
 	WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error
+
+	// RemoveKeyIfEqualTo removes the given key only if the existing value for that key equals
+	// to the given old value.
+	RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue interface{}) error
+
+	// Register a URL to receive notification callbacks when the value of the given key changes
+	RegisterChangeCallback(ctx context.Context, key []string, cbURL string) error
+	// Register a URL to receive notification callbacks when the value of the given key changes
+	UnregisterChangeCallback(ctx context.Context, key []string, cbURL string) error
 }
 
 // ServerAPI abstracts the API of a single ArangoDB server

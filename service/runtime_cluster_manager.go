@@ -96,6 +96,8 @@ func (s *runtimeClusterManager) getMasterURL(ctx context.Context) (string, error
 		return "", maskAny(err)
 	} else if strResult, ok := result.(string); ok {
 		return strResult, nil
+	} else if mapResult, ok := result.(map[string]interface{}); ok && len(mapResult) == 0 {
+		return "", nil
 	} else {
 		return "", maskAny(fmt.Errorf("Invalid value type at key: %v", reflect.TypeOf(result)))
 	}
@@ -147,7 +149,7 @@ func (s *runtimeClusterManager) tryStopBeingMaster(ctx context.Context, ownURL s
 	// Try to update our master URL
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
-	if err := api.WriteKeyIfEqualTo(ctx, masterURLKey, "", ownURL, masterURLTTL); err != nil {
+	if err := api.RemoveKeyIfEqualTo(ctx, masterURLKey, ownURL); err != nil {
 		return maskAny(err)
 	}
 	return nil
@@ -184,6 +186,46 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 	return nil
 }
 
+// registerMasterChangedCallback registers our callback URL with the agency
+func (s *runtimeClusterManager) registerMasterChangedCallback(ctx context.Context, ownURL string) error {
+	// Get api client
+	api, err := s.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Register callback
+	cbURL, err := getURLWithPath(ownURL, "/cb/masterChanged")
+	if err != nil {
+		return maskAny(err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	if err := api.RegisterChangeCallback(ctx, masterURLKey, cbURL); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// unregisterMasterChangedCallback removes our callback URL from the agency
+func (s *runtimeClusterManager) unregisterMasterChangedCallback(ctx context.Context, ownURL string) error {
+	// Get api client
+	api, err := s.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Register callback
+	cbURL, err := getURLWithPath(ownURL, "/cb/masterChanged")
+	if err != nil {
+		return maskAny(err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	if err := api.UnregisterChangeCallback(ctx, masterURLKey, cbURL); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
 // Run keeps the cluster configuration up to date, either as master or as slave
 // during a running state.
 func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, runtimeContext runtimeClusterManagerContext) {
@@ -201,6 +243,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 	}
 	ownURL := myPeer.CreateStarterURL("/")
 
+	callbackRegistered := false
 	for {
 		var delay time.Duration
 		// Loop until stopping
@@ -213,7 +256,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 		masterURL, err := s.getMasterURL(ctx)
 		if err != nil {
 			// Cannot obtain master url, wait a while and try again
-			log.Debugf("Failed to get master URL, retrying in 5sec (%#v)", err)
+			log.Infof("Failed to get master URL, retrying in 5sec (%#v)", err)
 			delay = time.Second * 5
 		} else {
 			// Store current master
@@ -221,19 +264,31 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			s.lastMasterURL = masterURL
 			s.mutex.Unlock()
 
+			// Register master changed callback (if needed)
+			if !callbackRegistered && masterURL != "" {
+				log.Info("Register master callback...")
+				if err := s.registerMasterChangedCallback(ctx, ownURL); err != nil {
+					log.Debugf("Failed to register master callback: %#v", err)
+				} else {
+					log.Info("Registered master callback")
+					callbackRegistered = true
+					defer s.unregisterMasterChangedCallback(context.Background(), ownURL)
+				}
+			}
+
 			if masterURL == "" {
 				// There is currently no master, try to become master (if allowed)
 				if !s.avoidBeingMaster {
 					log.Debug("There is no current master, try to become master")
 					if err := s.tryBecomeMaster(ctx, ownURL); err != nil {
-						log.Debugf("tried to become master but failed: %#v", err)
+						log.Infof("tried to become master but failed: %#v", err)
 						runtimeContext.ChangeState(stateRunningSlave)
 					} else {
 						log.Info("Just became master")
 						runtimeContext.ChangeState(stateRunningMaster)
 					}
-					// Have update delay before trying to remain master
-					delay = masterURLTTL / 3
+					// Wait a bit, after which we'll register callback (if needed)
+					delay = time.Second
 				} else {
 					// We're not allowed to become master but there is no master,
 					// just wait a bit
@@ -296,7 +351,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			return
 		case <-s.interruptChan:
 			// We're being interrupted
-			log.Info("Being interrupted")
+			log.Debug("Being interrupted")
 			// continue now
 		}
 	}
@@ -313,6 +368,11 @@ func (s *runtimeClusterManager) GetMasterURL() string {
 // becoming master and when it is master, to give that up.
 func (s *runtimeClusterManager) AvoidBeingMaster() {
 	s.avoidBeingMaster = true
+	s.Interrupt()
+}
+
+// Interrupt the runtime cluster manager loop after some event has happened.
+func (s *runtimeClusterManager) Interrupt() {
 	// Interrupt loop so we act on this right away
 	if ch := s.interruptChan; ch != nil {
 		ch <- struct{}{}

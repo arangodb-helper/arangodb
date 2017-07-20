@@ -689,10 +689,20 @@ func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
 	s.saveSetup()
 }
 
+// MasterChangedCallback interrupts the runtime cluster manager
+func (s *Service) MasterChangedCallback() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.state == stateRunningSlave {
+		s.runtimeClusterManager.Interrupt()
+	}
+}
+
 func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 	containerPort = s.cfg.MasterPort
 	hostPort = s.announcePort
-	s.log.Infof("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.myPeers.AllPeers))
+	//s.log.Debug("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.myPeers.AllPeers))
 	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.AllPeers) > 0 {
 		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
 			containerPort += myPeer.PortOffset

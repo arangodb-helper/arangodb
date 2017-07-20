@@ -78,6 +78,12 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			continue
 		}
 
+		if r.StatusCode == http.StatusServiceUnavailable {
+			s.log.Infof("Cannot start because service unavailable: %v", e)
+			time.Sleep(time.Second)
+			continue
+		}
+
 		if r.StatusCode != http.StatusOK {
 			err := client.ParseResponseError(r, body)
 			s.log.Fatalf("Cannot start because of HTTP error from master: code=%d, message=%s\n", r.StatusCode, err.Error())

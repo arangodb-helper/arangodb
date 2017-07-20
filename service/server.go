@@ -94,6 +94,9 @@ type httpServerContext interface {
 	// HandleGoodbye removes the database servers started by the peer with given id
 	// from the cluster and alters the cluster configuration, removing the peer.
 	HandleGoodbye(id string) (peerRemoved bool, err error)
+
+	// Called by an agency callback
+	MasterChangedCallback()
 }
 
 // newHTTPServer initializes and an HTTP server.
@@ -126,6 +129,8 @@ func (s *httpServer) Start(hostAddr, containerAddr string, tlsConfig *tls.Config
 	mux.HandleFunc("/logs/single", s.singleLogsHandler)
 	mux.HandleFunc("/version", s.versionHandler)
 	mux.HandleFunc("/shutdown", s.shutdownHandler)
+	// Agency callback
+	mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
 
 	go func() {
 		server := &http.Server{
@@ -396,6 +401,20 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Stop my services
 	s.context.Stop()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// cbMasterChanged is a callback called by the agency when the master URL is modified.
+func (s *httpServer) cbMasterChanged(w http.ResponseWriter, r *http.Request) {
+	s.log.Debugf("Master changed callback from %s", r.RemoteAddr)
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Interrupt runtime cluster manager
+	s.context.MasterChangedCallback()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
