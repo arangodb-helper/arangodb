@@ -216,7 +216,7 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 		for _, p := range s.myPeers.Peers {
 			if p.HasAgent() && p.ID != s.id {
 				options = append(options,
-					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent)))},
+					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
 				)
 			}
 		}
@@ -247,7 +247,7 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 			p := s.myPeers.Peers[i]
 			options = append(options,
 				optionPair{"--cluster.agency-endpoint",
-					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(s.MasterPort+p.PortOffset+_portOffsetAgent)))},
+					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
 			)
 		}
 	}
