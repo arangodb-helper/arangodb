@@ -46,9 +46,10 @@ var (
 
 // runtimeClusterManager keeps the cluster configuration up to date during a running state.
 type runtimeClusterManager struct {
-	mutex          sync.Mutex
-	runtimeContext runtimeClusterManagerContext
-	lastMasterURL  string
+	mutex            sync.Mutex
+	runtimeContext   runtimeClusterManagerContext
+	lastMasterURL    string
+	avoidBeingMaster bool // If set, this peer will not try to become master
 }
 
 // runtimeClusterManagerContext provides a context for the runtimeClusterManager.
@@ -133,6 +134,24 @@ func (s *runtimeClusterManager) tryRemainMaster(ctx context.Context, ownURL stri
 	return nil
 }
 
+// tryStopBeingMaster tries to write an empty URL into a well known location in the agency,
+// assuming we're already the master.
+// This will enable other peers to become master
+func (s *runtimeClusterManager) tryStopBeingMaster(ctx context.Context, ownURL string) error {
+	// Get api client
+	api, err := s.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Try to update our master URL
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	if err := api.WriteKeyIfEqualTo(ctx, masterURLKey, "", ownURL, masterURLTTL); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
 // updateClusterConfiguration asks the master at given URL for the latest cluster configuration.
 func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, masterURL string) error {
 	helloURL, err := getURLWithPath(masterURL, "/hello?update=1")
@@ -201,33 +220,53 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			s.mutex.Unlock()
 
 			if masterURL == "" {
-				// There is currently no master, try to become master
-				log.Debug("There is no current master, try to become master")
-				if err := s.tryBecomeMaster(ctx, ownURL); err != nil {
-					log.Debugf("tried to become master but failed: %#v", err)
-					runtimeContext.ChangeState(stateRunningSlave)
+				// There is currently no master, try to become master (if allowed)
+				if !s.avoidBeingMaster {
+					log.Debug("There is no current master, try to become master")
+					if err := s.tryBecomeMaster(ctx, ownURL); err != nil {
+						log.Debugf("tried to become master but failed: %#v", err)
+						runtimeContext.ChangeState(stateRunningSlave)
+					} else {
+						log.Info("Just became master")
+						runtimeContext.ChangeState(stateRunningMaster)
+					}
+					// Have update delay before trying to remain master
+					delay = masterURLTTL / 3
 				} else {
-					log.Info("Just became master")
-					runtimeContext.ChangeState(stateRunningMaster)
+					// We're not allowed to become master but there is no master,
+					// just wait a bit
+					delay = time.Second
 				}
-				// Have update delay before trying to remain master
-				delay = masterURLTTL / 3
 			} else if masterURL == ownURL {
 				// We are the master, update our entry in the agency
 				log.Debug("We're master, try to remain it")
 				runtimeContext.ChangeState(stateRunningMaster)
 
-				// Update agency
-				if err := s.tryRemainMaster(ctx, ownURL); err != nil {
-					log.Info("Failed to remain master: %#v", err)
-					runtimeContext.ChangeState(stateRunningSlave)
+				if !s.avoidBeingMaster {
+					// Update agency
+					if err := s.tryRemainMaster(ctx, ownURL); err != nil {
+						log.Info("Failed to remain master: %#v", err)
+						runtimeContext.ChangeState(stateRunningSlave)
 
-					// Retry soon
-					delay = time.Second
+						// Retry soon
+						delay = time.Second
+					} else {
+						// I'm still the master
+						// wait a bit before updating master URL
+						delay = masterURLTTL / 3
+					}
 				} else {
-					// I'm still the master
-					// wait a bit before updating master URL
-					delay = masterURLTTL / 3
+					// We're master, but we want to avoid that, try giving up being master
+					if err := s.tryStopBeingMaster(ctx, ownURL); err != nil {
+						log.Warningf("Failed to stop being master: %#v", err)
+						// Retry soon
+						delay = time.Second
+					} else {
+						// I'm no longer master
+						runtimeContext.ChangeState(stateRunningSlave)
+						// Come back soon to see who took over
+						delay = time.Second
+					}
 				}
 			} else {
 				// We are slave, try to update cluster configuration from master
@@ -260,4 +299,10 @@ func (s *runtimeClusterManager) GetMasterURL() string {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	return s.lastMasterURL
+}
+
+// AvoidBeingMaster instructs the runtime cluster manager to avoid
+// becoming master and when it is master, to give that up.
+func (s *runtimeClusterManager) AvoidBeingMaster() {
+	s.avoidBeingMaster = true
 }

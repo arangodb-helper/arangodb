@@ -346,7 +346,9 @@ func (s *Service) sendMasterLeaveCluster() error {
 	// Check state
 	switch s.state {
 	case stateRunningMaster:
-		return maskAny(errors.Wrap(client.PreconditionFailedError, "Running master cannot be removed from cluster"))
+		// We're the master, try to stop that and return unavailable so the client should try again
+		s.runtimeClusterManager.AvoidBeingMaster()
+		return maskAny(errors.Wrap(client.ServiceUnavailableError, "Currently running master, giving up being master, please try again"))
 	case stateRunningSlave:
 	// OK
 	default:
@@ -356,7 +358,8 @@ func (s *Service) sendMasterLeaveCluster() error {
 	// Build URL
 	masterURL := s.runtimeClusterManager.GetMasterURL()
 	if masterURL == "" {
-		return maskAny(errors.Wrap(client.PreconditionFailedError, "Running master is not yet known"))
+		// Return unavailable so the client should retry
+		return maskAny(errors.Wrap(client.ServiceUnavailableError, "Running master is not yet known"))
 	}
 	u, err := getURLWithPath(masterURL, "/goodbye")
 	if err != nil {
