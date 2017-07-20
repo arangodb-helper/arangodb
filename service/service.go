@@ -378,6 +378,12 @@ func (s *Service) sendMasterLeaveCluster() error {
 	if resp.StatusCode != http.StatusOK {
 		return maskAny(client.ParseResponseError(resp, nil))
 	}
+
+	// Remove setup.json
+	if err := RemoveSetupConfig(s.log, s.cfg.DataDir); err != nil {
+		s.log.Warningf("Failed to remove %s: %#v", setupFileName, err)
+	}
+
 	return nil
 }
 

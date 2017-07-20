@@ -50,6 +50,7 @@ type runtimeClusterManager struct {
 	runtimeContext   runtimeClusterManagerContext
 	lastMasterURL    string
 	avoidBeingMaster bool // If set, this peer will not try to become master
+	interruptChan    chan struct{}
 }
 
 // runtimeClusterManagerContext provides a context for the runtimeClusterManager.
@@ -187,6 +188,7 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 // during a running state.
 func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, runtimeContext runtimeClusterManagerContext) {
 	s.runtimeContext = runtimeContext
+	s.interruptChan = make(chan struct{}, 32)
 	_, myPeer, mode := runtimeContext.ClusterConfig()
 	if !mode.IsClusterMode() {
 		// Cluster manager is only relevant in cluster mode
@@ -257,12 +259,14 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 					}
 				} else {
 					// We're master, but we want to avoid that, try giving up being master
+					log.Info("Trying to stop being master...")
 					if err := s.tryStopBeingMaster(ctx, ownURL); err != nil {
 						log.Warningf("Failed to stop being master: %#v", err)
 						// Retry soon
 						delay = time.Second
 					} else {
 						// I'm no longer master
+						log.Info("Stopped being master")
 						runtimeContext.ChangeState(stateRunningSlave)
 						// Come back soon to see who took over
 						delay = time.Second
@@ -290,6 +294,10 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 		case <-ctx.Done():
 			// We're asked to stop
 			return
+		case <-s.interruptChan:
+			// We're being interrupted
+			log.Info("Being interrupted")
+			// continue now
 		}
 	}
 }
@@ -304,6 +312,9 @@ func (s *runtimeClusterManager) GetMasterURL() string {
 // AvoidBeingMaster instructs the runtime cluster manager to avoid
 // becoming master and when it is master, to give that up.
 func (s *runtimeClusterManager) AvoidBeingMaster() {
-	s.log.Info("Will avoid being master from now on")
 	s.avoidBeingMaster = true
+	// Interrupt loop so we act on this right away
+	if ch := s.interruptChan; ch != nil {
+		ch <- struct{}{}
+	}
 }

@@ -25,6 +25,7 @@ package service
 import (
 	"encoding/json"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/coreos/go-semver/semver"
@@ -118,4 +119,16 @@ func ReadSetupConfig(log *logging.Logger, dataDir string, bsCfg BootstrapConfig)
 	bsCfg.AgencySize = cfg.Peers.AgencySize
 
 	return bsCfg, cfg.Peers, true, nil
+}
+
+// RemoveSetupConfig tries to remove a setup.json config file.
+func RemoveSetupConfig(log *logging.Logger, dataDir string) error {
+	path := filepath.Join(dataDir, setupFileName)
+	if _, err := os.Stat(path); err == nil {
+		log.Infof("Removing starter config %s", path)
+		if err := os.Remove(path); err != nil {
+			return maskAny(err)
+		}
+	}
+	return nil
 }
