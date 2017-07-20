@@ -181,9 +181,18 @@ In the directory, there will be a single file `setup.json` used for
 restarts and a directory for each instances that runs on this machine.
 Different instances of `arangodb` must use different data directories.
 
-* `--starter.join=addr`
+* `--starter.join=address`
 
-join a cluster with master at address `addr` (default "")
+Join a cluster with master at address `address` (default "").
+Address can be an host address or name, followed with an optional port.
+
+E.g. these are valid arguments.
+```
+--starter.join=localhost 
+--starter.join=localhost:5678
+--starter.join=192.168.23.1:8528
+--starter.join=192.168.23.1
+```
 
 * `--starter.local` 
 
