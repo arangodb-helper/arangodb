@@ -29,10 +29,10 @@ type API interface {
 	// Version requests the starter version.
 	Version(ctx context.Context) (VersionInfo, error)
 
-	// Processes loads information of all the server processes launched by the starter.
+	// Processes loads information of all the database server processes launched by the starter.
 	Processes(ctx context.Context) (ProcessList, error)
 
-	// Shutdown will shutdown a starter (and all its started servers).
+	// Shutdown will shutdown a starter (and all its started database servers).
 	// With goodbye set, it will remove the peer slot for the starter.
 	Shutdown(ctx context.Context, goodbye bool) error
 }

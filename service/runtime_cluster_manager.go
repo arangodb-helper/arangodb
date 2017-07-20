@@ -304,5 +304,6 @@ func (s *runtimeClusterManager) GetMasterURL() string {
 // AvoidBeingMaster instructs the runtime cluster manager to avoid
 // becoming master and when it is master, to give that up.
 func (s *runtimeClusterManager) AvoidBeingMaster() {
+	s.log.Info("Will avoid being master from now on")
 	s.avoidBeingMaster = true
 }

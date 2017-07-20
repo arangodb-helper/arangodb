@@ -217,7 +217,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		for _, p := range clusterConfig.AllAgents() {
 			if p.ID != myPeerID {
 				options = append(options,
-					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(config.MasterPort+p.PortOffset+_portOffsetAgent)))},
+					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
 				)
 			}
 		}
@@ -247,7 +247,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		for _, p := range clusterConfig.AllAgents() {
 			options = append(options,
 				optionPair{"--cluster.agency-endpoint",
-					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(config.MasterPort+p.PortOffset+_portOffsetAgent)))},
+					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
 			)
 		}
 	}

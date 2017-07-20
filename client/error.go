@@ -32,11 +32,15 @@ import (
 )
 
 var (
-	maskAny                 = errors.WithStack
+	maskAny = errors.WithStack
+	// ServiceUnavailableError indicates that right now the service is not available, please retry later.
 	ServiceUnavailableError = StatusError{StatusCode: http.StatusServiceUnavailable, message: "service unavailable"}
-	BadRequestError         = StatusError{StatusCode: http.StatusBadRequest, message: "bad request"}
+	// BadRequestError indicates invalid arguments.
+	BadRequestError = StatusError{StatusCode: http.StatusBadRequest, message: "bad request"}
+	// PreconditionFailedError indicates that the state of the system is such that the request cannot be executed.
 	PreconditionFailedError = StatusError{StatusCode: http.StatusPreconditionFailed, message: "precondition failed"}
-	InternalServerError     = StatusError{StatusCode: http.StatusInternalServerError, message: "internal server error"}
+	// InternalServerError indicates an unspecified error inside the server, perhaps a bug.
+	InternalServerError = StatusError{StatusCode: http.StatusInternalServerError, message: "internal server error"}
 )
 
 type StatusError struct {
@@ -75,19 +79,23 @@ type ErrorResponse struct {
 	Error string
 }
 
+// IsServiceUnavailable returns true if the given error is caused by a ServiceUnavailableError.
 func IsServiceUnavailable(err error) bool {
 	return IsStatusErrorWithCode(err, http.StatusServiceUnavailable)
 }
 
+// IsBadRequest returns true if the given error is caused by a BadRequestError.
 func IsBadRequest(err error) bool {
 	return IsStatusErrorWithCode(err, http.StatusBadRequest)
 }
 
+// IsPreconditionFailed returns true if the given error is caused by a PreconditionFailedError.
 func IsPreconditionFailed(err error) bool {
 	return IsStatusErrorWithCode(err, http.StatusPreconditionFailed)
 }
 
-func InternalServer(err error) bool {
+// IsInternalServer returns true if the given error is caused by a InternalServerError.
+func IsInternalServer(err error) bool {
 	return IsStatusErrorWithCode(err, http.StatusInternalServerError)
 }
 
