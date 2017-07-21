@@ -74,7 +74,7 @@ var (
 	mode                     string
 	dataDir                  string
 	ownAddress               string
-	masterAddress            string
+	masterAddresses          []string
 	verbose                  bool
 	serverThreads            int
 	serverStorageEngine      string
@@ -105,7 +105,7 @@ var (
 func init() {
 	f := cmdMain.PersistentFlags()
 
-	f.StringVar(&masterAddress, "starter.join", "", "join a cluster with master at given address")
+	f.StringSliceVar(&masterAddresses, "starter.join", nil, "join a cluster with master at given address")
 	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single)")
 	f.BoolVar(&startLocalSlaves, "starter.local", false, "If set, local slaves will be started to create a machine local (test) cluster")
 	f.StringVar(&ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
@@ -490,7 +490,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		RrPath:               rrPath,
 		DataDir:              dataDir,
 		OwnAddress:           ownAddress,
-		MasterAddress:        masterAddress,
+		MasterAddresses:      masterAddresses,
 		Verbose:              verbose,
 		ServerThreads:        serverThreads,
 		AllPortOffsetsUnique: allPortOffsetsUnique,

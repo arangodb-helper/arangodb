@@ -25,11 +25,8 @@ package service
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
-	"net"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/arangodb-helper/arangodb/client"
@@ -37,14 +34,9 @@ import (
 
 // bootstrapSlave starts the Service as slave and begins bootstrapping the cluster from nothing.
 func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Config, bsCfg BootstrapConfig) {
-	masterPort := config.MasterPort
-	if host, port, err := net.SplitHostPort(peerAddress); err == nil {
-		peerAddress = host
-		masterPort, _ = strconv.Atoi(port)
-	}
+	masterURL := s.createBootstrapMasterURL(peerAddress, config)
 	for {
-		masterAddr := net.JoinHostPort(peerAddress, strconv.Itoa(masterPort))
-		s.log.Infof("Contacting master %s...", masterAddr)
+		s.log.Infof("Contacting master %s...", masterURL)
 		_, hostPort, err := s.getHTTPServerPort()
 		if err != nil {
 			s.log.Fatalf("Failed to get HTTP server port: %#v", err)
@@ -62,8 +54,11 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 		if err != nil {
 			s.log.Fatalf("Failed to encode Hello request: %#v", err)
 		}
-		scheme := NewURLSchemes(s.IsSecure()).Browser
-		r, e := httpClient.Post(fmt.Sprintf("%s://%s/hello", scheme, masterAddr), contentTypeJSON, bytes.NewReader(encoded))
+		helloURL, err := getURLWithPath(masterURL, "/hello")
+		if err != nil {
+			s.log.Fatalf("Failed to create Hello URL: %#v", err)
+		}
+		r, e := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
 		if e != nil {
 			s.log.Infof("Cannot start because of error from master: %v", e)
 			time.Sleep(time.Second)
