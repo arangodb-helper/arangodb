@@ -100,40 +100,6 @@ func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 	ShutdownStarter(t, insecureStarterEndpoint(10))
 }
 
-func TestProcessClusterDifferentPorts(t *testing.T) {
-	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	dataDirMaster := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirMaster)
-
-	start := time.Now()
-
-	master := Spawn(t, "${STARTER} --starter.port=6000 "+createEnvironmentStarterOptions())
-	defer master.Close()
-
-	dataDirSlave1 := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1:6000 --starter.port=7000 "+createEnvironmentStarterOptions())
-	defer slave1.Close()
-
-	dataDirSlave2 := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1:6000 --starter.port=8000 "+createEnvironmentStarterOptions())
-	defer slave2.Close()
-
-	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, "http://localhost:6000", false)
-		testCluster(t, "http://localhost:7000", false)
-		testCluster(t, "http://localhost:8000", false)
-	}
-
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	SendIntrAndWait(t, master, slave1, slave2)
-}
-
 // TestOldProcessClusterDefault starts a master starter, followed by 2 slave starters.
 func TestOldProcessClusterDefault(t *testing.T) {
 	removeArangodProcesses(t)

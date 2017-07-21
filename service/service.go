@@ -730,24 +730,24 @@ func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 }
 
 // createHTTPServer initializes an HTTP server.
-func (s *Service) createHTTPServer(config Config) (srv *httpServer, hostAddr, containerAddr string, err error) {
+func (s *Service) createHTTPServer(config Config) (srv *httpServer, containerPort int, hostAddr, containerAddr string, err error) {
 	// Create address to listen on
 	containerPort, hostPort, err := s.getHTTPServerPort()
 	if err != nil {
-		return nil, "", "", maskAny(err)
+		return nil, 0, "", "", maskAny(err)
 	}
 	containerAddr = fmt.Sprintf("0.0.0.0:%d", containerPort)
 	hostAddr = net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
 
 	// Create HTTP server
-	return newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id), hostAddr, containerAddr, nil
+	return newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id), containerPort, hostAddr, containerAddr, nil
 }
 
 // startHTTPServer initializes and runs the HTTP server.
 // If will return directly after starting it.
 func (s *Service) startHTTPServer(config Config) {
 	// Create server
-	srv, hostAddr, containerAddr, err := s.createHTTPServer(config)
+	srv, _, hostAddr, containerAddr, err := s.createHTTPServer(config)
 	if err != nil {
 		s.log.Fatalf("Failed to get create HTTP server: %#v", err)
 	}

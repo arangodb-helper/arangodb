@@ -111,6 +111,7 @@ func newHTTPServer(log *logging.Logger, context httpServerContext, runtimeServer
 	return &httpServer{
 		log:     log,
 		context: context,
+		server:  &http.Server{},
 		idInfo: client.IDInfo{
 			ID: serverID,
 		},
@@ -157,10 +158,8 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
 	}
 
-	s.server = &http.Server{
-		Addr:    containerAddr,
-		Handler: mux,
-	}
+	s.server.Addr = containerAddr
+	s.server.Handler = mux
 	if tlsConfig != nil {
 		s.log.Infof("Listening on %s (%s) using TLS", containerAddr, hostAddr)
 		s.server.TLSConfig = tlsConfig
@@ -178,10 +177,8 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 
 // Close the server
 func (s *httpServer) Close() error {
-	if srv := s.server; srv != nil {
-		if err := srv.Close(); err != nil {
-			return maskAny(err)
-		}
+	if err := s.server.Close(); err != nil {
+		return maskAny(err)
 	}
 	return nil
 }

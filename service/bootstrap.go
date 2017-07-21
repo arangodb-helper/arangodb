@@ -49,6 +49,27 @@ func (s *Service) createBootstrapMasterURL(peerAddress string, cfg Config) strin
 	return fmt.Sprintf("%s://%s", scheme, masterAddr)
 }
 
+// fetchIDFromPeer tries to get the ID through given client API.
+// When ID is received it is send in the given channel.
+func fetchIDFromPeer(ctx context.Context, peerClient client.API, idChan chan string) {
+	defer close(idChan)
+	for {
+		if idInfo, err := peerClient.ID(ctx); err == nil {
+			idChan <- idInfo.ID
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		select {
+		case <-time.After(time.Millisecond * 100):
+			// Retry
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // isPeerAddressMyself starts a local server and then makes an ID call
 // to the given peer address.
 // Returns true if ID calls succeeds and is equal to own ID.
@@ -58,16 +79,13 @@ func (s *Service) isPeerAddressMyself(rootCtx context.Context, peerAddr string, 
 	if err != nil {
 		return false, maskAny(err)
 	}
-	peerClient, err := client.NewArangoStarterClient(*peerURL)
-	if err != nil {
-		return false, maskAny(err)
-	}
 
 	// Create server
-	srv, hostAddr, containerAddr, err := s.createHTTPServer(cfg)
+	srv, containerPort, hostAddr, containerAddr, err := s.createHTTPServer(cfg)
 	if err != nil {
 		return false, maskAny(err)
 	}
+	defer srv.Close()
 
 	// Run HTTP server until signalled
 	serverErrors := make(chan error)
@@ -79,37 +97,43 @@ func (s *Service) isPeerAddressMyself(rootCtx context.Context, peerAddr string, 
 		}
 	}()
 
-	// Fetch ID until success or timeout
+	// Fetch ID of local peer until success or timeout,
+	// just so we know our server is up.
+	localURL := *peerURL // Create copy
+	localURL.Host = net.JoinHostPort("localhost", strconv.Itoa(containerPort))
+	localPeerClient, err := client.NewArangoStarterClient(localURL)
+	if err != nil {
+		return false, maskAny(err)
+	}
 	ctx, cancel := context.WithTimeout(rootCtx, time.Second*10)
+	defer cancel()
+	localIDFound := make(chan string)
+	go fetchIDFromPeer(ctx, localPeerClient, localIDFound)
+
+	// Wait until we successfully fetched our local ID
+	select {
+	case <-localIDFound:
+		s.log.Infof("Found ID from localhost peer")
+		// We can continue
+	case err := <-serverErrors:
+		s.log.Infof("Error while trying to run HTTP server: %#v", err)
+		return false, nil
+	}
+
+	// Fetch ID of given peer until success or timeout
+	peerClient, err := client.NewArangoStarterClient(*peerURL)
+	if err != nil {
+		return false, maskAny(err)
+	}
 	idFound := make(chan string)
-	go func() {
-		defer close(idFound)
-		for {
-			if idInfo, err := peerClient.ID(ctx); err == nil {
-				idFound <- idInfo.ID
-				return
-			}
-			if ctx.Err() != nil {
-				return
-			}
-			select {
-			case <-time.After(time.Millisecond * 100):
-				// Retry
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+	go fetchIDFromPeer(ctx, peerClient, idFound)
 
 	// Wait until a ID is found or we have a server run error.
 	select {
 	case id := <-idFound:
-		cancel()
-		srv.Close()
+		s.log.Infof("Found ID '%s' from peer, looking for '%s'", id, s.id)
 		return s.id == id, nil
 	case err := <-serverErrors:
-		cancel()
-		srv.Close()
 		s.log.Infof("Error while trying to run HTTP server: %#v", err)
 		return false, nil
 	}

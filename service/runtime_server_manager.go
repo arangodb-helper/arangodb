@@ -102,7 +102,7 @@ func startArangod(log *logging.Logger, runtimeContext runtimeServerManagerContex
 	}
 
 	// Check availability of port
-	if !IsPortOpen(myPort) {
+	if !WaitUntilPortAvailable(myPort, time.Second*3) {
 		return nil, true, maskAny(fmt.Errorf("Cannot start %s, because port %d is already in use", serverType, myPort))
 	}
 
