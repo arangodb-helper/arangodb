@@ -349,7 +349,7 @@ func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverT
 	myHostDir, err := s.context.serverHostDir(serverType)
 	if err != nil {
 		// Not ready yet
-		w.WriteHeader(http.StatusPreconditionFailed)
+		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
 	logPath := filepath.Join(myHostDir, logFileName)
