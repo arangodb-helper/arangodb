@@ -23,21 +23,28 @@
 package service
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/arangodb-helper/arangodb/client"
+	logging "github.com/op/go-logging"
 )
 
 var (
 	httpClient = client.DefaultHTTPClient()
+)
+
+const (
+	contentTypeJSON = "application/json"
 )
 
 // HelloRequest is the data structure send of the wire in a `/hello` POST request.
@@ -56,42 +63,100 @@ type GoodbyeRequest struct {
 	SlaveID string // Unique ID of the slave that should be removed.
 }
 
-// startHTTPServer initializes and runs the HTTP server.
-// If will return directly after starting it.
-func (s *Service) startHTTPServer() {
+type httpServer struct {
+	//config Config
+	log                  *logging.Logger
+	context              httpServerContext
+	versionInfo          client.VersionInfo
+	idInfo               client.IDInfo
+	runtimeServerManager *runtimeServerManager
+	masterPort           int
+}
+
+// httpServerContext provides a context for the httpServer.
+type httpServerContext interface {
+	// ClusterConfig returns the current cluster configuration and the current peer
+	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
+
+	// IsRunningMaster returns if the starter is the running master.
+	IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string)
+
+	// serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
+	serverHostDir(serverType ServerType) (string, error)
+
+	// sendMasterLeaveCluster informs the master that we're leaving for good.
+	// The master will remove the database servers from the cluster and update
+	// the cluster configuration.
+	sendMasterLeaveCluster() error
+
+	// Stop the peer
+	Stop()
+
+	// Handle a hello request.
+	// If req==nil, this is a GET request, otherwise it is a POST request.
+	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error)
+
+	// HandleGoodbye removes the database servers started by the peer with given id
+	// from the cluster and alters the cluster configuration, removing the peer.
+	HandleGoodbye(id string) (peerRemoved bool, err error)
+
+	// Called by an agency callback
+	MasterChangedCallback()
+}
+
+// newHTTPServer initializes and an HTTP server.
+func newHTTPServer(log *logging.Logger, context httpServerContext, runtimeServerManager *runtimeServerManager, config Config, serverID string) *httpServer {
+	// Create HTTP server
+	return &httpServer{
+		log:     log,
+		context: context,
+		idInfo: client.IDInfo{
+			ID: serverID,
+		},
+		versionInfo: client.VersionInfo{
+			Version: config.ProjectVersion,
+			Build:   config.ProjectBuild,
+		},
+		runtimeServerManager: runtimeServerManager,
+		masterPort:           config.MasterPort,
+	}
+}
+
+// Start listening for requests.
+// This method will return directly after starting.
+func (s *httpServer) Start(hostAddr, containerAddr string, tlsConfig *tls.Config) {
 	mux := http.NewServeMux()
 	// Starter to starter API
 	mux.HandleFunc("/hello", s.helloHandler)
 	mux.HandleFunc("/goodbye", s.goodbyeHandler)
 	// External API
+	mux.HandleFunc("/id", s.idHandler)
 	mux.HandleFunc("/process", s.processListHandler)
+	mux.HandleFunc("/endpoints", s.endpointsHandler)
 	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
 	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
 	mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
 	mux.HandleFunc("/logs/single", s.singleLogsHandler)
 	mux.HandleFunc("/version", s.versionHandler)
 	mux.HandleFunc("/shutdown", s.shutdownHandler)
+	// Agency callback
+	mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
 
 	go func() {
-		containerPort, hostPort, err := s.getHTTPServerPort()
-		if err != nil {
-			s.log.Fatalf("Failed to get HTTP port info: %#v", err)
-		}
-		addr := fmt.Sprintf("0.0.0.0:%d", containerPort)
 		server := &http.Server{
-			Addr:    addr,
+			Addr:    containerAddr,
 			Handler: mux,
 		}
-		if s.tlsConfig != nil {
-			s.log.Infof("Listening on %s (%s) using TLS", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
-			server.TLSConfig = s.tlsConfig
+		if tlsConfig != nil {
+			s.log.Infof("Listening on %s (%s) using TLS", containerAddr, hostAddr)
+			server.TLSConfig = tlsConfig
 			if err := server.ListenAndServeTLS("", ""); err != nil {
-				s.log.Errorf("Failed to listen on %s: %v", addr, err)
+				s.log.Errorf("Failed to listen on %s: %v", containerAddr, err)
 			}
 		} else {
-			s.log.Infof("Listening on %s (%s)", addr, net.JoinHostPort(s.OwnAddress, strconv.Itoa(hostPort)))
+			s.log.Infof("Listening on %s (%s)", containerAddr, hostAddr)
 			if err := server.ListenAndServe(); err != nil {
-				s.log.Errorf("Failed to listen on %s: %v", addr, err)
+				s.log.Errorf("Failed to listen on %s: %v", containerAddr, err)
 			}
 		}
 	}()
@@ -99,143 +164,52 @@ func (s *Service) startHTTPServer() {
 
 // HTTP service function:
 
-func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
-	// Claim exclusive access to our data structures
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
+	s.log.Debugf("Received %s /hello request from %s", r.Method, r.RemoteAddr)
 
-	s.log.Debugf("Received request from %s", r.RemoteAddr)
-	if s.state == stateSlave {
-		header := w.Header()
-		if len(s.myPeers.Peers) > 0 {
-			master := s.myPeers.Peers[0]
-			header.Add("Location", master.CreateStarterURL("/hello"))
-			w.WriteHeader(http.StatusTemporaryRedirect)
-		} else {
-			writeError(w, http.StatusBadRequest, "No master known.")
-		}
+	// Derive own address
+	host, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot derive own host address: %v", err))
 		return
 	}
+	ownAddress := normalizeHostName(host)
+	isUpdateRequest, _ := strconv.ParseBool(r.FormValue("update"))
 
-	// Learn my own address (if needed)
-	if s.learnOwnAddress {
-		host, _, err := net.SplitHostPort(r.Host)
+	var result ClusterConfig
+	if r.Method == "GET" {
+		// Let service handle get request
+		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, nil, isUpdateRequest)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot derive own host address: %v", err))
+			handleError(w, err)
 			return
 		}
-		myself := normalizeHostName(host)
-		_, hostPort, _ := s.getHTTPServerPort()
-		myPeer, found := s.myPeers.PeerByID(s.id)
-		if found {
-			myPeer.Address = myself
-			myPeer.Port = hostPort
-			s.myPeers.UpdatePeerByID(myPeer)
-			s.learnOwnAddress = false
-		}
-	}
-
-	if r.Method == "POST" {
+	} else if r.Method == "POST" {
+		// Read request
 		var req HelloRequest
 		defer r.Body.Close()
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
+		if body, err := ioutil.ReadAll(r.Body); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot read request body: %v", err.Error()))
 			return
-		}
-		if err := json.Unmarshal(body, &req); err != nil {
+		} else if err := json.Unmarshal(body, &req); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot parse request body: %v", err.Error()))
 			return
 		}
 
-		slaveAddr := req.SlaveAddress
-		if slaveAddr == "" {
-			host, _, err := net.SplitHostPort(r.RemoteAddr)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "SlaveAddress must be set.")
-				return
-			}
-			slaveAddr = normalizeHostName(host)
-		} else {
-			slaveAddr = normalizeHostName(slaveAddr)
-		}
-		slavePort := req.SlavePort
-
-		// Check request
-		if req.SlaveID == "" {
-			writeError(w, http.StatusBadRequest, "SlaveID must be set.")
+		// Let service handle post request
+		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, &req, false)
+		if err != nil {
+			handleError(w, err)
 			return
 		}
-
-		// Check datadir
-		if !s.allowSameDataDir {
-			for _, p := range s.myPeers.Peers {
-				if p.Address == slaveAddr && p.DataDir == req.DataDir && p.ID != req.SlaveID {
-					writeError(w, http.StatusBadRequest, "Cannot use same directory as peer.")
-					return
-				}
-			}
-		}
-
-		// Check IsSecure, cannot mix secure / non-secure
-		if req.IsSecure != s.IsSecure() {
-			writeError(w, http.StatusBadRequest, "Cannot mix secure / non-secure peers.")
-			return
-		}
-
-		// If slaveID already known, then return data right away.
-		_, idFound := s.myPeers.PeerByID(req.SlaveID)
-		if idFound {
-			// ID already found, update peer data
-			for i, p := range s.myPeers.Peers {
-				if p.ID == req.SlaveID {
-					s.myPeers.Peers[i].Port = req.SlavePort
-					if s.AllPortOffsetsUnique {
-						s.myPeers.Peers[i].Address = slaveAddr
-					} else {
-						// Slave address may not change
-						if p.Address != slaveAddr {
-							writeError(w, http.StatusBadRequest, "Cannot change slave address while using an existing ID.")
-							return
-						}
-					}
-					s.myPeers.Peers[i].DataDir = req.DataDir
-				}
-			}
-		} else {
-			// In single server mode, do not accept new slaves
-			if s.mode.IsSingleMode() {
-				writeError(w, http.StatusBadRequest, "In single server mode, slaves cannot be added.")
-				return
-			}
-			// ID not yet found, add it
-			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.AllPortOffsetsUnique)
-			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
-			if req.Agent != nil {
-				hasAgent = *req.Agent
-			}
-			hasDBServer := true
-			if req.DBServer != nil {
-				hasDBServer = *req.DBServer
-			}
-			hasCoordinator := true
-			if req.Coordinator != nil {
-				hasCoordinator = *req.Coordinator
-			}
-			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, req.IsSecure)
-			s.myPeers.Peers = append(s.myPeers.Peers, newPeer)
-			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
-		}
-
-		// Start the running the servers if we have enough agents
-		if s.myPeers.HaveEnoughAgents() {
-			// Save updated configuration
-			s.saveSetup()
-			// Trigger start running (if needed)
-			s.startRunningTrigger()
-		}
+	} else {
+		// Invalid method
+		writeError(w, http.StatusMethodNotAllowed, "GET or POST required")
+		return
 	}
-	b, err := json.Marshal(s.myPeers)
+
+	// Send result
+	b, err := json.Marshal(result)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 	} else {
@@ -244,15 +218,13 @@ func (s *Service) helloHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // goodbyeHandler handles a `/goodbye` request that removes a peer from the list of peers.
-func (s *Service) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
-	// Claim exclusive access to our data structures
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
+func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
+	// Check method
 	if r.Method != "POST" {
 		writeError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
+
 	var req GoodbyeRequest
 	defer r.Body.Close()
 	body, err := ioutil.ReadAll(r.Body)
@@ -272,33 +244,42 @@ func (s *Service) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove the peer
-	s.log.Infof("Removing peer %s", req.SlaveID)
-	if removed := s.myPeers.RemovePeerByID(req.SlaveID); !removed {
+	s.log.Infof("Goodbye requested for peer %s", req.SlaveID)
+	if removed, err := s.context.HandleGoodbye(req.SlaveID); err != nil {
+		// Failure
+		handleError(w, err)
+	} else if !removed {
 		// ID not found
 		writeError(w, http.StatusNotFound, "Unknown ID")
-		return
+	} else {
+		// Peer removed
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("BYE"))
 	}
-
-	// Peer has been removed, update stored config
-	s.log.Info("Saving setup")
-	if err := s.saveSetup(); err != nil {
-		s.log.Errorf("Failed to save setup: %#v", err)
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("BYE"))
 }
 
-func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
-	// Claim exclusive access to our data structures
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+// idHandler returns a JSON object containing the ID of this starter.
+func (s *httpServer) idHandler(w http.ResponseWriter, r *http.Request) {
+	data, err := json.Marshal(s.idInfo)
+	if err != nil {
+		s.log.Errorf("Failed to marshal ID response: %#v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	} else {
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+	}
+}
+
+// processListHandler returns process information of all launched servers.
+func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) {
+	clusterConfig, myPeer, mode := s.context.ClusterConfig()
+	isSecure := clusterConfig.IsSecure()
 
 	// Gather processes
 	resp := client.ProcessList{}
 	expectedServers := 0
-	myPeer, found := s.myPeers.PeerByID(s.id)
-	if found {
+	if myPeer != nil {
 		portOffset := myPeer.PortOffset
 		ip := myPeer.Address
 		if myPeer.HasAgent() {
@@ -315,28 +296,28 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 			return client.ServerProcess{
 				Type:        client.ServerType(serverType),
 				IP:          ip,
-				Port:        s.MasterPort + portOffset + serverType.PortOffset(),
+				Port:        s.masterPort + portOffset + serverType.PortOffset(),
 				ProcessID:   p.ProcessID(),
 				ContainerID: p.ContainerID(),
 				ContainerIP: p.ContainerIP(),
-				IsSecure:    s.IsSecure(),
+				IsSecure:    isSecure,
 			}
 		}
 
-		if p := s.servers.agentProc; p != nil {
+		if p := s.runtimeServerManager.agentProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeAgent, p))
 		}
-		if p := s.servers.coordinatorProc; p != nil {
+		if p := s.runtimeServerManager.coordinatorProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeCoordinator, p))
 		}
-		if p := s.servers.dbserverProc; p != nil {
+		if p := s.runtimeServerManager.dbserverProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeDBServer, p))
 		}
-		if p := s.servers.singleProc; p != nil {
+		if p := s.runtimeServerManager.singleProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
 		}
 	}
-	if s.mode.IsSingleMode() {
+	if mode.IsSingleMode() {
 		expectedServers = 1
 	}
 	resp.ServersStarted = len(resp.Servers) == expectedServers
@@ -348,14 +329,74 @@ func (s *Service) processListHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func urlListToStringSlice(list []url.URL) []string {
+	result := make([]string, len(list))
+	for i, u := range list {
+		result[i] = u.String()
+	}
+	return result
+}
+
+// endpointsHandler returns the URL's needed to reach all starters, agents & coordinators in the cluster.
+func (s *httpServer) endpointsHandler(w http.ResponseWriter, r *http.Request) {
+	// IsRunningMaster returns if the starter is the running master.
+	isRunningMaster, isRunning, masterURL := s.context.IsRunningMaster()
+
+	// Check state
+	if isRunning && !isRunningMaster {
+		// Redirect to master
+		if masterURL != "" {
+			location, err := getURLWithPath(masterURL, "/endpoints")
+			if err != nil {
+				handleError(w, err)
+			} else {
+				handleError(w, RedirectError{Location: location})
+			}
+		} else {
+			writeError(w, http.StatusServiceUnavailable, "No runtime master known")
+		}
+	} else {
+		// Gather & send endpoints list
+		clusterConfig, _, _ := s.context.ClusterConfig()
+
+		// Gather endpoints
+		resp := client.EndpointList{}
+		if endpoints, err := clusterConfig.GetPeerEndpoints(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		} else {
+			resp.Starters = urlListToStringSlice(endpoints)
+		}
+		if isRunning {
+			if endpoints, err := clusterConfig.GetAgentEndpoints(); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			} else {
+				resp.Agents = urlListToStringSlice(endpoints)
+			}
+			if endpoints, err := clusterConfig.GetCoordinatorEndpoints(); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			} else {
+				resp.Coordinators = urlListToStringSlice(endpoints)
+			}
+		}
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		} else {
+			w.Write(b)
+		}
+	}
+}
+
 // agentLogsHandler servers the entire agent log (if any).
 // If there is no agent running a 404 is returned.
-func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.mutex.Lock()
-	myPeer, found := s.myPeers.PeerByID(s.id)
-	s.mutex.Unlock()
+func (s *httpServer) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
+	_, myPeer, _ := s.context.ClusterConfig()
 
-	if found && myPeer.HasAgent() {
+	if myPeer != nil && myPeer.HasAgent() {
 		s.logsHandler(w, r, ServerTypeAgent)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
@@ -363,12 +404,10 @@ func (s *Service) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // dbserverLogsHandler servers the entire dbserver log.
-func (s *Service) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.mutex.Lock()
-	myPeer, found := s.myPeers.PeerByID(s.id)
-	s.mutex.Unlock()
+func (s *httpServer) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
+	_, myPeer, _ := s.context.ClusterConfig()
 
-	if found && myPeer.HasDBServer() {
+	if myPeer != nil && myPeer.HasDBServer() {
 		s.logsHandler(w, r, ServerTypeDBServer)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
@@ -376,12 +415,10 @@ func (s *Service) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // coordinatorLogsHandler servers the entire coordinator log.
-func (s *Service) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.mutex.Lock()
-	myPeer, found := s.myPeers.PeerByID(s.id)
-	s.mutex.Unlock()
+func (s *httpServer) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request) {
+	_, myPeer, _ := s.context.ClusterConfig()
 
-	if found && myPeer.HasCoordinator() {
+	if myPeer != nil && myPeer.HasCoordinator() {
 		s.logsHandler(w, r, ServerTypeCoordinator)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
@@ -389,16 +426,16 @@ func (s *Service) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request)
 }
 
 // singleLogsHandler servers the entire single server log.
-func (s *Service) singleLogsHandler(w http.ResponseWriter, r *http.Request) {
+func (s *httpServer) singleLogsHandler(w http.ResponseWriter, r *http.Request) {
 	s.logsHandler(w, r, ServerTypeSingle)
 }
 
-func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, serverType ServerType) {
+func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverType ServerType) {
 	// Find log path
-	myHostDir, err := s.serverHostDir(serverType)
+	myHostDir, err := s.context.serverHostDir(serverType)
 	if err != nil {
 		// Not ready yet
-		w.WriteHeader(http.StatusPreconditionFailed)
+		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
 	logPath := filepath.Join(myHostDir, logFileName)
@@ -420,12 +457,8 @@ func (s *Service) logsHandler(w http.ResponseWriter, r *http.Request, serverType
 }
 
 // versionHandler returns a JSON object containing the current version & build number.
-func (s *Service) versionHandler(w http.ResponseWriter, r *http.Request) {
-	v := client.VersionInfo{
-		Version: s.ProjectVersion,
-		Build:   s.ProjectBuild,
-	}
-	data, err := json.Marshal(v)
+func (s *httpServer) versionHandler(w http.ResponseWriter, r *http.Request) {
+	data, err := json.Marshal(s.versionInfo)
 	if err != nil {
 		s.log.Errorf("Failed to marshal version response: %#v", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -437,7 +470,7 @@ func (s *Service) versionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // shutdownHandler initiates a shutdown of this process and all servers started by it.
-func (s *Service) shutdownHandler(w http.ResponseWriter, r *http.Request) {
+func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -445,41 +478,58 @@ func (s *Service) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 
 	if r.FormValue("mode") == "goodbye" {
 		// Inform the master we're leaving for good
-		if err := s.sendMasterGoodbye(); err != nil {
+		if err := s.context.sendMasterLeaveCluster(); err != nil {
 			s.log.Errorf("Failed to send master goodbye: %#v", err)
-			writeError(w, http.StatusInternalServerError, err.Error())
+			handleError(w, err)
 			return
 		}
 	}
 
 	// Stop my services
-	s.cancel()
+	s.context.Stop()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+// cbMasterChanged is a callback called by the agency when the master URL is modified.
+func (s *httpServer) cbMasterChanged(w http.ResponseWriter, r *http.Request) {
+	s.log.Debugf("Master changed callback from %s", r.RemoteAddr)
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Interrupt runtime cluster manager
+	s.context.MasterChangedCallback()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+func handleError(w http.ResponseWriter, err error) {
+	if loc, ok := IsRedirect(err); ok {
+		header := w.Header()
+		header.Add("Location", loc)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	} else if client.IsBadRequest(err) {
+		writeError(w, http.StatusBadRequest, err.Error())
+	} else if client.IsPreconditionFailed(err) {
+		writeError(w, http.StatusPreconditionFailed, err.Error())
+	} else if client.IsServiceUnavailable(err) {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+	} else if st, ok := client.IsStatusError(err); ok {
+		writeError(w, st, err.Error())
+	} else {
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	if message == "" {
 		message = "Unknown error"
 	}
-	resp := ErrorResponse{Error: message}
+	resp := client.ErrorResponse{Error: message}
 	b, _ := json.Marshal(resp)
+	w.Header().Set("Content-Type", contentTypeJSON)
 	w.WriteHeader(status)
 	w.Write(b)
-}
-
-func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
-	containerPort = s.MasterPort
-	hostPort = s.announcePort
-	if s.announcePort == s.MasterPort && len(s.myPeers.Peers) > 0 {
-		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
-			containerPort += myPeer.PortOffset
-		} else {
-			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.id))
-		}
-	}
-	if s.isNetHost {
-		hostPort = containerPort
-	}
-	return containerPort, hostPort, nil
 }

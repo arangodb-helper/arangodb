@@ -22,6 +22,8 @@
 
 package service
 
+import "crypto/tls"
+
 // BootstrapConfig holds all configuration for a service that will
 // not change through the lifetime of a cluster.
 type BootstrapConfig struct {
@@ -50,4 +52,18 @@ func (bsCfg *BootstrapConfig) Initialize() error {
 		}
 	}
 	return nil
+}
+
+// CreateTLSConfig creates a TLS config based on given bootstrap config
+func (bsCfg BootstrapConfig) CreateTLSConfig() (*tls.Config, error) {
+	if bsCfg.SslKeyFile == "" {
+		return nil, nil
+	}
+	cert, err := LoadKeyFile(bsCfg.SslKeyFile)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+	}, nil
 }

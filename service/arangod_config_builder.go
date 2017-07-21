@@ -171,14 +171,15 @@ func collectConfigVolumes(config configFile) []Volume {
 }
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
-func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myPort string, serverType ServerType, config configFile) []string {
+func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
+	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile) []string {
 	containerConfFileName := filepath.Join(myContainerDir, confFileName)
 
 	args := make([]string, 0, 40)
-	executable := s.ArangodPath
-	jsStartup := s.ArangodJSPath
-	if s.RrPath != "" {
-		args = append(args, s.RrPath)
+	executable := config.ArangodPath
+	jsStartup := config.ArangodJSPath
+	if config.RrPath != "" {
+		args = append(args, config.RrPath)
 	}
 	args = append(args,
 		executable,
@@ -193,28 +194,28 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, logFileName))},
 		optionPair{"--log.force-direct", "false"},
 	)
-	if s.ServerThreads != 0 {
+	if config.ServerThreads != 0 {
 		options = append(options,
-			optionPair{"--server.threads", strconv.Itoa(s.ServerThreads)})
+			optionPair{"--server.threads", strconv.Itoa(config.ServerThreads)})
 	}
-	if s.DebugCluster {
+	if config.DebugCluster {
 		options = append(options,
 			optionPair{"--log.level", "startup=trace"})
 	}
-	scheme := NewURLSchemes(s.IsSecure()).Arangod
+	scheme := NewURLSchemes(clusterConfig.IsSecure()).Arangod
 	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch serverType {
 	case ServerTypeAgent:
 		options = append(options,
 			optionPair{"--agency.activate", "true"},
 			optionPair{"--agency.my-address", myTCPURL},
-			optionPair{"--agency.size", strconv.Itoa(s.myPeers.AgencySize)},
+			optionPair{"--agency.size", strconv.Itoa(clusterConfig.AgencySize)},
 			optionPair{"--agency.supervision", "true"},
 			optionPair{"--foxx.queues", "false"},
 			optionPair{"--server.statistics", "false"},
 		)
-		for _, p := range s.myPeers.Peers {
-			if p.HasAgent() && p.ID != s.id {
+		for _, p := range clusterConfig.AllAgents() {
+			if p.ID != myPeerID {
 				options = append(options,
 					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
 				)
@@ -243,8 +244,7 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 		)
 	}
 	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
-		for i := 0; i < s.myPeers.AgencySize; i++ {
-			p := s.myPeers.Peers[i]
+		for _, p := range clusterConfig.AllAgents() {
 			options = append(options,
 				optionPair{"--cluster.agency-endpoint",
 					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
@@ -252,22 +252,22 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 		}
 	}
 	for _, opt := range options {
-		ptValues := s.passthroughOptionValuesForServerType(strings.TrimPrefix(opt.Key, "--"), serverType)
+		ptValues := config.passthroughOptionValuesForServerType(strings.TrimPrefix(opt.Key, "--"), serverType)
 		if len(ptValues) > 0 {
-			s.log.Warningf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
+			log.Warningf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
 		} else {
 			args = append(args, opt.Key, opt.Value)
 		}
 	}
-	for _, ptOpt := range s.PassthroughOptions {
+	for _, ptOpt := range config.PassthroughOptions {
 		values := ptOpt.valueForServerType(serverType)
 		if len(values) == 0 {
 			continue
 		}
 		// Look for overrides of configuration sections
-		if section := config.FindSection(ptOpt.sectionName()); section != nil {
+		if section := arangodConfig.FindSection(ptOpt.sectionName()); section != nil {
 			if confValue, found := section.Settings[ptOpt.sectionKey()]; found {
-				s.log.Warningf("Pass through option %s overrides generated configuration option with value '%s'", ptOpt.Name, confValue)
+				log.Warningf("Pass through option %s overrides generated configuration option with value '%s'", ptOpt.Name, confValue)
 			}
 		}
 		// Append all values
@@ -279,11 +279,11 @@ func (s *Service) createArangodArgs(myContainerDir string, myAddress string, myP
 }
 
 // writeCommand writes the command used to start a server in a file with given path.
-func (s *Service) writeCommand(filename string, executable string, args []string) {
+func writeCommand(log *logging.Logger, filename string, executable string, args []string) {
 	content := strings.Join(args, " \\\n") + "\n"
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
 		if err := ioutil.WriteFile(filename, []byte(content), 0755); err != nil {
-			s.log.Errorf("Failed to write command to %s: %#v", filename, err)
+			log.Errorf("Failed to write command to %s: %#v", filename, err)
 		}
 	}
 }

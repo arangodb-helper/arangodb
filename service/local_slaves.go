@@ -32,7 +32,7 @@ import (
 )
 
 // createAndStartLocalSlaves creates additional peers for local slaves and starts services for them.
-func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup, bsCfg BootstrapConfig) {
+func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg BootstrapConfig) {
 	peers := make([]Peer, 0, bsCfg.AgencySize)
 	for index := 2; index <= bsCfg.AgencySize; index++ {
 		p := Peer{}
@@ -42,22 +42,22 @@ func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup, bsCfg BootstrapC
 			s.log.Errorf("Failed to create unique ID: %#v", err)
 			continue
 		}
-		p.DataDir = filepath.Join(s.DataDir, fmt.Sprintf("local-slave-%d", index-1))
+		p.DataDir = filepath.Join(config.DataDir, fmt.Sprintf("local-slave-%d", index-1))
 		peers = append(peers, p)
 	}
-	s.startLocalSlaves(wg, bsCfg, peers)
+	s.startLocalSlaves(wg, config, bsCfg, peers)
 }
 
 // startLocalSlaves starts additional services for local slaves based on the given peers.
-func (s *Service) startLocalSlaves(wg *sync.WaitGroup, bsCfg BootstrapConfig, peers []Peer) {
+func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg BootstrapConfig, peers []Peer) {
 	s.log = s.mustCreateIDLogger(s.id)
 	s.log.Infof("Starting %d local slaves...", len(peers)-1)
-	masterAddr := s.OwnAddress
+	masterAddr := config.OwnAddress
 	if masterAddr == "" {
 		masterAddr = "127.0.0.1"
 	}
 	masterAddr = net.JoinHostPort(masterAddr, strconv.Itoa(s.announcePort))
-	for index, p := range peers {
+	for _, p := range peers {
 		if p.ID == s.id {
 			continue
 		}
@@ -69,18 +69,14 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, bsCfg BootstrapConfig, pe
 
 		// Read existing setup.json (if any)
 		slaveBsCfg, myPeers, relaunch, _ := ReadSetupConfig(slaveLog, p.DataDir, slaveBsCfg)
-		config := s.Config
-		config.DataDir = p.DataDir
-		config.MasterAddress = masterAddr
-		slaveService, err := NewService(slaveLog, config, true)
-		if err != nil {
-			s.log.Errorf("Failed to create local slave service %d: %#v", index, err)
-			continue
-		}
+		slaveConfig := config // Create copy
+		slaveConfig.DataDir = p.DataDir
+		slaveConfig.MasterAddress = masterAddr
+		slaveService := NewService(s.stopPeer.ctx, slaveLog, slaveConfig, true)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			slaveService.Run(s.ctx, slaveBsCfg, myPeers, relaunch)
+			slaveService.Run(s.stopPeer.ctx, slaveBsCfg, myPeers, relaunch)
 		}()
 	}
 }

@@ -22,27 +22,23 @@
 
 package service
 
-import (
-	"fmt"
+// State of the service.
+type State int
 
-	"github.com/pkg/errors"
+const (
+	stateStart           State = iota // initial state after start
+	stateBootstrapMaster              // bootstrap phase, acting as master
+	stateBootstrapSlave               // bootstrap phase, acting as slave
+	stateRunningMaster                // running phase, acting as master
+	stateRunningSlave                 // running phase, acting as slave
 )
 
-var (
-	maskAny = errors.WithStack
-)
-
-type RedirectError struct {
-	Location string
+// IsBootstrap returns true if given state is bootstrap master/slave
+func (s State) IsBootstrap() bool {
+	return s == stateBootstrapMaster || s == stateBootstrapSlave
 }
 
-func (e RedirectError) Error() string {
-	return fmt.Sprintf("Redirect to %s", e.Location)
-}
-
-func IsRedirect(err error) (string, bool) {
-	if rerr, ok := errors.Cause(err).(RedirectError); ok {
-		return rerr.Location, true
-	}
-	return "", false
+// IsRunning returns true if given state is running master/slave
+func (s State) IsRunning() bool {
+	return s == stateRunningMaster || s == stateRunningSlave
 }

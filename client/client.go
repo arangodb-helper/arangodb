@@ -51,6 +51,29 @@ const (
 	contentTypeJSON = "application/json"
 )
 
+// ID requests the starters ID.
+func (c *client) ID(ctx context.Context) (IDInfo, error) {
+	url := c.createURL("/id", nil)
+
+	var result IDInfo
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return IDInfo{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return IDInfo{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return IDInfo{}, maskAny(err)
+	}
+
+	return result, nil
+}
+
 // Version requests the starter version.
 func (c *client) Version(ctx context.Context) (VersionInfo, error) {
 	url := c.createURL("/version", nil)
@@ -92,6 +115,29 @@ func (c *client) Processes(ctx context.Context) (ProcessList, error) {
 	}
 	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
 		return ProcessList{}, maskAny(err)
+	}
+
+	return result, nil
+}
+
+// Endpoints loads the URL's needed to reach all starters, agents & coordinators in the cluster.
+func (c *client) Endpoints(ctx context.Context) (EndpointList, error) {
+	url := c.createURL("/endpoints", nil)
+
+	var result EndpointList
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return EndpointList{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return EndpointList{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return EndpointList{}, maskAny(err)
 	}
 
 	return result, nil

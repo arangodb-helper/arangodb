@@ -31,11 +31,13 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/arangodb-helper/arangodb/client"
 )
 
 // bootstrapSlave starts the Service as slave and begins bootstrapping the cluster from nothing.
-func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg BootstrapConfig) {
-	masterPort := s.MasterPort
+func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Config, bsCfg BootstrapConfig) {
+	masterPort := config.MasterPort
 	if host, port, err := net.SplitHostPort(peerAddress); err == nil {
 		peerAddress = host
 		masterPort, _ = strconv.Atoi(port)
@@ -47,20 +49,21 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg Bootst
 		if err != nil {
 			s.log.Fatalf("Failed to get HTTP server port: %#v", err)
 		}
-		b, _ := json.Marshal(HelloRequest{
-			DataDir:      s.DataDir,
+		encoded, err := json.Marshal(HelloRequest{
+			DataDir:      config.DataDir,
 			SlaveID:      s.id,
-			SlaveAddress: s.OwnAddress,
+			SlaveAddress: config.OwnAddress,
 			SlavePort:    hostPort,
 			IsSecure:     s.IsSecure(),
 			Agent:        copyBoolRef(bsCfg.StartAgent),
 			DBServer:     copyBoolRef(bsCfg.StartDBserver),
 			Coordinator:  copyBoolRef(bsCfg.StartCoordinator),
 		})
-		buf := bytes.Buffer{}
-		buf.Write(b)
+		if err != nil {
+			s.log.Fatalf("Failed to encode Hello request: %#v", err)
+		}
 		scheme := NewURLSchemes(s.IsSecure()).Browser
-		r, e := httpClient.Post(fmt.Sprintf("%s://%s/hello", scheme, masterAddr), "application/json", &buf)
+		r, e := httpClient.Post(fmt.Sprintf("%s://%s/hello", scheme, masterAddr), contentTypeJSON, bytes.NewReader(encoded))
 		if e != nil {
 			s.log.Infof("Cannot start because of error from master: %v", e)
 			time.Sleep(time.Second)
@@ -68,24 +71,36 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg Bootst
 		}
 
 		body, e := ioutil.ReadAll(r.Body)
-		defer r.Body.Close()
+		r.Body.Close()
 		if e != nil {
 			s.log.Infof("Cannot start because HTTP response from master was bad: %v", e)
 			time.Sleep(time.Second)
 			continue
 		}
 
-		if r.StatusCode != http.StatusOK {
-			var errResp ErrorResponse
-			json.Unmarshal(body, &errResp)
-			s.log.Fatalf("Cannot start because of HTTP error from master: code=%d, message=%s\n", r.StatusCode, errResp.Error)
+		if r.StatusCode == http.StatusServiceUnavailable {
+			s.log.Infof("Cannot start because service unavailable: %v", e)
+			time.Sleep(time.Second)
+			continue
 		}
-		e = json.Unmarshal(body, &s.myPeers)
-		if e != nil {
+
+		if r.StatusCode != http.StatusOK {
+			err := client.ParseResponseError(r, body)
+			s.log.Fatalf("Cannot start because of HTTP error from master: code=%d, message=%s\n", r.StatusCode, err.Error())
+			return
+		}
+		var result ClusterConfig
+		if e := json.Unmarshal(body, &result); e != nil {
 			s.log.Warningf("Cannot parse body from master: %v", e)
 			return
 		}
-		//s.AgencySize = s.myPeers.AgencySize
+		// Check result
+		if _, found := result.PeerByID(s.id); !found {
+			s.log.Fatalf("Master responsed with cluster config that does not contain my ID, please check master")
+			return
+		}
+		// Save cluster config
+		s.myPeers = result
 		break
 	}
 
@@ -99,7 +114,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg Bootst
 	}
 
 	// Run the HTTP service so we can forward other clients
-	s.startHTTPServer()
+	s.startHTTPServer(config)
 
 	// Wait until we can start:
 	if s.myPeers.AgencySize > 1 {
@@ -112,11 +127,13 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg Bootst
 		} else {
 			// Wait a bit until we have enough peers for a valid agency
 			time.Sleep(time.Second)
-			master := s.myPeers.Peers[0]
+			master := s.myPeers.AllPeers[0] // TODO replace with bootstrap master
 			r, err := httpClient.Get(master.CreateStarterURL("/hello"))
 			if err != nil {
 				s.log.Errorf("Failed to connect to master: %v", err)
 				time.Sleep(time.Second * 2)
+			} else if r.StatusCode != 200 {
+				s.log.Warningf("Invalid status received from master: %d", r.StatusCode)
 			} else {
 				defer r.Body.Close()
 				body, _ := ioutil.ReadAll(r.Body)
@@ -127,31 +144,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, bsCfg Bootst
 		}
 	}
 
-	s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
+	s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
 	s.saveSetup()
-	s.startRunning(runner, bsCfg)
-}
-
-// sendMasterGoodbye informs the master that we're leaving for good.
-func (s *Service) sendMasterGoodbye() error {
-	master := s.myPeers.Peers[0]
-	if s.id == master.ID {
-		// I'm the master, do nothing
-		return nil
-	}
-	u := master.CreateStarterURL("/goodbye")
-	s.log.Infof("Saying goodbye to master at %s", u)
-	req := GoodbyeRequest{SlaveID: s.id}
-	data, err := json.Marshal(req)
-	if err != nil {
-		return maskAny(err)
-	}
-	resp, err := httpClient.Post(u, "application/json", bytes.NewReader(data))
-	if err != nil {
-		return maskAny(err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
-	}
-	return nil
+	s.startRunning(runner, config, bsCfg)
 }

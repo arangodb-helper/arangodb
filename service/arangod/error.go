@@ -20,7 +20,7 @@
 // Author Ewout Prangsma
 //
 
-package service
+package arangod
 
 import (
 	"fmt"
@@ -29,20 +29,32 @@ import (
 )
 
 var (
-	maskAny = errors.WithStack
+	maskAny              = errors.WithStack
+	ConditionFailedError = errors.New("Condition failed")
+	KeyNotFoundError     = errors.New("Key not found")
+	redirectionError     = errors.New("redirect")
 )
 
-type RedirectError struct {
-	Location string
+type StatusError struct {
+	StatusCode int
 }
 
-func (e RedirectError) Error() string {
-	return fmt.Sprintf("Redirect to %s", e.Location)
+func (e StatusError) Error() string {
+	return fmt.Sprintf("Status %d", e.StatusCode)
 }
 
-func IsRedirect(err error) (string, bool) {
-	if rerr, ok := errors.Cause(err).(RedirectError); ok {
-		return rerr.Location, true
+func IsStatusError(err error) (int, bool) {
+	err = errors.Cause(err)
+	if serr, ok := err.(StatusError); ok {
+		return serr.StatusCode, true
 	}
-	return "", false
+	return 0, false
+}
+
+func IsConditionFailed(err error) bool {
+	return errors.Cause(err) == ConditionFailedError
+}
+
+func IsKeyNotFound(err error) bool {
+	return errors.Cause(err) == KeyNotFoundError
 }

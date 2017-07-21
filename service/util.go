@@ -26,6 +26,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net"
+	"net/url"
 	"strings"
 )
 
@@ -73,4 +74,20 @@ func boolFromRef(v *bool, defaultValue bool) bool {
 		return defaultValue
 	}
 	return *v
+}
+
+// getURLWithPath returns an URL consisting of the given rootURL with the given relative path.
+func getURLWithPath(rootURL string, relPath string) (string, error) {
+	u, err := url.Parse(rootURL)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	parts := strings.SplitN(relPath, "?", 2)
+	u.Path = parts[0]
+	u.RawQuery = ""
+	query := ""
+	if len(parts) > 1 {
+		query = "?" + parts[1]
+	}
+	return u.String() + query, nil
 }

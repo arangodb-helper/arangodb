@@ -25,70 +25,25 @@ package service
 import (
 	"fmt"
 	"net"
+	"net/http"
+	"net/url"
 	"strconv"
-	"strings"
+	"time"
+
+	"github.com/arangodb-helper/arangodb/service/arangod"
 )
-
-// Peer contains all persistent settings of a starter.
-type Peer struct {
-	ID                 string // Unique of of the peer
-	Address            string // IP address of arangodb peer server
-	Port               int    // Port number of arangodb peer server
-	PortOffset         int    // Offset to add to base ports for the various servers (agent, coordinator, dbserver)
-	DataDir            string // Directory holding my data
-	HasAgentFlag       bool   `json:"HasAgent"`                 // If set, this peer is running an agent
-	HasDBServerFlag    *bool  `json:"HasDBServer,omitempty"`    // If set or is nil, this peer is running a dbserver
-	HasCoordinatorFlag *bool  `json:"HasCoordinator,omitempty"` // If set or is nil, this peer is running a coordinator
-	IsSecure           bool   // If set, servers started by this peer are using an SSL connection
-}
-
-// NewPeer initializes a new Peer instance with given values.
-func NewPeer(id, address string, port, portOffset int, dataDir string, hasAgent, hasDBServer, hasCoordinator, isSecure bool) Peer {
-	p := Peer{
-		ID:           id,
-		Address:      address,
-		Port:         port,
-		PortOffset:   portOffset,
-		DataDir:      dataDir,
-		HasAgentFlag: hasAgent,
-		IsSecure:     isSecure,
-	}
-	if !hasDBServer {
-		p.HasDBServerFlag = boolRef(false)
-	}
-	if !hasCoordinator {
-		p.HasCoordinatorFlag = boolRef(false)
-	}
-	return p
-}
-
-// HasAgent returns true if this peer is running an agent
-func (p Peer) HasAgent() bool { return p.HasAgentFlag }
-
-// HasDBServer returns true if this peer is running a dbserver
-func (p Peer) HasDBServer() bool { return p.HasDBServerFlag == nil || *p.HasDBServerFlag }
-
-// HasCoordinator returns true if this peer is running a coordinator
-func (p Peer) HasCoordinator() bool { return p.HasCoordinatorFlag == nil || *p.HasCoordinatorFlag }
-
-// CreateStarterURL creates a URL to the relative path to the starter on this peer.
-func (p Peer) CreateStarterURL(relPath string) string {
-	addr := net.JoinHostPort(p.Address, strconv.Itoa(p.Port))
-	relPath = strings.TrimPrefix(relPath, "/")
-	scheme := NewURLSchemes(p.IsSecure).Browser
-	return fmt.Sprintf("%s://%s/%s", scheme, addr, relPath)
-}
 
 // ClusterConfig contains all the informtion of a cluster from a starter's point of view.
 // When this type (or any of the types used in here) is changed, increase `SetupConfigVersion`.
 type ClusterConfig struct {
-	Peers      []Peer // All peers (index 0 is reserver for the master)
-	AgencySize int    // Number of agents
+	AllPeers     []Peer     `json:"Peers"` // All peers
+	AgencySize   int        // Number of agents
+	LastModified *time.Time `json:"LastModified,omitempty"` // Time of last modification
 }
 
 // PeerByID returns a peer with given id & true, or false if not found.
 func (p ClusterConfig) PeerByID(id string) (Peer, bool) {
-	for _, x := range p.Peers {
+	for _, x := range p.AllPeers {
 		if x.ID == id {
 			return x, true
 		}
@@ -96,36 +51,71 @@ func (p ClusterConfig) PeerByID(id string) (Peer, bool) {
 	return Peer{}, false
 }
 
+// AllAgents returns a list of all peers that have an agent.
+func (p ClusterConfig) AllAgents() []Peer {
+	var result []Peer
+	for _, x := range p.AllPeers {
+		if x.HasAgent() {
+			result = append(result, x)
+		}
+	}
+	return result
+}
+
+// Initialize a new cluster configuration
+func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int) {
+	p.AllPeers = []Peer{initialPeer}
+	p.AgencySize = agencySize
+	p.updateLastModified()
+}
+
 // UpdatePeerByID updates the peer with given id & true, or false if not found.
 func (p *ClusterConfig) UpdatePeerByID(update Peer) bool {
-	for index, x := range p.Peers {
+	for index, x := range p.AllPeers {
 		if x.ID == update.ID {
-			p.Peers[index] = update
+			p.AllPeers[index] = update
+			p.updateLastModified()
 			return true
 		}
 	}
 	return false
 }
 
+// AddPeer adds the given peer to the list of all peers, only if the id is not yet one of the peers.
+// Returns true of success, false otherwise
+func (p *ClusterConfig) AddPeer(newPeer Peer) bool {
+	for _, x := range p.AllPeers {
+		if x.ID == newPeer.ID {
+			return false
+		}
+	}
+	p.AllPeers = append(p.AllPeers, newPeer)
+	p.updateLastModified()
+	return true
+}
+
 // RemovePeerByID removes the peer with given ID.
 func (p *ClusterConfig) RemovePeerByID(id string) bool {
-	newPeers := make([]Peer, 0, len(p.Peers))
+	newPeers := make([]Peer, 0, len(p.AllPeers))
 	found := false
-	for _, x := range p.Peers {
+	for _, x := range p.AllPeers {
 		if x.ID != id {
 			newPeers = append(newPeers, x)
 		} else {
 			found = true
 		}
 	}
-	p.Peers = newPeers
+	if found {
+		p.AllPeers = newPeers
+		p.updateLastModified()
+	}
 	return found
 }
 
 // IDs returns the IDs of all peers.
 func (p ClusterConfig) IDs() []string {
-	list := make([]string, 0, len(p.Peers))
-	for _, x := range p.Peers {
+	list := make([]string, 0, len(p.AllPeers))
+	for _, x := range p.AllPeers {
 		list = append(list, x.ID)
 	}
 	return list
@@ -136,7 +126,7 @@ func (p ClusterConfig) GetFreePortOffset(peerAddress string, allPortOffsetsUniqu
 	portOffset := 0
 	for {
 		found := false
-		for _, p := range p.Peers {
+		for _, p := range p.AllPeers {
 			if p.PortOffset == portOffset {
 				if allPortOffsetsUnique || p.Address == peerAddress {
 					found = true
@@ -155,10 +145,106 @@ func (p ClusterConfig) GetFreePortOffset(peerAddress string, allPortOffsetsUniqu
 // is greater or equal to AgencySize.
 func (p ClusterConfig) HaveEnoughAgents() bool {
 	count := 0
-	for _, x := range p.Peers {
+	for _, x := range p.AllPeers {
 		if x.HasAgent() {
 			count++
 		}
 	}
 	return count >= p.AgencySize
+}
+
+// IsSecure returns true if any of the peers is secure.
+func (p ClusterConfig) IsSecure() bool {
+	for _, x := range p.AllPeers {
+		if x.IsSecure {
+			return true
+		}
+	}
+	return false
+}
+
+// GetPeerEndpoints creates a list of URL's for all peer.
+func (p ClusterConfig) GetPeerEndpoints() ([]url.URL, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.AllPeers {
+		port := p.Port + p.PortOffset
+		scheme := NewURLSchemes(p.IsSecure).Browser
+		u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		endpoints = append(endpoints, *u)
+	}
+	return endpoints, nil
+}
+
+// GetAgentEndpoints creates a list of URL's for all agents.
+func (p ClusterConfig) GetAgentEndpoints() ([]url.URL, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.AllPeers {
+		if p.HasAgent() {
+			port := p.Port + p.PortOffset + ServerType(ServerTypeAgent).PortOffset()
+			scheme := NewURLSchemes(p.IsSecure).Browser
+			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+			if err != nil {
+				return nil, maskAny(err)
+			}
+			endpoints = append(endpoints, *u)
+		}
+	}
+	return endpoints, nil
+}
+
+// GetCoordinatorEndpoints creates a list of URL's for all coordinators.
+func (p ClusterConfig) GetCoordinatorEndpoints() ([]url.URL, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.AllPeers {
+		if p.HasCoordinator() {
+			port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
+			scheme := NewURLSchemes(p.IsSecure).Browser
+			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+			if err != nil {
+				return nil, maskAny(err)
+			}
+			endpoints = append(endpoints, *u)
+		}
+	}
+	return endpoints, nil
+}
+
+// CreateAgencyAPI creates a client for the agency
+func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error) (arangod.AgencyAPI, error) {
+	// Build endpoint list
+	endpoints, err := p.GetAgentEndpoints()
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	c, err := arangod.NewClusterClient(endpoints, prepareRequest)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return c.Agency(), nil
+}
+
+// CreateClusterAPI creates a client for the cluster
+func (p ClusterConfig) CreateClusterAPI(prepareRequest func(*http.Request) error) (arangod.ClusterAPI, error) {
+	// Build endpoint list
+	endpoints, err := p.GetCoordinatorEndpoints()
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	c, err := arangod.NewClusterClient(endpoints, prepareRequest)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return c.Cluster(), nil
+}
+
+// Set the LastModified timestamp to now.
+func (p *ClusterConfig) updateLastModified() {
+	ts := time.Now()
+	p.LastModified = &ts
 }

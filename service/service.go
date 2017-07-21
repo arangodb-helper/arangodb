@@ -23,7 +23,7 @@
 package service
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -31,14 +31,14 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/client"
 	logging "github.com/op/go-logging"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -47,7 +47,6 @@ const (
 
 // Config holds all configuration for a single service.
 type Config struct {
-	//AgencySize           int
 	ArangodPath          string
 	ArangodJSPath        string
 	MasterPort           int
@@ -76,60 +75,130 @@ type Config struct {
 	ProjectBuild   string
 }
 
+// UseDockerRunner returns true if the docker runner should be used.
+// (instead of the local process runner).
+func (c Config) UseDockerRunner() bool {
+	return c.DockerEndpoint != "" && c.DockerImage != ""
+}
+
+// GuessOwnAddress fills in the OwnAddress field if needed and returns an update config.
+func (c Config) GuessOwnAddress(log *logging.Logger, bsCfg BootstrapConfig) Config {
+	// Guess own IP address if not specified
+	if c.OwnAddress == "" && bsCfg.Mode.IsSingleMode() && !c.UseDockerRunner() {
+		addr, err := GuessOwnAddress()
+		if err != nil {
+			log.Fatalf("starter.address must be specified, it cannot be guessed because: %v", err)
+		}
+		log.Infof("Using auto-detected starter.address: %s", addr)
+		c.OwnAddress = addr
+	}
+	return c
+}
+
+// GetNetworkEnvironment loads information about the network environment
+// based on the given config and returns an updated config, the announce port and isNetHost.
+func (c Config) GetNetworkEnvironment(log *logging.Logger) (Config, int, bool) {
+	// Find the port mapping if running in a docker container
+	if c.RunningInDocker {
+		if c.OwnAddress == "" {
+			log.Fatal("starter.address must be specified")
+		}
+		if c.DockerContainerName == "" {
+			log.Fatal("docker.container must be specified")
+		}
+		if c.DockerEndpoint == "" {
+			log.Fatal("docker.endpoint must be specified")
+		}
+		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(c.DockerEndpoint, c.DockerContainerName, c.MasterPort)
+		if err != nil {
+			log.Fatalf("Failed to detect port mapping: %#v", err)
+		}
+		if c.DockerNetworkMode == "" && networkMode != "" && networkMode != "default" {
+			log.Infof("Auto detected network mode: %s", networkMode)
+			c.DockerNetworkMode = networkMode
+		}
+		if !hasTTY {
+			c.DockerTTY = false
+		}
+		return c, hostPort, isNetHost
+	}
+	// Not running as container, so net=host
+	return c, c.MasterPort, true
+}
+
+// CreateRunner creates a process runner based on given configuration.
+// Returns: Runner, updated configuration, allowSameDataDir
+func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
+	var runner Runner
+	if c.UseDockerRunner() {
+		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerImage, c.DockerUser, c.DockerContainerName,
+			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
+		if err != nil {
+			log.Fatalf("Failed to create docker runner: %#v", err)
+		}
+		log.Debug("Using docker runner")
+		// Set executables to their image path's
+		c.ArangodPath = "/usr/sbin/arangod"
+		c.ArangodJSPath = "/usr/share/arangodb3/js"
+		// Docker setup uses different volumes with same dataDir, allow that
+		allowSameDataDir := true
+
+		return runner, c, allowSameDataDir
+	}
+
+	// We must not be running in docker
+	if c.RunningInDocker {
+		log.Fatalf("When running in docker, you must provide a --docker.endpoint=<endpoint> and --docker.image=<image>")
+	}
+
+	// Use process runner
+	runner = NewProcessRunner(log)
+	log.Debug("Using process runner")
+
+	return runner, c, false
+}
+
 // Service implements the actual starter behavior of the ArangoDB starter.
 type Service struct {
-	Config
-	id                  string      // Unique identifier of this peer
-	mode                ServiceMode // Service mode cluster|single
-	startedLocalSlaves  bool
-	jwtSecret           string // JWT secret used for arangod communication
-	sslKeyFile          string // Path containing an x509 certificate + private key to be used by the servers.
-	log                 *logging.Logger
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	state               State
-	myPeers             ClusterConfig
-	startRunningWaiter  context.Context
-	startRunningTrigger context.CancelFunc
-	announcePort        int         // Port I can be reached on from the outside
-	tlsConfig           *tls.Config // Server side TLS config (if any)
-	isNetHost           bool        // Is this process running in a container with `--net=host` or running outside a container?
-	mutex               sync.Mutex  // Mutex used to protect access to this datastructure
-	logMutex            sync.Mutex  // Mutex used to synchronize server log output
-	allowSameDataDir    bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
-	isLocalSlave        bool
-	learnOwnAddress     bool // If set, the HTTP server will update my peer with address information gathered from a /hello request.
-	servers             struct {
-		agentProc       Process
-		dbserverProc    Process
-		coordinatorProc Process
-		singleProc      Process
+	cfg                Config
+	id                 string      // Unique identifier of this peer
+	mode               ServiceMode // Service mode cluster|single
+	startedLocalSlaves bool
+	jwtSecret          string // JWT secret used for arangod communication
+	sslKeyFile         string // Path containing an x509 certificate + private key to be used by the servers.
+	log                *logging.Logger
+	stopPeer           struct {
+		ctx     context.Context    // Context to wait on for stopping the entire peer
+		trigger context.CancelFunc // Triggers a stop of the entire peer
 	}
-	stop bool
+	state              State // Current service state (bootstrapMaster, bootstrapSlave, running)
+	myPeers            ClusterConfig
+	bootstrapCompleted struct {
+		ctx     context.Context    // Context to wait on for the bootstrap state to be completed. Once trigger the cluster config is complete.
+		trigger context.CancelFunc // Triggers the end of the bootstrap state
+	}
+	announcePort          int         // Port I can be reached on from the outside
+	tlsConfig             *tls.Config // Server side TLS config (if any)
+	isNetHost             bool        // Is this process running in a container with `--net=host` or running outside a container?
+	mutex                 sync.Mutex  // Mutex used to protect access to this datastructure
+	allowSameDataDir      bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
+	isLocalSlave          bool
+	learnOwnAddress       bool // If set, the HTTP server will update my peer with address information gathered from a /hello request.
+	runtimeServerManager  runtimeServerManager
+	runtimeClusterManager runtimeClusterManager
 }
 
 // NewService creates a new Service instance from the given config.
-func NewService(log *logging.Logger, config Config, isLocalSlave bool) (*Service, error) {
-	ctx, trigger := context.WithCancel(context.Background())
-	return &Service{
-		Config:              config,
-		log:                 log,
-		state:               stateStart,
-		startRunningWaiter:  ctx,
-		startRunningTrigger: trigger,
-		isLocalSlave:        isLocalSlave,
-	}, nil
+func NewService(ctx context.Context, log *logging.Logger, config Config, isLocalSlave bool) *Service {
+	s := &Service{
+		cfg:          config,
+		log:          log,
+		state:        stateStart,
+		isLocalSlave: isLocalSlave,
+	}
+	s.bootstrapCompleted.ctx, s.bootstrapCompleted.trigger = context.WithCancel(ctx)
+	return s
 }
-
-// State of the service.
-type State int
-
-const (
-	stateStart   State = iota // initial state after start
-	stateMaster               // finding phase, first instance
-	stateSlave                // finding phase, further instances
-	stateRunning              // running phase
-)
 
 const (
 	_portOffsetCoordinator = 1 // Coordinator/single server
@@ -153,8 +222,181 @@ func (s *Service) IsSecure() bool {
 	if s.sslKeyFile != "" {
 		return true
 	}
-	myPeer, found := s.myPeers.PeerByID(s.id)
-	return found && myPeer.IsSecure
+	return s.myPeers.IsSecure()
+}
+
+// ClusterConfig returns the current cluster configuration and the current peer
+func (s *Service) ClusterConfig() (ClusterConfig, *Peer, ServiceMode) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if myPeer, found := s.myPeers.PeerByID(s.id); !found {
+		return s.myPeers, nil, s.mode
+	} else {
+		return s.myPeers, &myPeer, s.mode
+	}
+}
+
+// IsRunningMaster returns if the starter is the running master.
+func (s *Service) IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	masterURL = s.runtimeClusterManager.GetMasterURL()
+	if s.state == stateRunningMaster {
+		return true, true, masterURL
+	}
+	return false, s.state.IsRunning(), masterURL
+}
+
+// HandleGoodbye removes the database servers started by the peer with given id
+// from the cluster and alters the cluster configuration, removing the peer.
+func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
+	// Find peer
+	s.mutex.Lock()
+	peer, peerFound := s.myPeers.PeerByID(id)
+	state := s.state
+	s.mutex.Unlock()
+
+	// Check state
+	if state != stateRunningMaster {
+		return false, maskAny(errors.Wrapf(client.PreconditionFailedError, "Invalid state %d", s.state))
+	}
+
+	// Check peer
+	if !peerFound {
+		return false, nil // Peer not found
+	}
+	if peer.HasAgent() {
+		return false, maskAny(errors.Wrap(client.PreconditionFailedError, "Cannot remove peer with agent"))
+	}
+
+	// Prepare cluster client
+	ctx := context.Background()
+	c, err := s.myPeers.CreateClusterAPI(s.PrepareDatabaseServerRequestFunc())
+	if err != nil {
+		return false, maskAny(err)
+	}
+
+	// Remove dbserver from cluster (if any)
+	if peer.HasDBServer() {
+		// Find id of dbserver
+		s.log.Info("Finding server ID of dbserver")
+		sc, err := peer.CreateDBServerAPI(s.PrepareDatabaseServerRequestFunc())
+		if err != nil {
+			return false, maskAny(err)
+		}
+		sid, err := sc.ID(ctx)
+		if err != nil {
+			return false, maskAny(err)
+		}
+		// Clean out DB server
+		s.log.Infof("Starting cleanout of dbserver %s", sid)
+		if err := c.CleanOutServer(ctx, sid); err != nil {
+			s.log.Warningf("Cleanout requested of dbserver %s failed: %#v", sid, err)
+			return false, maskAny(err)
+		}
+		// Wait until server is cleaned out
+		s.log.Infof("Waiting for cleanout of dbserver %s to finish", sid)
+		for {
+			if cleanedOut, err := c.IsCleanedOut(ctx, sid); err != nil {
+				s.log.Warningf("IsCleanedOut request of dbserver %s failed: %#v", sid, err)
+				return false, maskAny(err)
+			} else if cleanedOut {
+				break
+			}
+			// Wait a bit
+			time.Sleep(time.Millisecond * 250)
+		}
+		// Remove dbserver from cluster
+		s.log.Infof("Removing dbserver %s from cluster", sid)
+		if err := sc.Shutdown(ctx, true); err != nil {
+			s.log.Warningf("Shutdown request of dbserver %s failed: %#v", sid, err)
+			return false, maskAny(err)
+		}
+	}
+
+	// Remove coordinator from cluster (if any)
+	if peer.HasCoordinator() {
+		// Find id of coordinator
+		s.log.Info("Finding server ID of coordinator")
+		sc, err := peer.CreateCoordinatorAPI(s.PrepareDatabaseServerRequestFunc())
+		if err != nil {
+			return false, maskAny(err)
+		}
+		sid, err := sc.ID(ctx)
+		if err != nil {
+			return false, maskAny(err)
+		}
+		// Remove coordinator from cluster
+		s.log.Infof("Removing coordinator %s from cluster", sid)
+		if err := sc.Shutdown(ctx, true); err != nil {
+			s.log.Warningf("Shutdown request of coordinator %s failed: %#v", sid, err)
+			return false, maskAny(err)
+		}
+	}
+
+	// Remove peer from cluster configuration
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.log.Infof("Removing peer %s from cluster configuration", id)
+	s.myPeers.RemovePeerByID(id)
+
+	// Peer has been removed, update stored config
+	s.log.Infof("Removed peer %s from cluster configuration, saving setup", id)
+	if err := s.saveSetup(); err != nil {
+		s.log.Errorf("Failed to save setup: %#v", err)
+	}
+	return true, nil
+}
+
+// sendMasterLeaveCluster informs the master that we're leaving for good.
+func (s *Service) sendMasterLeaveCluster() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Check state
+	switch s.state {
+	case stateRunningMaster:
+		// We're the master, try to stop that and return unavailable so the client should try again
+		s.runtimeClusterManager.AvoidBeingMaster()
+		return maskAny(errors.Wrap(client.ServiceUnavailableError, "Currently running master, giving up being master, please try again"))
+	case stateRunningSlave:
+	// OK
+	default:
+		return maskAny(errors.Wrapf(client.PreconditionFailedError, "Invalid state %d", s.state))
+	}
+
+	// Build URL
+	masterURL := s.runtimeClusterManager.GetMasterURL()
+	if masterURL == "" {
+		// Return unavailable so the client should retry
+		return maskAny(errors.Wrap(client.ServiceUnavailableError, "Running master is not yet known"))
+	}
+	u, err := getURLWithPath(masterURL, "/goodbye")
+	if err != nil {
+		return maskAny(err)
+	}
+	s.log.Infof("Saying goodbye to master at %s", u)
+	req := GoodbyeRequest{SlaveID: s.id}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	resp, err := httpClient.Post(u, contentTypeJSON, bytes.NewReader(data))
+	if err != nil {
+		return maskAny(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return maskAny(client.ParseResponseError(resp, nil))
+	}
+
+	// Remove setup.json
+	if err := RemoveSetupConfig(s.log, s.cfg.DataDir); err != nil {
+		s.log.Warningf("Failed to remove %s: %#v", setupFileName, err)
+	}
+
+	return nil
 }
 
 // serverPort returns the port number on which my server of given type will listen.
@@ -166,7 +408,7 @@ func (s *Service) serverPort(serverType ServerType) (int, error) {
 	}
 	// Find log path
 	portOffset := myPeer.PortOffset
-	return s.MasterPort + portOffset + serverType.PortOffset(), nil
+	return s.cfg.MasterPort + portOffset + serverType.PortOffset(), nil
 }
 
 // serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
@@ -175,11 +417,11 @@ func (s *Service) serverHostDir(serverType ServerType) (string, error) {
 	if err != nil {
 		return "", maskAny(err)
 	}
-	return filepath.Join(s.DataDir, fmt.Sprintf("%s%d", serverType, myPort)), nil
+	return filepath.Join(s.cfg.DataDir, fmt.Sprintf("%s%d", serverType, myPort)), nil
 }
 
 // serverExecutable returns the path of the server's executable.
-func (s *Service) serverExecutable() string {
+func (s *Config) serverExecutable() string {
 	if s.RrPath != "" {
 		return s.RrPath
 	}
@@ -279,319 +521,265 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 	}
 }
 
-// startArangod starts a single Arango server of the given type.
-func (s *Service) startArangod(runner Runner, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
-	myPort, err := s.serverPort(serverType)
-	if err != nil {
-		return nil, false, maskAny(err)
-	}
-	myHostDir, err := s.serverHostDir(serverType)
-	if err != nil {
-		return nil, false, maskAny(err)
-	}
-	os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
-	os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
+// IsLocalSlave returns true if this peer is running as a local slave
+func (s *Service) IsLocalSlave() bool {
+	return s.isLocalSlave
+}
 
-	// Check if the server is already running
-	s.log.Infof("Looking for a running instance of %s on port %d", serverType, myPort)
-	p, err := runner.GetRunningServer(myHostDir)
-	if err != nil {
-		return nil, false, maskAny(err)
-	}
-	if p != nil {
-		s.log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		up, _, _, _ := s.TestInstance(ctx, myHostAddress, myPort, nil)
-		cancel()
-		if up {
-			s.log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
-			return p, false, nil
+// Stop the peer
+func (s *Service) Stop() {
+	s.stopPeer.trigger()
+}
+
+// HandleHello handles a hello request.
+// If req==nil, this is a GET request, otherwise it is a POST request.
+func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error) {
+	// Claim exclusive access to our data structures
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.state == stateBootstrapSlave {
+		// Redirect to bootstrap master
+		if len(s.myPeers.AllPeers) > 0 {
+			// TODO replace by bootstrap master
+			master := s.myPeers.AllPeers[0]
+			location := master.CreateStarterURL("/hello")
+			return ClusterConfig{}, maskAny(RedirectError{location})
+		} else {
+			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "No master known"))
 		}
-		s.log.Infof("%s is not up on port %d. Terminating existing process and restarting it...", serverType, myPort)
-		p.Terminate()
 	}
 
-	// Check availability of port
-	if !IsPortOpen(myPort) {
-		return nil, true, maskAny(fmt.Errorf("Cannot start %s, because port %d is already in use", serverType, myPort))
+	if s.state == stateRunningSlave {
+		// Redirect to running master
+		if masterURL := s.runtimeClusterManager.GetMasterURL(); masterURL != "" {
+			s.log.Debugf("Redirecting hello request to %s", masterURL)
+			helloURL, err := getURLWithPath(masterURL, "/hello")
+			if err != nil {
+				return ClusterConfig{}, maskAny(errors.Wrap(client.InternalServerError, err.Error()))
+			} else {
+				return ClusterConfig{}, maskAny(RedirectError{helloURL})
+			}
+		} else if req != nil || isUpdateRequest {
+			// No master know, service unavailable when handling a POST of GET+update request
+			return ClusterConfig{}, maskAny(errors.Wrap(client.ServiceUnavailableError, "No master known"))
+		} else {
+			// No master know, but initial request.
+			// Just return what we know so the other starter can get started
+			s.log.Debugf("Initial hello request from %s without known running master", remoteAddress)
+		}
 	}
 
-	s.log.Infof("Starting %s on port %d", serverType, myPort)
-	myContainerDir := runner.GetContainerDir(myHostDir, dockerDataDir)
-	// Create/read arangod.conf
-	confVolumes, config, err := createArangodConf(s.log, bsCfg, myHostDir, myContainerDir, strconv.Itoa(myPort), serverType)
-	if err != nil {
-		return nil, false, maskAny(err)
+	// Learn my own address (if needed)
+	if s.learnOwnAddress {
+		_, hostPort, _ := s.getHTTPServerPort()
+		myPeer, found := s.myPeers.PeerByID(s.id)
+		if found {
+			myPeer.Address = ownAddress
+			myPeer.Port = hostPort
+			s.myPeers.UpdatePeerByID(myPeer)
+			s.learnOwnAddress = false
+		}
 	}
-	// Create arangod command line arguments
-	args := s.createArangodArgs(myContainerDir, myHostAddress, strconv.Itoa(myPort), serverType, config)
-	s.writeCommand(filepath.Join(myHostDir, "arangod_command.txt"), s.serverExecutable(), args)
-	// Collect volumes
-	configVolumes := collectConfigVolumes(config)
-	vols := addVolume(append(confVolumes, configVolumes...), myHostDir, myContainerDir, false)
-	// Start process/container
-	containerNamePrefix := ""
-	if s.DockerContainerName != "" {
-		containerNamePrefix = fmt.Sprintf("%s-", s.DockerContainerName)
+
+	// Is this a POST request?
+	if req != nil {
+		slaveAddr := req.SlaveAddress
+		if slaveAddr == "" {
+			host, _, err := net.SplitHostPort(remoteAddress)
+			if err != nil {
+				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "SlaveAddress must be set."))
+			}
+			slaveAddr = normalizeHostName(host)
+		} else {
+			slaveAddr = normalizeHostName(slaveAddr)
+		}
+		slavePort := req.SlavePort
+
+		// Check request
+		if req.SlaveID == "" {
+			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "SlaveID must be set."))
+		}
+
+		// Check datadir
+		if !s.allowSameDataDir {
+			for _, p := range s.myPeers.AllPeers {
+				if p.Address == slaveAddr && p.DataDir == req.DataDir && p.ID != req.SlaveID {
+					return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot use same directory as peer."))
+				}
+			}
+		}
+
+		// Check IsSecure, cannot mix secure / non-secure
+		if req.IsSecure != s.IsSecure() {
+			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot mix secure / non-secure peers."))
+		}
+
+		// If slaveID already known, then return data right away.
+		_, idFound := s.myPeers.PeerByID(req.SlaveID)
+		if idFound {
+			// ID already found, update peer data
+			for i, p := range s.myPeers.AllPeers {
+				if p.ID == req.SlaveID {
+					s.myPeers.AllPeers[i].Port = req.SlavePort
+					if s.cfg.AllPortOffsetsUnique {
+						s.myPeers.AllPeers[i].Address = slaveAddr
+					} else {
+						// Slave address may not change
+						if p.Address != slaveAddr {
+							return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot change slave address while using an existing ID."))
+						}
+					}
+					s.myPeers.AllPeers[i].DataDir = req.DataDir
+				}
+			}
+		} else {
+			// In single server mode, do not accept new slaves
+			if s.mode.IsSingleMode() {
+				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "In single server mode, slaves cannot be added."))
+			}
+			// ID not yet found, add it
+			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.cfg.AllPortOffsetsUnique)
+			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
+			if req.Agent != nil {
+				hasAgent = *req.Agent
+			}
+			hasDBServer := true
+			if req.DBServer != nil {
+				hasDBServer = *req.DBServer
+			}
+			hasCoordinator := true
+			if req.Coordinator != nil {
+				hasCoordinator = *req.Coordinator
+			}
+			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, req.IsSecure)
+			s.myPeers.AddPeer(newPeer)
+			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
+		}
+
+		// Start the running the servers if we have enough agents
+		if s.myPeers.HaveEnoughAgents() {
+			// Save updated configuration
+			s.saveSetup()
+			// Trigger start running (if needed)
+			s.bootstrapCompleted.trigger()
+		}
 	}
-	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, s.id, restart, myHostAddress, myPort)
-	ports := []int{myPort}
-	if p, err := runner.Start(args[0], args[1:], vols, ports, containerName, myHostDir); err != nil {
-		return nil, false, maskAny(err)
-	} else {
-		return p, false, nil
+
+	return s.myPeers, nil
+}
+
+// ChangeState alters the current state of the service
+func (s *Service) ChangeState(newState State) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.state = newState
+}
+
+// PrepareDatabaseServerRequestFunc returns a function that is used to
+// prepare a request to a database server (including authentication).
+func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
+	return func(req *http.Request) error {
+		addJwtHeader(req, s.jwtSecret)
+		return nil
 	}
 }
 
-// showRecentLogs dumps the most recent log lines of the server of given type to the console.
-func (s *Service) showRecentLogs(serverType ServerType) {
-	myHostDir, err := s.serverHostDir(serverType)
-	if err != nil {
-		s.log.Errorf("Cannot find server host dir: %#v", err)
+// UpdateClusterConfig updates the current cluster configuration.
+func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	// Perform checks to validate the new config
+	if _, found := newConfig.PeerByID(s.id); !found {
+		s.log.Warningf("Updated cluster config does not contain myself. Rejecting")
 		return
 	}
-	logPath := filepath.Join(myHostDir, logFileName)
-	logFile, err := os.Open(logPath)
-	if os.IsNotExist(err) {
-		s.log.Infof("Log file for %s is empty", serverType)
-	} else if err != nil {
-		s.log.Errorf("Cannot open log file for %s: %#v", serverType, err)
-	} else {
-		defer logFile.Close()
-		rd := bufio.NewReader(logFile)
-		lines := [20]string{}
-		maxLines := 0
-		for {
-			line, err := rd.ReadString('\n')
-			if line != "" || err == nil {
-				copy(lines[1:], lines[0:])
-				lines[0] = line
-				if maxLines < len(lines) {
-					maxLines++
-				}
-			}
-			if err != nil {
-				break
-			}
-		}
-		s.logMutex.Lock()
-		defer s.logMutex.Unlock()
-		s.log.Infof("## Start of %s log", serverType)
-		for i := maxLines - 1; i >= 0; i-- {
-			fmt.Println("\t" + strings.TrimSuffix(lines[i], "\n"))
-		}
-		s.log.Infof("## End of %s log", serverType)
+
+	// TODO only update when changed
+	s.myPeers = newConfig
+	s.saveSetup()
+}
+
+// MasterChangedCallback interrupts the runtime cluster manager
+func (s *Service) MasterChangedCallback() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.state == stateRunningSlave {
+		s.runtimeClusterManager.Interrupt()
 	}
 }
 
-// runArangod starts a single Arango server of the given type and keeps restarting it when needed.
-func (s *Service) runArangod(runner Runner, bsCfg BootstrapConfig, myPeer Peer, serverType ServerType, processVar *Process) {
-	restart := 0
-	recentFailures := 0
-	for {
-		myHostAddress := myPeer.Address
-		startTime := time.Now()
-		p, portInUse, err := s.startArangod(runner, bsCfg, myHostAddress, serverType, restart)
-		if err != nil {
-			s.log.Errorf("Error while starting %s: %#v", serverType, err)
-			if !portInUse {
-				break
-			}
+func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
+	containerPort = s.cfg.MasterPort
+	hostPort = s.announcePort
+	//s.log.Debug("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.myPeers.AllPeers))
+	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.AllPeers) > 0 {
+		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
+			containerPort += myPeer.PortOffset
 		} else {
-			*processVar = p
-			ctx, cancel := context.WithCancel(s.ctx)
-			go func() {
-				port, err := s.serverPort(serverType)
-				if err != nil {
-					s.log.Fatalf("Cannot collect serverPort: %#v", err)
-				}
-				statusChanged := make(chan StatusItem)
-				go func() {
-					showLogDuration := time.Minute
-					for {
-						statusItem, ok := <-statusChanged
-						if ok {
-							if statusItem.PrevStatusCode != statusItem.StatusCode {
-								if s.DebugCluster {
-									s.log.Infof("%s status changed to %d", serverType, statusItem.StatusCode)
-								} else {
-									s.log.Debugf("%s status changed to %d", serverType, statusItem.StatusCode)
-								}
-							}
-							if statusItem.Duration > showLogDuration {
-								showLogDuration = statusItem.Duration + time.Second*30
-								s.showRecentLogs(serverType)
-							}
-						}
-					}
-				}()
-				if up, version, statusTrail, cancelled := s.TestInstance(ctx, myHostAddress, port, statusChanged); !cancelled {
-					if up {
-						s.log.Infof("%s up and running (version %s).", serverType, version)
-						if (serverType == ServerTypeCoordinator && !s.isLocalSlave) || serverType == ServerTypeSingle {
-							hostPort, err := p.HostPort(port)
-							if err != nil {
-								if id := p.ContainerID(); id != "" {
-									s.log.Infof("%s can only be accessed from inside a container.", serverType)
-								}
-							} else {
-								ip := myPeer.Address
-								urlSchemes := NewURLSchemes(myPeer.IsSecure)
-								what := "cluster"
-								if serverType == ServerTypeSingle {
-									what = "single server"
-								}
-								s.logMutex.Lock()
-								s.log.Infof("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
-								s.log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
-								s.logMutex.Unlock()
-							}
-						}
-					} else {
-						s.log.Warningf("%s not ready after 5min!: Status trail: %#v", serverType, statusTrail)
-					}
-				}
-			}()
-			p.Wait()
-			cancel()
+			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.id))
 		}
-		uptime := time.Since(startTime)
-		var isRecentFailure bool
-		if uptime < time.Second*30 {
-			recentFailures++
-			isRecentFailure = true
-		} else {
-			recentFailures = 0
-			isRecentFailure = false
-		}
-
-		if isRecentFailure {
-			if !portInUse {
-				s.log.Infof("%s has terminated, quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
-				if recentFailures >= minRecentFailuresForLog && s.DebugCluster {
-					// Show logs of the server
-					s.showRecentLogs(serverType)
-				}
-			}
-			if recentFailures >= maxRecentFailures {
-				s.log.Errorf("%s has failed %d times, giving up", serverType, recentFailures)
-				s.stop = true
-				break
-			}
-		} else {
-			s.log.Infof("%s has terminated", serverType)
-		}
-		if portInUse {
-			time.Sleep(time.Second)
-		}
-
-		if s.stop {
-			break
-		}
-
-		s.log.Infof("restarting %s", serverType)
-		restart++
 	}
+	if s.isNetHost {
+		hostPort = containerPort
+	}
+	return containerPort, hostPort, nil
+}
+
+// startHTTPServer initializes and runs the HTTP server.
+// If will return directly after starting it.
+func (s *Service) startHTTPServer(config Config) {
+	// Create address to listen on
+	containerPort, hostPort, err := s.getHTTPServerPort()
+	if err != nil {
+		s.log.Fatalf("Failed to get HTTP port info: %#v", err)
+	}
+	containerAddr := fmt.Sprintf("0.0.0.0:%d", containerPort)
+	hostAddr := net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
+
+	// Create HTTP server
+	server := newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id)
+
+	// Start HTTP server
+	server.Start(hostAddr, containerAddr, s.tlsConfig)
 }
 
 // startRunning starts all relevant servers and keeps the running.
-func (s *Service) startRunning(runner Runner, bsCfg BootstrapConfig) {
-	s.state = stateRunning
-	myPeer, ok := s.myPeers.PeerByID(s.id)
-	if !ok {
+func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConfig) {
+	// Always start running as slave. Runtime process will elect master
+	s.state = stateRunningSlave
+
+	// Ensure we have a valid peer
+	if _, ok := s.myPeers.PeerByID(s.id); !ok {
 		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.id)
 	}
 
-	if s.mode.IsClusterMode() {
-		// Start agent:
-		if myPeer.HasAgent() {
-			go s.runArangod(runner, bsCfg, myPeer, ServerTypeAgent, &s.servers.agentProc)
-			time.Sleep(time.Second)
-		}
+	wg := sync.WaitGroup{}
 
-		// Start DBserver:
-		if bsCfg.StartDBserver == nil || *bsCfg.StartDBserver {
-			go s.runArangod(runner, bsCfg, myPeer, ServerTypeDBServer, &s.servers.dbserverProc)
-			time.Sleep(time.Second)
-		}
+	// Start the runtime server manager
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runtimeServerManager.Run(s.stopPeer.ctx, s.log, s, runner, config, bsCfg)
+	}()
 
-		// Start Coordinator:
-		if bsCfg.StartCoordinator == nil || *bsCfg.StartCoordinator {
-			go s.runArangod(runner, bsCfg, myPeer, ServerTypeCoordinator, &s.servers.coordinatorProc)
-		}
-	} else if s.mode.IsSingleMode() {
-		// Start Single server:
-		go s.runArangod(runner, bsCfg, myPeer, ServerTypeSingle, &s.servers.singleProc)
-	}
+	// Start the runtime cluster manager
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.runtimeClusterManager.Run(s.stopPeer.ctx, s.log, s)
+	}()
 
-	for {
-		time.Sleep(time.Second)
-		if s.stop {
-			break
-		}
-	}
-
-	s.log.Info("Shutting down services...")
-	if p := s.servers.singleProc; p != nil {
-		if err := p.Terminate(); err != nil {
-			s.log.Warningf("Failed to terminate single server: %v", err)
-		}
-	}
-	if p := s.servers.coordinatorProc; p != nil {
-		if err := p.Terminate(); err != nil {
-			s.log.Warningf("Failed to terminate coordinator: %v", err)
-		}
-	}
-	if p := s.servers.dbserverProc; p != nil {
-		if err := p.Terminate(); err != nil {
-			s.log.Warningf("Failed to terminate dbserver: %v", err)
-		}
-	}
-	if p := s.servers.agentProc; p != nil {
-		time.Sleep(3 * time.Second)
-		if err := p.Terminate(); err != nil {
-			s.log.Warningf("Failed to terminate agent: %v", err)
-		}
-	}
-
-	// Cleanup containers
-	if p := s.servers.singleProc; p != nil {
-		if err := p.Cleanup(); err != nil {
-			s.log.Warningf("Failed to cleanup single server: %v", err)
-		}
-	}
-	if p := s.servers.coordinatorProc; p != nil {
-		if err := p.Cleanup(); err != nil {
-			s.log.Warningf("Failed to cleanup coordinator: %v", err)
-		}
-	}
-	if p := s.servers.dbserverProc; p != nil {
-		if err := p.Cleanup(); err != nil {
-			s.log.Warningf("Failed to cleanup dbserver: %v", err)
-		}
-	}
-	if p := s.servers.agentProc; p != nil {
-		time.Sleep(3 * time.Second)
-		if err := p.Cleanup(); err != nil {
-			s.log.Warningf("Failed to cleanup agent: %v", err)
-		}
-	}
-
-	// Cleanup runner
-	if err := runner.Cleanup(); err != nil {
-		s.log.Warningf("Failed to cleanup runner: %v", err)
-	}
+	// Wait until managers have terminated
+	wg.Wait()
 }
 
 // Run runs the service in either master or slave mode.
 func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers ClusterConfig, shouldRelaunch bool) error {
-	s.ctx, s.cancel = context.WithCancel(rootCtx)
-	go func() {
-		select {
-		case <-s.ctx.Done():
-			s.stop = true
-		}
-	}()
+	// Prepare a context that is cancelled when we need to stop
+	s.stopPeer.ctx, s.stopPeer.trigger = context.WithCancel(rootCtx)
 
 	// Load settings from BootstrapConfig
 	s.id = bsCfg.ID
@@ -612,101 +800,41 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	}
 
 	// Load certificates (if needed)
-	if bsCfg.SslKeyFile != "" {
-		cert, err := LoadKeyFile(bsCfg.SslKeyFile)
-		if err != nil {
-			return maskAny(err)
-		}
-		s.tlsConfig = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-		}
+	var err error
+	if s.tlsConfig, err = bsCfg.CreateTLSConfig(); err != nil {
+		return maskAny(err)
 	}
-
-	// Decide what type of process runner to use.
-	useDockerRunner := s.DockerEndpoint != "" && s.DockerImage != ""
 
 	// Guess own IP address if not specified
-	if s.OwnAddress == "" && bsCfg.Mode.IsSingleMode() && !useDockerRunner {
-		addr, err := GuessOwnAddress()
-		if err != nil {
-			s.log.Fatalf("starter.address must be specified, it cannot be guessed because: %v", err)
-		}
-		s.log.Infof("Using auto-detected starter.address: %s", addr)
-		s.OwnAddress = addr
-	}
+	s.cfg = s.cfg.GuessOwnAddress(s.log, bsCfg)
 
 	// Find the port mapping if running in a docker container
-	if s.RunningInDocker {
-		if s.OwnAddress == "" {
-			s.log.Fatal("starter.address must be specified")
-		}
-		if s.DockerContainerName == "" {
-			s.log.Fatal("docker.container must be specified")
-		}
-		if s.DockerEndpoint == "" {
-			s.log.Fatal("docker.endpoint must be specified")
-		}
-		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(s.DockerEndpoint, s.DockerContainerName, s.MasterPort)
-		if err != nil {
-			s.log.Fatalf("Failed to detect port mapping: %#v", err)
-			return maskAny(err)
-		}
-		if s.DockerNetworkMode == "" && networkMode != "" && networkMode != "default" {
-			s.log.Infof("Auto detected network mode: %s", networkMode)
-			s.DockerNetworkMode = networkMode
-		}
-		s.announcePort = hostPort
-		s.isNetHost = isNetHost
-		if !hasTTY {
-			s.DockerTTY = false
-		}
-	} else {
-		s.announcePort = s.MasterPort
-		s.isNetHost = true // Not running in container so always true
-	}
+	s.cfg, s.announcePort, s.isNetHost = s.cfg.GetNetworkEnvironment(s.log)
 
 	// Create a runner
 	var runner Runner
-	if useDockerRunner {
-		var err error
-		runner, err = NewDockerRunner(s.log, s.DockerEndpoint, s.DockerImage, s.DockerUser, s.DockerContainerName, s.DockerGCDelay, s.DockerNetworkMode, s.DockerPrivileged, s.DockerTTY)
-		if err != nil {
-			s.log.Fatalf("Failed to create docker runner: %#v", err)
-		}
-		s.log.Debug("Using docker runner")
-		// Set executables to their image path's
-		s.ArangodPath = "/usr/sbin/arangod"
-		s.ArangodJSPath = "/usr/share/arangodb3/js"
-		// Docker setup uses different volumes with same dataDir, allow that
-		s.allowSameDataDir = true
-	} else {
-		if s.RunningInDocker {
-			s.log.Fatalf("When running in docker, you must provide a --docker.endpoint=<endpoint> and --docker.image=<image>")
-		}
-		runner = NewProcessRunner(s.log)
-		s.log.Debug("Using process runner")
-	}
+	runner, s.cfg, s.allowSameDataDir = s.cfg.CreateRunner(s.log)
 
 	// Is this a new start or a restart?
 	if shouldRelaunch {
 		s.myPeers = myPeers
-		s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
-		s.startHTTPServer()
+		s.log.Infof("Relaunching service with id '%s' on %s:%d...", s.id, s.cfg.OwnAddress, s.announcePort)
+		s.startHTTPServer(s.cfg)
 		wg := &sync.WaitGroup{}
 		if bsCfg.StartLocalSlaves {
-			s.startLocalSlaves(wg, bsCfg, myPeers.Peers)
+			s.startLocalSlaves(wg, s.cfg, bsCfg, myPeers.AllPeers)
 		}
-		s.startRunning(runner, bsCfg)
+		s.startRunning(runner, s.cfg, bsCfg)
 		wg.Wait()
 	} else {
 		// Bootstrap new cluster
 		// Do we have to register?
-		if s.MasterAddress != "" {
-			s.state = stateSlave
-			s.bootstrapSlave(s.MasterAddress, runner, bsCfg)
+		if s.cfg.MasterAddress != "" {
+			s.state = stateBootstrapSlave
+			s.bootstrapSlave(s.cfg.MasterAddress, runner, s.cfg, bsCfg)
 		} else {
-			s.state = stateMaster
-			s.bootstrapMaster(runner, bsCfg)
+			s.state = stateBootstrapMaster
+			s.bootstrapMaster(s.stopPeer.ctx, runner, s.cfg, bsCfg)
 		}
 	}
 

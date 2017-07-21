@@ -23,6 +23,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -34,7 +35,7 @@ import (
 )
 
 // bootstrapMaster starts the Service as master and begins bootstrapping the cluster from nothing.
-func (s *Service) bootstrapMaster(runner Runner, bsCfg BootstrapConfig) {
+func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Config, bsCfg BootstrapConfig) {
 	// Check HTTP server port
 	containerHTTPPort, _, err := s.getHTTPServerPort()
 	if err != nil {
@@ -48,47 +49,47 @@ func (s *Service) bootstrapMaster(runner Runner, bsCfg BootstrapConfig) {
 	hasAgent := boolFromRef(bsCfg.StartAgent, !s.mode.IsSingleMode())
 	hasDBServer := boolFromRef(bsCfg.StartDBserver, true)
 	hasCoordinator := boolFromRef(bsCfg.StartCoordinator, true)
-	s.myPeers.Peers = []Peer{
-		NewPeer(s.id, s.OwnAddress, s.announcePort, 0, s.DataDir, hasAgent, hasDBServer, hasCoordinator, s.IsSecure()),
-	}
-	s.myPeers.AgencySize = bsCfg.AgencySize
-	s.learnOwnAddress = s.OwnAddress == ""
+	s.myPeers.Initialize(
+		NewPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir, hasAgent, hasDBServer, hasCoordinator, s.IsSecure()),
+		bsCfg.AgencySize)
+	s.learnOwnAddress = config.OwnAddress == ""
 
 	// Start HTTP listener
-	s.startHTTPServer()
+	s.startHTTPServer(config)
 
 	// Permanent loop:
-	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.id, s.OwnAddress, s.announcePort)
+	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
 
 	if s.mode.IsSingleMode() || s.myPeers.HaveEnoughAgents() {
 		// We have all the agents that we need, start a single server/cluster right now
 		s.saveSetup()
 		s.log.Info("Starting service...")
-		s.startRunning(runner, bsCfg)
+		s.startRunning(runner, config, bsCfg)
 		return
 	}
 
 	wg := sync.WaitGroup{}
 	if bsCfg.StartLocalSlaves {
 		// Start additional local slaves
-		s.createAndStartLocalSlaves(&wg, bsCfg)
+		s.createAndStartLocalSlaves(&wg, config, bsCfg)
 	} else {
 		// Show commands needed to start slaves
 		s.log.Infof("Waiting for %d servers to show up.\n", s.myPeers.AgencySize)
-		s.showSlaveStartCommands(runner)
+		s.showSlaveStartCommands(runner, config)
 	}
 
 	for {
 		time.Sleep(time.Second)
 		select {
-		case <-s.startRunningWaiter.Done():
+		case <-s.bootstrapCompleted.ctx.Done():
 			s.saveSetup()
 			s.log.Info("Starting service...")
-			s.startRunning(runner, bsCfg)
+			s.startRunning(runner, config, bsCfg)
 			return
 		default:
 		}
-		if s.stop {
+		if ctx.Err() != nil {
+			// Context is cancelled, stop now
 			break
 		}
 	}
@@ -97,15 +98,15 @@ func (s *Service) bootstrapMaster(runner Runner, bsCfg BootstrapConfig) {
 }
 
 // showSlaveStartCommands prints out the commands needed to start additional slaves.
-func (s *Service) showSlaveStartCommands(runner Runner) {
+func (s *Service) showSlaveStartCommands(runner Runner, config Config) {
 	s.log.Infof("Use the following commands to start other servers:")
 	fmt.Println()
 	for index := 2; index <= s.myPeers.AgencySize; index++ {
 		port := ""
-		if s.announcePort != s.MasterPort {
+		if s.announcePort != config.MasterPort {
 			port = strconv.Itoa(s.announcePort)
 		}
-		fmt.Println(runner.CreateStartArangodbCommand(s.DataDir, index, s.OwnAddress, port, s.DockerStarterImage))
+		fmt.Println(runner.CreateStartArangodbCommand(config.DataDir, index, config.OwnAddress, port, config.DockerStarterImage))
 		fmt.Println()
 	}
 }
