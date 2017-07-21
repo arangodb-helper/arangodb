@@ -120,3 +120,14 @@ func (p Peer) CreateCoordinatorAPI(prepareRequest func(*http.Request) error) (ar
 		return nil, maskAny(fmt.Errorf("Peer has no coordinator"))
 	}
 }
+
+// PortRangeOverlaps returns true if the port range of this peer overlaps with a port
+// range starting at given port.
+func (p Peer) PortRangeOverlaps(otherPort int) bool {
+	myStart := p.Port + p.PortOffset                // Inclusive
+	myEnd := myStart + portOffsetIncrement - 1      // Inclusive
+	otherEnd := otherPort + portOffsetIncrement - 1 // Inclusive
+
+	return (otherPort >= myStart && otherPort <= myEnd) ||
+		(otherEnd >= myStart && otherEnd <= myEnd)
+}

@@ -639,7 +639,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "In single server mode, slaves cannot be added."))
 			}
 			// ID not yet found, add it
-			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.cfg.AllPortOffsetsUnique)
+			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, slavePort, s.cfg.AllPortOffsetsUnique)
 			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
 			if req.Agent != nil {
 				hasAgent = *req.Agent

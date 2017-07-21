@@ -122,12 +122,12 @@ func (p ClusterConfig) IDs() []string {
 }
 
 // GetFreePortOffset returns the first unallocated port offset.
-func (p ClusterConfig) GetFreePortOffset(peerAddress string, allPortOffsetsUnique bool) int {
+func (p ClusterConfig) GetFreePortOffset(peerAddress string, basePort int, allPortOffsetsUnique bool) int {
 	portOffset := 0
 	for {
 		found := false
 		for _, p := range p.AllPeers {
-			if p.PortOffset == portOffset {
+			if p.PortRangeOverlaps(basePort + portOffset) {
 				if allPortOffsetsUnique || p.Address == peerAddress {
 					found = true
 					break
