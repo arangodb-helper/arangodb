@@ -142,7 +142,7 @@ Example:
 ```json
 {
     "version": "0.8.0+git",
-    "build":"e6dbb08"
+    "build": "e6dbb08"
 }
 ```
 
