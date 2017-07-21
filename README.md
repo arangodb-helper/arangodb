@@ -1,6 +1,8 @@
 Starting an ArangoDB cluster the easy way
 =========================================
 
+[![GoDoc](https://godoc.org/github.com/arangodb-helper/arangodb/client?status.svg)](http://godoc.org/github.com/arangodb-helper/arangodb/client)
+
 Downloading Releases
 --------------------
 You can download precompiled `arangodb` binaries via [the github releases page](https://github.com/arangodb-helper/arangodb/releases).
@@ -417,21 +419,13 @@ upon "server ready" requests to the log. This option is mainly intended for inte
 HTTP API
 --------
 
-- GET `/process` returns status information of all of the running processes.
-- GET `/logs/agent` returns the contents of the agent log file.
-- GET `/logs/dbserver` returns the contents of the dbserver log file.
-- GET `/logs/coordinator` returns the contents of the coordinator log file.
-- GET `/logs/single` returns the contents of the single server log file.
-- GET `/version` returns a JSON object with the version & build information. 
-- POST `/shutdown` initiates a shutdown of the process and all servers started by it. 
-  (passing a `mode=goodbye` query to the URL makes the peer say goodbye to the master).
-- GET `/hello` internal API used to join a master. Not for external use.
-- POST `/goodbye` internal API used to leave a master for good. Not for external use.
+See [HTTP API](./docs/http_api.md).
 
 Future plans
 ------------
 
-* bundle this program with the usual distribution
+* Allow starter with agent to be removed from cluster
+* Enable cluster to be updated in a controlled manor.
 * make port usage configurable
 
 Technical explanation as to what happens
