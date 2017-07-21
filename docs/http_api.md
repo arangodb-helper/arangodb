@@ -9,6 +9,42 @@ Some part of the HTTP API is internal and is not supposed to be used by outside 
 
 ## Public API
 
+### GET `/endpoints` 
+
+Returns URL's of all starters, coordinators & agents in the cluster.
+
+A JSON object is returned with the following fields:
+
+- `starters` An array of URL's of all starters in the cluster.
+- `coordinators` An array of URL's of all coordinators in the cluster.
+- `agents` An array of URL's of all agents in the cluster.
+
+Status codes:
+- 200 On success 
+- 503 When starter is not ready to send this information
+
+Example: 
+
+```json
+{
+  "starters": [
+    "http://localhost:8528",
+    "http://localhost:8533",
+    "http://localhost:8538"
+    ],
+  "agents": [
+    "http://localhost:8531",
+    "http://localhost:8536",
+    "http://localhost:8541"
+  ],
+  "coordinators": [
+    "http://localhost:8529",
+    "http://localhost:8534",
+    "http://localhost:8539"
+  ]
+}
+```
+
 ### GET `/process`
 
 Returns status information of all of the running processes.

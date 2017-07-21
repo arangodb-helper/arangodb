@@ -30,6 +30,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -76,6 +77,9 @@ type httpServer struct {
 type httpServerContext interface {
 	// ClusterConfig returns the current cluster configuration and the current peer
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
+
+	// IsRunningMaster returns if the starter is the running master.
+	IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string)
 
 	// serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
 	serverHostDir(serverType ServerType) (string, error)
@@ -128,6 +132,7 @@ func (s *httpServer) Start(hostAddr, containerAddr string, tlsConfig *tls.Config
 	// External API
 	mux.HandleFunc("/id", s.idHandler)
 	mux.HandleFunc("/process", s.processListHandler)
+	mux.HandleFunc("/endpoints", s.endpointsHandler)
 	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
 	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
 	mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
@@ -266,6 +271,7 @@ func (s *httpServer) idHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// processListHandler returns process information of all launched servers.
 func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) {
 	clusterConfig, myPeer, mode := s.context.ClusterConfig()
 	isSecure := clusterConfig.IsSecure()
@@ -320,6 +326,68 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 	} else {
 		w.Write(b)
+	}
+}
+
+func urlListToStringSlice(list []url.URL) []string {
+	result := make([]string, len(list))
+	for i, u := range list {
+		result[i] = u.String()
+	}
+	return result
+}
+
+// endpointsHandler returns the URL's needed to reach all starters, agents & coordinators in the cluster.
+func (s *httpServer) endpointsHandler(w http.ResponseWriter, r *http.Request) {
+	// IsRunningMaster returns if the starter is the running master.
+	isRunningMaster, isRunning, masterURL := s.context.IsRunningMaster()
+
+	// Check state
+	if isRunning && !isRunningMaster {
+		// Redirect to master
+		if masterURL != "" {
+			location, err := getURLWithPath(masterURL, "/endpoints")
+			if err != nil {
+				handleError(w, err)
+			} else {
+				handleError(w, RedirectError{Location: location})
+			}
+		} else {
+			writeError(w, http.StatusServiceUnavailable, "No runtime master known")
+		}
+	} else {
+		// Gather & send endpoints list
+		clusterConfig, _, _ := s.context.ClusterConfig()
+
+		// Gather endpoints
+		resp := client.EndpointList{}
+		if endpoints, err := clusterConfig.GetPeerEndpoints(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		} else {
+			resp.Starters = urlListToStringSlice(endpoints)
+		}
+		if isRunning {
+			if endpoints, err := clusterConfig.GetAgentEndpoints(); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			} else {
+				resp.Agents = urlListToStringSlice(endpoints)
+			}
+			if endpoints, err := clusterConfig.GetCoordinatorEndpoints(); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			} else {
+				resp.Coordinators = urlListToStringSlice(endpoints)
+			}
+		}
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		} else {
+			w.Write(b)
+		}
 	}
 }
 

@@ -120,6 +120,29 @@ func (c *client) Processes(ctx context.Context) (ProcessList, error) {
 	return result, nil
 }
 
+// Endpoints loads the URL's needed to reach all starters, agents & coordinators in the cluster.
+func (c *client) Endpoints(ctx context.Context) (EndpointList, error) {
+	url := c.createURL("/endpoints", nil)
+
+	var result EndpointList
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return EndpointList{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return EndpointList{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return EndpointList{}, maskAny(err)
+	}
+
+	return result, nil
+}
+
 // Shutdown will shutdown a starter (and all its started servers).
 // With goodbye set, it will remove the peer slot for the starter.
 func (c *client) Shutdown(ctx context.Context, goodbye bool) error {

@@ -35,6 +35,9 @@ type API interface {
 	// Processes loads information of all the database server processes launched by the starter.
 	Processes(ctx context.Context) (ProcessList, error)
 
+	// Endpoints loads the URL's needed to reach all starters, agents & coordinators in the cluster.
+	Endpoints(ctx context.Context) (EndpointList, error)
+
 	// Shutdown will shutdown a starter (and all its started database servers).
 	// With goodbye set, it will remove the peer slot for the starter.
 	Shutdown(ctx context.Context, goodbye bool) error
@@ -49,6 +52,14 @@ type IDInfo struct {
 type VersionInfo struct {
 	Version string `json:"version"`
 	Build   string `json:"build"`
+}
+
+// EndpointList is the JSON response of a `/endpoints` request.
+// It contains URL's of all starters, agents & coordinators in the cluster.
+type EndpointList struct {
+	Starters     []string `json:"starters,omitempty"`     // List of URL's to all starter APIs
+	Agents       []string `json:"agents,omitempty"`       // List of URL's to all agents (database servers) in the cluster
+	Coordinators []string `json:"coordinators,omitempty"` // List of URL's to all coordinators (database servers) in the cluster
 }
 
 // ProcessList is the JSON response of a `/process` request.

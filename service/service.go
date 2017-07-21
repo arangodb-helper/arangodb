@@ -237,6 +237,18 @@ func (s *Service) ClusterConfig() (ClusterConfig, *Peer, ServiceMode) {
 	}
 }
 
+// IsRunningMaster returns if the starter is the running master.
+func (s *Service) IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	masterURL = s.runtimeClusterManager.GetMasterURL()
+	if s.state == stateRunningMaster {
+		return true, true, masterURL
+	}
+	return false, s.state.IsRunning(), masterURL
+}
+
 // HandleGoodbye removes the database servers started by the peer with given id
 // from the cluster and alters the cluster configuration, removing the peer.
 func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
