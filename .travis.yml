@@ -6,12 +6,20 @@ services:
 language: go
 
 env:
+  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb:3.1
+  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb:3.1
   - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb:latest
   - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb:latest
   - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb-preview:latest
   - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb-preview:latest
 
 script: make $TEST_SUITE
+
+# 3.1 cluster startup is not always a success, causing lots of false positive.
+matrix:
+  allow_failures:
+    - env: TEST_SUITE=run-tests-local-process ARANGODB=arangodb:3.1
+    - env: TEST_SUITE=run-tests-docker        ARANGODB=arangodb:3.1
 
 # Install Docker CE
 before_install:
