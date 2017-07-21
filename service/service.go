@@ -728,7 +728,7 @@ func (s *Service) startHTTPServer(config Config) {
 	hostAddr := net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
 
 	// Create HTTP server
-	server := newHTTPServer(s.log, s, &s.runtimeServerManager, config)
+	server := newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id)
 
 	// Start HTTP server
 	server.Start(hostAddr, containerAddr, s.tlsConfig)

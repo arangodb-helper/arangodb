@@ -132,6 +132,10 @@ Status codes:
 
 ## Internal API
 
+### GET `/id` 
+
+Internap API used to get the ID number of the starter. Not for external use.
+
 ### GET `/hello` 
 
 Internal API used to join a master. Not for external use.

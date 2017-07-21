@@ -51,6 +51,29 @@ const (
 	contentTypeJSON = "application/json"
 )
 
+// ID requests the starters ID.
+func (c *client) ID(ctx context.Context) (IDInfo, error) {
+	url := c.createURL("/id", nil)
+
+	var result IDInfo
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return IDInfo{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return IDInfo{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return IDInfo{}, maskAny(err)
+	}
+
+	return result, nil
+}
+
 // Version requests the starter version.
 func (c *client) Version(ctx context.Context) (VersionInfo, error) {
 	url := c.createURL("/version", nil)

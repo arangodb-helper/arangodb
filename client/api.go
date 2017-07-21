@@ -26,6 +26,9 @@ import "context"
 
 // API is the interface implemented by the starter's HTTP API's.
 type API interface {
+	// ID requests the starters ID.
+	ID(ctx context.Context) (IDInfo, error)
+
 	// Version requests the starter version.
 	Version(ctx context.Context) (VersionInfo, error)
 
@@ -35,6 +38,11 @@ type API interface {
 	// Shutdown will shutdown a starter (and all its started database servers).
 	// With goodbye set, it will remove the peer slot for the starter.
 	Shutdown(ctx context.Context, goodbye bool) error
+}
+
+// IDInfo contains the ID of the starter
+type IDInfo struct {
+	ID string `json:"id"`
 }
 
 // VersionInfo is the JSON response of a `/version` request.

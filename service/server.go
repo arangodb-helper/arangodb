@@ -67,6 +67,7 @@ type httpServer struct {
 	log                  *logging.Logger
 	context              httpServerContext
 	versionInfo          client.VersionInfo
+	idInfo               client.IDInfo
 	runtimeServerManager *runtimeServerManager
 	masterPort           int
 }
@@ -100,11 +101,14 @@ type httpServerContext interface {
 }
 
 // newHTTPServer initializes and an HTTP server.
-func newHTTPServer(log *logging.Logger, context httpServerContext, runtimeServerManager *runtimeServerManager, config Config) *httpServer {
+func newHTTPServer(log *logging.Logger, context httpServerContext, runtimeServerManager *runtimeServerManager, config Config, serverID string) *httpServer {
 	// Create HTTP server
 	return &httpServer{
 		log:     log,
 		context: context,
+		idInfo: client.IDInfo{
+			ID: serverID,
+		},
 		versionInfo: client.VersionInfo{
 			Version: config.ProjectVersion,
 			Build:   config.ProjectBuild,
@@ -122,6 +126,7 @@ func (s *httpServer) Start(hostAddr, containerAddr string, tlsConfig *tls.Config
 	mux.HandleFunc("/hello", s.helloHandler)
 	mux.HandleFunc("/goodbye", s.goodbyeHandler)
 	// External API
+	mux.HandleFunc("/id", s.idHandler)
 	mux.HandleFunc("/process", s.processListHandler)
 	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
 	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
@@ -245,6 +250,19 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 		// Peer removed
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("BYE"))
+	}
+}
+
+// idHandler returns a JSON object containing the ID of this starter.
+func (s *httpServer) idHandler(w http.ResponseWriter, r *http.Request) {
+	data, err := json.Marshal(s.idInfo)
+	if err != nil {
+		s.log.Errorf("Failed to marshal ID response: %#v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	} else {
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
 	}
 }
 
