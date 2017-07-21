@@ -408,7 +408,7 @@ func (s *Service) serverPort(serverType ServerType) (int, error) {
 	}
 	// Find log path
 	portOffset := myPeer.PortOffset
-	return s.cfg.MasterPort + portOffset + serverType.PortOffset(), nil
+	return myPeer.Port + portOffset + serverType.PortOffset(), nil
 }
 
 // serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
@@ -639,7 +639,8 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "In single server mode, slaves cannot be added."))
 			}
 			// ID not yet found, add it
-			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.cfg.AllPortOffsetsUnique)
+			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, slavePort, s.cfg.AllPortOffsetsUnique)
+			s.log.Debugf("Set slave port offset to %d, got slaveAddr=%s, slavePort=%d", portOffset, slaveAddr, slavePort)
 			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
 			if req.Agent != nil {
 				hasAgent = *req.Agent
@@ -714,7 +715,7 @@ func (s *Service) MasterChangedCallback() {
 func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 	containerPort = s.cfg.MasterPort
 	hostPort = s.announcePort
-	//s.log.Debug("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.myPeers.AllPeers))
+	s.log.Debugf("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.myPeers.AllPeers))
 	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.AllPeers) > 0 {
 		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
 			containerPort += myPeer.PortOffset
