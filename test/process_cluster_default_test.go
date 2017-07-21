@@ -124,8 +124,8 @@ func TestProcessClusterDifferentPorts(t *testing.T) {
 	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, "http://localhost:6000", false)
-		testCluster(t, "http://localhost:7005", false)
-		testCluster(t, "http://localhost:8010", false)
+		testCluster(t, "http://localhost:7000", false)
+		testCluster(t, "http://localhost:8000", false)
 	}
 
 	if isVerbose {

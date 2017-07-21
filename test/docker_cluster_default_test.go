@@ -190,7 +190,6 @@ func TestDockerClusterDifferentPorts(t *testing.T) {
 		"--name=" + cID2,
 		"--rm",
 		"-p 7000:7000",
-		"-p 7005:7005",
 		fmt.Sprintf("-v %s:/data", volID2),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -210,7 +209,6 @@ func TestDockerClusterDifferentPorts(t *testing.T) {
 		"--name=" + cID3,
 		"--rm",
 		"-p 8000:8000",
-		"-p 8010:8010",
 		fmt.Sprintf("-v %s:/data", volID3),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -226,16 +224,16 @@ func TestDockerClusterDifferentPorts(t *testing.T) {
 	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, "http://localhost:6000", false)
-		testCluster(t, "http://localhost:7005", false)
-		testCluster(t, "http://localhost:8010", false)
+		testCluster(t, "http://localhost:7000", false)
+		testCluster(t, "http://localhost:8000", false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
 	ShutdownStarter(t, "http://localhost:6000")
-	ShutdownStarter(t, "http://localhost:7005")
-	ShutdownStarter(t, "http://localhost:8010")
+	ShutdownStarter(t, "http://localhost:7000")
+	ShutdownStarter(t, "http://localhost:8000")
 }
 
 // TestOldDockerClusterDefault runs 3 arangodb starters in docker with default settings.
