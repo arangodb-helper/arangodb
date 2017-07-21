@@ -1,5 +1,6 @@
 # Changes from version 0.8.0 to master 
 
+- Fixed cluster setup in case where starters use different `--starter.port`s (#68).
 - The `--rocksdb.encryption-keyfile` is now passed through the database servers in the `arangod.conf` file (it was passed as command line argument before).
   If you use this setting in an existing cluster, make sure the manually add this setting to all `arangod.conf` files before restarting the starters.
 - Added `--starter.debug-cluster` option that adds a trail of status codes to the log when starting servers. (intended mostly for internal testing)
