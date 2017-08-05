@@ -63,6 +63,7 @@ type Config struct {
 	DockerContainerName string // Name of the container running this process
 	DockerEndpoint      string // Where to reach the docker daemon
 	DockerImage         string // Name of Arangodb docker image
+        DockerPull          bool
 	DockerStarterImage  string
 	DockerUser          string
 	DockerGCDelay       time.Duration
@@ -131,7 +132,7 @@ func (c Config) GetNetworkEnvironment(log *logging.Logger) (Config, int, bool) {
 func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
 	var runner Runner
 	if c.UseDockerRunner() {
-		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerImage, c.DockerUser, c.DockerContainerName,
+		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerImage, c.DockerPull, c.DockerUser, c.DockerContainerName,
 			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
 		if err != nil {
 			log.Fatalf("Failed to create docker runner: %#v", err)

@@ -88,6 +88,7 @@ var (
 	rocksDBEncryptionKeyFile string
 	dockerEndpoint           string
 	dockerImage              string
+        dockerPull               bool
 	dockerStarterImage       = defaultDockerStarterImage
 	dockerUser               string
 	dockerContainerName      string
@@ -131,6 +132,7 @@ func init() {
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&dockerImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.BoolVar(&dockerPull, "docker.pull", true, "pull docker image from docker hub")
 	f.StringVar(&dockerUser, "docker.user", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainerName, "docker.container", "", "name of the docker container that is running this process")
 	f.DurationVar(&dockerGCDelay, "docker.gc-delay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
@@ -498,6 +500,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		DockerContainerName:  dockerContainerName,
 		DockerEndpoint:       dockerEndpoint,
 		DockerImage:          dockerImage,
+		DockerPull:           dockerPull,
 		DockerStarterImage:   dockerStarterImage,
 		DockerUser:           dockerUser,
 		DockerGCDelay:        dockerGCDelay,

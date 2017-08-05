@@ -47,7 +47,7 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
-func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom string, gcDelay time.Duration, networkMode string, privileged, tty bool) (Runner, error) {
+func NewDockerRunner(log *logging.Logger, endpoint, image string, pull bool, user, volumesFrom string, gcDelay time.Duration, networkMode string, privileged, tty bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		return nil, maskAny(err)
@@ -56,6 +56,7 @@ func NewDockerRunner(log *logging.Logger, endpoint, image, user, volumesFrom str
 		log:          log,
 		client:       client,
 		image:        image,
+                pull:         pull,
 		user:         user,
 		volumesFrom:  volumesFrom,
 		containerIDs: make(map[string]time.Time),
@@ -71,6 +72,7 @@ type dockerRunner struct {
 	log          *logging.Logger
 	client       *docker.Client
 	image        string
+        pull         bool
 	user         string
 	volumesFrom  string
 	mutex        sync.Mutex
@@ -132,8 +134,10 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 	r.startGC()
 
 	// Pull docker image
-	if err := r.pullImage(r.image); err != nil {
-		return nil, maskAny(err)
+        if (r.pull) {
+		if err := r.pullImage(r.image); err != nil {
+			return nil, maskAny(err)
+		}
 	}
 
 	// Ensure container name is valid
