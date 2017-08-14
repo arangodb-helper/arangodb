@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -191,6 +192,13 @@ type Service struct {
 
 // NewService creates a new Service instance from the given config.
 func NewService(ctx context.Context, log *logging.Logger, config Config, isLocalSlave bool) *Service {
+	// Fix up master addresses
+	for i, addr := range config.MasterAddresses {
+		if !strings.Contains(addr, ":") {
+			// Address has no port, add default master port
+			config.MasterAddresses[i] = net.JoinHostPort(addr, strconv.Itoa(DefaultMasterPort))
+		}
+	}
 	s := &Service{
 		cfg:          config,
 		log:          log,
