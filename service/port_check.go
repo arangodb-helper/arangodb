@@ -42,14 +42,14 @@ func IsPortOpen(port int) bool {
 // or a timeout occurs.
 // Returns true when port is free to listen on.
 func WaitUntilPortAvailable(port int, timeout time.Duration) bool {
-	//start := time.Now()
+	start := time.Now()
 	for {
 		if IsPortOpen(port) {
 			return true
 		}
-		//if time.Since(start) >= timeout {
-		return false
-		//}
-		//time.Sleep(time.Millisecond * 10)
+		if time.Since(start) >= timeout {
+			return false
+		}
+		time.Sleep(time.Millisecond * 10)
 	}
 }
