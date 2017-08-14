@@ -71,7 +71,7 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		slaveBsCfg, myPeers, relaunch, _ := ReadSetupConfig(slaveLog, p.DataDir, slaveBsCfg)
 		slaveConfig := config // Create copy
 		slaveConfig.DataDir = p.DataDir
-		slaveConfig.MasterAddress = masterAddr
+		slaveConfig.MasterAddresses = []string{masterAddr}
 		slaveService := NewService(s.stopPeer.ctx, slaveLog, slaveConfig, true)
 		wg.Add(1)
 		go func() {

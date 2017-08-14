@@ -66,6 +66,7 @@ type GoodbyeRequest struct {
 type httpServer struct {
 	//config Config
 	log                  *logging.Logger
+	server               *http.Server
 	context              httpServerContext
 	versionInfo          client.VersionInfo
 	idInfo               client.IDInfo
@@ -110,6 +111,7 @@ func newHTTPServer(log *logging.Logger, context httpServerContext, runtimeServer
 	return &httpServer{
 		log:     log,
 		context: context,
+		server:  &http.Server{},
 		idInfo: client.IDInfo{
 			ID: serverID,
 		},
@@ -125,41 +127,60 @@ func newHTTPServer(log *logging.Logger, context httpServerContext, runtimeServer
 // Start listening for requests.
 // This method will return directly after starting.
 func (s *httpServer) Start(hostAddr, containerAddr string, tlsConfig *tls.Config) {
-	mux := http.NewServeMux()
-	// Starter to starter API
-	mux.HandleFunc("/hello", s.helloHandler)
-	mux.HandleFunc("/goodbye", s.goodbyeHandler)
-	// External API
-	mux.HandleFunc("/id", s.idHandler)
-	mux.HandleFunc("/process", s.processListHandler)
-	mux.HandleFunc("/endpoints", s.endpointsHandler)
-	mux.HandleFunc("/logs/agent", s.agentLogsHandler)
-	mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
-	mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
-	mux.HandleFunc("/logs/single", s.singleLogsHandler)
-	mux.HandleFunc("/version", s.versionHandler)
-	mux.HandleFunc("/shutdown", s.shutdownHandler)
-	// Agency callback
-	mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
-
 	go func() {
-		server := &http.Server{
-			Addr:    containerAddr,
-			Handler: mux,
-		}
-		if tlsConfig != nil {
-			s.log.Infof("Listening on %s (%s) using TLS", containerAddr, hostAddr)
-			server.TLSConfig = tlsConfig
-			if err := server.ListenAndServeTLS("", ""); err != nil {
-				s.log.Errorf("Failed to listen on %s: %v", containerAddr, err)
-			}
-		} else {
-			s.log.Infof("Listening on %s (%s)", containerAddr, hostAddr)
-			if err := server.ListenAndServe(); err != nil {
-				s.log.Errorf("Failed to listen on %s: %v", containerAddr, err)
-			}
+		if err := s.Run(hostAddr, containerAddr, tlsConfig, false); err != nil {
+			s.log.Errorf("Failed to listen on %s: %v", containerAddr, err)
 		}
 	}()
+}
+
+// Run listening for requests.
+// This method will return after the server has been closed.
+func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, idOnly bool) error {
+	mux := http.NewServeMux()
+	if !idOnly {
+		// Starter to starter API
+		mux.HandleFunc("/hello", s.helloHandler)
+		mux.HandleFunc("/goodbye", s.goodbyeHandler)
+	}
+	// External API
+	mux.HandleFunc("/id", s.idHandler)
+	if !idOnly {
+		mux.HandleFunc("/process", s.processListHandler)
+		mux.HandleFunc("/endpoints", s.endpointsHandler)
+		mux.HandleFunc("/logs/agent", s.agentLogsHandler)
+		mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
+		mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
+		mux.HandleFunc("/logs/single", s.singleLogsHandler)
+		mux.HandleFunc("/version", s.versionHandler)
+		mux.HandleFunc("/shutdown", s.shutdownHandler)
+		// Agency callback
+		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
+	}
+
+	s.server.Addr = containerAddr
+	s.server.Handler = mux
+	if tlsConfig != nil {
+		s.log.Infof("Listening on %s (%s) using TLS", containerAddr, hostAddr)
+		s.server.TLSConfig = tlsConfig
+		if err := s.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			return maskAny(err)
+		}
+	} else {
+		s.log.Infof("Listening on %s (%s)", containerAddr, hostAddr)
+		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			return maskAny(err)
+		}
+	}
+	return nil
+}
+
+// Close the server
+func (s *httpServer) Close() error {
+	if err := s.server.Close(); err != nil {
+		return maskAny(err)
+	}
+	return nil
 }
 
 // HTTP service function:

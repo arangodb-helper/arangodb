@@ -22,48 +22,142 @@
 
 package service
 
-import "crypto/tls"
+import (
+	"context"
+	"fmt"
+	"net"
+	"net/url"
+	"sort"
+	"strconv"
+	"time"
 
-// BootstrapConfig holds all configuration for a service that will
-// not change through the lifetime of a cluster.
-type BootstrapConfig struct {
-	ID                       string      // Unique identifier of this peer
-	Mode                     ServiceMode // Service mode cluster|single
-	AgencySize               int         // Number of agents in the agency
-	StartLocalSlaves         bool        // If set, start sufficient slave (Service's) locally.
-	StartAgent               *bool       // If not nil, sets if starter starts a agent, otherwise default handling applies
-	StartDBserver            *bool       // If not nil, sets if starter starts a dbserver, otherwise default handling applies
-	StartCoordinator         *bool       // If not nil, sets if starter starts a coordinator, otherwise default handling applies
-	ServerStorageEngine      string      // mmfiles | rocksdb
-	JwtSecret                string      // JWT secret used for arangod communication
-	SslKeyFile               string      // Path containing an x509 certificate + private key to be used by the servers.
-	SslCAFile                string      // Path containing an x509 CA certificate used to authenticate clients.
-	RocksDBEncryptionKeyFile string      // Path containing encryption key for RocksDB encryption.
+	"github.com/arangodb-helper/arangodb/client"
+)
+
+// createBootstrapMasterURL creates a URL from a given peer address.
+// Allowed formats for peer address are:
+// <host>
+// <host>:<port>
+func (s *Service) createBootstrapMasterURL(peerAddress string, cfg Config) string {
+	masterPort := cfg.MasterPort
+	if host, port, err := net.SplitHostPort(peerAddress); err == nil {
+		peerAddress = host
+		masterPort, _ = strconv.Atoi(port)
+	}
+	masterAddr := net.JoinHostPort(peerAddress, strconv.Itoa(masterPort))
+	scheme := NewURLSchemes(s.IsSecure()).Browser
+	return fmt.Sprintf("%s://%s", scheme, masterAddr)
 }
 
-// Initialize auto-configures some optional values
-func (bsCfg *BootstrapConfig) Initialize() error {
-	// Create unique ID
-	if bsCfg.ID == "" {
-		var err error
-		bsCfg.ID, err = createUniqueID()
-		if err != nil {
-			return maskAny(err)
+// fetchIDFromPeer tries to get the ID through given client API.
+// When ID is received it is send in the given channel.
+func fetchIDFromPeer(ctx context.Context, peerClient client.API, idChan chan string) {
+	defer close(idChan)
+	for {
+		if idInfo, err := peerClient.ID(ctx); err == nil {
+			idChan <- idInfo.ID
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		select {
+		case <-time.After(time.Millisecond * 100):
+			// Retry
+		case <-ctx.Done():
+			return
 		}
 	}
-	return nil
 }
 
-// CreateTLSConfig creates a TLS config based on given bootstrap config
-func (bsCfg BootstrapConfig) CreateTLSConfig() (*tls.Config, error) {
-	if bsCfg.SslKeyFile == "" {
-		return nil, nil
-	}
-	cert, err := LoadKeyFile(bsCfg.SslKeyFile)
+// isPeerAddressMyself starts a local server and then makes an ID call
+// to the given peer address.
+// Returns true if ID calls succeeds and is equal to own ID.
+func (s *Service) isPeerAddressMyself(rootCtx context.Context, peerAddr string, cfg Config) (bool, error) {
+	// Create peer URL
+	peerURL, err := url.Parse(s.createBootstrapMasterURL(peerAddr, cfg))
 	if err != nil {
-		return nil, maskAny(err)
+		return false, maskAny(err)
 	}
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-	}, nil
+
+	// Create server
+	srv, containerPort, hostAddr, containerAddr, err := s.createHTTPServer(cfg)
+	if err != nil {
+		return false, maskAny(err)
+	}
+	defer srv.Close()
+
+	// Run HTTP server until signalled
+	serverErrors := make(chan error)
+	go func() {
+		defer close(serverErrors)
+		idOnly := true
+		if err := srv.Run(hostAddr, containerAddr, s.tlsConfig, idOnly); err != nil {
+			serverErrors <- err
+		}
+	}()
+
+	// Fetch ID of local peer until success or timeout,
+	// just so we know our server is up.
+	localURL := *peerURL // Create copy
+	localURL.Host = net.JoinHostPort("localhost", strconv.Itoa(containerPort))
+	localPeerClient, err := client.NewArangoStarterClient(localURL)
+	if err != nil {
+		return false, maskAny(err)
+	}
+	ctx, cancel := context.WithTimeout(rootCtx, time.Second*10)
+	defer cancel()
+	localIDFound := make(chan string)
+	go fetchIDFromPeer(ctx, localPeerClient, localIDFound)
+
+	// Wait until we successfully fetched our local ID
+	select {
+	case <-localIDFound:
+		s.log.Infof("Found ID from localhost peer")
+		// We can continue
+	case err := <-serverErrors:
+		s.log.Infof("Error while trying to run HTTP server: %#v", err)
+		return false, nil
+	}
+
+	// Fetch ID of given peer until success or timeout
+	peerClient, err := client.NewArangoStarterClient(*peerURL)
+	if err != nil {
+		return false, maskAny(err)
+	}
+	idFound := make(chan string)
+	go fetchIDFromPeer(ctx, peerClient, idFound)
+
+	// Wait until a ID is found or we have a server run error.
+	select {
+	case id := <-idFound:
+		s.log.Infof("Found ID '%s' from peer, looking for '%s'", id, s.id)
+		return s.id == id, nil
+	case err := <-serverErrors:
+		s.log.Infof("Error while trying to run HTTP server: %#v", err)
+		return false, nil
+	}
+}
+
+// shouldActAsBootstrapMaster returns if this starter should act as
+// master during the bootstrap phase of the cluster.
+func (s *Service) shouldActAsBootstrapMaster(rootCtx context.Context, cfg Config) (bool, string, error) {
+	masterAddrs := cfg.MasterAddresses
+	switch len(masterAddrs) {
+	case 0:
+		// No `--starter.join` act as master
+		return true, "", nil
+	case 1:
+		// Single `--starter.join` act as slave
+		return false, masterAddrs[0], nil
+	}
+
+	// There are multiple `--starter.join` arguments.
+	// We're the bootstrap master if we're the first one in the list.
+	sort.Strings(masterAddrs)
+	isSelf, err := s.isPeerAddressMyself(rootCtx, masterAddrs[0], cfg)
+	if err != nil {
+		return false, "", maskAny(err)
+	}
+	return isSelf, masterAddrs[0], nil
 }

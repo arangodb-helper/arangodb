@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,7 +54,7 @@ type Config struct {
 	RrPath               string
 	DataDir              string
 	OwnAddress           string // IP address of used to reach this process
-	MasterAddress        string
+	MasterAddresses      []string
 	Verbose              bool
 	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
 	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
@@ -191,6 +192,13 @@ type Service struct {
 
 // NewService creates a new Service instance from the given config.
 func NewService(ctx context.Context, log *logging.Logger, config Config, isLocalSlave bool) *Service {
+	// Fix up master addresses
+	for i, addr := range config.MasterAddresses {
+		if !strings.Contains(addr, ":") {
+			// Address has no port, add default master port
+			config.MasterAddresses[i] = net.JoinHostPort(addr, strconv.Itoa(DefaultMasterPort))
+		}
+	}
 	s := &Service{
 		cfg:          config,
 		log:          log,
@@ -730,22 +738,31 @@ func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 	return containerPort, hostPort, nil
 }
 
-// startHTTPServer initializes and runs the HTTP server.
-// If will return directly after starting it.
-func (s *Service) startHTTPServer(config Config) {
+// createHTTPServer initializes an HTTP server.
+func (s *Service) createHTTPServer(config Config) (srv *httpServer, containerPort int, hostAddr, containerAddr string, err error) {
 	// Create address to listen on
 	containerPort, hostPort, err := s.getHTTPServerPort()
 	if err != nil {
-		s.log.Fatalf("Failed to get HTTP port info: %#v", err)
+		return nil, 0, "", "", maskAny(err)
 	}
-	containerAddr := fmt.Sprintf("0.0.0.0:%d", containerPort)
-	hostAddr := net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
+	containerAddr = fmt.Sprintf("0.0.0.0:%d", containerPort)
+	hostAddr = net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
 
 	// Create HTTP server
-	server := newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id)
+	return newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id), containerPort, hostAddr, containerAddr, nil
+}
+
+// startHTTPServer initializes and runs the HTTP server.
+// If will return directly after starting it.
+func (s *Service) startHTTPServer(config Config) {
+	// Create server
+	srv, _, hostAddr, containerAddr, err := s.createHTTPServer(config)
+	if err != nil {
+		s.log.Fatalf("Failed to get create HTTP server: %#v", err)
+	}
 
 	// Start HTTP server
-	server.Start(hostAddr, containerAddr, s.tlsConfig)
+	srv.Start(hostAddr, containerAddr, s.tlsConfig)
 }
 
 // startRunning starts all relevant servers and keeps the running.
@@ -836,9 +853,13 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	} else {
 		// Bootstrap new cluster
 		// Do we have to register?
-		if s.cfg.MasterAddress != "" {
+		isBootstrapMaster, masterAddr, err := s.shouldActAsBootstrapMaster(rootCtx, s.cfg)
+		if err != nil {
+			return maskAny(err)
+		}
+		if !isBootstrapMaster {
 			s.state = stateBootstrapSlave
-			s.bootstrapSlave(s.cfg.MasterAddress, runner, s.cfg, bsCfg)
+			s.bootstrapSlave(masterAddr, runner, s.cfg, bsCfg)
 		} else {
 			s.state = stateBootstrapMaster
 			s.bootstrapMaster(s.stopPeer.ctx, runner, s.cfg, bsCfg)
