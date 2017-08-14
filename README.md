@@ -113,6 +113,49 @@ you can build it using:
 make docker 
 ```
 
+Using multiple join arguments
+-----------------------------
+
+It is allowed to use multiple `--starter.join` arguments. 
+This eases scripting.
+
+For example:
+
+On host A:
+
+```
+arangodb --starter.join A,B,C
+```
+
+On host B:
+
+```
+arangodb --starter.join A,B,C
+```
+
+On host C:
+
+```
+arangodb --starter.join A,B,C
+```
+
+This starts a cluster where the starter on host A is chosen to be master during the bootstrap phase.
+
+Note: `arangodb --starter.join A,B,C` is equal to `arangodb --starter.join A --starter.join B --starter.join C`.
+
+During the bootstrap phase of the cluster, the starters will all choose the "master" starter 
+based on list of given `starter.join` arguments.
+
+The "master" starter is chosen as follows:
+
+- If there are no `starter.join` arguments, the starter becomes a master.
+- If there are multiple `starter.join` arguments, these arguments are sorted. If a starter is the first 
+  in this sorted list, it becomes a starter.
+- In all other cases, the starter becomes a slave.
+
+Note: Once the bootstrap phase is over (all arangod servers have started and are running), the bootstrap 
+phase ends and the starters use the Arango agency to elect a master for the runtime phase.
+
 Starting a local test cluster
 -----------------------------
 
@@ -394,6 +437,14 @@ of the process in the Docker container.
 
 `endpoint` is the URL used to reach the docker host. This is needed to run 
 the executable in docker. The default value is "unix:///var/run/docker.sock".
+
+* `--docker.imagePullPolicy=Always|IfNotPresent|Never` 
+
+`docker.imagePullPolicy` determines if the docker image is being pull from the docker hub.
+If set to `Always`, the image is always pulled and an error causes the starter to fail.
+If set to `IfNotPresent`, the image is not pull if it is always available locally.
+If set to `Never`, the image is never pulled (when it is not available locally an error occurs).
+The default value is `Always` is the `docker.image` has the `:latest` tag or `IfNotPresent` otherwise.
 
 * `--docker.net-mode=mode`
 

@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,23 +54,24 @@ type Config struct {
 	RrPath               string
 	DataDir              string
 	OwnAddress           string // IP address of used to reach this process
-	MasterAddress        string
+	MasterAddresses      []string
 	Verbose              bool
 	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
 	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
 	PassthroughOptions   []PassthroughOption
 	DebugCluster         bool
 
-	DockerContainerName string // Name of the container running this process
-	DockerEndpoint      string // Where to reach the docker daemon
-	DockerImage         string // Name of Arangodb docker image
-	DockerStarterImage  string
-	DockerUser          string
-	DockerGCDelay       time.Duration
-	DockerNetworkMode   string
-	DockerPrivileged    bool
-	DockerTTY           bool
-	RunningInDocker     bool
+	DockerContainerName   string // Name of the container running this process
+	DockerEndpoint        string // Where to reach the docker daemon
+	DockerImage           string // Name of Arangodb docker image
+	DockerImagePullPolicy ImagePullPolicy
+	DockerStarterImage    string
+	DockerUser            string
+	DockerGCDelay         time.Duration
+	DockerNetworkMode     string
+	DockerPrivileged      bool
+	DockerTTY             bool
+	RunningInDocker       bool
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -131,7 +133,7 @@ func (c Config) GetNetworkEnvironment(log *logging.Logger) (Config, int, bool) {
 func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
 	var runner Runner
 	if c.UseDockerRunner() {
-		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerImage, c.DockerUser, c.DockerContainerName,
+		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerImage, c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
 			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
 		if err != nil {
 			log.Fatalf("Failed to create docker runner: %#v", err)
@@ -190,6 +192,13 @@ type Service struct {
 
 // NewService creates a new Service instance from the given config.
 func NewService(ctx context.Context, log *logging.Logger, config Config, isLocalSlave bool) *Service {
+	// Fix up master addresses
+	for i, addr := range config.MasterAddresses {
+		if !strings.Contains(addr, ":") {
+			// Address has no port, add default master port
+			config.MasterAddresses[i] = net.JoinHostPort(addr, strconv.Itoa(DefaultMasterPort))
+		}
+	}
 	s := &Service{
 		cfg:          config,
 		log:          log,
@@ -408,7 +417,7 @@ func (s *Service) serverPort(serverType ServerType) (int, error) {
 	}
 	// Find log path
 	portOffset := myPeer.PortOffset
-	return s.cfg.MasterPort + portOffset + serverType.PortOffset(), nil
+	return myPeer.Port + portOffset + serverType.PortOffset(), nil
 }
 
 // serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
@@ -639,7 +648,8 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "In single server mode, slaves cannot be added."))
 			}
 			// ID not yet found, add it
-			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, s.cfg.AllPortOffsetsUnique)
+			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, slavePort, s.cfg.AllPortOffsetsUnique)
+			s.log.Debugf("Set slave port offset to %d, got slaveAddr=%s, slavePort=%d", portOffset, slaveAddr, slavePort)
 			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
 			if req.Agent != nil {
 				hasAgent = *req.Agent
@@ -714,7 +724,7 @@ func (s *Service) MasterChangedCallback() {
 func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 	containerPort = s.cfg.MasterPort
 	hostPort = s.announcePort
-	//s.log.Debug("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.myPeers.AllPeers))
+	s.log.Debugf("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.myPeers.AllPeers))
 	if s.announcePort == s.cfg.MasterPort && len(s.myPeers.AllPeers) > 0 {
 		if myPeer, ok := s.myPeers.PeerByID(s.id); ok {
 			containerPort += myPeer.PortOffset
@@ -728,22 +738,31 @@ func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 	return containerPort, hostPort, nil
 }
 
-// startHTTPServer initializes and runs the HTTP server.
-// If will return directly after starting it.
-func (s *Service) startHTTPServer(config Config) {
+// createHTTPServer initializes an HTTP server.
+func (s *Service) createHTTPServer(config Config) (srv *httpServer, containerPort int, hostAddr, containerAddr string, err error) {
 	// Create address to listen on
 	containerPort, hostPort, err := s.getHTTPServerPort()
 	if err != nil {
-		s.log.Fatalf("Failed to get HTTP port info: %#v", err)
+		return nil, 0, "", "", maskAny(err)
 	}
-	containerAddr := fmt.Sprintf("0.0.0.0:%d", containerPort)
-	hostAddr := net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
+	containerAddr = fmt.Sprintf("0.0.0.0:%d", containerPort)
+	hostAddr = net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
 
 	// Create HTTP server
-	server := newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id)
+	return newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id), containerPort, hostAddr, containerAddr, nil
+}
+
+// startHTTPServer initializes and runs the HTTP server.
+// If will return directly after starting it.
+func (s *Service) startHTTPServer(config Config) {
+	// Create server
+	srv, _, hostAddr, containerAddr, err := s.createHTTPServer(config)
+	if err != nil {
+		s.log.Fatalf("Failed to get create HTTP server: %#v", err)
+	}
 
 	// Start HTTP server
-	server.Start(hostAddr, containerAddr, s.tlsConfig)
+	srv.Start(hostAddr, containerAddr, s.tlsConfig)
 }
 
 // startRunning starts all relevant servers and keeps the running.
@@ -754,6 +773,11 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 	// Ensure we have a valid peer
 	if _, ok := s.myPeers.PeerByID(s.id); !ok {
 		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.id)
+	}
+
+	// If we're a local slave, do not try to become master (because we have no port mapping in docker)
+	if s.isLocalSlave {
+		s.runtimeClusterManager.AvoidBeingMaster()
 	}
 
 	wg := sync.WaitGroup{}
@@ -829,9 +853,13 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	} else {
 		// Bootstrap new cluster
 		// Do we have to register?
-		if s.cfg.MasterAddress != "" {
+		isBootstrapMaster, masterAddr, err := s.shouldActAsBootstrapMaster(rootCtx, s.cfg)
+		if err != nil {
+			return maskAny(err)
+		}
+		if !isBootstrapMaster {
 			s.state = stateBootstrapSlave
-			s.bootstrapSlave(s.cfg.MasterAddress, runner, s.cfg, bsCfg)
+			s.bootstrapSlave(masterAddr, runner, s.cfg, bsCfg)
 		} else {
 			s.state = stateBootstrapMaster
 			s.bootstrapMaster(s.stopPeer.ctx, runner, s.cfg, bsCfg)

@@ -1,3 +1,18 @@
+# Changes from version 0.8.2 to master 
+
+- Added `--docker.imagePullPolicy` option
+- Allow multiple `--starter.join` arguments. 
+- Fixed high CPU load (#75)
+
+# Changes from version 0.8.1 to master 
+
+- Avoid using port offsets when using different `--starter.port`s that cause no overlap of port ranges.
+- Cluster configuration is updated to all starters at regular intervals after 
+  the starters have bootstrapped and reached a running state.
+- After starters have bootstrapped, they elect a starter to be master over the cluster configuration.
+  All changes (addition/removal) are forwarded to this master. 
+  When the master is gone for too long, a new master is elected.
+
 # Changes from version 0.8.0 to master 
 
 - Fixed cluster setup in case where starters use different `--starter.port`s (#68).

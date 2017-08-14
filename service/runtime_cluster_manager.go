@@ -244,6 +244,8 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 	ownURL := myPeer.CreateStarterURL("/")
 
 	callbackRegistered := false
+	gotMasterURLOnce := false
+	startTime := time.Now()
 	for {
 		var delay time.Duration
 		// Loop until stopping
@@ -256,21 +258,26 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 		masterURL, err := s.getMasterURL(ctx)
 		if err != nil {
 			// Cannot obtain master url, wait a while and try again
-			log.Infof("Failed to get master URL, retrying in 5sec (%#v)", err)
+			if gotMasterURLOnce || time.Since(startTime) >= time.Minute {
+				log.Infof("Failed to get master URL, retrying in 5sec (%#v)", err)
+			} else {
+				log.Debugf("Failed to get master URL, retrying in 5sec (%#v)", err)
+			}
 			delay = time.Second * 5
 		} else {
 			// Store current master
+			gotMasterURLOnce = true
 			s.mutex.Lock()
 			s.lastMasterURL = masterURL
 			s.mutex.Unlock()
 
 			// Register master changed callback (if needed)
 			if !callbackRegistered && masterURL != "" {
-				log.Info("Register master callback...")
+				log.Debug("Register master callback...")
 				if err := s.registerMasterChangedCallback(ctx, ownURL); err != nil {
 					log.Debugf("Failed to register master callback: %#v", err)
 				} else {
-					log.Info("Registered master callback")
+					log.Debug("Registered master callback")
 					callbackRegistered = true
 					defer s.unregisterMasterChangedCallback(context.Background(), ownURL)
 				}
@@ -302,7 +309,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 				if !s.avoidBeingMaster {
 					// Update agency
 					if err := s.tryRemainMaster(ctx, ownURL); err != nil {
-						log.Info("Failed to remain master: %#v", err)
+						log.Warningf("Failed to remain master: %#v", err)
 						runtimeContext.ChangeState(stateRunningSlave)
 
 						// Retry soon
