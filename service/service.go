@@ -758,6 +758,11 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 		s.log.Fatalf("Cannot find peer information for my ID ('%s')", s.id)
 	}
 
+	// If we're a local slave, do not try to become master (because we have no port mapping in docker)
+	if s.isLocalSlave {
+		s.runtimeClusterManager.AvoidBeingMaster()
+	}
+
 	wg := sync.WaitGroup{}
 
 	// Start the runtime server manager
