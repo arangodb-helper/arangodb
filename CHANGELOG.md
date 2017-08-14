@@ -1,6 +1,7 @@
 # Changes from version 0.8.2 to master 
 
 - Added `--docker.imagePullPolicy` option
+- Allow multiple `--starter.join` arguments. 
 
 # Changes from version 0.8.1 to master 
 
