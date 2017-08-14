@@ -202,18 +202,20 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 					showLogDuration := time.Minute
 					for {
 						statusItem, ok := <-statusChanged
-						if ok {
-							if statusItem.PrevStatusCode != statusItem.StatusCode {
-								if config.DebugCluster {
-									log.Infof("%s status changed to %d", serverType, statusItem.StatusCode)
-								} else {
-									log.Debugf("%s status changed to %d", serverType, statusItem.StatusCode)
-								}
+						if !ok {
+							// Channel closed
+							return
+						}
+						if statusItem.PrevStatusCode != statusItem.StatusCode {
+							if config.DebugCluster {
+								log.Infof("%s status changed to %d", serverType, statusItem.StatusCode)
+							} else {
+								log.Debugf("%s status changed to %d", serverType, statusItem.StatusCode)
 							}
-							if statusItem.Duration > showLogDuration {
-								showLogDuration = statusItem.Duration + time.Second*30
-								s.showRecentLogs(log, runtimeContext, serverType)
-							}
+						}
+						if statusItem.Duration > showLogDuration {
+							showLogDuration = statusItem.Duration + time.Second*30
+							s.showRecentLogs(log, runtimeContext, serverType)
 						}
 					}
 				}()
