@@ -1,6 +1,6 @@
 # Changes from version 0.8.2 to master 
 
-- Added `--docker.pull` option
+- Added `--docker.imagePullPolicy` option
 
 # Changes from version 0.8.1 to master 
 

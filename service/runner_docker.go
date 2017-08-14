@@ -47,41 +47,42 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
-func NewDockerRunner(log *logging.Logger, endpoint, image string, pull bool, user, volumesFrom string, gcDelay time.Duration, networkMode string, privileged, tty bool) (Runner, error) {
+func NewDockerRunner(log *logging.Logger, endpoint, image string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
+	networkMode string, privileged, tty bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		return nil, maskAny(err)
 	}
 	return &dockerRunner{
-		log:          log,
-		client:       client,
-		image:        image,
-                pull:         pull,
-		user:         user,
-		volumesFrom:  volumesFrom,
-		containerIDs: make(map[string]time.Time),
-		gcDelay:      gcDelay,
-		networkMode:  networkMode,
-		privileged:   privileged,
-		tty:          tty,
+		log:             log,
+		client:          client,
+		image:           image,
+		imagePullPolicy: imagePullPolicy,
+		user:            user,
+		volumesFrom:     volumesFrom,
+		containerIDs:    make(map[string]time.Time),
+		gcDelay:         gcDelay,
+		networkMode:     networkMode,
+		privileged:      privileged,
+		tty:             tty,
 	}, nil
 }
 
 // dockerRunner implements a Runner that starts processes in a docker container.
 type dockerRunner struct {
-	log          *logging.Logger
-	client       *docker.Client
-	image        string
-        pull         bool
-	user         string
-	volumesFrom  string
-	mutex        sync.Mutex
-	containerIDs map[string]time.Time
-	gcOnce       sync.Once
-	gcDelay      time.Duration
-	networkMode  string
-	privileged   bool
-	tty          bool
+	log             *logging.Logger
+	client          *docker.Client
+	image           string
+	imagePullPolicy ImagePullPolicy
+	user            string
+	volumesFrom     string
+	mutex           sync.Mutex
+	containerIDs    map[string]time.Time
+	gcOnce          sync.Once
+	gcDelay         time.Duration
+	networkMode     string
+	privileged      bool
+	tty             bool
 }
 
 type dockerContainer struct {
@@ -134,9 +135,24 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 	r.startGC()
 
 	// Pull docker image
-        if (r.pull) {
+	switch r.imagePullPolicy {
+	case ImagePullPolicyAlways:
 		if err := r.pullImage(r.image); err != nil {
 			return nil, maskAny(err)
+		}
+	case ImagePullPolicyIfNotPresent:
+		if found, err := r.imageExists(r.image); err != nil {
+			return nil, maskAny(err)
+		} else if !found {
+			if err := r.pullImage(r.image); err != nil {
+				return nil, maskAny(err)
+			}
+		}
+	case ImagePullPolicyNever:
+		if found, err := r.imageExists(r.image); err != nil {
+			return nil, maskAny(err)
+		} else if !found {
+			return nil, maskAny(fmt.Errorf("Image '%s' not found", r.image))
 		}
 	}
 
@@ -248,11 +264,32 @@ func (r *dockerRunner) start(command string, args []string, volumes []Volume, po
 	}, nil
 }
 
+// imageExists looks for a local image and returns true it it exists, false otherwise.
+func (r *dockerRunner) imageExists(image string) (bool, error) {
+	found := false
+	op := func() error {
+		if _, err := r.client.InspectImage(image); isNoSuchImage(err) {
+			found = false
+			return nil
+		} else if err != nil {
+			return maskAny(err)
+		} else {
+			found = true
+			return nil
+		}
+	}
+
+	if err := retry(op, time.Minute*2); err != nil {
+		return false, maskAny(err)
+	}
+	return found, nil
+}
+
 // pullImage tries to pull the given image.
 // It retries several times upon failure.
 func (r *dockerRunner) pullImage(image string) error {
 	// Pull docker image
-	repo, tag := docker.ParseRepositoryTag(r.image)
+	repo, tag := docker.ParseRepositoryTag(image)
 
 	op := func() error {
 		r.log.Debugf("Pulling image %s:%s", repo, tag)
@@ -470,6 +507,11 @@ func isNoSuchContainer(err error) bool {
 		return true
 	}
 	return false
+}
+
+// isNoSuchImage returns true if the given error is (or is caused by) a NoSuchImage error.
+func isNoSuchImage(err error) bool {
+	return err == docker.ErrNoSuchImage || errors.Cause(err) == docker.ErrNoSuchImage
 }
 
 // isNotFound returns true if the given error is (or is caused by) a 404 response error.
