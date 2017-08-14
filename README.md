@@ -395,6 +395,14 @@ of the process in the Docker container.
 `endpoint` is the URL used to reach the docker host. This is needed to run 
 the executable in docker. The default value is "unix:///var/run/docker.sock".
 
+* `--docker.imagePullPolicy=Always|IfNotPresent|Never` 
+
+`docker.imagePullPolicy` determines if the docker image is being pull from the docker hub.
+If set to `Always`, the image is always pulled and an error causes the starter to fail.
+If set to `IfNotPresent`, the image is not pull if it is always available locally.
+If set to `Never`, the image is never pulled (when it is not available locally an error occurs).
+The default value is `Always` is the `docker.image` has the `:latest` tag or `IfNotPresent` otherwise.
+
 * `--docker.net-mode=mode`
 
 If `docker.net-mode` is set, all docker container will be started 
