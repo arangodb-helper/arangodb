@@ -2,6 +2,7 @@
 
 - Added `--docker.imagePullPolicy` option
 - Allow multiple `--starter.join` arguments. 
+- Fixed high CPU load (#75)
 
 # Changes from version 0.8.1 to master 
 
