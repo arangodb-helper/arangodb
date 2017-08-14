@@ -88,6 +88,7 @@ var (
 	rocksDBEncryptionKeyFile string
 	dockerEndpoint           string
 	dockerImage              string
+	dockerImagePullPolicy    string
 	dockerStarterImage       = defaultDockerStarterImage
 	dockerUser               string
 	dockerContainerName      string
@@ -131,6 +132,7 @@ func init() {
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&dockerImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&dockerImagePullPolicy, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
 	f.StringVar(&dockerUser, "docker.user", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainerName, "docker.container", "", "name of the docker container that is running this process")
 	f.DurationVar(&dockerGCDelay, "docker.gc-delay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
@@ -390,6 +392,10 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 			log.Fatal("Error: cannot set --docker.net-host and --docker.net-mode at the same time")
 		}
 	}
+	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerImage)
+	if err != nil {
+		log.Fatalf("Unsupport image pull policy '%s': %#v", dockerImagePullPolicy, err)
+	}
 
 	// Expand home-dis (~) in paths
 	arangodPath = mustExpand(arangodPath)
@@ -484,29 +490,30 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 	bsCfg.Initialize()
 	serviceConfig := service.Config{
-		ArangodPath:          arangodPath,
-		ArangodJSPath:        arangodJSPath,
-		MasterPort:           masterPort,
-		RrPath:               rrPath,
-		DataDir:              dataDir,
-		OwnAddress:           ownAddress,
-		MasterAddresses:      masterAddresses,
-		Verbose:              verbose,
-		ServerThreads:        serverThreads,
-		AllPortOffsetsUnique: allPortOffsetsUnique,
-		RunningInDocker:      isRunningInDocker(),
-		DockerContainerName:  dockerContainerName,
-		DockerEndpoint:       dockerEndpoint,
-		DockerImage:          dockerImage,
-		DockerStarterImage:   dockerStarterImage,
-		DockerUser:           dockerUser,
-		DockerGCDelay:        dockerGCDelay,
-		DockerNetworkMode:    dockerNetworkMode,
-		DockerPrivileged:     dockerPrivileged,
-		DockerTTY:            dockerTTY,
-		ProjectVersion:       projectVersion,
-		ProjectBuild:         projectBuild,
-		DebugCluster:         debugCluster,
+		ArangodPath:           arangodPath,
+		ArangodJSPath:         arangodJSPath,
+		MasterPort:            masterPort,
+		RrPath:                rrPath,
+		DataDir:               dataDir,
+		OwnAddress:            ownAddress,
+		MasterAddresses:       masterAddresses,
+		Verbose:               verbose,
+		ServerThreads:         serverThreads,
+		AllPortOffsetsUnique:  allPortOffsetsUnique,
+		RunningInDocker:       isRunningInDocker(),
+		DockerContainerName:   dockerContainerName,
+		DockerEndpoint:        dockerEndpoint,
+		DockerImage:           dockerImage,
+		DockerImagePullPolicy: imagePullPolicy,
+		DockerStarterImage:    dockerStarterImage,
+		DockerUser:            dockerUser,
+		DockerGCDelay:         dockerGCDelay,
+		DockerNetworkMode:     dockerNetworkMode,
+		DockerPrivileged:      dockerPrivileged,
+		DockerTTY:             dockerTTY,
+		ProjectVersion:        projectVersion,
+		ProjectBuild:          projectBuild,
+		DebugCluster:          debugCluster,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
