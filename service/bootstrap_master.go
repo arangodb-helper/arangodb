@@ -103,7 +103,7 @@ func (s *Service) showSlaveStartCommands(runner Runner, config Config) {
 	fmt.Println()
 	for index := 2; index <= s.myPeers.AgencySize; index++ {
 		port := ""
-		if s.announcePort != config.MasterPort {
+		if s.announcePort != config.MasterPort || config.MasterPort != DefaultMasterPort {
 			port = strconv.Itoa(s.announcePort)
 		}
 		fmt.Println(runner.CreateStartArangodbCommand(config.DataDir, index, config.OwnAddress, port, config.DockerStarterImage))
