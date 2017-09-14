@@ -272,7 +272,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			s.mutex.Unlock()
 
 			// Register master changed callback (if needed)
-			if !callbackRegistered && masterURL != "" {
+			if !callbackRegistered && masterURL != "" && !s.avoidBeingMaster {
 				log.Debug("Register master callback...")
 				if err := s.registerMasterChangedCallback(ctx, ownURL); err != nil {
 					log.Debugf("Failed to register master callback: %#v", err)
