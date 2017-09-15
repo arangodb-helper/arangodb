@@ -1,5 +1,7 @@
-# Changes from version 0.9.0 to master 
+# Changes from version 0.9.0 to 0.9.1 
 
+- Update to go 1.9.0
+- Fixed registration for callback (in agency) by unreachable local slaves.
 - Fixed port allocation in case of using `--starter.address=127.0.0.1` with `--starter.local` (#79)
 
 # Changes from version 0.8.2 to 0.9.0 
