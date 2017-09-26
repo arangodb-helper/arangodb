@@ -84,11 +84,15 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 		threads = "16"
 		v8Contexts = "4"
 	}
+	listenAddr := "[::]"
+	if bsCfg.DisableIPv6 {
+		listenAddr = "0.0.0.0"
+	}
 	scheme := NewURLSchemes(bsCfg.SslKeyFile != "").Arangod
 	serverSection := &configSection{
 		Name: "server",
 		Settings: map[string]string{
-			"endpoint":       fmt.Sprintf("%s://[::]:%s", scheme, myPort),
+			"endpoint":       fmt.Sprintf("%s://%s:%s", scheme, listenAddr, myPort),
 			"threads":        threads,
 			"authentication": "false",
 		},
