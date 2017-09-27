@@ -35,13 +35,15 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/arangodb-helper/arangodb/client"
-	service "github.com/arangodb-helper/arangodb/service"
 	homedir "github.com/mitchellh/go-homedir"
 	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	_ "github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/net"
+	service "github.com/arangodb-helper/arangodb/service"
 )
 
 // Configuration data with defaults:
@@ -116,7 +118,7 @@ func init() {
 	f.BoolVar(&allPortOffsetsUnique, "starter.unique-port-offsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
 	f.StringVar(&dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
 	f.BoolVar(&debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
-	f.BoolVar(&disableIPv6, "starter.disable-ipv6", false, "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
+	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 
 	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 
