@@ -1,3 +1,8 @@
+# Changes from version 0.9.1 to 0.9.2
+
+- Added `--starter.disable-ipv6` option to cope with environments 
+  where IPv6 is actively disabled.
+
 # Changes from version 0.9.0 to 0.9.1 
 
 - Update to go 1.9.0
