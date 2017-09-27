@@ -39,6 +39,7 @@ type BootstrapConfig struct {
 	SslKeyFile               string      // Path containing an x509 certificate + private key to be used by the servers.
 	SslCAFile                string      // Path containing an x509 CA certificate used to authenticate clients.
 	RocksDBEncryptionKeyFile string      // Path containing encryption key for RocksDB encryption.
+	DisableIPv6              bool        // If set, no IPv6 notation will be used
 }
 
 // Initialize auto-configures some optional values

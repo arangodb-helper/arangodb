@@ -383,6 +383,14 @@ the other servers are derived from this number.
 This is the port used for communication of the `arangodb` instances
 amongst each other.
 
+* `--starter.disable-ipv6=bool` 
+
+if disabled, the starter will configure the `arangod` servers 
+to bind to address `0.0.0.0` (all IPv4 interfaces) 
+instead of binding to `[::]` (all IPv4 and all IPv6 interfaces).
+
+This is useful when IPv6 has actively been disabled on your machine.
+
 * `--server.arangod=path`
 
 path to the `arangod` executable (default varies from platform to
