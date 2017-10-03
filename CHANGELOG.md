@@ -1,3 +1,7 @@
+# Changes from version 0.9.2 to 0.9.3
+
+- Added `--version` option and `version` command to show version of the starter.
+
 # Changes from version 0.9.1 to 0.9.2
 
 - Added `--starter.disable-ipv6` option to cope with environments 

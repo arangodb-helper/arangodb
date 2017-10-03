@@ -58,11 +58,18 @@ var (
 	projectVersion = "dev"
 	projectBuild   = "dev"
 	cmdMain        = cobra.Command{
-		Use:   projectName,
-		Short: "Start ArangoDB clusters & single servers with ease",
-		Run:   cmdMainRun,
+		Use:              projectName,
+		Short:            "Start ArangoDB clusters & single servers with ease",
+		Run:              cmdMainRun,
+		PersistentPreRun: cmdShowVersionRun,
+	}
+	cmdVersion = &cobra.Command{
+		Use:   "version",
+		Short: "Show ArangoDB version",
+		Run:   cmdShowVersionRun,
 	}
 	log                      = logging.MustGetLogger(projectName)
+	showVersion              bool
 	id                       string
 	agencySize               int
 	arangodPath              string
@@ -107,7 +114,11 @@ var (
 )
 
 func init() {
+	cmdMain.AddCommand(cmdVersion)
+
 	f := cmdMain.PersistentFlags()
+
+	f.BoolVar(&showVersion, "version", false, "If set, show version and exit")
 
 	f.StringSliceVar(&masterAddresses, "starter.join", nil, "join a cluster with master at given address")
 	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single)")
@@ -318,6 +329,13 @@ func main() {
 	findExecutable()
 
 	cmdMain.Execute()
+}
+
+func cmdShowVersionRun(cmd *cobra.Command, args []string) {
+	if cmd.Use == "version" || showVersion {
+		fmt.Printf("Version %s, build %s\n", projectVersion, projectBuild)
+		os.Exit(0)
+	}
 }
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
