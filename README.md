@@ -374,6 +374,10 @@ arangodb --coordinators.log.level=requests=debug
 Esoteric options
 ----------------
 
+* `--version`
+
+show the version of the starter.
+
 * `--starter.port=int`
 
 port for arangodb master (default 8528). See below under "Technical
