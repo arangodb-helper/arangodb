@@ -49,8 +49,9 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	hasAgent := boolFromRef(bsCfg.StartAgent, !s.mode.IsSingleMode())
 	hasDBServer := boolFromRef(bsCfg.StartDBserver, true)
 	hasCoordinator := boolFromRef(bsCfg.StartCoordinator, true)
+	hasResilientSingle := boolFromRef(bsCfg.StartResilientSingle, s.mode.IsResilientSingleMode())
 	s.myPeers.Initialize(
-		NewPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir, hasAgent, hasDBServer, hasCoordinator, s.IsSecure()),
+		NewPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir, hasAgent, hasDBServer, hasCoordinator, hasResilientSingle, s.IsSecure()),
 		bsCfg.AgencySize)
 	s.learnOwnAddress = config.OwnAddress == ""
 

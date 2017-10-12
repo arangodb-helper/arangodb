@@ -25,8 +25,9 @@ package service
 type ServiceMode string
 
 const (
-	ServiceModeCluster = ServiceMode("cluster")
-	ServiceModeSingle  = ServiceMode("single")
+	ServiceModeCluster         = ServiceMode("cluster")
+	ServiceModeSingle          = ServiceMode("single")
+	ServiceModeResilientSingle = ServiceMode("resilientsingle")
 )
 
 // IsClusterMode returns true when the service is running in cluster mode.
@@ -37,4 +38,9 @@ func (m ServiceMode) IsClusterMode() bool {
 // IsSingleMode returns true when the service is running in single server mode.
 func (m ServiceMode) IsSingleMode() bool {
 	return m == "single"
+}
+
+// IsResilientSingleMode returns true when the service is running in resilient single server mode.
+func (m ServiceMode) IsResilientSingleMode() bool {
+	return m == "resilientsingle"
 }

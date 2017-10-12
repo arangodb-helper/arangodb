@@ -232,7 +232,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 	s.runtimeContext = runtimeContext
 	s.interruptChan = make(chan struct{}, 32)
 	_, myPeer, mode := runtimeContext.ClusterConfig()
-	if !mode.IsClusterMode() {
+	if !mode.IsClusterMode() && !mode.IsResilientSingleMode() {
 		// Cluster manager is only relevant in cluster mode
 		return
 	}

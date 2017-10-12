@@ -317,6 +317,17 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 		if bsCfg.StartCoordinator == nil || *bsCfg.StartCoordinator {
 			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeCoordinator, &s.coordinatorProc)
 		}
+	} else if mode.IsResilientSingleMode() {
+		// Start agent:
+		if myPeer.HasAgent() {
+			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, &s.agentProc)
+			time.Sleep(time.Second)
+		}
+
+		// Start Single server:
+		if myPeer.HasResilientSingle() {
+			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeResilientSingle, &s.singleProc)
+		}
 	} else if mode.IsSingleMode() {
 		// Start Single server:
 		go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSingle, &s.singleProc)

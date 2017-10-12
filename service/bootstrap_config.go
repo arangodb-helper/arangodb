@@ -34,6 +34,7 @@ type BootstrapConfig struct {
 	StartAgent               *bool       // If not nil, sets if starter starts a agent, otherwise default handling applies
 	StartDBserver            *bool       // If not nil, sets if starter starts a dbserver, otherwise default handling applies
 	StartCoordinator         *bool       // If not nil, sets if starter starts a coordinator, otherwise default handling applies
+	StartResilientSingle     *bool       // If not nil, sets if starter starts a resilient single, otherwise default handling applies
 	ServerStorageEngine      string      // mmfiles | rocksdb
 	JwtSecret                string      // JWT secret used for arangod communication
 	SslKeyFile               string      // Path containing an x509 certificate + private key to be used by the servers.

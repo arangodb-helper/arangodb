@@ -79,6 +79,7 @@ var (
 	startAgent               []bool
 	startDBserver            []bool
 	startCoordinator         []bool
+	startResilientSingle     []bool
 	startLocalSlaves         bool
 	mode                     string
 	dataDir                  string
@@ -121,7 +122,7 @@ func init() {
 	f.BoolVar(&showVersion, "version", false, "If set, show version and exit")
 
 	f.StringSliceVar(&masterAddresses, "starter.join", nil, "join a cluster with master at given address")
-	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single)")
+	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|resilientsingle)")
 	f.BoolVar(&startLocalSlaves, "starter.local", false, "If set, local slaves will be started to create a machine local (test) cluster")
 	f.StringVar(&ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
 	f.StringVar(&id, "starter.id", "", "Unique identifier of this peer")
@@ -137,6 +138,7 @@ func init() {
 	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
 	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
 	f.BoolSliceVar(&startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
+	f.BoolSliceVar(&startResilientSingle, "cluster.start-single", nil, "should a (resilient) single server instance be started")
 
 	f.StringVar(&arangodPath, "server.arangod", "/usr/sbin/arangod", "Path of arangod")
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
@@ -504,6 +506,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		StartAgent:               getOptionalBool("cluster.start-agent", startAgent),
 		StartDBserver:            getOptionalBool("cluster.start-dbserver", startDBserver),
 		StartCoordinator:         getOptionalBool("cluster.start-coordinator", startCoordinator),
+		StartResilientSingle:     getOptionalBool("cluster.start-single", startResilientSingle),
 		ServerStorageEngine:      serverStorageEngine,
 		JwtSecret:                jwtSecret,
 		SslKeyFile:               sslKeyFile,

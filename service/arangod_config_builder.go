@@ -80,7 +80,7 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 	case ServerTypeDBServer:
 		threads = "4"
 		v8Contexts = "4"
-	case ServerTypeCoordinator, ServerTypeSingle:
+	case ServerTypeCoordinator, ServerTypeSingle, ServerTypeResilientSingle:
 		threads = "16"
 		v8Contexts = "4"
 	}
@@ -245,6 +245,13 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		options = append(options,
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
+		)
+	case ServerTypeResilientSingle:
+		options = append(options,
+			optionPair{"--foxx.queues", "true"},
+			optionPair{"--server.statistics", "true"},
+			optionPair{"--replication.auto-failover", "true"},
+			optionPair{"--cluster.my-role", "SINGLE"},
 		)
 	}
 	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
