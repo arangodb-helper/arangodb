@@ -818,7 +818,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	s.sslKeyFile = bsCfg.SslKeyFile
 
 	// Check mode & flags
-	if bsCfg.Mode.IsClusterMode() {
+	if bsCfg.Mode.IsClusterMode() || bsCfg.Mode.IsResilientSingleMode() {
 		if bsCfg.AgencySize < 1 {
 			return maskAny(fmt.Errorf("AgentSize must be >= 1"))
 		}

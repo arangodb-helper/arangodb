@@ -1,5 +1,10 @@
 // Place your settings in this file to overwrite default and user settings.
 {
     "go.testFlags": ["-v"],
-    "go.testTimeout": "600s"
+    "go.testTimeout": "600s",
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/bower_components": true,
+        "vendor": true
+    }
 }

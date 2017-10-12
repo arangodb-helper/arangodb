@@ -222,7 +222,7 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 				if up, version, statusTrail, cancelled := runtimeContext.TestInstance(ctx, myHostAddress, port, statusChanged); !cancelled {
 					if up {
 						log.Infof("%s up and running (version %s).", serverType, version)
-						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle {
+						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle || serverType == ServerTypeResilientSingle {
 							hostPort, err := p.HostPort(port)
 							if err != nil {
 								if id := p.ContainerID(); id != "" {

@@ -250,7 +250,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		options = append(options,
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
-			optionPair{"--replication.auto-failover", "true"},
+			optionPair{"--replication.automatic-failover", "true"},
 			optionPair{"--cluster.my-role", "SINGLE"},
 		)
 	}
