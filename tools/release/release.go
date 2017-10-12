@@ -23,6 +23,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -42,6 +44,12 @@ var (
 	ghUser      string // Github account name to create release in
 	ghRepo      string // Github repository name to create release in
 	binFolder   string // Folder containing binaries
+
+	binaries = map[string]string{
+		"arangodb-darwin-amd64":      "darwin/amd64/arangodb",
+		"arangodb-linux-amd64":       "linux/amd64/arangodb",
+		"arangodb-windows-amd64.exe": "windows/amd64/arangodb.exe",
+	}
 )
 
 func init() {
@@ -60,6 +68,7 @@ func main() {
 	version := bumpVersion(releaseType)
 	make("clean")
 	make("binaries")
+	createSHA256Sums()
 	make("docker-push-version")
 	gitTag(version)
 	githubCreateRelease(version)
@@ -148,6 +157,23 @@ func gitTag(version string) {
 	}
 }
 
+func createSHA256Sums() {
+	sums := []string{}
+	for name, p := range binaries {
+		blob, err := ioutil.ReadFile(filepath.Join(binFolder, p))
+		if err != nil {
+			log.Fatalf("Failed to read binary '%s': %#v\n", name, err)
+		}
+		bytes := sha256.Sum256(blob)
+		sha := hex.EncodeToString(bytes[:])
+		sums = append(sums, sha+"  "+name)
+	}
+	sumsPath := filepath.Join(binFolder, "SHA256SUMS")
+	if err := ioutil.WriteFile(sumsPath, []byte(strings.Join(sums, "\n")+"\n"), 0644); err != nil {
+		log.Fatalf("Failed to write '%s': %#v\n", sumsPath, err)
+	}
+}
+
 func githubCreateRelease(version string) {
 	// Create draft release
 	args := []string{
@@ -162,9 +188,10 @@ func githubCreateRelease(version string) {
 	}
 	// Upload binaries
 	assets := map[string]string{
-		"arangodb-darwin-amd64":      "darwin/amd64/arangodb",
-		"arangodb-linux-amd64":       "linux/amd64/arangodb",
-		"arangodb-windows-amd64.exe": "windows/amd64/arangodb.exe",
+		"SHA256SUMS": "SHA256SUMS",
+	}
+	for k, v := range binaries {
+		assets[k] = v
 	}
 	for name, file := range assets {
 		args := []string{
