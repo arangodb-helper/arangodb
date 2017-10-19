@@ -75,19 +75,26 @@ func secureStarterEndpoint(portOffset int) string {
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false)
 	return c
 }
 
 // testSingle runs a series of tests to verify a good single server.
 func testSingle(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "single", starterEndpoint, isSecure)
+	testProcesses(t, c, "single", starterEndpoint, isSecure, false)
+	return c
+}
+
+// testResilientSingle runs a series of tests to verify good resilientsingle servers.
+func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, expectAgencyOnly bool) client.API {
+	c := NewStarterClient(t, starterEndpoint)
+	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly)
 	return c
 }
 
 // testProcesses runs a series of tests to verify a good series of database servers.
-func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool) {
+func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool, expectAgencyOnly bool) {
 	ctx := context.Background()
 
 	// Fetch version
@@ -125,8 +132,8 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 		if sp.IsSecure != isSecure {
 			t.Errorf("Invalid IsSecure on coordinator. Expected %v, got %v", isSecure, sp.IsSecure)
 		}
-		if mode == "single" {
-			t.Errorf("Found coordinator, not allowed in single mode")
+		if mode == "single" || mode == "resilientsingle" {
+			t.Errorf("Found coordinator, not allowed in single|resilientsingle mode")
 		} else {
 			if isVerbose {
 				t.Logf("Found coordinator at %s:%d", sp.IP, sp.Port)
@@ -142,8 +149,8 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 		if sp.IsSecure != isSecure {
 			t.Errorf("Invalid IsSecure on dbserver. Expected %v, got %v", isSecure, sp.IsSecure)
 		}
-		if mode == "single" {
-			t.Errorf("Found dbserver, not allowed in single mode")
+		if mode == "single" || mode == "resilientsingle" {
+			t.Errorf("Found dbserver, not allowed in single|resilientsingle mode")
 		} else {
 			if isVerbose {
 				t.Logf("Found dbserver at %s:%d", sp.IP, sp.Port)
@@ -159,7 +166,7 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 		if sp.IsSecure != isSecure {
 			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
 		}
-		if mode == "cluster" {
+		if mode == "cluster" || expectAgencyOnly {
 			t.Errorf("Found single, not allowed in cluster mode")
 		} else {
 			if isVerbose {
@@ -167,7 +174,7 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 			}
 			testArangodReachable(t, sp)
 		}
-	} else if mode == "single" {
+	} else if (mode == "single" || mode == "resilientsingle") && !expectAgencyOnly {
 		t.Errorf("No single found in %s", starterEndpoint)
 	}
 }

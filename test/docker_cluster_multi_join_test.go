@@ -34,6 +34,7 @@ import (
 // starter addresses as join argument.
 func TestDockerClusterMultipleJoins(t *testing.T) {
 	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeCluster)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

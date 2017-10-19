@@ -222,7 +222,7 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 				if up, version, statusTrail, cancelled := runtimeContext.TestInstance(ctx, myHostAddress, port, statusChanged); !cancelled {
 					if up {
 						log.Infof("%s up and running (version %s).", serverType, version)
-						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle {
+						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle || serverType == ServerTypeResilientSingle {
 							hostPort, err := p.HostPort(port)
 							if err != nil {
 								if id := p.ContainerID(); id != "" {
@@ -234,6 +234,8 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 								what := "cluster"
 								if serverType == ServerTypeSingle {
 									what = "single server"
+								} else if serverType == ServerTypeResilientSingle {
+									what = "resilient single server"
 								}
 								s.logMutex.Lock()
 								log.Infof("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
@@ -316,6 +318,17 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 		// Start Coordinator:
 		if bsCfg.StartCoordinator == nil || *bsCfg.StartCoordinator {
 			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeCoordinator, &s.coordinatorProc)
+		}
+	} else if mode.IsResilientSingleMode() {
+		// Start agent:
+		if myPeer.HasAgent() {
+			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, &s.agentProc)
+			time.Sleep(time.Second)
+		}
+
+		// Start Single server:
+		if myPeer.HasResilientSingle() {
+			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeResilientSingle, &s.singleProc)
 		}
 	} else if mode.IsSingleMode() {
 		// Start Single server:

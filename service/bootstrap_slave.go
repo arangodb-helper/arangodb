@@ -42,14 +42,15 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			s.log.Fatalf("Failed to get HTTP server port: %#v", err)
 		}
 		encoded, err := json.Marshal(HelloRequest{
-			DataDir:      config.DataDir,
-			SlaveID:      s.id,
-			SlaveAddress: config.OwnAddress,
-			SlavePort:    hostPort,
-			IsSecure:     s.IsSecure(),
-			Agent:        copyBoolRef(bsCfg.StartAgent),
-			DBServer:     copyBoolRef(bsCfg.StartDBserver),
-			Coordinator:  copyBoolRef(bsCfg.StartCoordinator),
+			DataDir:         config.DataDir,
+			SlaveID:         s.id,
+			SlaveAddress:    config.OwnAddress,
+			SlavePort:       hostPort,
+			IsSecure:        s.IsSecure(),
+			Agent:           copyBoolRef(bsCfg.StartAgent),
+			DBServer:        copyBoolRef(bsCfg.StartDBserver),
+			Coordinator:     copyBoolRef(bsCfg.StartCoordinator),
+			ResilientSingle: copyBoolRef(bsCfg.StartResilientSingle),
 		})
 		if err != nil {
 			s.log.Fatalf("Failed to encode Hello request: %#v", err)

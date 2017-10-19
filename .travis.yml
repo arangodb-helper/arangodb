@@ -6,12 +6,12 @@ services:
 language: go
 
 env:
-  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb:3.1
-  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb:3.1
-  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb:latest
-  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb:latest
-  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb-preview:latest
-  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb-preview:latest
+  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb:3.1 STARTER_MODES="single,cluster"
+  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb:3.1 STARTER_MODES="single,cluster"
+  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb:latest STARTER_MODES="single,cluster"
+  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb:latest STARTER_MODES="single,cluster"
+  - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,resilientsingle"
+  - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,resilientsingle"
 
 script: make $TEST_SUITE
 

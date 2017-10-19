@@ -30,24 +30,25 @@ import (
 	"time"
 )
 
-// TestDockerClusterLocal runs the arangodb starter in docker with `--local`
-func TestDockerClusterLocal(t *testing.T) {
+// TestDockerResilientSingleLocal runs the arangodb starter in docker with mode `resilientsingle` & `--starter.local`
+func TestDockerResilientSingleLocal(t *testing.T) {
 	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	needStarterMode(t, starterModeResilientSingle)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
 	/*
-		docker volume create arangodb1
-		docker run -i --name=adb1 --rm -p 8528:8528 \
-			-v arangodb1:/data \
+		docker volume create arangodb
+		docker run -i --name=adb --rm -p 8528:8528 \
+			-v arangodb:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
-			--docker.container=adb1 \
+			--docker.container=adb \
 			--starter.address=$IP \
+			--starter.mode=resilientsingle \
 			--starter.local
 	*/
-	volID := createDockerID("vol-starter-test-local-cluster-")
+	volID := createDockerID("vol-starter-test-local-resilientsingle-")
 	createDockerVolume(t, volID)
 	defer removeDockerVolume(t, volID)
 
@@ -57,7 +58,7 @@ func TestDockerClusterLocal(t *testing.T) {
 
 	start := time.Now()
 
-	cID := createDockerID("starter-test-local-cluster-")
+	cID := createDockerID("starter-test-local-resilientsingle-")
 	dockerRun := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -69,15 +70,16 @@ func TestDockerClusterLocal(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID,
 		"--starter.address=$IP",
+		"--starter.mode=resilientsingle",
 		"--starter.local",
 		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun); ok {
+		t.Logf("ResilientSingle start took %s", time.Since(start))
+		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
 	}
 
 	if isVerbose {
@@ -86,23 +88,26 @@ func TestDockerClusterLocal(t *testing.T) {
 	ShutdownStarter(t, insecureStarterEndpoint(0))
 }
 
-// TestOldDockerClusterLocal runs the arangodb starter in docker with `--local`
-func TestOldDockerClusterLocal(t *testing.T) {
+// TestDockerResilientSingleLocalSecure runs the arangodb starter in docker with mode `resilientsingle`,
+// `--starter.local` & `--ssl.auto-key`
+func TestDockerResilientSingleLocalSecure(t *testing.T) {
 	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	needStarterMode(t, starterModeResilientSingle)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
 	/*
-		docker volume create arangodb1
-		docker run -i --name=adb1 --rm -p 8528:8528 \
-			-v arangodb1:/data \
+		docker volume create arangodb
+		docker run -i --name=adb --rm -p 8528:8528 \
+			-v arangodb:/data \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			arangodb/arangodb-starter \
-			--dockerContainer=adb1 --ownAddress=$IP \
-			--local
+			--docker.container=adb \
+			--starter.address=$IP \
+			--starter.mode=resilientsingle \
+			--starter.local
 	*/
-	volID := createDockerID("vol-starter-test-local-cluster-")
+	volID := createDockerID("vol-starter-test-local-resilientsingle-secure-")
 	createDockerVolume(t, volID)
 	defer removeDockerVolume(t, volID)
 
@@ -112,7 +117,7 @@ func TestOldDockerClusterLocal(t *testing.T) {
 
 	start := time.Now()
 
-	cID := createDockerID("starter-test-local-cluster-")
+	cID := createDockerID("starter-test-local-resilientsingle-secure-")
 	dockerRun := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -122,21 +127,23 @@ func TestOldDockerClusterLocal(t *testing.T) {
 		fmt.Sprintf("-v %s:/data", volID),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
-		"--dockerContainer=" + cID,
-		"--ownAddress=$IP",
-		"--local",
+		"--docker.container=" + cID,
+		"--starter.address=$IP",
+		"--starter.mode=resilientsingle",
+		"--starter.local",
+		"--ssl.auto-key",
 		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun); ok {
+		t.Logf("ResilientSingle start took %s", time.Since(start))
+		testResilientSingle(t, secureStarterEndpoint(0), true, false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, secureStarterEndpoint(0))
 }

@@ -30,10 +30,11 @@ import (
 	"time"
 )
 
-// TestDockerClusterDifferentPorts runs 3 arangodb starters in docker with different `--starter.port` values.
-func TestDockerClusterDifferentPorts(t *testing.T) {
+// TestDockerResilientSingleDefault runs 3 arangodb starters in docker with mode=resilientsingle
+// and otherwise default settings.
+func TestDockerResilientSingleDefault(t *testing.T) {
 	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	needStarterMode(t, starterModeResilientSingle)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -45,17 +46,17 @@ func TestDockerClusterDifferentPorts(t *testing.T) {
 			arangodb/arangodb-starter \
 			--docker.container=adb1 \
 			--starter.address=$IP \
-			--starter.port=...
+			--starter.mode=resilientsingle
 	*/
-	volID1 := createDockerID("vol-starter-test-cluster-default1-")
+	volID1 := createDockerID("vol-starter-test-resilientsingle-default1-")
 	createDockerVolume(t, volID1)
 	defer removeDockerVolume(t, volID1)
 
-	volID2 := createDockerID("vol-starter-test-cluster-default2-")
+	volID2 := createDockerID("vol-starter-test-resilientsingle-default2-")
 	createDockerVolume(t, volID2)
 	defer removeDockerVolume(t, volID2)
 
-	volID3 := createDockerID("vol-starter-test-cluster-default3-")
+	volID3 := createDockerID("vol-starter-test-resilientsingle-default3-")
 	createDockerVolume(t, volID3)
 	defer removeDockerVolume(t, volID3)
 
@@ -65,73 +66,74 @@ func TestDockerClusterDifferentPorts(t *testing.T) {
 
 	start := time.Now()
 
-	cID1 := createDockerID("starter-test-cluster-default1-")
+	cID1 := createDockerID("starter-test-resilientsingle-default1-")
 	dockerRun1 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID1,
 		"--rm",
-		"-p 6000:6000",
+		fmt.Sprintf("-p %d:%d", basePort, basePort),
 		fmt.Sprintf("-v %s:/data", volID1),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID1,
 		"--starter.address=$IP",
-		"--starter.port=6000",
+		"--starter.mode=resilientsingle",
 		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
-	cID2 := createDockerID("starter-test-cluster-default2-")
+	cID2 := createDockerID("starter-test-resilientsingle-default2-")
 	dockerRun2 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID2,
 		"--rm",
-		"-p 7000:7000",
+		fmt.Sprintf("-p %d:%d", basePort+5, basePort),
 		fmt.Sprintf("-v %s:/data", volID2),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID2,
 		"--starter.address=$IP",
-		"--starter.port=7000",
+		"--starter.mode=resilientsingle",
 		createEnvironmentStarterOptions(),
-		"--starter.join=$IP:6000",
+		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
 
-	cID3 := createDockerID("starter-test-cluster-default3-")
+	cID3 := createDockerID("starter-test-resilientsingle-default3-")
 	dockerRun3 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID3,
 		"--rm",
-		"-p 8000:8000",
+		fmt.Sprintf("-p %d:%d", basePort+10, basePort),
 		fmt.Sprintf("-v %s:/data", volID3),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID3,
 		"--starter.address=$IP",
-		"--starter.port=8000",
+		"--starter.mode=resilientsingle",
+		"--cluster.start-single=false",
 		createEnvironmentStarterOptions(),
-		"--starter.join=$IP:6000",
+		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, "http://localhost:6000", false)
-		testCluster(t, "http://localhost:7000", false)
-		testCluster(t, "http://localhost:8000", false)
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2 /*not docker3*/); ok {
+		t.Logf("ResilientSingle start took %s", time.Since(start))
+		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(10), false, true)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, "http://localhost:6000")
-	ShutdownStarter(t, "http://localhost:7000")
-	ShutdownStarter(t, "http://localhost:8000")
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(5))
+	ShutdownStarter(t, insecureStarterEndpoint(10))
 }

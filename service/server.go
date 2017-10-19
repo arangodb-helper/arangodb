@@ -49,14 +49,15 @@ const (
 
 // HelloRequest is the data structure send of the wire in a `/hello` POST request.
 type HelloRequest struct {
-	SlaveID      string // Unique ID of the slave
-	SlaveAddress string // IP address used to reach the slave (if empty, this will be derived from the request)
-	SlavePort    int    // Port used to reach the slave
-	DataDir      string // Directory used for data by this slave
-	IsSecure     bool   // If set, servers started by this peer are using an SSL connection
-	Agent        *bool  `json:",omitempty"` // If not nil, sets if server gets an agent or not. If nil, default handling applies
-	DBServer     *bool  `json:",omitempty"` // If not nil, sets if server gets an dbserver or not. If nil, default handling applies
-	Coordinator  *bool  `json:",omitempty"` // If not nil, sets if server gets an coordinator or not. If nil, default handling applies
+	SlaveID         string // Unique ID of the slave
+	SlaveAddress    string // IP address used to reach the slave (if empty, this will be derived from the request)
+	SlavePort       int    // Port used to reach the slave
+	DataDir         string // Directory used for data by this slave
+	IsSecure        bool   // If set, servers started by this peer are using an SSL connection
+	Agent           *bool  `json:",omitempty"` // If not nil, sets if server gets an agent or not. If nil, default handling applies
+	DBServer        *bool  `json:",omitempty"` // If not nil, sets if server gets an dbserver or not. If nil, default handling applies
+	Coordinator     *bool  `json:",omitempty"` // If not nil, sets if server gets an coordinator or not. If nil, default handling applies
+	ResilientSingle *bool  `json:",omitempty"` // If not nil, sets if server gets an resilient single or not. If nil, default handling applies
 }
 
 type GoodbyeRequest struct {

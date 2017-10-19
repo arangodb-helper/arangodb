@@ -64,7 +64,7 @@ var (
 func (o *PassthroughOption) valueForServerType(serverType ServerType) []string {
 	var result []string
 	switch serverType {
-	case ServerTypeSingle:
+	case ServerTypeSingle, ServerTypeResilientSingle:
 		result = o.Values.All
 	case ServerTypeCoordinator:
 		result = o.Values.Coordinators

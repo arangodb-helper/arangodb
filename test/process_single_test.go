@@ -32,6 +32,7 @@ import (
 func TestProcessSingle(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeSingle)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -55,6 +56,7 @@ func TestProcessSingle(t *testing.T) {
 func TestProcessSingleShutdownViaAPI(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeSingle)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -78,6 +80,7 @@ func TestProcessSingleShutdownViaAPI(t *testing.T) {
 func TestProcessSingleAutoKeyFile(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeSingle)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -101,6 +104,7 @@ func TestProcessSingleAutoKeyFile(t *testing.T) {
 func TestOldProcessSingle(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeSingle)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -124,6 +128,7 @@ func TestOldProcessSingle(t *testing.T) {
 func TestOldProcessSingleAutoKeyFile(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeSingle)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 

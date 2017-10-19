@@ -647,10 +647,11 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			if s.mode.IsSingleMode() {
 				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "In single server mode, slaves cannot be added."))
 			}
+			// Ok. We're now in cluster or resilient single mode.
 			// ID not yet found, add it
 			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, slavePort, s.cfg.AllPortOffsetsUnique)
 			s.log.Debugf("Set slave port offset to %d, got slaveAddr=%s, slavePort=%d", portOffset, slaveAddr, slavePort)
-			hasAgent := s.mode.IsClusterMode() && !s.myPeers.HaveEnoughAgents()
+			hasAgent := !s.myPeers.HaveEnoughAgents()
 			if req.Agent != nil {
 				hasAgent = *req.Agent
 			}
@@ -662,7 +663,11 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			if req.Coordinator != nil {
 				hasCoordinator = *req.Coordinator
 			}
-			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, req.IsSecure)
+			hasResilientSingle := !s.myPeers.HaveEnoughResilientSingles()
+			if req.ResilientSingle != nil {
+				hasResilientSingle = *req.ResilientSingle
+			}
+			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, hasResilientSingle, req.IsSecure)
 			s.myPeers.AddPeer(newPeer)
 			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
 		}
@@ -813,7 +818,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	s.sslKeyFile = bsCfg.SslKeyFile
 
 	// Check mode & flags
-	if bsCfg.Mode.IsClusterMode() {
+	if bsCfg.Mode.IsClusterMode() || bsCfg.Mode.IsResilientSingleMode() {
 		if bsCfg.AgencySize < 1 {
 			return maskAny(fmt.Errorf("AgentSize must be >= 1"))
 		}
