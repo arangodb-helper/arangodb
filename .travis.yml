@@ -18,8 +18,8 @@ script: make $TEST_SUITE
 # 3.1 cluster startup is not always a success, causing lots of false positive.
 matrix:
   allow_failures:
-    - env: TEST_SUITE=run-tests-local-process ARANGODB=arangodb:3.1
-    - env: TEST_SUITE=run-tests-docker        ARANGODB=arangodb:3.1
+    - env: TEST_SUITE=run-tests-local-process ARANGODB=arangodb:3.1 STARTER_MODES="single,cluster"
+    - env: TEST_SUITE=run-tests-docker        ARANGODB=arangodb:3.1 STARTER_MODES="single,cluster"
 
 # Install Docker CE
 before_install:
