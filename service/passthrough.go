@@ -45,7 +45,6 @@ var (
 		"cluster.agency-endpoint",
 		"cluster.my-address",
 		"cluster.my-role",
-		"cluster.my-local-info",
 		"database.directory",
 		"javascript.startup-directory",
 		"javascript.app-path",

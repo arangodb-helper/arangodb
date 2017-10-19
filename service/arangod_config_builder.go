@@ -229,7 +229,6 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		options = append(options,
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "PRIMARY"},
-			optionPair{"--cluster.my-local-info", myTCPURL},
 			optionPair{"--foxx.queues", "false"},
 			optionPair{"--server.statistics", "true"},
 		)
@@ -237,7 +236,6 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		options = append(options,
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "COORDINATOR"},
-			optionPair{"--cluster.my-local-info", myTCPURL},
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 		)
