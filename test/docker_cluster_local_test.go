@@ -33,6 +33,7 @@ import (
 // TestDockerClusterLocal runs the arangodb starter in docker with `--local`
 func TestDockerClusterLocal(t *testing.T) {
 	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeCluster)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -88,6 +89,7 @@ func TestDockerClusterLocal(t *testing.T) {
 // TestOldDockerClusterLocal runs the arangodb starter in docker with `--local`
 func TestOldDockerClusterLocal(t *testing.T) {
 	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeCluster)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

@@ -33,6 +33,7 @@ import (
 func TestProcessResilientSingleDefault(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeResilientSingle)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -51,11 +52,11 @@ func TestProcessResilientSingleDefault(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testResilientSingle(t, insecureStarterEndpoint(0), false)
-		testResilientSingle(t, insecureStarterEndpoint(5), false)
-		testResilientSingle(t, insecureStarterEndpoint(10), false)
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, master, slave1, slave2); ok {
+		t.Logf("ResilientSingle start took %s", time.Since(start))
+		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(10), false, true)
 	}
 
 	if isVerbose {
@@ -69,6 +70,7 @@ func TestProcessResilientSingleDefault(t *testing.T) {
 func TestProcessResilientSingleDefaultShutdownViaAPI(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeResilientSingle)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -84,14 +86,14 @@ func TestProcessResilientSingleDefaultShutdownViaAPI(t *testing.T) {
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.mode=resilientsingle --cluster.start-single=false --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testResilientSingle(t, insecureStarterEndpoint(0), false)
-		testResilientSingle(t, insecureStarterEndpoint(5), false)
-		testResilientSingle(t, insecureStarterEndpoint(10), false)
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, master, slave1 /*not slave2*/); ok {
+		t.Logf("ResilientSingle start took %s", time.Since(start))
+		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(10), false, true)
 	}
 
 	if isVerbose {

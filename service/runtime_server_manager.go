@@ -234,6 +234,8 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 								what := "cluster"
 								if serverType == ServerTypeSingle {
 									what = "single server"
+								} else if serverType == ServerTypeResilientSingle {
+									what = "resilient single server"
 								}
 								s.logMutex.Lock()
 								log.Infof("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)

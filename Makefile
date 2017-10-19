@@ -156,6 +156,7 @@ run-tests-local-process: build test-images
 		-e DATA_DIR=/tmp \
 		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
 		-e TEST_MODES=localprocess \
+		-e STARTER_MODES=$(STARTER_MODES) \
 		-e TESTOPTIONS=$(TESTOPTIONS) \
 		-e DEBUG_CLUSTER=$(DEBUG_CLUSTER) \
 		-w /usr/code/ \
@@ -163,8 +164,8 @@ run-tests-local-process: build test-images
 		go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
 
 run-tests-docker: docker
-	GOPATH=$(GOBUILDDIR) TEST_MODES=docker IP=$(IP) ARANGODB=$(ARANGODB) go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
+	GOPATH=$(GOBUILDDIR) TEST_MODES=docker STARTER_MODES=$(STARTER_MODES) IP=$(IP) ARANGODB=$(ARANGODB) go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
 
 # Run all integration tests on the local system
 run-tests-local: local
-	GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess docker" STARTER=$(ROOTDIR)/arangodb go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
+	GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess,docker" STARTER_MODES=$(STARTER_MODES) STARTER=$(ROOTDIR)/arangodb go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test

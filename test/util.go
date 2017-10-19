@@ -41,23 +41,32 @@ import (
 )
 
 const (
-	ctrlC           = "\u0003"
-	whatCluster     = "cluster"
-	whatSingle      = "single server"
-	testModeProcess = "localprocess"
-	testModeDocker  = "docker"
+	ctrlC                      = "\u0003"
+	whatCluster                = "cluster"
+	whatSingle                 = "single server"
+	whatResilientSingle        = "resilient single server"
+	testModeProcess            = "localprocess"
+	testModeDocker             = "docker"
+	starterModeCluster         = "cluster"
+	starterModeSingle          = "single"
+	starterModeResilientSingle = "resilientsingle"
 )
 
 var (
-	isVerbose bool
-	testModes []string
+	isVerbose    bool
+	testModes    []string
+	starterModes []string
 )
 
 func init() {
 	isVerbose = os.Getenv("VERBOSE") != ""
-	testModes = strings.Split(os.Getenv("TEST_MODES"), " ")
+	testModes = strings.Split(os.Getenv("TEST_MODES"), ",")
 	if len(testModes) == 1 && testModes[0] == "" {
 		testModes = nil
+	}
+	starterModes = strings.Split(os.Getenv("STARTER_MODES"), ",")
+	if len(starterModes) == 1 && starterModes[0] == "" {
+		starterModes = nil
 	}
 }
 
@@ -71,6 +80,18 @@ func needTestMode(t *testing.T, testMode string) {
 		return
 	}
 	t.Skipf("Test mode '%s' not set", testMode)
+}
+
+func needStarterMode(t *testing.T, starterMode string) {
+	for _, x := range starterModes {
+		if x == starterMode {
+			return
+		}
+	}
+	if len(starterModes) == 0 {
+		return
+	}
+	t.Skipf("Starter mode '%s' not set", starterMode)
 }
 
 // Spawn a command an return its process.

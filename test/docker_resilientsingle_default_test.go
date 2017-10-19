@@ -34,6 +34,7 @@ import (
 // and otherwise default settings.
 func TestDockerResilientSingleDefault(t *testing.T) {
 	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeResilientSingle)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -115,17 +116,18 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 		"--docker.container=" + cID3,
 		"--starter.address=$IP",
 		"--starter.mode=resilientsingle",
+		"--cluster.start-single=false",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testResilientSingle(t, insecureStarterEndpoint(0), false)
-		testResilientSingle(t, insecureStarterEndpoint(5), false)
-		testResilientSingle(t, insecureStarterEndpoint(10), false)
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2 /*not docker3*/); ok {
+		t.Logf("ResilientSingle start took %s", time.Since(start))
+		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(10), false, true)
 	}
 
 	if isVerbose {

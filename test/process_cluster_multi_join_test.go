@@ -33,6 +33,7 @@ import (
 func TestProcessClusterMultipleJoins(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeCluster)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 

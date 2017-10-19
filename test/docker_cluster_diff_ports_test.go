@@ -33,6 +33,7 @@ import (
 // TestDockerClusterDifferentPorts runs 3 arangodb starters in docker with different `--starter.port` values.
 func TestDockerClusterDifferentPorts(t *testing.T) {
 	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeCluster)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
