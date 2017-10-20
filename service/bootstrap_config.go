@@ -69,3 +69,20 @@ func (bsCfg BootstrapConfig) CreateTLSConfig() (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 	}, nil
 }
+
+// PeersNeeded returns the minimum number of peers needed for the given config.
+func (bsCfg BootstrapConfig) PeersNeeded() int {
+	minServers := 1
+	switch bsCfg.Mode {
+	case ServiceModeCluster:
+		minServers = 3
+	case ServiceModeSingle:
+		minServers = 1
+	case ServiceModeResilientSingle:
+		minServers = 2
+	}
+	if minServers < bsCfg.AgencySize {
+		minServers = bsCfg.AgencySize
+	}
+	return minServers
+}

@@ -61,7 +61,17 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	// Permanent loop:
 	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
 
-	if s.mode.IsSingleMode() || s.myPeers.HaveEnoughAgents() {
+	// Can we start right away?
+	needMorePeers := true
+	if s.mode.IsSingleMode() {
+		needMorePeers = false
+	} else if !s.myPeers.HaveEnoughAgents() {
+		needMorePeers = true
+	} else if bsCfg.StartLocalSlaves {
+		peersNeeded := bsCfg.PeersNeeded()
+		needMorePeers = len(s.myPeers.AllPeers) < peersNeeded
+	}
+	if !needMorePeers {
 		// We have all the agents that we need, start a single server/cluster right now
 		s.saveSetup()
 		s.log.Info("Starting service...")

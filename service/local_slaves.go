@@ -33,8 +33,9 @@ import (
 
 // createAndStartLocalSlaves creates additional peers for local slaves and starts services for them.
 func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg BootstrapConfig) {
-	peers := make([]Peer, 0, bsCfg.AgencySize)
-	for index := 2; index <= bsCfg.AgencySize; index++ {
+	peersNeeded := bsCfg.PeersNeeded()
+	peers := make([]Peer, 0, peersNeeded)
+	for index := 2; index <= peersNeeded; index++ {
 		p := Peer{}
 		var err error
 		p.ID, err = createUniqueID()
