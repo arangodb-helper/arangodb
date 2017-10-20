@@ -86,6 +86,65 @@ func TestDockerClusterLocal(t *testing.T) {
 	ShutdownStarter(t, insecureStarterEndpoint(0))
 }
 
+// TestDockerClusterLocalAgencySize1 runs the arangodb starter in docker
+// with `--starter.local` & `--cluster.agency-size=1`
+func TestDockerClusterLocalAgencySize1(t *testing.T) {
+	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeCluster)
+	if os.Getenv("IP") == "" {
+		t.Fatal("IP envvar must be set to IP address of this machine")
+	}
+	/*
+		docker volume create arangodb1
+		docker run -i --name=adb1 --rm -p 8528:8528 \
+			-v arangodb1:/data \
+			-v /var/run/docker.sock:/var/run/docker.sock \
+			arangodb/arangodb-starter \
+			--docker.container=adb1 \
+			--starter.address=$IP \
+			--starter.local \
+			--cluster.agency-size=1
+	*/
+	volID := createDockerID("vol-starter-test-local-cluster-as1-")
+	createDockerVolume(t, volID)
+	defer removeDockerVolume(t, volID)
+
+	// Cleanup of left over tests
+	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	start := time.Now()
+
+	cID := createDockerID("starter-test-local-cluster-as1-")
+	dockerRun := Spawn(t, strings.Join([]string{
+		"docker run -i",
+		"--label starter-test=true",
+		"--name=" + cID,
+		"--rm",
+		fmt.Sprintf("-p %d:%d", basePort, basePort),
+		fmt.Sprintf("-v %s:/data", volID),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+		"arangodb/arangodb-starter",
+		"--docker.container=" + cID,
+		"--starter.address=$IP",
+		"--starter.local",
+		"--cluster.agency-size=1",
+		createEnvironmentStarterOptions(),
+	}, " "))
+	defer dockerRun.Close()
+	defer removeDockerContainer(t, cID)
+
+	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
+		t.Logf("Cluster start took %s", time.Since(start))
+		testCluster(t, insecureStarterEndpoint(0), false)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+}
+
 // TestOldDockerClusterLocal runs the arangodb starter in docker with `--local`
 func TestOldDockerClusterLocal(t *testing.T) {
 	needTestMode(t, testModeDocker)
