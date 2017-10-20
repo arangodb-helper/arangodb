@@ -1,3 +1,8 @@
+# Changes from version 0.9.3 to master
+
+- Added support for `resilientsingle` mode. A configuration of 2 single servers that replicate and take over when needed.
+- Removed `--cluster.my-local-info` option from commandline of `arangod` servers. It is obsolete.
+
 # Changes from version 0.9.2 to 0.9.3
 
 - Added `--version` option and `version` command to show version of the starter.
