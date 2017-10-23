@@ -1,3 +1,8 @@
+# Changes from version 0.10.0 to 0.10.1
+
+- Remove `server.threads` & `javascript.v8-contexts` from generated `arangod.conf` files.
+  Both settings are nolonger needed. 
+
 # Changes from version 0.9.3 to 0.10.0
 
 - Added support for `resilientsingle` mode. A configuration of 2 single servers that replicate and take over when needed.
