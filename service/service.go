@@ -663,7 +663,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			if req.Coordinator != nil {
 				hasCoordinator = *req.Coordinator
 			}
-			hasResilientSingle := !s.myPeers.HaveEnoughResilientSingles()
+			hasResilientSingle := true
 			if req.ResilientSingle != nil {
 				hasResilientSingle = *req.ResilientSingle
 			}

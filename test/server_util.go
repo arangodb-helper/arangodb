@@ -75,26 +75,27 @@ func secureStarterEndpoint(portOffset int) string {
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, 0)
 	return c
 }
 
 // testSingle runs a series of tests to verify a good single server.
 func testSingle(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "single", starterEndpoint, isSecure, false)
+	testProcesses(t, c, "single", starterEndpoint, isSecure, false, 0)
 	return c
 }
 
 // testResilientSingle runs a series of tests to verify good resilientsingle servers.
 func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, expectAgencyOnly bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly)
+	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, time.Second*30)
 	return c
 }
 
 // testProcesses runs a series of tests to verify a good series of database servers.
-func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool, expectAgencyOnly bool) {
+func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool,
+	expectAgencyOnly bool, reachableTimeout time.Duration) {
 	ctx := context.Background()
 
 	// Fetch version
@@ -123,7 +124,7 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 			if isVerbose {
 				t.Logf("Found agent at %s:%d", sp.IP, sp.Port)
 			}
-			testArangodReachable(t, sp)
+			testArangodReachable(t, sp, reachableTimeout)
 		}
 	}
 
@@ -138,7 +139,7 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 			if isVerbose {
 				t.Logf("Found coordinator at %s:%d", sp.IP, sp.Port)
 			}
-			testArangodReachable(t, sp)
+			testArangodReachable(t, sp, reachableTimeout)
 		}
 	} else if mode == "cluster" {
 		t.Errorf("No coordinator found in %s", starterEndpoint)
@@ -155,7 +156,7 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 			if isVerbose {
 				t.Logf("Found dbserver at %s:%d", sp.IP, sp.Port)
 			}
-			testArangodReachable(t, sp)
+			testArangodReachable(t, sp, reachableTimeout)
 		}
 	} else if mode == "cluster" {
 		t.Errorf("No dbserver found in %s", starterEndpoint)
@@ -172,7 +173,7 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 			if isVerbose {
 				t.Logf("Found single at %s:%d", sp.IP, sp.Port)
 			}
-			testArangodReachable(t, sp)
+			testArangodReachable(t, sp, reachableTimeout)
 		}
 	} else if (mode == "single" || mode == "resilientsingle") && !expectAgencyOnly {
 		t.Errorf("No single found in %s", starterEndpoint)
@@ -181,14 +182,22 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 
 // testArangodReachable tries to call some HTTP API methods of the given server process to make sure
 // it is reachable.
-func testArangodReachable(t *testing.T, sp client.ServerProcess) {
+func testArangodReachable(t *testing.T, sp client.ServerProcess, timeout time.Duration) {
 	scheme := "http"
 	if sp.IsSecure {
 		scheme = "https"
 	}
-	url := fmt.Sprintf("%s://%s:%d/_api/version", scheme, sp.IP, sp.Port)
-	_, err := httpClient.Get(url)
-	if err != nil {
-		t.Errorf("Failed to reach arangod at %s:%d", sp.IP, sp.Port)
+	start := time.Now()
+	for {
+		url := fmt.Sprintf("%s://%s:%d/_api/version", scheme, sp.IP, sp.Port)
+		_, err := httpClient.Get(url)
+		if err == nil {
+			return
+		}
+		if timeout == 0 || time.Since(start) > timeout {
+			t.Errorf("Failed to reach arangod at %s:%d (%#v)", sp.IP, sp.Port, err)
+			return
+		}
+		time.Sleep(time.Second)
 	}
 }

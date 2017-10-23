@@ -116,6 +116,113 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 		"--docker.container=" + cID3,
 		"--starter.address=$IP",
 		"--starter.mode=resilientsingle",
+		createEnvironmentStarterOptions(),
+		fmt.Sprintf("--starter.join=$IP:%d", basePort),
+	}, " "))
+	defer dockerRun3.Close()
+	defer removeDockerContainer(t, cID3)
+
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2, dockerRun3); ok {
+		t.Logf("ResilientSingle start took %s", time.Since(start))
+		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(10), false, false)
+	}
+
+	if isVerbose {
+		t.Log("Waiting for termination")
+	}
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(5))
+	ShutdownStarter(t, insecureStarterEndpoint(10))
+}
+
+// TestDockerResilientSingle2Instance runs 3 arangodb starters in docker with mode=resilientsingle
+// and only 2 servers should start a single server instance.
+func TestDockerResilientSingle2Instance(t *testing.T) {
+	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeResilientSingle)
+	if os.Getenv("IP") == "" {
+		t.Fatal("IP envvar must be set to IP address of this machine")
+	}
+	/*
+		docker volume create arangodb1
+		docker run -i --name=adb1 --rm -p 8528:8528 \
+			-v arangodb1:/data \
+			-v /var/run/docker.sock:/var/run/docker.sock \
+			arangodb/arangodb-starter \
+			--docker.container=adb1 \
+			--starter.address=$IP \
+			--starter.mode=resilientsingle
+	*/
+	volID1 := createDockerID("vol-starter-test-resilientsingle-default1-")
+	createDockerVolume(t, volID1)
+	defer removeDockerVolume(t, volID1)
+
+	volID2 := createDockerID("vol-starter-test-resilientsingle-default2-")
+	createDockerVolume(t, volID2)
+	defer removeDockerVolume(t, volID2)
+
+	volID3 := createDockerID("vol-starter-test-resilientsingle-default3-")
+	createDockerVolume(t, volID3)
+	defer removeDockerVolume(t, volID3)
+
+	// Cleanup of left over tests
+	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	start := time.Now()
+
+	cID1 := createDockerID("starter-test-resilientsingle-default1-")
+	dockerRun1 := Spawn(t, strings.Join([]string{
+		"docker run -i",
+		"--label starter-test=true",
+		"--name=" + cID1,
+		"--rm",
+		fmt.Sprintf("-p %d:%d", basePort, basePort),
+		fmt.Sprintf("-v %s:/data", volID1),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+		"arangodb/arangodb-starter",
+		"--docker.container=" + cID1,
+		"--starter.address=$IP",
+		"--starter.mode=resilientsingle",
+		createEnvironmentStarterOptions(),
+	}, " "))
+	defer dockerRun1.Close()
+	defer removeDockerContainer(t, cID1)
+
+	cID2 := createDockerID("starter-test-resilientsingle-default2-")
+	dockerRun2 := Spawn(t, strings.Join([]string{
+		"docker run -i",
+		"--label starter-test=true",
+		"--name=" + cID2,
+		"--rm",
+		fmt.Sprintf("-p %d:%d", basePort+5, basePort),
+		fmt.Sprintf("-v %s:/data", volID2),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+		"arangodb/arangodb-starter",
+		"--docker.container=" + cID2,
+		"--starter.address=$IP",
+		"--starter.mode=resilientsingle",
+		createEnvironmentStarterOptions(),
+		fmt.Sprintf("--starter.join=$IP:%d", basePort),
+	}, " "))
+	defer dockerRun2.Close()
+	defer removeDockerContainer(t, cID2)
+
+	cID3 := createDockerID("starter-test-resilientsingle-default3-")
+	dockerRun3 := Spawn(t, strings.Join([]string{
+		"docker run -i",
+		"--label starter-test=true",
+		"--name=" + cID3,
+		"--rm",
+		fmt.Sprintf("-p %d:%d", basePort+10, basePort),
+		fmt.Sprintf("-v %s:/data", volID3),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+		"arangodb/arangodb-starter",
+		"--docker.container=" + cID3,
+		"--starter.address=$IP",
+		"--starter.mode=resilientsingle",
 		"--cluster.start-single=false",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),

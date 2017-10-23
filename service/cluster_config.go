@@ -154,18 +154,6 @@ func (p ClusterConfig) HaveEnoughAgents() bool {
 	return count >= p.AgencySize
 }
 
-// HaveEnoughResilientSingles returns true when the number of peers that have an resilient single server
-// is equal to 2.
-func (p ClusterConfig) HaveEnoughResilientSingles() bool {
-	count := 0
-	for _, x := range p.AllPeers {
-		if x.HasResilientSingle() {
-			count++
-		}
-	}
-	return count >= 2
-}
-
 // IsSecure returns true if any of the peers is secure.
 func (p ClusterConfig) IsSecure() bool {
 	for _, x := range p.AllPeers {
