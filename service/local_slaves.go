@@ -58,7 +58,7 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		masterAddr = "127.0.0.1"
 	}
 	masterAddr = net.JoinHostPort(masterAddr, strconv.Itoa(s.announcePort))
-	for _, p := range peers {
+	for idx, p := range peers {
 		if p.ID == s.id {
 			continue
 		}
@@ -66,6 +66,9 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		slaveBsCfg := bsCfg
 		slaveBsCfg.ID = p.ID
 		slaveBsCfg.StartLocalSlaves = false
+		if bsCfg.Mode.IsResilientSingleMode() && idx > 1 {
+			slaveBsCfg.StartResilientSingle = boolRef(false)
+		}
 		os.MkdirAll(p.DataDir, 0755)
 
 		// Read existing setup.json (if any)
