@@ -67,6 +67,7 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		slaveBsCfg.ID = p.ID
 		slaveBsCfg.StartLocalSlaves = false
 		if bsCfg.Mode.IsResilientSingleMode() && idx > 1 {
+			// Since resilientsingle mode only works with 2 servers, we have to prevent a third one.
 			slaveBsCfg.StartResilientSingle = boolRef(false)
 		}
 		os.MkdirAll(p.DataDir, 0755)
