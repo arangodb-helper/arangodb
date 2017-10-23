@@ -189,6 +189,6 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess) {
 	url := fmt.Sprintf("%s://%s:%d/_api/version", scheme, sp.IP, sp.Port)
 	_, err := httpClient.Get(url)
 	if err != nil {
-		t.Errorf("Failed to reach arangod at %s:%d", sp.IP, sp.Port)
+		t.Errorf("Failed to reach arangod at %s:%d (%#v)", sp.IP, sp.Port, err)
 	}
 }
