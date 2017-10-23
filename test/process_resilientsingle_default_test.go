@@ -49,7 +49,7 @@ func TestProcessResilientSingleDefault(t *testing.T) {
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=resilientsingle --cluster.start-single=false --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, master, slave1 /* not slave2 */); ok {
