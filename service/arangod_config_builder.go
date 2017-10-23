@@ -70,20 +70,7 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 	}
 
 	// Arangod.conf does not exist. Create it.
-	var threads, v8Contexts string
 	logLevel := "INFO"
-	switch serverType {
-	// Parameters are: port, server threads, log level, v8-contexts
-	case ServerTypeAgent:
-		threads = "8"
-		v8Contexts = "1"
-	case ServerTypeDBServer:
-		threads = "4"
-		v8Contexts = "4"
-	case ServerTypeCoordinator, ServerTypeSingle, ServerTypeResilientSingle:
-		threads = "16"
-		v8Contexts = "4"
-	}
 	listenAddr := "[::]"
 	if bsCfg.DisableIPv6 {
 		listenAddr = "0.0.0.0"
@@ -93,7 +80,6 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 		Name: "server",
 		Settings: map[string]string{
 			"endpoint":       fmt.Sprintf("%s://%s:%s", scheme, listenAddr, myPort),
-			"threads":        threads,
 			"authentication": "false",
 		},
 	}
@@ -110,12 +96,6 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 			Name: "log",
 			Settings: map[string]string{
 				"level": logLevel,
-			},
-		},
-		&configSection{
-			Name: "javascript",
-			Settings: map[string]string{
-				"v8-contexts": v8Contexts,
 			},
 		},
 	}
