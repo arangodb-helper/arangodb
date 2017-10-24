@@ -1,3 +1,8 @@
+# Changes from version 0.10.1 to 0.10.2
+
+- Starting with mode `resilientsingle` and `--starter.local` will no longer limit
+  the number of single servers to 2.
+
 # Changes from version 0.10.0 to 0.10.1
 
 - Remove `server.threads` & `javascript.v8-contexts` from generated `arangod.conf` files.
