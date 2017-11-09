@@ -154,13 +154,23 @@ func collectConfigVolumes(config configFile) []Volume {
 	return result
 }
 
-// createArangodArgs returns the command line arguments needed to run an arangod server of given type.
-func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
+// createServerArgs returns the command line arguments needed to run an arangod/arangosync server of given type.
+func createServerArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
 	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile) []string {
 	containerConfFileName := filepath.Join(myContainerDir, confFileName)
 
 	args := make([]string, 0, 40)
-	executable := config.ArangodPath
+	options := make([]optionPair, 0, 32)
+	var executable string
+	switch serverType.ProcessType() {
+	case ProcessTypeArangod:
+		executable = config.ArangodPath
+	case ProcessTypeArangoSync:
+		executable = config.ArangoSyncPath
+	default:
+		return nil
+	}
+
 	jsStartup := config.ArangodJSPath
 	if config.RrPath != "" {
 		args = append(args, config.RrPath)
@@ -170,7 +180,6 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		"-c", slasher(containerConfFileName),
 	)
 
-	options := make([]optionPair, 0, 32)
 	options = append(options,
 		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
 		optionPair{"--javascript.startup-directory", slasher(jsStartup)},

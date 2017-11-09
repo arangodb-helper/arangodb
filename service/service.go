@@ -50,6 +50,7 @@ const (
 type Config struct {
 	ArangodPath          string
 	ArangodJSPath        string
+	ArangoSyncPath       string
 	MasterPort           int
 	RrPath               string
 	DataDir              string
@@ -63,7 +64,8 @@ type Config struct {
 
 	DockerContainerName   string // Name of the container running this process
 	DockerEndpoint        string // Where to reach the docker daemon
-	DockerImage           string // Name of Arangodb docker image
+	DockerArangodImage    string // Name of Arangodb docker image
+	DockerArangoSyncImage string // Name of Arangodb docker image
 	DockerImagePullPolicy ImagePullPolicy
 	DockerStarterImage    string
 	DockerUser            string
@@ -80,7 +82,7 @@ type Config struct {
 // UseDockerRunner returns true if the docker runner should be used.
 // (instead of the local process runner).
 func (c Config) UseDockerRunner() bool {
-	return c.DockerEndpoint != "" && c.DockerImage != ""
+	return c.DockerEndpoint != "" && c.DockerArangodImage != ""
 }
 
 // GuessOwnAddress fills in the OwnAddress field if needed and returns an update config.
@@ -133,7 +135,8 @@ func (c Config) GetNetworkEnvironment(log *logging.Logger) (Config, int, bool) {
 func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
 	var runner Runner
 	if c.UseDockerRunner() {
-		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerImage, c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
+		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerArangodImage, c.DockerArangoSyncImage,
+			c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
 			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
 		if err != nil {
 			log.Fatalf("Failed to create docker runner: %#v", err)
@@ -142,6 +145,7 @@ func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
 		// Set executables to their image path's
 		c.ArangodPath = "/usr/sbin/arangod"
 		c.ArangodJSPath = "/usr/share/arangodb3/js"
+		c.ArangoSyncPath = "/usr/sbin/arangosync"
 		// Docker setup uses different volumes with same dataDir, allow that
 		allowSameDataDir := true
 
@@ -213,6 +217,7 @@ const (
 	_portOffsetCoordinator = 1 // Coordinator/single server
 	_portOffsetDBServer    = 2
 	_portOffsetAgent       = 3
+	_portOffsetSyncWorker  = 4
 	portOffsetIncrement    = 5 // {our http server, agent, coordinator, dbserver, reserved}
 )
 
@@ -430,11 +435,18 @@ func (s *Service) serverHostDir(serverType ServerType) (string, error) {
 }
 
 // serverExecutable returns the path of the server's executable.
-func (s *Config) serverExecutable() string {
-	if s.RrPath != "" {
-		return s.RrPath
+func (c *Config) serverExecutable(processType ProcessType) string {
+	switch processType {
+	case ProcessTypeArangod:
+		if c.RrPath != "" {
+			return c.RrPath
+		}
+		return c.ArangodPath
+	case ProcessTypeArangoSync:
+		return c.ArangoSyncPath
+	default:
+		return ""
 	}
-	return s.ArangodPath
 }
 
 // StatusItem contain a single point in time for a status feedback channel.
@@ -445,7 +457,7 @@ type StatusItem struct {
 }
 
 // TestInstance checks the `up` status of an arangod server instance.
-func (s *Service) TestInstance(ctx context.Context, address string, port int, statusChanged chan StatusItem) (up bool, version string, statusTrail []int, cancelled bool) {
+func (s *Service) TestInstance(ctx context.Context, serverType ServerType, address string, port int, statusChanged chan StatusItem) (up bool, version string, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan string)
 	statusCodes := make(chan int)
 	if statusChanged != nil {

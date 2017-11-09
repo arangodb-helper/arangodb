@@ -44,6 +44,7 @@ type runtimeServerManager struct {
 	dbserverProc    Process
 	coordinatorProc Process
 	singleProc      Process
+	syncWorkerProc  Process
 	stopping        bool
 }
 
@@ -59,7 +60,7 @@ type runtimeServerManagerContext interface {
 	serverHostDir(serverType ServerType) (string, error)
 
 	// TestInstance checks the `up` status of an arangod server instance.
-	TestInstance(ctx context.Context, address string, port int, statusChanged chan StatusItem) (up bool, version string, statusTrail []int, cancelled bool)
+	TestInstance(ctx context.Context, serverType ServerType, address string, port int, statusChanged chan StatusItem) (up bool, version string, statusTrail []int, cancelled bool)
 
 	// IsLocalSlave returns true if this peer is running as a local slave
 	IsLocalSlave() bool
@@ -68,8 +69,8 @@ type runtimeServerManagerContext interface {
 	Stop()
 }
 
-// startArangod starts a single Arango server of the given type.
-func startArangod(log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
+// startServer starts a single Arangod/Arangosync server of the given type.
+func startServer(log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
 	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
@@ -91,7 +92,7 @@ func startArangod(log *logging.Logger, runtimeContext runtimeServerManagerContex
 	if p != nil {
 		log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		up, _, _, _ := runtimeContext.TestInstance(ctx, myHostAddress, myPort, nil)
+		up, _, _, _ := runtimeContext.TestInstance(ctx, serverType, myHostAddress, myPort, nil)
 		cancel()
 		if up {
 			log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
@@ -113,10 +114,11 @@ func startArangod(log *logging.Logger, runtimeContext runtimeServerManagerContex
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
-	// Create arangod command line arguments
+	// Create server command line arguments
+	processType := serverType.ProcessType()
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
-	args := createArangodArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig)
-	writeCommand(log, filepath.Join(myHostDir, "arangod_command.txt"), config.serverExecutable(), args)
+	args := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig)
+	writeCommand(log, filepath.Join(myHostDir, processType.CommandFileName()), config.serverExecutable(processType), args)
 	// Collect volumes
 	configVolumes := collectConfigVolumes(arangodConfig)
 	vols := addVolume(append(confVolumes, configVolumes...), myHostDir, myContainerDir, false)
@@ -127,11 +129,11 @@ func startArangod(log *logging.Logger, runtimeContext runtimeServerManagerContex
 	}
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, myPeer.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
-	if p, err := runner.Start(args[0], args[1:], vols, ports, containerName, myHostDir); err != nil {
+	p, err = runner.Start(processType, args[0], args[1:], vols, ports, containerName, myHostDir)
+	if err != nil {
 		return nil, false, maskAny(err)
-	} else {
-		return p, false, nil
 	}
+	return p, false, nil
 }
 
 // showRecentLogs dumps the most recent log lines of the server of given type to the console.
@@ -175,15 +177,15 @@ func (s *runtimeServerManager) showRecentLogs(log *logging.Logger, runtimeContex
 	}
 }
 
-// runArangod starts a single Arango server of the given type and keeps restarting it when needed.
-func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
+// runServer starts a single Arangod/Arangosync server of the given type and keeps restarting it when needed.
+func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
 	config Config, bsCfg BootstrapConfig, myPeer Peer, serverType ServerType, processVar *Process) {
 	restart := 0
 	recentFailures := 0
 	for {
 		myHostAddress := myPeer.Address
 		startTime := time.Now()
-		p, portInUse, err := startArangod(log, runtimeContext, runner, config, bsCfg, myHostAddress, serverType, restart)
+		p, portInUse, err := startServer(log, runtimeContext, runner, config, bsCfg, myHostAddress, serverType, restart)
 		if err != nil {
 			log.Errorf("Error while starting %s: %#v", serverType, err)
 			if !portInUse {
@@ -219,7 +221,7 @@ func (s *runtimeServerManager) runArangod(ctx context.Context, log *logging.Logg
 						}
 					}
 				}()
-				if up, version, statusTrail, cancelled := runtimeContext.TestInstance(ctx, myHostAddress, port, statusChanged); !cancelled {
+				if up, version, statusTrail, cancelled := runtimeContext.TestInstance(ctx, serverType, myHostAddress, port, statusChanged); !cancelled {
 					if up {
 						log.Infof("%s up and running (version %s).", serverType, version)
 						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle || serverType == ServerTypeResilientSingle {
@@ -305,34 +307,39 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 	if mode.IsClusterMode() {
 		// Start agent:
 		if myPeer.HasAgent() {
-			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, &s.agentProc)
+			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, &s.agentProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start DBserver:
 		if bsCfg.StartDBserver == nil || *bsCfg.StartDBserver {
-			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeDBServer, &s.dbserverProc)
+			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeDBServer, &s.dbserverProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start Coordinator:
 		if bsCfg.StartCoordinator == nil || *bsCfg.StartCoordinator {
-			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeCoordinator, &s.coordinatorProc)
+			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeCoordinator, &s.coordinatorProc)
+		}
+
+		// Start sync worker
+		if bsCfg.StartSyncWorker == nil || *bsCfg.StartSyncWorker {
+			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSyncWorker, &s.syncWorkerProc)
 		}
 	} else if mode.IsResilientSingleMode() {
 		// Start agent:
 		if myPeer.HasAgent() {
-			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, &s.agentProc)
+			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, &s.agentProc)
 			time.Sleep(time.Second)
 		}
 
 		// Start Single server:
 		if myPeer.HasResilientSingle() {
-			go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeResilientSingle, &s.singleProc)
+			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeResilientSingle, &s.singleProc)
 		}
 	} else if mode.IsSingleMode() {
 		// Start Single server:
-		go s.runArangod(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSingle, &s.singleProc)
+		go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSingle, &s.singleProc)
 	}
 
 	// Wait until context is cancelled, then we'll stop
@@ -340,6 +347,9 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 	s.stopping = true
 
 	log.Info("Shutting down services...")
+	if p := s.syncWorkerProc; p != nil {
+		terminateProcess(log, p, "sync worker", time.Minute)
+	}
 	if p := s.singleProc; p != nil {
 		terminateProcess(log, p, "single server", time.Minute)
 	}
@@ -355,6 +365,11 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 	}
 
 	// Cleanup containers
+	if p := s.syncWorkerProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			log.Warningf("Failed to cleanup sync worker: %v", err)
+		}
+	}
 	if p := s.singleProc; p != nil {
 		if err := p.Cleanup(); err != nil {
 			log.Warningf("Failed to cleanup single server: %v", err)

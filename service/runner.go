@@ -44,7 +44,7 @@ type Runner interface {
 	GetRunningServer(serverDir string) (Process, error)
 
 	// Start a server with given arguments
-	Start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error)
+	Start(processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error)
 
 	// Create a command that a user should use to start a slave arangodb instance.
 	CreateStartArangodbCommand(myDataDir string, index int, masterIP, masterPort, starterImageName string) string

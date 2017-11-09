@@ -74,12 +74,14 @@ var (
 	agencySize               int
 	arangodPath              string
 	arangodJSPath            string
+	arangoSyncPath           string
 	masterPort               int
 	rrPath                   string
 	startAgent               []bool
 	startDBserver            []bool
 	startCoordinator         []bool
 	startResilientSingle     []bool
+	startSyncWorker          []bool
 	startLocalSlaves         bool
 	mode                     string
 	dataDir                  string
@@ -98,7 +100,8 @@ var (
 	rocksDBEncryptionKeyFile string
 	disableIPv6              bool
 	dockerEndpoint           string
-	dockerImage              string
+	dockerArangodImage       string
+	dockerArangoSyncImage    string
 	dockerImagePullPolicy    string
 	dockerStarterImage       = defaultDockerStarterImage
 	dockerUser               string
@@ -139,8 +142,10 @@ func init() {
 	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
 	f.BoolSliceVar(&startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
 	f.BoolSliceVar(&startResilientSingle, "cluster.start-single", nil, "should a (resilient) single server instance be started")
+	f.BoolSliceVar(&startSyncWorker, "cluster.start-syncworker", nil, "should an ArangoSync worker instance be started")
 
 	f.StringVar(&arangodPath, "server.arangod", "/usr/sbin/arangod", "Path of arangod")
+	f.StringVar(&arangoSyncPath, "server.arangosync", "/usr/sbin/arangosync", "Path of arangosync")
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
 	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
@@ -148,7 +153,8 @@ func init() {
 	f.StringVar(&rocksDBEncryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
-	f.StringVar(&dockerImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&dockerArangodImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&dockerArangoSyncImage, "docker.arangosync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
 	f.StringVar(&dockerImagePullPolicy, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
 	f.StringVar(&dockerUser, "docker.user", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainerName, "docker.container", "", "name of the docker container that is running this process")
@@ -265,9 +271,9 @@ func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
 }
 
-func findExecutable() {
+func findExecutable(processName string) (executablePath, jsPath string) {
 	var pathList = make([]string, 0, 10)
-	pathList = append(pathList, "build/bin/arangod")
+	pathList = append(pathList, "build/bin/"+processName)
 	switch runtime.GOOS {
 	case "windows":
 		// Look in the default installation location:
@@ -283,7 +289,7 @@ func findExecutable() {
 						if strings.HasPrefix(name, "ArangoDB3 ") ||
 							strings.HasPrefix(name, "ArangoDB3e ") {
 							foundPaths = append(foundPaths, basePath+"/"+name+
-								"/usr/bin/arangod.exe")
+								"/usr/bin/"+processName+".exe")
 						}
 					}
 				}
@@ -298,37 +304,40 @@ func findExecutable() {
 		pathList = append(pathList, foundPaths...)
 	case "darwin":
 		pathList = append(pathList,
-			"/Applications/ArangoDB3-CLI.app/Contents/MacOS/usr/sbin/arangod",
-			"/usr/local/opt/arangodb/sbin/arangod",
+			"/Applications/ArangoDB3-CLI.app/Contents/MacOS/usr/sbin/"+processName,
+			"/usr/local/opt/arangodb/sbin/"+processName,
 		)
 	case "linux":
 		pathList = append(pathList,
-			"/usr/sbin/arangod",
+			"/usr/sbin/"+processName,
 		)
 	}
 	// Add local folder to search path
 	if exePath, err := os.Executable(); err == nil {
 		folder := filepath.Dir(exePath)
-		pathList = append(pathList, filepath.Join(folder, "arangod"+filepath.Ext(exePath)))
+		pathList = append(pathList, filepath.Join(folder, processName+filepath.Ext(exePath)))
 	}
 
 	// Search to search path for the first path that exists.
 	for _, p := range pathList {
 		if _, e := os.Stat(filepath.Clean(filepath.FromSlash(p))); e == nil || !os.IsNotExist(e) {
-			arangodPath, _ = filepath.Abs(filepath.FromSlash(p))
+			executablePath, _ = filepath.Abs(filepath.FromSlash(p))
 			if p == "build/bin/arangod" {
-				arangodJSPath, _ = filepath.Abs("js")
+				jsPath, _ = filepath.Abs("js")
 			} else {
-				arangodJSPath, _ = filepath.Abs(filepath.FromSlash(filepath.Dir(p) + "/../share/arangodb3/js"))
+				jsPath, _ = filepath.Abs(filepath.FromSlash(filepath.Dir(p) + "/../share/arangodb3/js"))
 			}
 			return
 		}
 	}
+
+	return "", ""
 }
 
 func main() {
 	// Find executable and jsdir default in a platform dependent way:
-	findExecutable()
+	arangodPath, arangodJSPath = findExecutable("arangod")
+	arangoSyncPath, _ = findExecutable("arangosync")
 
 	cmdMain.Execute()
 }
@@ -406,7 +415,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	if agencySize == 1 && ownAddress == "" {
 		log.Fatal("Error: if cluster.agency-size==1, starter.address must be given.")
 	}
-	if dockerImage != "" && rrPath != "" {
+	if dockerArangodImage != "" && rrPath != "" {
 		log.Fatal("Error: using --docker.image and --server.rr is not possible.")
 	}
 	if dockerNetHost {
@@ -416,7 +425,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 			log.Fatal("Error: cannot set --docker.net-host and --docker.net-mode at the same time")
 		}
 	}
-	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerImage)
+	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerArangodImage)
 	if err != nil {
 		log.Fatalf("Unsupport image pull policy '%s': %#v", dockerImagePullPolicy, err)
 	}
@@ -424,6 +433,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	// Expand home-dis (~) in paths
 	arangodPath = mustExpand(arangodPath)
 	arangodJSPath = mustExpand(arangodJSPath)
+	arangoSyncPath = mustExpand(arangoSyncPath)
 	rrPath = mustExpand(rrPath)
 	dataDir = mustExpand(dataDir)
 	jwtSecretFile = mustExpand(jwtSecretFile)
@@ -497,6 +507,19 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		}
 	}
 
+	// Check sync settings
+	doStartSyncWorker := getOptionalBool("cluster.start-syncworker", startSyncWorker)
+	if doStartSyncWorker != nil && *doStartSyncWorker {
+		// Check arangosync executable
+		if !runningInDocker {
+			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
+				log.Errorf("Cannot find arangosync (expected at %s).", arangoSyncPath)
+				log.Fatal("Please install ArangoDB locally or run the ArangoDB starter in docker (see README for details).")
+			}
+			log.Debugf("Using %s as default arangosync executable.", arangoSyncPath)
+		}
+	}
+
 	// Create service
 	bsCfg := service.BootstrapConfig{
 		ID:                       id,
@@ -507,6 +530,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		StartDBserver:            getOptionalBool("cluster.start-dbserver", startDBserver),
 		StartCoordinator:         getOptionalBool("cluster.start-coordinator", startCoordinator),
 		StartResilientSingle:     getOptionalBool("cluster.start-single", startResilientSingle),
+		StartSyncWorker:          doStartSyncWorker,
 		ServerStorageEngine:      serverStorageEngine,
 		JwtSecret:                jwtSecret,
 		SslKeyFile:               sslKeyFile,
@@ -517,6 +541,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	bsCfg.Initialize()
 	serviceConfig := service.Config{
 		ArangodPath:           arangodPath,
+		ArangoSyncPath:        arangoSyncPath,
 		ArangodJSPath:         arangodJSPath,
 		MasterPort:            masterPort,
 		RrPath:                rrPath,
@@ -529,7 +554,8 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		RunningInDocker:       isRunningInDocker(),
 		DockerContainerName:   dockerContainerName,
 		DockerEndpoint:        dockerEndpoint,
-		DockerImage:           dockerImage,
+		DockerArangodImage:    dockerArangodImage,
+		DockerArangoSyncImage: dockerArangoSyncImage,
 		DockerImagePullPolicy: imagePullPolicy,
 		DockerStarterImage:    dockerStarterImage,
 		DockerUser:            dockerUser,

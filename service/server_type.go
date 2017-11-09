@@ -33,6 +33,7 @@ const (
 	ServerTypeAgent           = "agent"
 	ServerTypeSingle          = "single"
 	ServerTypeResilientSingle = "resilientsingle"
+	ServerTypeSyncWorker      = "syncworker"
 )
 
 // String returns a string representation of the given ServerType.
@@ -51,5 +52,15 @@ func (s ServerType) PortOffset() int {
 		return _portOffsetAgent
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
+	}
+}
+
+// ProcessType returns the type of process needed to run a server of given type.
+func (s ServerType) ProcessType() ProcessType {
+	switch s {
+	case ServerTypeSyncWorker:
+		return ProcessTypeArangoSync
+	default:
+		return ProcessTypeArangod
 	}
 }

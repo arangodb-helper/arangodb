@@ -47,7 +47,7 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
-func NewDockerRunner(log *logging.Logger, endpoint, image string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
+func NewDockerRunner(log *logging.Logger, endpoint, arangodImage, arangoSyncImage string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
 	networkMode string, privileged, tty bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
@@ -56,7 +56,8 @@ func NewDockerRunner(log *logging.Logger, endpoint, image string, imagePullPolic
 	return &dockerRunner{
 		log:             log,
 		client:          client,
-		image:           image,
+		arangodImage:    arangodImage,
+		arangoSyncImage: arangoSyncImage,
 		imagePullPolicy: imagePullPolicy,
 		user:            user,
 		volumesFrom:     volumesFrom,
@@ -72,7 +73,8 @@ func NewDockerRunner(log *logging.Logger, endpoint, image string, imagePullPolic
 type dockerRunner struct {
 	log             *logging.Logger
 	client          *docker.Client
-	image           string
+	arangodImage    string
+	arangoSyncImage string
 	imagePullPolicy ImagePullPolicy
 	user            string
 	volumesFrom     string
@@ -130,29 +132,40 @@ func (r *dockerRunner) GetRunningServer(serverDir string) (Process, error) {
 	}, nil
 }
 
-func (r *dockerRunner) Start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
+func (r *dockerRunner) Start(processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
 	// Start gc (once)
 	r.startGC()
+
+	// Select image
+	var image string
+	switch processType {
+	case ProcessTypeArangod:
+		image = r.arangodImage
+	case ProcessTypeArangoSync:
+		image = r.arangoSyncImage
+	default:
+		return nil, maskAny(fmt.Errorf("Unknown process type: %s", processType))
+	}
 
 	// Pull docker image
 	switch r.imagePullPolicy {
 	case ImagePullPolicyAlways:
-		if err := r.pullImage(r.image); err != nil {
+		if err := r.pullImage(image); err != nil {
 			return nil, maskAny(err)
 		}
 	case ImagePullPolicyIfNotPresent:
-		if found, err := r.imageExists(r.image); err != nil {
+		if found, err := r.imageExists(image); err != nil {
 			return nil, maskAny(err)
 		} else if !found {
-			if err := r.pullImage(r.image); err != nil {
+			if err := r.pullImage(image); err != nil {
 				return nil, maskAny(err)
 			}
 		}
 	case ImagePullPolicyNever:
-		if found, err := r.imageExists(r.image); err != nil {
+		if found, err := r.imageExists(image); err != nil {
 			return nil, maskAny(err)
 		} else if !found {
-			return nil, maskAny(fmt.Errorf("Image '%s' not found", r.image))
+			return nil, maskAny(fmt.Errorf("Image '%s' not found", image))
 		}
 	}
 
@@ -170,7 +183,7 @@ func (r *dockerRunner) Start(command string, args []string, volumes []Volume, po
 			r.log.Errorf("Failed to remove container '%s': %v", containerName, err)
 		}
 		// Try starting it now
-		p, err := r.start(command, args, volumes, ports, containerName, serverDir)
+		p, err := r.start(image, command, args, volumes, ports, containerName, serverDir)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -191,11 +204,11 @@ func (r *dockerRunner) startGC() {
 }
 
 // Try to start a command with given arguments
-func (r *dockerRunner) start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
+func (r *dockerRunner) start(image string, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
 		Config: &docker.Config{
-			Image:        r.image,
+			Image:        image,
 			Entrypoint:   []string{command},
 			Cmd:          args,
 			Tty:          r.tty,
