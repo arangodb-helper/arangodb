@@ -31,6 +31,8 @@ type PassthroughOption struct {
 		Coordinators []string
 		DBServers    []string
 		Agents       []string
+		AllSync      []string
+		SyncWorkers  []string
 	}
 }
 
@@ -71,11 +73,20 @@ func (o *PassthroughOption) valueForServerType(serverType ServerType) []string {
 		result = o.Values.DBServers
 	case ServerTypeAgent:
 		result = o.Values.Agents
+	case ServerTypeSyncWorker:
+		result = o.Values.SyncWorkers
 	}
 	if len(result) > 0 {
 		return result
 	}
-	return o.Values.All
+	switch serverType.ProcessType() {
+	case ProcessTypeArangod:
+		return o.Values.All
+	case ProcessTypeArangoSync:
+		return o.Values.AllSync
+	default:
+		return nil
+	}
 }
 
 // IsForbidden returns true if the option cannot be overwritten.

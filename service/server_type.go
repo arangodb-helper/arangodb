@@ -78,6 +78,8 @@ func (s ServerType) ExpectedServerRole() (string, string) {
 		return "PRIMARY", ""
 	case ServerTypeAgent:
 		return "AGENT", ""
+	case ServerTypeSyncWorker:
+		return "", ""
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
 	}

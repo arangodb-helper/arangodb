@@ -36,21 +36,14 @@ package service
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 
 	logging "github.com/op/go-logging"
 )
-
-type optionPair struct {
-	Key   string
-	Value string
-}
 
 // createArangodConf creates an arangod.conf file in the given host directory if it does not yet exists.
 // The arangod.conf file contains all settings that are considered static for the lifetime of the server.
@@ -135,42 +128,14 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 	return volumes, config, nil
 }
 
-// collectConfigVolumes collects all files from the given config file for which a volume needs to be mapped.
-func collectConfigVolumes(config configFile) []Volume {
-	var result []Volume
-
-	addVolumeForSetting := func(sectionName, key string) {
-		if section := config.FindSection(sectionName); section != nil {
-			if path, ok := section.Settings[key]; ok {
-				result = addVolume(result, path, path, true)
-			}
-		}
-	}
-
-	addVolumeForSetting("ssl", "keyfile")
-	addVolumeForSetting("ssl", "cafile")
-	addVolumeForSetting("rocksdb", "encryption-keyfile")
-
-	return result
-}
-
-// createServerArgs returns the command line arguments needed to run an arangod/arangosync server of given type.
-func createServerArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
+// createArangodArgs returns the command line arguments needed to run an arangod server of given type.
+func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
 	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile) []string {
 	containerConfFileName := filepath.Join(myContainerDir, confFileName)
 
 	args := make([]string, 0, 40)
 	options := make([]optionPair, 0, 32)
-	var executable string
-	switch serverType.ProcessType() {
-	case ProcessTypeArangod:
-		executable = config.ArangodPath
-	case ProcessTypeArangoSync:
-		executable = config.ArangoSyncPath
-	default:
-		return nil
-	}
-
+	executable := config.ArangodPath
 	jsStartup := config.ArangodJSPath
 	if config.RrPath != "" {
 		args = append(args, config.RrPath)
@@ -275,28 +240,4 @@ func createServerArgs(log *logging.Logger, config Config, clusterConfig ClusterC
 		}
 	}
 	return args
-}
-
-// writeCommand writes the command used to start a server in a file with given path.
-func writeCommand(log *logging.Logger, filename string, executable string, args []string) {
-	content := strings.Join(args, " \\\n") + "\n"
-	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		if err := ioutil.WriteFile(filename, []byte(content), 0755); err != nil {
-			log.Errorf("Failed to write command to %s: %#v", filename, err)
-		}
-	}
-}
-
-// addVolume extends the list of volumes with given host+container pair if running on linux.
-func addVolume(configVolumes []Volume, hostPath, containerPath string, readOnly bool) []Volume {
-	if runtime.GOOS == "linux" {
-		return []Volume{
-			Volume{
-				HostPath:      hostPath,
-				ContainerPath: containerPath,
-				ReadOnly:      readOnly,
-			},
-		}
-	}
-	return configVolumes
 }

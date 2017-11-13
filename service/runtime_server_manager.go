@@ -114,19 +114,27 @@ func startServer(log *logging.Logger, runtimeContext runtimeServerManagerContext
 
 	log.Infof("Starting %s on port %d", serverType, myPort)
 	myContainerDir := runner.GetContainerDir(myHostDir, dockerDataDir)
-	// Create/read arangod.conf
-	confVolumes, arangodConfig, err := createArangodConf(log, bsCfg, myHostDir, myContainerDir, strconv.Itoa(myPort), serverType)
-	if err != nil {
-		return nil, false, maskAny(err)
-	}
-	// Create server command line arguments
 	processType := serverType.ProcessType()
+	// Create/read arangod.conf
+	var confVolumes []Volume
+	var arangodConfig configFile
+	if processType == ProcessTypeArangod {
+		var err error
+		confVolumes, arangodConfig, err = createArangodConf(log, bsCfg, myHostDir, myContainerDir, strconv.Itoa(myPort), serverType)
+		if err != nil {
+			return nil, false, maskAny(err)
+		}
+	}
+	// Collect volumes
+	v := collectServerConfigVolumes(serverType, arangodConfig)
+	confVolumes = append(confVolumes, v...)
+
+	// Create server command line arguments
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
 	args := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig)
 	writeCommand(log, filepath.Join(myHostDir, processType.CommandFileName()), config.serverExecutable(processType), args)
 	// Collect volumes
-	configVolumes := collectConfigVolumes(arangodConfig)
-	vols := addVolume(append(confVolumes, configVolumes...), myHostDir, myContainerDir, false)
+	vols := addVolume(confVolumes, myHostDir, myContainerDir, false)
 	// Start process/container
 	containerNamePrefix := ""
 	if config.DockerContainerName != "" {

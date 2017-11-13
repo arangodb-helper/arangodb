@@ -166,14 +166,15 @@ func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
 
 // Service implements the actual starter behavior of the ArangoDB starter.
 type Service struct {
-	cfg                Config
-	id                 string      // Unique identifier of this peer
-	mode               ServiceMode // Service mode cluster|single
-	startedLocalSlaves bool
-	jwtSecret          string // JWT secret used for arangod communication
-	sslKeyFile         string // Path containing an x509 certificate + private key to be used by the servers.
-	log                *logging.Logger
-	stopPeer           struct {
+	cfg                       Config
+	id                        string      // Unique identifier of this peer
+	mode                      ServiceMode // Service mode cluster|single
+	startedLocalSlaves        bool
+	jwtSecret                 string // JWT secret used for arangod communication
+	arangosyncMonitoringToken string // Token used for accessing arangosync
+	sslKeyFile                string // Path containing an x509 certificate + private key to be used by the servers.
+	log                       *logging.Logger
+	stopPeer                  struct {
 		ctx     context.Context    // Context to wait on for stopping the entire peer
 		trigger context.CancelFunc // Triggers a stop of the entire peer
 	}
@@ -483,7 +484,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 				},
 			}
 		}
-		makeVersionRequest := func() (string, int, error) {
+		makeArangodVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
 			req, err := http.NewRequest("GET", url, nil)
@@ -510,7 +511,48 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 			}
 			return versionResponse.Version, resp.StatusCode, nil
 		}
+		makeArangoSyncVersionRequest := func() (string, int, error) {
+			addr := net.JoinHostPort(address, strconv.Itoa(port))
+			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				return "", -1, maskAny(err)
+			}
+			if err := addBearerTokenHeader(req, s.arangosyncMonitoringToken); err != nil {
+				return "", -2, maskAny(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return "", -3, maskAny(err)
+			}
+			if resp.StatusCode != 200 {
+				return "", resp.StatusCode, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+			}
+			versionResponse := struct {
+				Version string `json:"version"`
+				Build   string `json:"build"`
+			}{}
+			defer resp.Body.Close()
+			decoder := json.NewDecoder(resp.Body)
+			if err := decoder.Decode(&versionResponse); err != nil {
+				return "", -4, maskAny(fmt.Errorf("Unexpected version response: %#v", err))
+			}
+			return versionResponse.Version, resp.StatusCode, nil
+		}
+		makeVersionRequest := func() (string, int, error) {
+			switch serverType.ProcessType() {
+			case ProcessTypeArangod:
+				return makeArangodVersionRequest()
+			case ProcessTypeArangoSync:
+				return makeArangoSyncVersionRequest()
+			default:
+				return "", 0, maskAny(fmt.Errorf("Unknown process type '%s'", serverType.ProcessType()))
+			}
+		}
 		makeRoleRequest := func() (string, string, int, error) {
+			if serverType.ProcessType() == ProcessTypeArangoSync {
+				return "", "", 200, nil
+			}
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 			url := fmt.Sprintf("%s://%s/_admin/server/role", scheme, addr)
 			req, err := http.NewRequest("GET", url, nil)
