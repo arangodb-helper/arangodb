@@ -304,6 +304,7 @@ func findExecutable() {
 	case "linux":
 		pathList = append(pathList,
 			"/usr/sbin/arangod",
+			"/usr/local/sbin/arangod",
 		)
 	}
 	// Add local folder to search path
