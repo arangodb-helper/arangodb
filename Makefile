@@ -8,6 +8,7 @@ VERSION_MAJOR_MINOR_PATCH := $(shell echo $(VERSION) | cut -f 1 -d '+')
 VERSION_MAJOR_MINOR := $(shell echo $(VERSION_MAJOR_MINOR_PATCH) | cut -f 1,2 -d '.')
 VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
+MAKEFILE := $(ROOTDIR)/Makefile
 
 ifndef NODOCKER
 	DOCKERCLI := $(shell which docker)
@@ -74,9 +75,9 @@ clean:
 
 local:
 ifneq ("$(DOCKERCLI)", "")
-	@${MAKE} -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) build-local
+	@${MAKE} -f $(MAKEFILE) -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) build-local
 else
-	@${MAKE} deps
+	@${MAKE} -f $(MAKEFILE) deps
 	GOPATH=$(GOBUILDDIR) go build -o $(BUILDDIR)/arangodb $(REPOPATH)
 endif
 
@@ -86,12 +87,12 @@ build-local: build
 	@ln -sf $(BIN) $(ROOTDIR)/arangodb
 
 binaries: $(GHRELEASE)
-	@${MAKE} -B GOOS=linux GOARCH=amd64 build
-	@${MAKE} -B GOOS=darwin GOARCH=amd64 build
-	@${MAKE} -B GOOS=windows GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
 
 deps:
-	@${MAKE} -B SCRIPTDIR=$(SCRIPTDIR) BUILDDIR=$(BUILDDIR) -s $(GOBUILDDIR)
+	@${MAKE} -f $(MAKEFILE) -B SCRIPTDIR=$(SCRIPTDIR) BUILDDIR=$(BUILDDIR) -s $(GOBUILDDIR)
 
 $(GOBUILDDIR):
 	@mkdir -p $(ORGDIR)
