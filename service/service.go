@@ -444,9 +444,16 @@ type StatusItem struct {
 	Duration       time.Duration
 }
 
+type instanceUpInfo struct {
+	Version string
+	Role    string
+	Mode    string
+}
+
 // TestInstance checks the `up` status of an arangod server instance.
-func (s *Service) TestInstance(ctx context.Context, address string, port int, statusChanged chan StatusItem) (up bool, version string, statusTrail []int, cancelled bool) {
-	instanceUp := make(chan string)
+func (s *Service) TestInstance(ctx context.Context, address string, port int,
+	expectedRole, expectedMode string, statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool) {
+	instanceUp := make(chan instanceUpInfo)
 	statusCodes := make(chan int)
 	if statusChanged != nil {
 		defer close(statusChanged)
@@ -464,7 +471,7 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 				},
 			}
 		}
-		makeRequest := func() (string, int, error) {
+		makeVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
 			req, err := http.NewRequest("GET", url, nil)
@@ -491,24 +498,63 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 			}
 			return versionResponse.Version, resp.StatusCode, nil
 		}
+		makeRoleRequest := func() (string, string, int, error) {
+			addr := net.JoinHostPort(address, strconv.Itoa(port))
+			url := fmt.Sprintf("%s://%s/_admin/server/role", scheme, addr)
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				return "", "", -1, maskAny(err)
+			}
+			if err := addJwtHeader(req, s.jwtSecret); err != nil {
+				return "", "", -2, maskAny(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return "", "", -3, maskAny(err)
+			}
+			if resp.StatusCode != 200 {
+				return "", "", resp.StatusCode, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+			}
+			roleResponse := struct {
+				Role string `json:"role,omitempty"`
+				Mode string `json:"mode,omitempty"`
+			}{}
+			defer resp.Body.Close()
+			decoder := json.NewDecoder(resp.Body)
+			if err := decoder.Decode(&roleResponse); err != nil {
+				return "", "", -4, maskAny(fmt.Errorf("Unexpected role response: %#v", err))
+			}
+			return roleResponse.Role, roleResponse.Mode, resp.StatusCode, nil
+		}
 
 		for i := 0; i < 300; i++ {
-			if version, statusCode, err := makeRequest(); err == nil {
-				instanceUp <- version
+			if version, statusCode, err := makeVersionRequest(); err == nil {
+				if role, mode, statusCode, err := makeRoleRequest(); err == nil {
+					instanceUp <- instanceUpInfo{
+						Version: version,
+						Role:    role,
+						Mode:    mode,
+					}
+				} else {
+					statusCodes <- statusCode
+				}
 				break
 			} else {
 				statusCodes <- statusCode
 			}
 			time.Sleep(time.Millisecond * 500)
 		}
-		instanceUp <- ""
+		instanceUp <- instanceUpInfo{}
 	}()
 	statusTrail = make([]int, 0, 16)
 	startTime := time.Now()
 	for {
 		select {
-		case version := <-instanceUp:
-			return version != "", version, statusTrail, false
+		case instanceInfo := <-instanceUp:
+			up = instanceInfo.Version != ""
+			correctRole = instanceInfo.Role == expectedRole || expectedRole == ""
+			correctMode := instanceInfo.Mode == expectedMode || expectedMode == ""
+			return up, correctRole && correctMode, instanceInfo.Version, instanceInfo.Role, instanceInfo.Mode, statusTrail, false
 		case statusCode := <-statusCodes:
 			lastStatusCode := math.MinInt32
 			if len(statusTrail) > 0 {
@@ -525,7 +571,7 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int, st
 				}
 			}
 		case <-ctx.Done():
-			return false, "", statusTrail, true
+			return false, false, "", "", "", statusTrail, true
 		}
 	}
 }

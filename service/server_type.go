@@ -53,3 +53,21 @@ func (s ServerType) PortOffset() int {
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
 	}
 }
+
+// ExpectedServerRole returns the expected `role` & `mode` value resulting from a request to `_admin/server/role`.
+func (s ServerType) ExpectedServerRole() (string, string) {
+	switch s {
+	case ServerTypeCoordinator:
+		return "COORDINATOR", ""
+	case ServerTypeSingle:
+		return "SINGLE", ""
+	case ServerTypeResilientSingle:
+		return "SINGLE", "resilient"
+	case ServerTypeDBServer:
+		return "PRIMARY", ""
+	case ServerTypeAgent:
+		return "AGENT", ""
+	default:
+		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
+	}
+}
