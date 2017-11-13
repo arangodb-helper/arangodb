@@ -136,7 +136,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 				allUp := true
 				for _, server := range list.Servers {
 					ctx, cancel := context.WithTimeout(rootCtx, time.Second)
-					up, _, _, _ := service.TestInstance(ctx, server.IP, server.Port, nil)
+					up, _, _, _, _, _, _ := service.TestInstance(ctx, server.IP, server.Port, "", "", nil)
 					cancel()
 					if !up {
 						allUp = false
