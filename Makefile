@@ -1,16 +1,29 @@
 PROJECT := arangodb
-SCRIPTDIR := $(shell pwd)
+ifndef SCRIPTDIR
+	SCRIPTDIR := $(shell pwd)
+endif
 ROOTDIR := $(shell cd $(SCRIPTDIR) && pwd)
 VERSION := $(shell cat $(ROOTDIR)/VERSION)
 VERSION_MAJOR_MINOR_PATCH := $(shell echo $(VERSION) | cut -f 1 -d '+')
 VERSION_MAJOR_MINOR := $(shell echo $(VERSION_MAJOR_MINOR_PATCH) | cut -f 1,2 -d '.')
 VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
-DOCKERCLI := $(shell which docker)
+MAKEFILE := $(ROOTDIR)/Makefile
 
-GOBUILDDIR := $(SCRIPTDIR)/.gobuild
+ifndef NODOCKER
+	DOCKERCLI := $(shell which docker)
+	GOBUILDLINKTARGET := ../../../..
+else
+	DOCKERCLI := 
+	GOBUILDLINKTARGET := $(ROOTDIR)
+endif
+
+ifndef BUILDDIR
+	BUILDDIR := $(ROOTDIR)
+endif
+GOBUILDDIR := $(BUILDDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
-BINDIR := $(ROOTDIR)/bin
+BINDIR := $(BUILDDIR)/bin
 
 ORGPATH := github.com/arangodb-helper
 ORGDIR := $(GOBUILDDIR)/src/$(ORGPATH)
@@ -62,10 +75,10 @@ clean:
 
 local:
 ifneq ("$(DOCKERCLI)", "")
-	@${MAKE} -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) build-local
+	@${MAKE} -f $(MAKEFILE) -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) build-local
 else
-	@${MAKE} deps
-	GOPATH=$(GOBUILDDIR) go build -o arangodb $(REPOPATH)
+	@${MAKE} -f $(MAKEFILE) deps
+	GOPATH=$(GOBUILDDIR) go build -o $(BUILDDIR)/arangodb $(REPOPATH)
 endif
 
 build: $(BIN)
@@ -74,16 +87,16 @@ build-local: build
 	@ln -sf $(BIN) $(ROOTDIR)/arangodb
 
 binaries: $(GHRELEASE)
-	@${MAKE} -B GOOS=linux GOARCH=amd64 build
-	@${MAKE} -B GOOS=darwin GOARCH=amd64 build
-	@${MAKE} -B GOOS=windows GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
 
 deps:
-	@${MAKE} -B -s $(GOBUILDDIR)
+	@${MAKE} -f $(MAKEFILE) -B SCRIPTDIR=$(SCRIPTDIR) BUILDDIR=$(BUILDDIR) -s $(GOBUILDDIR)
 
 $(GOBUILDDIR):
 	@mkdir -p $(ORGDIR)
-	@rm -f $(REPODIR) && ln -s ../../../.. $(REPODIR)
+	@rm -f $(REPODIR) && ln -s $(GOBUILDLINKTARGET) $(REPODIR)
 	@rm -f $(GOBUILDDIR)/src/github.com/aktau && ln -s ../../../vendor/github.com/aktau $(GOBUILDDIR)/src/github.com/aktau
 	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../vendor/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
 	@rm -f $(GOBUILDDIR)/src/github.com/kballard && ln -s ../../../vendor/github.com/kballard $(GOBUILDDIR)/src/github.com/kballard

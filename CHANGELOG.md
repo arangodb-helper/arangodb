@@ -1,5 +1,7 @@
-# Changed from version 0.10.2 to master
+# Changes from version 0.10.2 to master
 
+- Support building in a directory other than the source directory. Set `BUILDDIR` (#98).
+- Testing a server instance now includes testing for the expected server role.
 - On linux, also look for `arangod` in `/usr/local/sbin` (#93).
 
 # Changes from version 0.10.1 to 0.10.2
