@@ -60,7 +60,8 @@ type runtimeServerManagerContext interface {
 	serverHostDir(serverType ServerType) (string, error)
 
 	// TestInstance checks the `up` status of an arangod server instance.
-	TestInstance(ctx context.Context, serverType ServerType, address string, port int, statusChanged chan StatusItem) (up bool, version string, statusTrail []int, cancelled bool)
+	TestInstance(ctx context.Context, serverType ServerType, address string, port int,
+		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool)
 
 	// IsLocalSlave returns true if this peer is running as a local slave
 	IsLocalSlave() bool
@@ -92,13 +93,17 @@ func startServer(log *logging.Logger, runtimeContext runtimeServerManagerContext
 	if p != nil {
 		log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		up, _, _, _ := runtimeContext.TestInstance(ctx, serverType, myHostAddress, myPort, nil)
+		up, correctRole, _, _, _, _, _ := runtimeContext.TestInstance(ctx, serverType, myHostAddress, myPort, nil)
 		cancel()
-		if up {
+		if up && correctRole {
 			log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
 			return p, false, nil
+		} else if !up {
+			log.Infof("%s is not up on port %d. Terminating existing process and restarting it...", serverType, myPort)
+		} else if !correctRole {
+			expectedRole, expectedMode := serverType.ExpectedServerRole()
+			log.Infof("%s is not of role '%s.%s' on port %d. Terminating existing process and restarting it...", serverType, expectedRole, expectedMode, myPort)
 		}
-		log.Infof("%s is not up on port %d. Terminating existing process and restarting it...", serverType, myPort)
 		p.Terminate()
 	}
 
@@ -221,8 +226,8 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 						}
 					}
 				}()
-				if up, version, statusTrail, cancelled := runtimeContext.TestInstance(ctx, serverType, myHostAddress, port, statusChanged); !cancelled {
-					if up {
+				if up, correctRole, version, role, mode, statusTrail, cancelled := runtimeContext.TestInstance(ctx, serverType, myHostAddress, port, statusChanged); !cancelled {
+					if up && correctRole {
 						log.Infof("%s up and running (version %s).", serverType, version)
 						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle || serverType == ServerTypeResilientSingle {
 							hostPort, err := p.HostPort(port)
@@ -245,8 +250,11 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 								s.logMutex.Unlock()
 							}
 						}
-					} else {
+					} else if !up {
 						log.Warningf("%s not ready after 5min!: Status trail: %#v", serverType, statusTrail)
+					} else if !correctRole {
+						expectedRole, expectedMode := serverType.ExpectedServerRole()
+						log.Warningf("%s does not have the expected role of '%s,%s' (but '%s,%s'): Status trail: %#v", serverType, expectedRole, expectedMode, role, mode, statusTrail)
 					}
 				}
 			}()

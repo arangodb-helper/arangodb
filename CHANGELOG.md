@@ -1,3 +1,8 @@
+# Changes from version 0.10.2 to master
+
+- Support building in a directory other than the source directory. Set `BUILDDIR` (#98).
+- Testing a server instance now includes testing for the expected server role.
+
 # Changes from version 0.10.1 to 0.10.2
 
 - Starting with mode `resilientsingle` and `--starter.local` will no longer limit
