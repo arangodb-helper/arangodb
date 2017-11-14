@@ -57,6 +57,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
 		optionPair{"--server.port", myPort},
 		optionPair{"--master.jwtSecret", config.SyncMasterJWTSecret},
+		optionPair{"--monitoring.token", config.SyncMonitoringToken},
 	)
 	if config.DebugCluster {
 		options = append(options,

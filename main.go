@@ -35,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
 	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
@@ -119,6 +120,7 @@ var (
 	enableSync               bool
 	syncMasterEndpoints      []string
 	syncMasterJWTSecret      string
+	syncMonitoringToken      string
 
 	maskAny = errors.WithStack
 )
@@ -183,6 +185,7 @@ func init() {
 	f.StringVar(&syncMasterJWTSecret, "sync.master-jwtSecret", "", "JWT secret used for authentication with local sync master")
 	f.BoolSliceVar(&startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
 	f.BoolSliceVar(&startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
+	f.StringVar(&syncMonitoringToken, "sync.monitoring-token", "", "Bearer token used to access ArangoSync monitoring endpoints")
 
 	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
@@ -537,6 +540,9 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		if startWorker && len(syncMasterEndpoints) == 0 {
 			log.Fatalf("Error: sync.master-endpoint is missing")
 		}
+		if syncMonitoringToken == "" {
+			syncMonitoringToken = uniuri.New()
+		}
 	} else {
 		startSyncMaster = []bool{false}
 		startSyncWorker = []bool{false}
@@ -592,6 +598,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		SyncEnabled:           enableSync,
 		SyncMasterEndpoints:   syncMasterEndpoints,
 		SyncMasterJWTSecret:   syncMasterJWTSecret,
+		SyncMonitoringToken:   syncMonitoringToken,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)

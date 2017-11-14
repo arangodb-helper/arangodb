@@ -78,6 +78,7 @@ type Config struct {
 	SyncEnabled         bool     // If set, arangosync servers are activated
 	SyncMasterEndpoints []string // Endpoints of local sync masters
 	SyncMasterJWTSecret string   // JWT secret (not file) of local sync masters
+	SyncMonitoringToken string   // Bearer token used for arangosync --monitoring.token
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -170,15 +171,14 @@ func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
 
 // Service implements the actual starter behavior of the ArangoDB starter.
 type Service struct {
-	cfg                       Config
-	id                        string      // Unique identifier of this peer
-	mode                      ServiceMode // Service mode cluster|single
-	startedLocalSlaves        bool
-	jwtSecret                 string // JWT secret used for arangod communication
-	arangosyncMonitoringToken string // Token used for accessing arangosync
-	sslKeyFile                string // Path containing an x509 certificate + private key to be used by the servers.
-	log                       *logging.Logger
-	stopPeer                  struct {
+	cfg                Config
+	id                 string      // Unique identifier of this peer
+	mode               ServiceMode // Service mode cluster|single
+	startedLocalSlaves bool
+	jwtSecret          string // JWT secret used for arangod communication
+	sslKeyFile         string // Path containing an x509 certificate + private key to be used by the servers.
+	log                *logging.Logger
+	stopPeer           struct {
 		ctx     context.Context    // Context to wait on for stopping the entire peer
 		trigger context.CancelFunc // Triggers a stop of the entire peer
 	}
@@ -481,15 +481,17 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 	go func() {
 		defer close(instanceUp)
 		defer close(statusCodes)
-		client := &http.Client{Timeout: time.Second * 10}
-		scheme := "http"
-		if s.IsSecure() {
-			scheme = "https"
-			client.Transport = &http.Transport{
+		client := &http.Client{
+			Timeout: time.Second * 10,
+			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: true,
 				},
-			}
+			},
+		}
+		scheme := "http"
+		if s.IsSecure() {
+			scheme = "https"
 		}
 		makeArangodVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
@@ -520,12 +522,12 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 		}
 		makeArangoSyncVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
-			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
+			url := fmt.Sprintf("https://%s/_api/version", addr)
 			req, err := http.NewRequest("GET", url, nil)
 			if err != nil {
 				return "", -1, maskAny(err)
 			}
-			if err := addBearerTokenHeader(req, s.arangosyncMonitoringToken); err != nil {
+			if err := addBearerTokenHeader(req, s.cfg.SyncMonitoringToken); err != nil {
 				return "", -2, maskAny(err)
 			}
 			resp, err := client.Do(req)
