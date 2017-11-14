@@ -79,6 +79,7 @@ type Config struct {
 	SyncMasterEndpoints []string // Endpoints of local sync masters
 	SyncMasterJWTSecret string   // JWT secret (not file) of local sync masters
 	SyncMonitoringToken string   // Bearer token used for arangosync --monitoring.token
+	SyncMetricsEnabled  bool     // Set to enable metrics in arangosync
 
 	ProjectVersion string
 	ProjectBuild   string

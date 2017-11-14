@@ -37,6 +37,7 @@ package service
 import (
 	"net"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	logging "github.com/op/go-logging"
@@ -58,6 +59,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		optionPair{"--server.port", myPort},
 		optionPair{"--master.jwtSecret", config.SyncMasterJWTSecret},
 		optionPair{"--monitoring.token", config.SyncMonitoringToken},
+		optionPair{"--metrics.enabled", strconv.FormatBool(config.SyncMetricsEnabled)},
 	)
 	if config.DebugCluster {
 		options = append(options,
@@ -79,7 +81,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		if len(ptValues) > 0 {
 			log.Warningf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
 		} else {
-			args = append(args, opt.Key, opt.Value)
+			args = append(args, opt.Key+"="+opt.Value)
 		}
 	}
 	for _, ptOpt := range config.PassthroughOptions {
@@ -89,7 +91,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		}
 		// Append all values
 		for _, value := range values {
-			args = append(args, ptOpt.FormattedOptionName(), value)
+			args = append(args, ptOpt.FormattedOptionName()+"="+value)
 		}
 	}
 	return args
