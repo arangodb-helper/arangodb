@@ -226,6 +226,23 @@ func (p ClusterConfig) GetCoordinatorEndpoints() ([]url.URL, error) {
 	return endpoints, nil
 }
 
+// GetSyncMasterEndpoints creates a list of URL's for all sync masters.
+func (p ClusterConfig) GetSyncMasterEndpoints() ([]url.URL, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.AllPeers {
+		if p.HasSyncMaster() {
+			port := p.Port + p.PortOffset + ServerType(ServerTypeSyncMaster).PortOffset()
+			u, err := url.Parse(fmt.Sprintf("https://%s", net.JoinHostPort(p.Address, strconv.Itoa(port))))
+			if err != nil {
+				return nil, maskAny(err)
+			}
+			endpoints = append(endpoints, *u)
+		}
+	}
+	return endpoints, nil
+}
+
 // CreateAgencyAPI creates a client for the agency
 func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error) (arangod.AgencyAPI, error) {
 	// Build endpoint list

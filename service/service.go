@@ -75,11 +75,10 @@ type Config struct {
 	DockerTTY             bool
 	RunningInDocker       bool
 
-	SyncEnabled         bool     // If set, arangosync servers are activated
-	SyncMasterEndpoints []string // Endpoints of local sync masters
-	SyncMasterJWTSecret string   // JWT secret (not file) of local sync masters
-	SyncMonitoringToken string   // Bearer token used for arangosync --monitoring.token
-	SyncMetricsEnabled  bool     // Set to enable metrics in arangosync
+	SyncEnabled            bool   // If set, arangosync servers are activated
+	SyncMasterKeyFile      string // TLS keyfile of local sync master
+	SyncMasterClientCAFile string // CA Certificate used for client certificate verification
+	SyncMonitoringToken    string // Bearer token used for arangosync --monitoring.token
 
 	ProjectVersion string
 	ProjectBuild   string

@@ -118,10 +118,9 @@ var (
 	passthroughOptions       = make(map[string]*service.PassthroughOption)
 	debugCluster             bool
 	enableSync               bool
-	syncMasterEndpoints      []string
-	syncMasterJWTSecret      string
 	syncMonitoringToken      string
-	syncMetricsEnabled       bool
+	syncMasterKeyFile        string // TLS keyfile of local sync master
+	syncMasterClientCAFile   string // CA Certificate used for client certificate verification
 
 	maskAny = errors.WithStack
 )
@@ -182,23 +181,26 @@ func init() {
 	f.StringVar(&sslAutoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
 	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
 
-	f.StringSliceVar(&syncMasterEndpoints, "sync.master-endpoint", nil, "Endpoints of local sync master")
-	f.StringVar(&syncMasterJWTSecret, "sync.master-jwtSecret", "", "JWT secret used for authentication with local sync master")
 	f.BoolSliceVar(&startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
 	f.BoolSliceVar(&startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
-	f.StringVar(&syncMonitoringToken, "sync.monitoring-token", "", "Bearer token used to access ArangoSync monitoring endpoints")
-	f.BoolVar(&syncMetricsEnabled, "sync.metrics-enabled", false, "Set to enable metrics endspoints on ArangoSync instances")
+	f.StringVar(&syncMonitoringToken, "sync.monitoring.token", "", "Bearer token used to access ArangoSync monitoring endpoints")
+	f.StringVar(&syncMasterKeyFile, "sync.server.keyfile", "", "TLS keyfile of local sync master")
+	f.StringVar(&syncMasterClientCAFile, "sync.server.client-cafile", "", "CA Certificate used for client certificate verification")
 
 	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
 	// Setup passthrough arguments
-	getPassthroughOption := func(arg, prefix string) *service.PassthroughOption {
-		arg = arg[len(prefix):]
-		name := strings.TrimSpace(strings.Split(arg, "=")[0])
-		result, found := passthroughOptions[name]
+	getPassthroughOption := func(arg, fullArgPrefix, ptPrefix string, f *pflag.FlagSet) *service.PassthroughOption {
+		nameAndValue := arg[len(fullArgPrefix):]
+		optionName := strings.TrimSpace(strings.Split(nameAndValue, "=")[0])
+		fullOptionName := ptPrefix + "." + optionName
+		if f.Lookup(fullOptionName) != nil {
+			return nil
+		}
+		result, found := passthroughOptions[optionName]
 		if !found {
-			result = &service.PassthroughOption{Name: name}
-			passthroughOptions[name] = result
+			result = &service.PassthroughOption{Name: optionName}
+			passthroughOptions[optionName] = result
 		}
 		return result
 	}
@@ -211,19 +213,22 @@ func init() {
 		{"coordinators", "all coordinator instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Coordinators }},
 		{"dbservers", "all dbserver instances", func(option *service.PassthroughOption) *[]string { return &option.Values.DBServers }},
 		{"agents", "all agent instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Agents }},
-		{"allsync", "all sync instances", func(option *service.PassthroughOption) *[]string { return &option.Values.AllSync }},
+		{"sync", "all sync instances", func(option *service.PassthroughOption) *[]string { return &option.Values.AllSync }},
 		{"syncmasters", "all sync master instances", func(option *service.PassthroughOption) *[]string { return &option.Values.SyncMasters }},
 		{"syncworkers", "all sync worker instances", func(option *service.PassthroughOption) *[]string { return &option.Values.SyncWorkers }},
 	}
 	for _, a := range os.Args {
 		for _, ptPrefix := range passthroughPrefixes {
-			fullPrefix := "--" + ptPrefix.Prefix + "."
-			if strings.HasPrefix(a, fullPrefix) {
-				option := getPassthroughOption(a, fullPrefix)
-				if option.IsForbidden() {
-					log.Fatalf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
+			fullArgPrefix := "--" + ptPrefix.Prefix + "."
+			if strings.HasPrefix(a, fullArgPrefix) {
+				option := getPassthroughOption(a, fullArgPrefix, ptPrefix.Prefix, f)
+				if option != nil {
+					if option.IsForbidden() {
+						log.Fatalf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
+					}
+					fullOptionName := ptPrefix.Prefix + "." + option.Name
+					f.StringSliceVar(ptPrefix.FieldSelector(option), fullOptionName, nil, fmt.Sprintf("Passed through to %s as --%s", ptPrefix.Usage, option.Name))
 				}
-				f.StringSliceVar(ptPrefix.FieldSelector(option), ptPrefix.Prefix+"."+option.Name, nil, fmt.Sprintf("Passed through to %s as --%s", ptPrefix.Usage, option.Name))
 			}
 		}
 	}
@@ -535,13 +540,16 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 			}
 			log.Debugf("Using %s as default arangosync executable.", arangoSyncPath)
 		}
-		if syncMasterJWTSecret == "" {
-			log.Fatalf("Error: sync.master-jwtSecret is missing")
+		if startMaster := optionalBool(startSyncMaster, true); startMaster {
+			if syncMasterKeyFile == "" {
+				log.Fatalf("Error: sync.server.keyfile is missing")
+			}
+			if syncMasterClientCAFile == "" {
+				log.Fatalf("Error: sync.server.client-cafile is missing")
+			}
 		}
-		startWorker := optionalBool(startSyncWorker, true)
-		if startWorker && len(syncMasterEndpoints) == 0 {
-			log.Fatalf("Error: sync.master-endpoint is missing")
-		}
+		/*		if startWorker := optionalBool(startSyncWorker, true); startWorker {
+				}*/
 		if syncMonitoringToken == "" {
 			syncMonitoringToken = uniuri.New()
 		}
@@ -571,37 +579,36 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 	bsCfg.Initialize()
 	serviceConfig := service.Config{
-		ArangodPath:           arangodPath,
-		ArangoSyncPath:        arangoSyncPath,
-		ArangodJSPath:         arangodJSPath,
-		MasterPort:            masterPort,
-		RrPath:                rrPath,
-		DataDir:               dataDir,
-		OwnAddress:            ownAddress,
-		MasterAddresses:       masterAddresses,
-		Verbose:               verbose,
-		ServerThreads:         serverThreads,
-		AllPortOffsetsUnique:  allPortOffsetsUnique,
-		RunningInDocker:       isRunningInDocker(),
-		DockerContainerName:   dockerContainerName,
-		DockerEndpoint:        dockerEndpoint,
-		DockerArangodImage:    dockerArangodImage,
-		DockerArangoSyncImage: dockerArangoSyncImage,
-		DockerImagePullPolicy: imagePullPolicy,
-		DockerStarterImage:    dockerStarterImage,
-		DockerUser:            dockerUser,
-		DockerGCDelay:         dockerGCDelay,
-		DockerNetworkMode:     dockerNetworkMode,
-		DockerPrivileged:      dockerPrivileged,
-		DockerTTY:             dockerTTY,
-		ProjectVersion:        projectVersion,
-		ProjectBuild:          projectBuild,
-		DebugCluster:          debugCluster,
-		SyncEnabled:           enableSync,
-		SyncMasterEndpoints:   syncMasterEndpoints,
-		SyncMasterJWTSecret:   syncMasterJWTSecret,
-		SyncMonitoringToken:   syncMonitoringToken,
-		SyncMetricsEnabled:    syncMetricsEnabled,
+		ArangodPath:            arangodPath,
+		ArangoSyncPath:         arangoSyncPath,
+		ArangodJSPath:          arangodJSPath,
+		MasterPort:             masterPort,
+		RrPath:                 rrPath,
+		DataDir:                dataDir,
+		OwnAddress:             ownAddress,
+		MasterAddresses:        masterAddresses,
+		Verbose:                verbose,
+		ServerThreads:          serverThreads,
+		AllPortOffsetsUnique:   allPortOffsetsUnique,
+		RunningInDocker:        isRunningInDocker(),
+		DockerContainerName:    dockerContainerName,
+		DockerEndpoint:         dockerEndpoint,
+		DockerArangodImage:     dockerArangodImage,
+		DockerArangoSyncImage:  dockerArangoSyncImage,
+		DockerImagePullPolicy:  imagePullPolicy,
+		DockerStarterImage:     dockerStarterImage,
+		DockerUser:             dockerUser,
+		DockerGCDelay:          dockerGCDelay,
+		DockerNetworkMode:      dockerNetworkMode,
+		DockerPrivileged:       dockerPrivileged,
+		DockerTTY:              dockerTTY,
+		ProjectVersion:         projectVersion,
+		ProjectBuild:           projectBuild,
+		DebugCluster:           debugCluster,
+		SyncEnabled:            enableSync,
+		SyncMonitoringToken:    syncMonitoringToken,
+		SyncMasterKeyFile:      syncMasterKeyFile,
+		SyncMasterClientCAFile: syncMasterClientCAFile,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)

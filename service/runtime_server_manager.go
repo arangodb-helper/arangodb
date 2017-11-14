@@ -132,7 +132,10 @@ func startServer(log *logging.Logger, runtimeContext runtimeServerManagerContext
 
 	// Create server command line arguments
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
-	args := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig)
+	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, bsCfg.JwtSecret)
+	if err != nil {
+		return nil, false, maskAny(err)
+	}
 	writeCommand(log, filepath.Join(myHostDir, processType.CommandFileName()), config.serverExecutable(processType), args)
 	// Collect volumes
 	vols := addVolume(confVolumes, myHostDir, myContainerDir, false)

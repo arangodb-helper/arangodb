@@ -40,6 +40,7 @@ type PassthroughOption struct {
 var (
 	// forbiddenPassthroughOptions holds a list of options that are not allowed to be overriden.
 	forbiddenPassthroughOptions = []string{
+		// Arangod
 		"agency.activate",
 		"agency.endpoint",
 		"agency.my-address",
@@ -58,6 +59,10 @@ var (
 		"server.storage-engine",
 		"ssl.cafile",
 		"ssl.keyfile",
+		// ArangoSync
+		"cluster.endpoint",
+		"master.endpoint",
+		"server.endpoint",
 	}
 )
 

@@ -35,9 +35,9 @@ package service
 //
 
 import (
+	"fmt"
 	"net"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	logging "github.com/op/go-logging"
@@ -45,7 +45,7 @@ import (
 
 // createArangoSyncArgs returns the command line arguments needed to run an arangosync server of given type.
 func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
-	myPeerID, myAddress, myPort string, serverType ServerType) []string {
+	myPeerID, myAddress, myPort string, serverType ServerType, clusterJWTSecret string) ([]string, error) {
 
 	options := make([]optionPair, 0, 32)
 	executable := config.ArangoSyncPath
@@ -57,9 +57,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		optionPair{"--log.file", filepath.Join(myContainerDir, arangoSyncLogFileName)},
 		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
 		optionPair{"--server.port", myPort},
-		optionPair{"--master.jwtSecret", config.SyncMasterJWTSecret},
 		optionPair{"--monitoring.token", config.SyncMonitoringToken},
-		optionPair{"--metrics.enabled", strconv.FormatBool(config.SyncMetricsEnabled)},
 	)
 	if config.DebugCluster {
 		options = append(options,
@@ -68,11 +66,36 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 	switch serverType {
 	case ServerTypeSyncMaster:
 		args = append(args, "run", "master")
+		options = append(options,
+			optionPair{"--server.keyfile", config.SyncMasterKeyFile},
+			optionPair{"--server.client-cafile", config.SyncMasterClientCAFile},
+			optionPair{"--cluster.jwtSecret", clusterJWTSecret},
+		)
+		if clusterEPs, err := clusterConfig.GetCoordinatorEndpoints(); err == nil {
+			if len(clusterEPs) == 0 {
+				return nil, maskAny(fmt.Errorf("No cluster coordinators found"))
+			}
+			for _, ep := range clusterEPs {
+				options = append(options,
+					optionPair{"--cluster.endpoint", ep.String()})
+			}
+		} else {
+			log.Errorf("Cannot find coordinator endpoints: %#v", err)
+			return nil, maskAny(err)
+		}
 	case ServerTypeSyncWorker:
 		args = append(args, "run", "worker")
-		for _, ep := range config.SyncMasterEndpoints {
-			options = append(options,
-				optionPair{"--master.endpoint", ep})
+		if syncMasterEPs, err := clusterConfig.GetSyncMasterEndpoints(); err == nil {
+			if len(syncMasterEPs) == 0 {
+				return nil, maskAny(fmt.Errorf("No sync masters found"))
+			}
+			for _, ep := range syncMasterEPs {
+				options = append(options,
+					optionPair{"--master.endpoint", ep.String()})
+			}
+		} else {
+			log.Errorf("Cannot find sync master endpoints: %#v", err)
+			return nil, maskAny(err)
 		}
 	}
 
@@ -91,8 +114,21 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		}
 		// Append all values
 		for _, value := range values {
-			args = append(args, ptOpt.FormattedOptionName()+"="+value)
+			if isOptionSuitableForArangoSyncServer(serverType, ptOpt.Name) {
+				args = append(args, ptOpt.FormattedOptionName()+"="+value)
+			}
 		}
 	}
-	return args
+	return args, nil
+}
+
+func isOptionSuitableForArangoSyncServer(serverType ServerType, optionName string) bool {
+	switch serverType {
+	case ServerTypeSyncMaster:
+	case ServerTypeSyncWorker:
+		if strings.HasPrefix(optionName, "mq.") || strings.HasPrefix(optionName, "cluster.") {
+			return false
+		}
+	}
+	return true
 }
