@@ -53,22 +53,24 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 	}
 
 	options = append(options,
-		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, logFileName))},
+		optionPair{"--log.file", filepath.Join(myContainerDir, arangoSyncLogFileName)},
 		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
 		optionPair{"--server.port", myPort},
+		optionPair{"--master.jwtSecret", config.SyncMasterJWTSecret},
 	)
 	if config.DebugCluster {
 		options = append(options,
 			optionPair{"--log.level", "debug"})
 	}
 	switch serverType {
+	case ServerTypeSyncMaster:
+		args = append(args, "run", "master")
 	case ServerTypeSyncWorker:
+		args = append(args, "run", "worker")
 		for _, ep := range config.SyncMasterEndpoints {
 			options = append(options,
 				optionPair{"--master.endpoint", ep})
 		}
-		options = append(options,
-			optionPair{"--master.jwtSecret", config.SyncMasterJWTSecret})
 	}
 
 	for _, opt := range options {

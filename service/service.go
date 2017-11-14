@@ -222,8 +222,10 @@ const (
 	_portOffsetCoordinator = 1 // Coordinator/single server
 	_portOffsetDBServer    = 2
 	_portOffsetAgent       = 3
-	_portOffsetSyncWorker  = 4
-	portOffsetIncrement    = 5 // {our http server, agent, coordinator, dbserver, reserved}
+	_portOffsetSyncMaster  = 4
+	_portOffsetSyncWorker  = 5
+	portOffsetIncrementOld = 5  // {our http server, agent, coordinator, dbserver, reserved}
+	portOffsetIncrementNew = 10 // {our http server, agent, coordinator, dbserver, syncmaster, syncworker, reserved...}
 )
 
 const (
@@ -232,8 +234,9 @@ const (
 )
 
 const (
-	confFileName = "arangod.conf"
-	logFileName  = "arangod.log"
+	confFileName          = "arangod.conf"
+	arangodLogFileName    = "arangod.log"
+	arangoSyncLogFileName = "arangosync.log"
 )
 
 // IsSecure returns true when the cluster is using SSL for connections, false otherwise.

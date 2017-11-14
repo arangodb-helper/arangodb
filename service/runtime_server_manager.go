@@ -157,6 +157,7 @@ func (s *runtimeServerManager) showRecentLogs(log *logging.Logger, runtimeContex
 		log.Errorf("Cannot find server host dir: %#v", err)
 		return
 	}
+	logFileName := serverType.ProcessType().LogFileName()
 	logPath := filepath.Join(myHostDir, logFileName)
 	logFile, err := os.Open(logPath)
 	if os.IsNotExist(err) {

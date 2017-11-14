@@ -47,3 +47,15 @@ func (s ProcessType) CommandFileName() string {
 		return ""
 	}
 }
+
+// LogFileName returns the name of the log file used by this process
+func (s ProcessType) LogFileName() string {
+	switch s {
+	case ProcessTypeArangod:
+		return arangodLogFileName
+	case ProcessTypeArangoSync:
+		return arangoSyncLogFileName
+	default:
+		return ""
+	}
+}

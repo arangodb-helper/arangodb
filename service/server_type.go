@@ -51,6 +51,10 @@ func (s ServerType) PortOffset() int {
 		return _portOffsetDBServer
 	case ServerTypeAgent:
 		return _portOffsetAgent
+	case ServerTypeSyncMaster:
+		return _portOffsetSyncMaster
+	case ServerTypeSyncWorker:
+		return _portOffsetSyncWorker
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
 	}

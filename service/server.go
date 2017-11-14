@@ -486,6 +486,7 @@ func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverT
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
+	logFileName := serverType.ProcessType().LogFileName()
 	logPath := filepath.Join(myHostDir, logFileName)
 	s.log.Debugf("Fetching logs in %s", logPath)
 	rd, err := os.Open(logPath)

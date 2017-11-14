@@ -149,7 +149,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
 		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
 		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
-		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, logFileName))},
+		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, arangodLogFileName))},
 		optionPair{"--log.force-direct", "false"},
 	)
 	if config.ServerThreads != 0 {

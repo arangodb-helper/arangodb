@@ -112,9 +112,8 @@ func (p Peer) CreateDBServerAPI(prepareRequest func(*http.Request) error) (arang
 			return nil, maskAny(err)
 		}
 		return c.Server()
-	} else {
-		return nil, maskAny(fmt.Errorf("Peer has no dbserver"))
 	}
+	return nil, maskAny(fmt.Errorf("Peer has no dbserver"))
 }
 
 // CreateCoordinatorAPI creates a client for the coordinator of the peer
@@ -131,17 +130,16 @@ func (p Peer) CreateCoordinatorAPI(prepareRequest func(*http.Request) error) (ar
 			return nil, maskAny(err)
 		}
 		return c.Server()
-	} else {
-		return nil, maskAny(fmt.Errorf("Peer has no coordinator"))
 	}
+	return nil, maskAny(fmt.Errorf("Peer has no coordinator"))
 }
 
 // PortRangeOverlaps returns true if the port range of this peer overlaps with a port
 // range starting at given port.
-func (p Peer) PortRangeOverlaps(otherPort int) bool {
-	myStart := p.Port + p.PortOffset                // Inclusive
-	myEnd := myStart + portOffsetIncrement - 1      // Inclusive
-	otherEnd := otherPort + portOffsetIncrement - 1 // Inclusive
+func (p Peer) PortRangeOverlaps(otherPort int, clusterConfig ClusterConfig) bool {
+	myStart := p.Port + p.PortOffset                        // Inclusive
+	myEnd := clusterConfig.NextPortOffset(myStart) - 1      // Inclusive
+	otherEnd := clusterConfig.NextPortOffset(otherPort) - 1 // Inclusive
 
 	return (otherPort >= myStart && otherPort <= myEnd) ||
 		(otherEnd >= myStart && otherEnd <= myEnd)
