@@ -773,15 +773,15 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			if req.Coordinator != nil {
 				hasCoordinator = *req.Coordinator
 			}
-			hasResilientSingle := true
+			hasResilientSingle := s.mode.IsResilientSingleMode()
 			if req.ResilientSingle != nil {
 				hasResilientSingle = *req.ResilientSingle
 			}
-			hasSyncMaster := false // Note the false by default
+			hasSyncMaster := s.mode.SupportsArangoSync() && s.cfg.SyncEnabled
 			if req.SyncMaster != nil {
 				hasSyncMaster = *req.SyncMaster
 			}
-			hasSyncWorker := false // Note the false by default
+			hasSyncWorker := s.mode.SupportsArangoSync() && s.cfg.SyncEnabled
 			if req.SyncWorker != nil {
 				hasSyncWorker = *req.SyncWorker
 			}

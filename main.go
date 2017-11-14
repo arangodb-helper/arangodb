@@ -532,6 +532,10 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 
 	// Check sync settings
 	if enableSync {
+		// Check mode
+		if !service.ServiceMode(mode).SupportsArangoSync() {
+			log.Fatalf("ArangoSync is not supported in combination with mode '%s'\n", mode)
+		}
 		// Check arangosync executable
 		if !runningInDocker {
 			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
