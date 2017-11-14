@@ -58,6 +58,8 @@ type HelloRequest struct {
 	DBServer        *bool  `json:",omitempty"` // If not nil, sets if server gets an dbserver or not. If nil, default handling applies
 	Coordinator     *bool  `json:",omitempty"` // If not nil, sets if server gets an coordinator or not. If nil, default handling applies
 	ResilientSingle *bool  `json:",omitempty"` // If not nil, sets if server gets an resilient single or not. If nil, default handling applies
+	SyncMaster      *bool  `json:",omitempty"` // If not nil, sets if server gets an sync master or not. If nil, default handling applies
+	SyncWorker      *bool  `json:",omitempty"` // If not nil, sets if server gets an sync master or not. If nil, default handling applies
 }
 
 type GoodbyeRequest struct {
@@ -153,6 +155,8 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
 		mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
 		mux.HandleFunc("/logs/single", s.singleLogsHandler)
+		mux.HandleFunc("/logs/syncmaster", s.syncMasterLogsHandler)
+		mux.HandleFunc("/logs/syncworker", s.syncWorkerLogsHandler)
 		mux.HandleFunc("/version", s.versionHandler)
 		mux.HandleFunc("/shutdown", s.shutdownHandler)
 		// Agency callback
@@ -413,7 +417,7 @@ func (s *httpServer) endpointsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// agentLogsHandler servers the entire agent log (if any).
+// agentLogsHandler serves the entire agent log (if any).
 // If there is no agent running a 404 is returned.
 func (s *httpServer) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 	_, myPeer, _ := s.context.ClusterConfig()
@@ -425,7 +429,7 @@ func (s *httpServer) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// dbserverLogsHandler servers the entire dbserver log.
+// dbserverLogsHandler serves the entire dbserver log.
 func (s *httpServer) dbserverLogsHandler(w http.ResponseWriter, r *http.Request) {
 	_, myPeer, _ := s.context.ClusterConfig()
 
@@ -436,7 +440,7 @@ func (s *httpServer) dbserverLogsHandler(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// coordinatorLogsHandler servers the entire coordinator log.
+// coordinatorLogsHandler serves the entire coordinator log.
 func (s *httpServer) coordinatorLogsHandler(w http.ResponseWriter, r *http.Request) {
 	_, myPeer, _ := s.context.ClusterConfig()
 
@@ -447,9 +451,31 @@ func (s *httpServer) coordinatorLogsHandler(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// singleLogsHandler servers the entire single server log.
+// singleLogsHandler serves the entire single server log.
 func (s *httpServer) singleLogsHandler(w http.ResponseWriter, r *http.Request) {
 	s.logsHandler(w, r, ServerTypeSingle)
+}
+
+// syncMasterLogsHandler serves the entire sync master log.
+func (s *httpServer) syncMasterLogsHandler(w http.ResponseWriter, r *http.Request) {
+	_, myPeer, _ := s.context.ClusterConfig()
+
+	if myPeer != nil && myPeer.HasSyncMaster() {
+		s.logsHandler(w, r, ServerTypeSyncMaster)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+// syncWorkerLogsHandler serves the entire sync worker log.
+func (s *httpServer) syncWorkerLogsHandler(w http.ResponseWriter, r *http.Request) {
+	_, myPeer, _ := s.context.ClusterConfig()
+
+	if myPeer != nil && myPeer.HasSyncWorker() {
+		s.logsHandler(w, r, ServerTypeSyncWorker)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
 }
 
 func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverType ServerType) {

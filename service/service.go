@@ -75,6 +75,10 @@ type Config struct {
 	DockerTTY             bool
 	RunningInDocker       bool
 
+	SyncEnabled         bool     // If set, arangosync servers are activated
+	SyncMasterEndpoints []string // Endpoints of local sync masters
+	SyncMasterJWTSecret string   // JWT secret (not file) of local sync masters
+
 	ProjectVersion string
 	ProjectBuild   string
 }
@@ -768,7 +772,18 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			if req.ResilientSingle != nil {
 				hasResilientSingle = *req.ResilientSingle
 			}
-			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, hasResilientSingle, req.IsSecure)
+			hasSyncMaster := false // Note the false by default
+			if req.SyncMaster != nil {
+				hasSyncMaster = *req.SyncMaster
+			}
+			hasSyncWorker := false // Note the false by default
+			if req.SyncWorker != nil {
+				hasSyncWorker = *req.SyncWorker
+			}
+			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir,
+				hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
+				hasSyncMaster, hasSyncWorker,
+				req.IsSecure)
 			s.myPeers.AddPeer(newPeer)
 			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
 		}

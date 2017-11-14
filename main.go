@@ -52,6 +52,8 @@ const (
 	projectName               = "arangodb"
 	defaultDockerGCDelay      = time.Minute * 10
 	defaultDockerStarterImage = "arangodb/arangodb-starter"
+	defaultArangodPath        = "/usr/sbin/arangod"
+	defaultArangoSyncPath     = "/usr/sbin/arangosync"
 )
 
 var (
@@ -81,6 +83,7 @@ var (
 	startDBserver            []bool
 	startCoordinator         []bool
 	startResilientSingle     []bool
+	startSyncMaster          []bool
 	startSyncWorker          []bool
 	startLocalSlaves         bool
 	mode                     string
@@ -113,6 +116,9 @@ var (
 	dockerTTY                bool
 	passthroughOptions       = make(map[string]*service.PassthroughOption)
 	debugCluster             bool
+	enableSync               bool
+	syncMasterEndpoints      []string
+	syncMasterJWTSecret      string
 
 	maskAny = errors.WithStack
 )
@@ -134,6 +140,7 @@ func init() {
 	f.StringVar(&dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
 	f.BoolVar(&debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
+	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
 
 	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 
@@ -142,10 +149,9 @@ func init() {
 	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
 	f.BoolSliceVar(&startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
 	f.BoolSliceVar(&startResilientSingle, "cluster.start-single", nil, "should a (resilient) single server instance be started")
-	f.BoolSliceVar(&startSyncWorker, "cluster.start-syncworker", nil, "should an ArangoSync worker instance be started")
 
-	f.StringVar(&arangodPath, "server.arangod", "/usr/sbin/arangod", "Path of arangod")
-	f.StringVar(&arangoSyncPath, "server.arangosync", "/usr/sbin/arangosync", "Path of arangosync")
+	f.StringVar(&arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
+	f.StringVar(&arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
 	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
@@ -154,7 +160,7 @@ func init() {
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&dockerArangodImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
-	f.StringVar(&dockerArangoSyncImage, "docker.arangosync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
+	f.StringVar(&dockerArangoSyncImage, "docker.sync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
 	f.StringVar(&dockerImagePullPolicy, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
 	f.StringVar(&dockerUser, "docker.user", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainerName, "docker.container", "", "name of the docker container that is running this process")
@@ -172,6 +178,11 @@ func init() {
 	f.BoolVar(&sslAutoKeyFile, "ssl.auto-key", false, "If set, a self-signed certificate will be created and used as --ssl.keyfile")
 	f.StringVar(&sslAutoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
 	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
+
+	f.StringSliceVar(&syncMasterEndpoints, "sync.master-endpoint", nil, "Endpoints of local sync master")
+	f.StringVar(&syncMasterJWTSecret, "sync.master-jwtSecret", "", "JWT secret used for authentication with local sync master")
+	f.BoolSliceVar(&startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
+	f.BoolSliceVar(&startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
 
 	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
@@ -195,6 +206,9 @@ func init() {
 		{"coordinators", "all coordinator instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Coordinators }},
 		{"dbservers", "all dbserver instances", func(option *service.PassthroughOption) *[]string { return &option.Values.DBServers }},
 		{"agents", "all agent instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Agents }},
+		{"sync", "all sync instances", func(option *service.PassthroughOption) *[]string { return &option.Values.AllSync }},
+		{"syncmasters", "all sync master instances", func(option *service.PassthroughOption) *[]string { return &option.Values.SyncMasters }},
+		{"syncworkers", "all sync worker instances", func(option *service.PassthroughOption) *[]string { return &option.Values.SyncWorkers }},
 	}
 	for _, a := range os.Args {
 		for _, ptPrefix := range passthroughPrefixes {
@@ -271,7 +285,9 @@ func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
 }
 
-func findExecutable(processName string) (executablePath, jsPath string) {
+// findExecutable uses a platform dependent approach to find an executable
+// with given process name.
+func findExecutable(processName, defaultPath string) (executablePath string, isBuild bool) {
 	var pathList = make([]string, 0, 10)
 	pathList = append(pathList, "build/bin/"+processName)
 	switch runtime.GOOS {
@@ -310,6 +326,7 @@ func findExecutable(processName string) (executablePath, jsPath string) {
 	case "linux":
 		pathList = append(pathList,
 			"/usr/sbin/"+processName,
+			"/usr/local/sbin/"+processName,
 		)
 	}
 	// Add local folder to search path
@@ -322,22 +339,31 @@ func findExecutable(processName string) (executablePath, jsPath string) {
 	for _, p := range pathList {
 		if _, e := os.Stat(filepath.Clean(filepath.FromSlash(p))); e == nil || !os.IsNotExist(e) {
 			executablePath, _ = filepath.Abs(filepath.FromSlash(p))
-			if p == "build/bin/arangod" {
-				jsPath, _ = filepath.Abs("js")
-			} else {
-				jsPath, _ = filepath.Abs(filepath.FromSlash(filepath.Dir(p) + "/../share/arangodb3/js"))
-			}
+			isBuild = p == "build/bin/arangod"
 			return
 		}
 	}
 
-	return "", ""
+	return defaultPath, false
+}
+
+// findJSDir returns the JS directory to match the given executable path.
+func findJSDir(executablePath string, isBuild bool) (jsPath string) {
+	if isBuild {
+		jsPath, _ = filepath.Abs("js")
+	} else {
+		relPath := filepath.Join(filepath.Dir(executablePath), "../share/arangodb3/js")
+		jsPath, _ = filepath.Abs(relPath)
+	}
+	return
 }
 
 func main() {
 	// Find executable and jsdir default in a platform dependent way:
-	arangodPath, arangodJSPath = findExecutable("arangod")
-	arangoSyncPath, _ = findExecutable("arangosync")
+	var isBuild bool
+	arangodPath, isBuild = findExecutable("arangod", defaultArangodPath)
+	arangodJSPath = findJSDir(arangodPath, isBuild)
+	arangoSyncPath, _ = findExecutable("arangosync", defaultArangoSyncPath)
 
 	cmdMain.Execute()
 }
@@ -494,30 +520,26 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		log.Infof("Using self-signed certificate: %s", sslKeyFile)
 	}
 
-	getOptionalBool := func(flagName string, v []bool) *bool {
-		switch len(v) {
-		case 0:
-			return nil
-		case 1:
-			x := v[0]
-			return &x
-		default:
-			log.Fatalf("Expected 0 or 1 %s options, got %d", flagName, len(v))
-			return nil
-		}
-	}
-
 	// Check sync settings
-	doStartSyncWorker := getOptionalBool("cluster.start-syncworker", startSyncWorker)
-	if doStartSyncWorker != nil && *doStartSyncWorker {
+	if enableSync {
 		// Check arangosync executable
 		if !runningInDocker {
 			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
 				log.Errorf("Cannot find arangosync (expected at %s).", arangoSyncPath)
-				log.Fatal("Please install ArangoDB locally or run the ArangoDB starter in docker (see README for details).")
+				log.Fatal("Please install ArangoSync locally or run the ArangoDB starter in docker (see README for details).")
 			}
 			log.Debugf("Using %s as default arangosync executable.", arangoSyncPath)
 		}
+		if syncMasterJWTSecret == "" {
+			log.Fatalf("Error: sync.master-jwtSecret is missing")
+		}
+		startWorker := optionalBool(startSyncWorker, true)
+		if startWorker && len(syncMasterEndpoints) == 0 {
+			log.Fatalf("Error: sync.master-endpoint is missing")
+		}
+	} else {
+		startSyncMaster = []bool{false}
+		startSyncWorker = []bool{false}
 	}
 
 	// Create service
@@ -526,11 +548,12 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		Mode:                     service.ServiceMode(mode),
 		AgencySize:               agencySize,
 		StartLocalSlaves:         startLocalSlaves,
-		StartAgent:               getOptionalBool("cluster.start-agent", startAgent),
-		StartDBserver:            getOptionalBool("cluster.start-dbserver", startDBserver),
-		StartCoordinator:         getOptionalBool("cluster.start-coordinator", startCoordinator),
-		StartResilientSingle:     getOptionalBool("cluster.start-single", startResilientSingle),
-		StartSyncWorker:          doStartSyncWorker,
+		StartAgent:               mustGetOptionalBoolRef("cluster.start-agent", startAgent),
+		StartDBserver:            mustGetOptionalBoolRef("cluster.start-dbserver", startDBserver),
+		StartCoordinator:         mustGetOptionalBoolRef("cluster.start-coordinator", startCoordinator),
+		StartResilientSingle:     mustGetOptionalBoolRef("cluster.start-single", startResilientSingle),
+		StartSyncMaster:          mustGetOptionalBoolRef("sync.start-master", startSyncMaster),
+		StartSyncWorker:          mustGetOptionalBoolRef("sync.start-worker", startSyncWorker),
 		ServerStorageEngine:      serverStorageEngine,
 		JwtSecret:                jwtSecret,
 		SslKeyFile:               sslKeyFile,
@@ -566,6 +589,9 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		ProjectVersion:        projectVersion,
 		ProjectBuild:          projectBuild,
 		DebugCluster:          debugCluster,
+		SyncEnabled:           enableSync,
+		SyncMasterEndpoints:   syncMasterEndpoints,
+		SyncMasterJWTSecret:   syncMasterJWTSecret,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
@@ -592,4 +618,30 @@ func mustExpand(s string) string {
 		log.Fatalf("Cannot expand '%s': %#v", s, err)
 	}
 	return result
+}
+
+// mustGetOptionalBoolRef returns a reference to a boolean based on given
+// slice with either 0 or 1 elements.
+// 0 elements -> nil
+// 1 elements -> &element[0]
+func mustGetOptionalBoolRef(flagName string, v []bool) *bool {
+	switch len(v) {
+	case 0:
+		return nil
+	case 1:
+		x := v[0]
+		return &x
+	default:
+		log.Fatalf("Expected 0 or 1 %s options, got %d", flagName, len(v))
+		return nil
+	}
+}
+
+// optionalBool returns either the first element of the given slice
+// or the given default value if the slice is empty.
+func optionalBool(v []bool, defaultValue bool) bool {
+	if len(v) == 0 {
+		return defaultValue
+	}
+	return v[0]
 }

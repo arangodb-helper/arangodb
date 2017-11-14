@@ -44,6 +44,7 @@ type runtimeServerManager struct {
 	dbserverProc    Process
 	coordinatorProc Process
 	singleProc      Process
+	syncMasterProc  Process
 	syncWorkerProc  Process
 	stopping        bool
 }
@@ -338,6 +339,11 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeCoordinator, &s.coordinatorProc)
 		}
 
+		// Start sync master
+		if bsCfg.StartSyncMaster == nil || *bsCfg.StartSyncMaster {
+			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSyncMaster, &s.syncMasterProc)
+		}
+
 		// Start sync worker
 		if bsCfg.StartSyncWorker == nil || *bsCfg.StartSyncWorker {
 			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSyncWorker, &s.syncWorkerProc)
@@ -366,6 +372,9 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 	if p := s.syncWorkerProc; p != nil {
 		terminateProcess(log, p, "sync worker", time.Minute)
 	}
+	if p := s.syncMasterProc; p != nil {
+		terminateProcess(log, p, "sync master", time.Minute)
+	}
 	if p := s.singleProc; p != nil {
 		terminateProcess(log, p, "single server", time.Minute)
 	}
@@ -384,6 +393,11 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 	if p := s.syncWorkerProc; p != nil {
 		if err := p.Cleanup(); err != nil {
 			log.Warningf("Failed to cleanup sync worker: %v", err)
+		}
+	}
+	if p := s.syncMasterProc; p != nil {
+		if err := p.Cleanup(); err != nil {
+			log.Warningf("Failed to cleanup sync master: %v", err)
 		}
 	}
 	if p := s.singleProc; p != nil {

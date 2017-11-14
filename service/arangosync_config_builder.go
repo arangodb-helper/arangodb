@@ -35,6 +35,7 @@ package service
 //
 
 import (
+	"net"
 	"path/filepath"
 	"strings"
 
@@ -53,16 +54,21 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 
 	options = append(options,
 		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, logFileName))},
+		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
+		optionPair{"--server.port", myPort},
 	)
 	if config.DebugCluster {
 		options = append(options,
 			optionPair{"--log.level", "debug"})
 	}
-	//	scheme := NewURLSchemes(clusterConfig.IsSecure()).Arangod
-	//	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch serverType {
 	case ServerTypeSyncWorker:
-		// TODO
+		for _, ep := range config.SyncMasterEndpoints {
+			options = append(options,
+				optionPair{"--master.endpoint", ep})
+		}
+		options = append(options,
+			optionPair{"--master.jwtSecret", config.SyncMasterJWTSecret})
 	}
 
 	for _, opt := range options {

@@ -50,8 +50,13 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	hasDBServer := boolFromRef(bsCfg.StartDBserver, true)
 	hasCoordinator := boolFromRef(bsCfg.StartCoordinator, true)
 	hasResilientSingle := boolFromRef(bsCfg.StartResilientSingle, s.mode.IsResilientSingleMode())
+	hasSyncMaster := boolFromRef(bsCfg.StartSyncMaster, true) && config.SyncEnabled
+	hasSyncWorker := boolFromRef(bsCfg.StartSyncWorker, true) && config.SyncEnabled
 	s.myPeers.Initialize(
-		NewPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir, hasAgent, hasDBServer, hasCoordinator, hasResilientSingle, s.IsSecure()),
+		NewPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir,
+			hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
+			hasSyncMaster, hasSyncWorker,
+			s.IsSecure()),
 		bsCfg.AgencySize)
 	s.learnOwnAddress = config.OwnAddress == ""
 

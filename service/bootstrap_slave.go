@@ -51,6 +51,8 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			DBServer:        copyBoolRef(bsCfg.StartDBserver),
 			Coordinator:     copyBoolRef(bsCfg.StartCoordinator),
 			ResilientSingle: copyBoolRef(bsCfg.StartResilientSingle),
+			SyncMaster:      copyBoolRef(bsCfg.StartSyncMaster),
+			SyncWorker:      copyBoolRef(bsCfg.StartSyncWorker),
 		})
 		if err != nil {
 			s.log.Fatalf("Failed to encode Hello request: %#v", err)

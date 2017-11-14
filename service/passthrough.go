@@ -32,6 +32,7 @@ type PassthroughOption struct {
 		DBServers    []string
 		Agents       []string
 		AllSync      []string
+		SyncMasters  []string
 		SyncWorkers  []string
 	}
 }
@@ -73,6 +74,8 @@ func (o *PassthroughOption) valueForServerType(serverType ServerType) []string {
 		result = o.Values.DBServers
 	case ServerTypeAgent:
 		result = o.Values.Agents
+	case ServerTypeSyncMaster:
+		result = o.Values.SyncMasters
 	case ServerTypeSyncWorker:
 		result = o.Values.SyncWorkers
 	}

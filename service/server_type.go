@@ -33,6 +33,7 @@ const (
 	ServerTypeAgent           = "agent"
 	ServerTypeSingle          = "single"
 	ServerTypeResilientSingle = "resilientsingle"
+	ServerTypeSyncMaster      = "syncmaster"
 	ServerTypeSyncWorker      = "syncworker"
 )
 
@@ -58,7 +59,7 @@ func (s ServerType) PortOffset() int {
 // ProcessType returns the type of process needed to run a server of given type.
 func (s ServerType) ProcessType() ProcessType {
 	switch s {
-	case ServerTypeSyncWorker:
+	case ServerTypeSyncMaster, ServerTypeSyncWorker:
 		return ProcessTypeArangoSync
 	default:
 		return ProcessTypeArangod
@@ -78,7 +79,7 @@ func (s ServerType) ExpectedServerRole() (string, string) {
 		return "PRIMARY", ""
 	case ServerTypeAgent:
 		return "AGENT", ""
-	case ServerTypeSyncWorker:
+	case ServerTypeSyncMaster, ServerTypeSyncWorker:
 		return "", ""
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
