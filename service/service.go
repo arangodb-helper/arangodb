@@ -768,7 +768,7 @@ func (s *Service) MasterChangedCallback() {
 	defer s.mutex.Unlock()
 
 	if s.state == stateRunningSlave {
-		s.runtimeClusterManager.Interrupt()
+		go s.runtimeClusterManager.Interrupt()
 	}
 }
 
