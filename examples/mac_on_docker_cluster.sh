@@ -5,6 +5,9 @@
 # By default this script uses the latest released ArangoDB docker image.
 # To use another image, set ARANGOIMAGE to the desired image, before calling this script.
 #
+# Note: This script does not use a volume mapping, so data is lost after stopping the starter!
+# If you want to persist data, add a volume mapping for /data.
+#
 
 NSCONTAINER=arangodb-on-mac-ns 
 STARTERCONTAINER=arangodb-on-mac
