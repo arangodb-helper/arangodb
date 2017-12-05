@@ -41,7 +41,7 @@ func NewServerClient(endpoint url.URL, prepareRequest func(*http.Request) error,
 	endpoint.Path = ""
 	c := &client{
 		endpoint:       endpoint,
-		client:         DefaultHTTPClient(),
+		client:         shardHTTPClient,
 		prepareRequest: prepareRequest,
 	}
 	if !followRedirects {
@@ -51,6 +51,10 @@ func NewServerClient(endpoint url.URL, prepareRequest func(*http.Request) error,
 	}
 	return c, nil
 }
+
+var (
+	shardHTTPClient = DefaultHTTPClient()
+)
 
 type client struct {
 	endpoint       url.URL

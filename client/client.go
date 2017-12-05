@@ -38,9 +38,13 @@ func NewArangoStarterClient(endpoint url.URL) (API, error) {
 	endpoint.Path = ""
 	return &client{
 		endpoint: endpoint,
-		client:   DefaultHTTPClient(),
+		client:   shardHTTPClient,
 	}, nil
 }
+
+var (
+	shardHTTPClient = DefaultHTTPClient()
+)
 
 type client struct {
 	endpoint url.URL
