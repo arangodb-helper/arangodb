@@ -1,3 +1,7 @@
+# Changes from version 0.10.3 to 0.10.4
+
+- Using shard `http.Client` to reduce the number of used file descriptors.
+
 # Changes from version 0.10.2 to 0.10.3
 
 - Support building in a directory other than the source directory. Set `BUILDDIR` (#98).
