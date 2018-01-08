@@ -318,6 +318,85 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 	}
 }
 
+// rotateLogFile rotates the log file of a single server.
+func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, myPeer Peer, serverType ServerType, p Process, filesToKeep int) {
+	if p == nil {
+		return
+	}
+
+	// Prepare log path
+	myHostDir, err := runtimeContext.serverHostDir(serverType)
+	if err != nil {
+		log.Debugf("Failed to get host directory for '%s': %s", serverType, err)
+		return
+	}
+	logFileName := serverType.ProcessType().LogFileName()
+	logPath := filepath.Join(myHostDir, logFileName)
+	log.Debugf("Rotating %s log file: %s", serverType, logPath)
+
+	// Move old files
+	for i := filesToKeep; i >= 0; i-- {
+		var logPathX string
+		if i == 0 {
+			logPathX = logPath
+		} else {
+			logPathX = logPath + fmt.Sprintf(".%d", i)
+		}
+		if _, err := os.Stat(logPathX); err == nil {
+			if i == filesToKeep {
+				// Remove file
+				if err := os.Remove(logPathX); err != nil {
+					log.Errorf("Failed to remove %s: %s", logPathX, err)
+				} else {
+					log.Debugf("Removed old log file: %s", logPathX)
+				}
+			} else {
+				// Rename log[.i] -> log.i+1
+				logPathNext := logPath + fmt.Sprintf(".%d", i+1)
+				if err := os.Rename(logPathX, logPathNext); err != nil {
+					log.Errorf("Failed to move %s to %s: %s", logPathX, logPathNext, err)
+				} else {
+					log.Debugf("Moved log file %s to %s", logPathX, logPathNext)
+				}
+			}
+		}
+	}
+
+	// Send HUP signal
+	if err := p.Hup(); err != nil {
+		log.Errorf("Failed to send HUP signal: %s", err)
+	}
+	return
+}
+
+// RotateLogFiles rotates the log files of all servers
+func (s *runtimeServerManager) RotateLogFiles(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, config Config) {
+	log.Info("Rotating log files...")
+	_, myPeer, _ := runtimeContext.ClusterConfig()
+	if myPeer == nil {
+		log.Error("Cannot find my own peer in cluster configuration")
+	} else {
+		if p := s.syncWorkerProc; p != nil {
+			s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeSyncWorker, p, config.LogRotateFilesToKeep)
+		}
+		if p := s.syncMasterProc; p != nil {
+			s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeSyncMaster, p, config.LogRotateFilesToKeep)
+		}
+		if p := s.singleProc; p != nil {
+			s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeSingle, p, config.LogRotateFilesToKeep)
+		}
+		if p := s.coordinatorProc; p != nil {
+			s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeCoordinator, p, config.LogRotateFilesToKeep)
+		}
+		if p := s.dbserverProc; p != nil {
+			s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeDBServer, p, config.LogRotateFilesToKeep)
+		}
+		if p := s.agentProc; p != nil {
+			s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeAgent, p, config.LogRotateFilesToKeep)
+		}
+	}
+}
+
 // Run starts all relevant servers and keeps the running.
 func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner, config Config, bsCfg BootstrapConfig) {
 	_, myPeer, mode := runtimeContext.ClusterConfig()

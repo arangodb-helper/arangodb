@@ -187,6 +187,15 @@ func (p *process) Kill() error {
 	return nil
 }
 
+func (p *process) Hup() error {
+	if proc := p.p; proc != nil {
+		if err := proc.Signal(syscall.SIGHUP); err != nil {
+			return maskAny(err)
+		}
+	}
+	return nil
+}
+
 // Remove all traces of this process
 func (p *process) Cleanup() error {
 	// Nothing todo here

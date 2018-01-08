@@ -1,8 +1,17 @@
-# Changes from version 0.10.2 to master
+# Changes from version 0.10.4 to master
+
+- Added support for log file rotation for started server components.
+
+# Changes from version 0.10.3 to 0.10.4
+
+- Using shard `http.Client` to reduce the number of used file descriptors.
+
+# Changes from version 0.10.2 to 0.10.3
 
 - Support building in a directory other than the source directory. Set `BUILDDIR` (#98).
 - Testing a server instance now includes testing for the expected server role.
 - On linux, also look for `arangod` in `/usr/local/sbin` (#93).
+- Fixed potential for hang in starter behavior.
 
 # Changes from version 0.10.1 to 0.10.2
 

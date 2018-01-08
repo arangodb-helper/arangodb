@@ -490,6 +490,17 @@ debugging only.
 
 show more information (default false).
 
+* `--log.rotate-files-to-keep=int`
+
+set the number of old log files to keep when rotating log files of server components (default 5).
+
+* `--log.rotate-interval=duration`
+
+set the interval between rotations of log files of server components (default `24h`).
+Use a value of `0` to disable automatic log rotation.
+
+Note: The starter will always perform log rotation when it receives a `HUP` signal.
+
 * `--starter.unique-port-offsets=bool`
 
 If set to true, all port offsets (of slaves) will be made globally unique.

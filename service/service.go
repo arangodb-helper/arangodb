@@ -61,6 +61,8 @@ type Config struct {
 	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
 	PassthroughOptions   []PassthroughOption
 	DebugCluster         bool
+	LogRotateFilesToKeep int
+	LogRotateInterval    time.Duration
 
 	DockerContainerName   string // Name of the container running this process
 	DockerEndpoint        string // Where to reach the docker daemon
@@ -843,7 +845,24 @@ func (s *Service) MasterChangedCallback() {
 	defer s.mutex.Unlock()
 
 	if s.state == stateRunningSlave {
-		s.runtimeClusterManager.Interrupt()
+		go s.runtimeClusterManager.Interrupt()
+	}
+}
+
+// RotateLogFiles rotates the log files of all servers
+func (s *Service) RotateLogFiles(ctx context.Context) {
+	s.runtimeServerManager.RotateLogFiles(ctx, s.log, s, s.cfg)
+}
+
+// runRotateLogFiles keeps rotating log files at the configured interval until the given context has been canceled.
+func (s *Service) runRotateLogFiles(ctx context.Context) {
+	for {
+		select {
+		case <-time.After(s.cfg.LogRotateInterval):
+			s.RotateLogFiles(ctx)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -964,6 +983,11 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	// Create a runner
 	var runner Runner
 	runner, s.cfg, s.allowSameDataDir = s.cfg.CreateRunner(s.log)
+
+	// Start a rotate log file time
+	if s.cfg.LogRotateInterval > 0 {
+		go s.runRotateLogFiles(rootCtx)
+	}
 
 	// Is this a new start or a restart?
 	if shouldRelaunch {
