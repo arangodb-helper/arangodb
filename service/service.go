@@ -60,6 +60,7 @@ type Config struct {
 	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
 	PassthroughOptions   []PassthroughOption
 	DebugCluster         bool
+	LogRotateFilesToKeep int
 
 	DockerContainerName   string // Name of the container running this process
 	DockerEndpoint        string // Where to reach the docker daemon
@@ -770,6 +771,11 @@ func (s *Service) MasterChangedCallback() {
 	if s.state == stateRunningSlave {
 		go s.runtimeClusterManager.Interrupt()
 	}
+}
+
+// RotateLogFiles rotates the log files of all servers
+func (s *Service) RotateLogFiles(ctx context.Context) {
+	s.runtimeServerManager.RotateLogFiles(ctx, s.log, s, s.cfg)
 }
 
 func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {

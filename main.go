@@ -97,6 +97,7 @@ var (
 	sslCAFile                string
 	rocksDBEncryptionKeyFile string
 	disableIPv6              bool
+	logRotateFilesToKeep     int
 	dockerEndpoint           string
 	dockerImage              string
 	dockerImagePullPolicy    string
@@ -133,6 +134,7 @@ func init() {
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 
 	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
+	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", 5, "Number of files to keep when rotating log files")
 
 	f.IntVar(&agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
 	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
@@ -248,15 +250,19 @@ func normalizeOptionNames(f *pflag.FlagSet, name string) pflag.NormalizedName {
 }
 
 // handleSignal listens for termination signals and stops this process onup termination.
-func handleSignal(sigChannel chan os.Signal, cancel context.CancelFunc) {
+func handleSignal(sigChannel chan os.Signal, cancel context.CancelFunc, rotateLogFiles func(context.Context)) {
 	signalCount := 0
 	for s := range sigChannel {
-		signalCount++
-		fmt.Println("Received signal:", s)
-		if signalCount > 1 {
-			os.Exit(1)
+		if s == syscall.SIGHUP {
+			rotateLogFiles(context.Background())
+		} else {
+			signalCount++
+			fmt.Println("Received signal:", s)
+			if signalCount > 1 {
+				os.Exit(1)
+			}
+			cancel()
 		}
-		cancel()
 	}
 }
 
@@ -351,14 +357,14 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	// Setup log level
 	configureLogging()
 
+	// Create service
+	svc, bsCfg := mustPrepareService(true)
+
 	// Interrupt signal:
 	sigChannel := make(chan os.Signal)
 	rootCtx, cancel := context.WithCancel(context.Background())
-	signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM)
-	go handleSignal(sigChannel, cancel)
-
-	// Create service
-	svc, bsCfg := mustPrepareService(true)
+	signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	go handleSignal(sigChannel, cancel, svc.RotateLogFiles)
 
 	// Read setup.json (if exists)
 	bsCfg, peers, relaunch, _ := service.ReadSetupConfig(log, dataDir, bsCfg)
@@ -526,6 +532,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		MasterAddresses:       masterAddresses,
 		Verbose:               verbose,
 		ServerThreads:         serverThreads,
+		LogRotateFilesToKeep:  logRotateFilesToKeep,
 		AllPortOffsetsUnique:  allPortOffsetsUnique,
 		RunningInDocker:       isRunningInDocker(),
 		DockerContainerName:   dockerContainerName,
