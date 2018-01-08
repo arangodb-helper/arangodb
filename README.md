@@ -492,7 +492,7 @@ show more information (default false).
 
 * `--log.rotate-files-to-keep=int`
 
-set the number of old log files to keep when rotating log files of server components.
+set the number of old log files to keep when rotating log files of server components (default 5).
 
 * `--log.rotate-interval=duration`
 
