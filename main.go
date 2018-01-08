@@ -49,9 +49,11 @@ import (
 // Configuration data with defaults:
 
 const (
-	projectName               = "arangodb"
-	defaultDockerGCDelay      = time.Minute * 10
-	defaultDockerStarterImage = "arangodb/arangodb-starter"
+	projectName                 = "arangodb"
+	defaultDockerGCDelay        = time.Minute * 10
+	defaultDockerStarterImage   = "arangodb/arangodb-starter"
+	defaultLogRotateFilesToKeep = 5
+	defaultLogRotateInterval    = time.Minute * 60 * 24
 )
 
 var (
@@ -98,6 +100,7 @@ var (
 	rocksDBEncryptionKeyFile string
 	disableIPv6              bool
 	logRotateFilesToKeep     int
+	logRotateInterval        time.Duration
 	dockerEndpoint           string
 	dockerImage              string
 	dockerImagePullPolicy    string
@@ -134,7 +137,8 @@ func init() {
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 
 	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
-	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", 5, "Number of files to keep when rotating log files")
+	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
+	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
 
 	f.IntVar(&agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
 	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
@@ -533,6 +537,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		Verbose:               verbose,
 		ServerThreads:         serverThreads,
 		LogRotateFilesToKeep:  logRotateFilesToKeep,
+		LogRotateInterval:     logRotateInterval,
 		AllPortOffsetsUnique:  allPortOffsetsUnique,
 		RunningInDocker:       isRunningInDocker(),
 		DockerContainerName:   dockerContainerName,
