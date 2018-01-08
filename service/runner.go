@@ -69,6 +69,8 @@ type Process interface {
 	Terminate() error
 	// Kill performs a hard termination of the process
 	Kill() error
+	// Hup sends a SIGHUP to the process
+	Hup() error
 
 	// Remove all traces of this process
 	Cleanup() error

@@ -486,6 +486,17 @@ func (p *dockerContainer) Kill() error {
 	return nil
 }
 
+// Hup sends a SIGHUP to the process
+func (p *dockerContainer) Hup() error {
+	if err := p.client.KillContainer(docker.KillContainerOptions{
+		ID:     p.container.ID,
+		Signal: docker.SIGHUP,
+	}); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
 func (p *dockerContainer) Cleanup() error {
 	opts := docker.RemoveContainerOptions{
 		ID:            p.container.ID,
