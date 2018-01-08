@@ -2,7 +2,7 @@
 
 - Added support for log file rotation for started server components.
 
-# Changes from version 0.10.3 to 0.10.4
+# Changes from version 0.10.4 to 0.10.4
 
 - Using shard `http.Client` to reduce the number of used file descriptors.
 
