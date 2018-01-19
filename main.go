@@ -242,6 +242,20 @@ func init() {
 			}
 		}
 	}
+
+}
+
+// setFlagValuesFromEnv sets defaults from environment variables
+func setFlagValuesFromEnv(fs *pflag.FlagSet) {
+	envKeyReplacer := strings.NewReplacer(".", "_", "-", "_")
+	fs.VisitAll(func(f *pflag.Flag) {
+		if !f.Changed {
+			envKey := "ARANGODB_" + strings.ToUpper(envKeyReplacer.Replace(f.Name))
+			if value := os.Getenv(envKey); value != "" {
+				fs.Set(f.Name, value)
+			}
+		}
+	})
 }
 
 var (
@@ -393,6 +407,7 @@ func main() {
 }
 
 func cmdShowVersionRun(cmd *cobra.Command, args []string) {
+	setFlagValuesFromEnv(cmd.PersistentFlags())
 	if cmd.Use == "version" || showVersion {
 		fmt.Printf("Version %s, build %s\n", projectVersion, projectBuild)
 		os.Exit(0)
