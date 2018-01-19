@@ -58,6 +58,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
 		optionPair{"--server.port", myPort},
 		optionPair{"--monitoring.token", config.SyncMonitoringToken},
+		optionPair{"--master.jwtSecret", config.SyncMasterJWTSecret},
 	)
 	if config.DebugCluster {
 		options = append(options,
@@ -70,6 +71,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 			optionPair{"--server.keyfile", config.SyncMasterKeyFile},
 			optionPair{"--server.client-cafile", config.SyncMasterClientCAFile},
 			optionPair{"--cluster.jwtSecret", clusterJWTSecret},
+			optionPair{"--mq.type", config.SyncMQType},
 		)
 		if clusterEPs, err := clusterConfig.GetCoordinatorEndpoints(); err == nil {
 			if len(clusterEPs) == 0 {

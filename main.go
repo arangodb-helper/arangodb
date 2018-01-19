@@ -125,6 +125,8 @@ var (
 	syncMonitoringToken      string
 	syncMasterKeyFile        string // TLS keyfile of local sync master
 	syncMasterClientCAFile   string // CA Certificate used for client certificate verification
+	syncMasterJWTSecret      string // JWT secret used to access the Sync Master (from Sync Worker)
+	syncMQType               string // MQ type used to Sync Master
 
 	maskAny = errors.WithStack
 )
@@ -190,6 +192,8 @@ func init() {
 	f.BoolSliceVar(&startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
 	f.BoolSliceVar(&startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
 	f.StringVar(&syncMonitoringToken, "sync.monitoring.token", "", "Bearer token used to access ArangoSync monitoring endpoints")
+	f.StringVar(&syncMasterJWTSecret, "sync.master.jwtSecret", "", "JWT secret used to access the Sync Master (from Sync Worker)")
+	f.StringVar(&syncMQType, "sync.mq.type", "direct", "Type of message queue used by the Sync Master")
 	f.StringVar(&syncMasterKeyFile, "sync.server.keyfile", "", "TLS keyfile of local sync master")
 	f.StringVar(&syncMasterClientCAFile, "sync.server.client-cafile", "", "CA Certificate used for client certificate verification")
 
@@ -564,6 +568,9 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		}
 		/*		if startWorker := optionalBool(startSyncWorker, true); startWorker {
 				}*/
+		if syncMasterJWTSecret == "" {
+			log.Fatalf("Error: sync.master.jwtSecret is missing")
+		}
 		if syncMonitoringToken == "" {
 			syncMonitoringToken = uniuri.New()
 		}
@@ -625,6 +632,8 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		SyncMonitoringToken:    syncMonitoringToken,
 		SyncMasterKeyFile:      syncMasterKeyFile,
 		SyncMasterClientCAFile: syncMasterClientCAFile,
+		SyncMasterJWTSecret:    syncMasterJWTSecret,
+		SyncMQType:             syncMQType,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
