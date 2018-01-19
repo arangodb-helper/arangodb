@@ -584,7 +584,12 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		/*		if startWorker := optionalBool(startSyncWorker, true); startWorker {
 				}*/
 		if syncMasterJWTSecret == "" {
-			log.Fatalf("Error: sync.master.jwtSecret is missing")
+			if jwtSecret != "" {
+				// Use cluster JWT secret
+				syncMasterJWTSecret = jwtSecret
+			} else {
+				log.Fatalf("Error: sync.master.jwtSecret is missing")
+			}
 		}
 		if syncMonitoringToken == "" {
 			syncMonitoringToken = uniuri.New()
