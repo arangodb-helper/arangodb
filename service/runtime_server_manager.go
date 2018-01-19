@@ -263,6 +263,19 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 								s.logMutex.Unlock()
 							}
 						}
+						if serverType == ServerTypeSyncMaster && !runtimeContext.IsLocalSlave() {
+							hostPort, err := p.HostPort(port)
+							if err != nil {
+								if id := p.ContainerID(); id != "" {
+									log.Infof("%s can only be accessed from inside a container.", serverType)
+								}
+							} else {
+								ip := myPeer.Address
+								s.logMutex.Lock()
+								log.Infof("Your syncmaster can now available at `https://%s:%d`", ip, hostPort)
+								s.logMutex.Unlock()
+							}
+						}
 					} else if !up {
 						log.Warningf("%s not ready after 5min!: Status trail: %#v", serverType, statusTrail)
 					} else if !correctRole {
