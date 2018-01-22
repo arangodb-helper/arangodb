@@ -50,6 +50,7 @@ const (
 	starterModeCluster         = "cluster"
 	starterModeSingle          = "single"
 	starterModeResilientSingle = "resilientsingle"
+	portIncrement              = 10
 )
 
 var (

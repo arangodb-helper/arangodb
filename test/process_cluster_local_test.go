@@ -43,9 +43,9 @@ func TestProcessClusterLocal(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
-		testCluster(t, insecureStarterEndpoint(5), false)
-		testCluster(t, insecureStarterEndpoint(10), false)
+		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
 
 	if isVerbose {
@@ -69,15 +69,15 @@ func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
-		testCluster(t, insecureStarterEndpoint(5), false)
-		testCluster(t, insecureStarterEndpoint(10), false)
+		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
 // TestOldProcessClusterLocal runs `arangodb --local`
@@ -95,9 +95,9 @@ func TestOldProcessClusterLocal(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, child); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
-		testCluster(t, insecureStarterEndpoint(5), false)
-		testCluster(t, insecureStarterEndpoint(10), false)
+		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
 
 	if isVerbose {

@@ -90,7 +90,7 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID2,
 		"--rm",
-		fmt.Sprintf("-p %d:%d", basePort+5, basePort),
+		fmt.Sprintf("-p %d:%d", basePort+(1*portIncrement), basePort),
 		fmt.Sprintf("-v %s:/data", volID2),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -109,7 +109,7 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID3,
 		"--rm",
-		fmt.Sprintf("-p %d:%d", basePort+10, basePort),
+		fmt.Sprintf("-p %d:%d", basePort+(2*portIncrement), basePort),
 		fmt.Sprintf("-v %s:/data", volID3),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -124,17 +124,17 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
-		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
-		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
-		testResilientSingle(t, insecureStarterEndpoint(10), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
-	ShutdownStarter(t, insecureStarterEndpoint(5))
-	ShutdownStarter(t, insecureStarterEndpoint(10))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
 }
 
 // TestDockerResilientSingle2Instance runs 3 arangodb starters in docker with mode=resilientsingle
@@ -197,7 +197,7 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID2,
 		"--rm",
-		fmt.Sprintf("-p %d:%d", basePort+5, basePort),
+		fmt.Sprintf("-p %d:%d", basePort+(1*portIncrement), basePort),
 		fmt.Sprintf("-v %s:/data", volID2),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -216,7 +216,7 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID3,
 		"--rm",
-		fmt.Sprintf("-p %d:%d", basePort+10, basePort),
+		fmt.Sprintf("-p %d:%d", basePort+(2*portIncrement), basePort),
 		fmt.Sprintf("-v %s:/data", volID3),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -232,15 +232,15 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2 /*not docker3*/); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
-		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
-		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
-		testResilientSingle(t, insecureStarterEndpoint(10), false, true)
+		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, true)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
-	ShutdownStarter(t, insecureStarterEndpoint(5))
-	ShutdownStarter(t, insecureStarterEndpoint(10))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
 }

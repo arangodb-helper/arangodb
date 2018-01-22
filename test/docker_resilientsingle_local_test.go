@@ -79,13 +79,13 @@ func TestDockerResilientSingleLocal(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
-		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
 // TestDockerResilientSingleLocalSecure runs the arangodb starter in docker with mode `resilientsingle`,
@@ -139,11 +139,11 @@ func TestDockerResilientSingleLocalSecure(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
-		testResilientSingle(t, secureStarterEndpoint(0), true, false)
+		testResilientSingle(t, secureStarterEndpoint(0*portIncrement), true, false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, secureStarterEndpoint(0))
+	ShutdownStarter(t, secureStarterEndpoint(0*portIncrement))
 }
