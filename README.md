@@ -625,6 +625,25 @@ this option is overwritten to `false`.
 IF `starter.debug-cluster` is set, the start will record the status codes it receives
 upon "server ready" requests to the log. This option is mainly intended for internal testing.
 
+Environment variables
+---------------------
+
+It is possibe to replace all commandline arguments for the starter with environment variables.
+To do so, set an environment variable named `ARANGODB_` + `<name of command line option in uppercase>`, 
+where all dashes, underscores and dots are replased with underscores.
+
+E.g.
+
+```bash
+ARANGODB_DOCKER_TTY=true arangodb
+```
+
+is equal to:
+
+```bash
+arangodb --docker.tty=true
+```
+
 HTTP API
 --------
 
