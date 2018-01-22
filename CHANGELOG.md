@@ -1,6 +1,13 @@
 # Changes from version 0.10.4 to master
 
 - Added support for log file rotation for started server components.
+- Added support for running datacenter to datacenter replication servers (`arangosync`) from the starter.
+- Changed increment for TCP ports (used when running multiple starters on same machine (e.g `--starter.local`)) from 5 to 10.
+  An increment of 10 is needed to run datacenter to datacenter replication servers.
+  If you have an existing cluster that is using `--starter.local` and you also want to enable datacenter
+  to datacenter replication, you must create a new cluster.
+- Added support for environment variables to act as commandline arguments.
+  E.g. `ARANGODB_STARTER_DATA_DIR=/tmp/foo arangodb` equals `arangodb --starter.data-dir=/tmp/foo`.
 
 # Changes from version 0.10.3 to 0.10.4
 
