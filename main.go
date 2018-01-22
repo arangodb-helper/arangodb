@@ -565,13 +565,19 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		if !service.ServiceMode(mode).SupportsArangoSync() {
 			log.Fatalf("ArangoSync is not supported in combination with mode '%s'\n", mode)
 		}
-		// Check arangosync executable
 		if !runningInDocker {
+			// Check arangosync executable
 			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
 				log.Errorf("Cannot find arangosync (expected at %s).", arangoSyncPath)
 				log.Fatal("Please install ArangoSync locally or run the ArangoDB starter in docker (see README for details).")
 			}
 			log.Debugf("Using %s as default arangosync executable.", arangoSyncPath)
+		} else {
+			// Check arangosync docker image
+			if dockerArangoSyncImage == "" {
+				// Default to arangod docker image
+				dockerArangoSyncImage = dockerArangodImage
+			}
 		}
 		if startMaster := optionalBool(startSyncMaster, true); startMaster {
 			if syncMasterKeyFile == "" {
