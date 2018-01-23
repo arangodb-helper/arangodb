@@ -76,6 +76,8 @@ const (
 	ServerTypeDBServer    = ServerType("dbserver")
 	ServerTypeAgent       = ServerType("agent")
 	ServerTypeSingle      = ServerType("single")
+	ServerTypeSyncMaster  = ServerType("syncmaster")
+	ServerTypeSyncWorker  = ServerType("syncworker")
 )
 
 // ServerProcess holds all information of a single server started by the starter.
