@@ -50,7 +50,8 @@ type syncCertificates struct {
 		CACertificate string // Path of client authentication CA certificate file
 		CAKey         string // Path of client authentication CA key file
 	}
-	ClusterSecret string
+	ClusterSecret string // Path of JWT secret file used for cluster authentication
+	MasterSecret  string // Path of JWT secret file used for worker->master authentication
 }
 
 // TestDockerClusterSync runs 3 arangodb starters in docker with arangosync enabled.
@@ -93,12 +94,27 @@ func createSyncCertificates(t *testing.T, ip string) syncCertificates {
 	}
 
 	// Create cluster secret file
-	secret := make([]byte, 32)
-	secretFile := filepath.Join(dir, "cluster-secret")
-	rand.Read(secret)
-	secretEncoded := hex.EncodeToString(secret)
-	if err := ioutil.WriteFile(secretFile, []byte(secretEncoded), 0644); err != nil {
-		t.Fatalf("Failed to create secret file: %s", err)
+	var clusterSecretFile string
+	{
+		secret := make([]byte, 32)
+		clusterSecretFile = filepath.Join(dir, "cluster-secret")
+		rand.Read(secret)
+		secretEncoded := hex.EncodeToString(secret)
+		if err := ioutil.WriteFile(clusterSecretFile, []byte(secretEncoded), 0644); err != nil {
+			t.Fatalf("Failed to create cluster secret file: %s", err)
+		}
+	}
+
+	// Create master secret file
+	var masterSecretFile string
+	{
+		secret := make([]byte, 32)
+		masterSecretFile = filepath.Join(dir, "master-secret")
+		rand.Read(secret)
+		secretEncoded := hex.EncodeToString(secret)
+		if err := ioutil.WriteFile(masterSecretFile, []byte(secretEncoded), 0644); err != nil {
+			t.Fatalf("Failed to create master secret file: %s", err)
+		}
 	}
 
 	result := syncCertificates{}
@@ -109,7 +125,8 @@ func createSyncCertificates(t *testing.T, ip string) syncCertificates {
 	result.TLS.DCB.Keyfile = filepath.Join(dir, "tls-b.keyfile")
 	result.ClientAuth.CACertificate = filepath.Join(dir, "client-auth-ca.crt")
 	result.ClientAuth.CAKey = filepath.Join(dir, "client-auth-ca.key")
-	result.ClusterSecret = secretFile
+	result.ClusterSecret = clusterSecretFile
+	result.MasterSecret = masterSecretFile
 
 	return result
 }

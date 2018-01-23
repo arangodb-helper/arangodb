@@ -36,16 +36,43 @@ package service
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 
 	logging "github.com/op/go-logging"
 )
 
+// createArangoSyncClusterSecretFile creates an arangod.jwtsecret file in the given host directory if it does not yet exists.
+// The arangod.jwtsecret file contains the JWT secret used to authenticate with the local cluster.
+func createArangoSyncClusterSecretFile(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir string, serverType ServerType) ([]Volume, string, error) {
+	// Is there a secret set?
+	if bsCfg.JwtSecret == "" {
+		return nil, "", nil
+	}
+
+	// Yes there is a secret
+	hostSecretFileName := filepath.Join(myHostDir, arangodJWTSecretFileName)
+	containerSecretFileName := filepath.Join(myContainerDir, arangodJWTSecretFileName)
+	volumes := addVolume(nil, hostSecretFileName, containerSecretFileName, true)
+
+	if _, err := os.Stat(hostSecretFileName); err == nil {
+		// Arangod.jwtsecret already exists
+		return volumes, containerSecretFileName, nil
+	}
+
+	// Create arangod.jwtsecret file now
+	if err := ioutil.WriteFile(hostSecretFileName, []byte(bsCfg.JwtSecret), 0600); err != nil {
+		return nil, "", maskAny(err)
+	}
+	return volumes, containerSecretFileName, nil
+}
+
 // createArangoSyncArgs returns the command line arguments needed to run an arangosync server of given type.
 func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
-	myPeerID, myAddress, myPort string, serverType ServerType, clusterJWTSecret string) ([]string, error) {
+	myPeerID, myAddress, myPort string, serverType ServerType, clusterJWTSecretFile string) ([]string, error) {
 
 	options := make([]optionPair, 0, 32)
 	executable := config.ArangoSyncPath
@@ -58,7 +85,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
 		optionPair{"--server.port", myPort},
 		optionPair{"--monitoring.token", config.SyncMonitoringToken},
-		optionPair{"--master.jwtSecret", config.SyncMasterJWTSecret},
+		optionPair{"--master.jwt-secret", config.SyncMasterJWTSecretFile},
 	)
 	if config.DebugCluster {
 		options = append(options,
@@ -70,9 +97,13 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 		options = append(options,
 			optionPair{"--server.keyfile", config.SyncMasterKeyFile},
 			optionPair{"--server.client-cafile", config.SyncMasterClientCAFile},
-			optionPair{"--cluster.jwtSecret", clusterJWTSecret},
 			optionPair{"--mq.type", config.SyncMQType},
 		)
+		if clusterJWTSecretFile != "" {
+			options = append(options,
+				optionPair{"--cluster.jwt-secret", clusterJWTSecretFile},
+			)
+		}
 		if clusterEPs, err := clusterConfig.GetCoordinatorEndpoints(); err == nil {
 			if len(clusterEPs) == 0 {
 				return nil, maskAny(fmt.Errorf("No cluster coordinators found"))

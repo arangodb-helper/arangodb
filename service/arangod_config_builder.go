@@ -48,8 +48,8 @@ import (
 // createArangodConf creates an arangod.conf file in the given host directory if it does not yet exists.
 // The arangod.conf file contains all settings that are considered static for the lifetime of the server.
 func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType ServerType) ([]Volume, configFile, error) {
-	hostConfFileName := filepath.Join(myHostDir, confFileName)
-	containerConfFileName := filepath.Join(myContainerDir, confFileName)
+	hostConfFileName := filepath.Join(myHostDir, arangodConfFileName)
+	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 	volumes := addVolume(nil, hostConfFileName, containerConfFileName, true)
 
 	if _, err := os.Stat(hostConfFileName); err == nil {
@@ -131,7 +131,7 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
 func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
 	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile) []string {
-	containerConfFileName := filepath.Join(myContainerDir, confFileName)
+	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 
 	args := make([]string, 0, 40)
 	options := make([]optionPair, 0, 32)

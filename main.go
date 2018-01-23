@@ -125,7 +125,7 @@ var (
 	syncMonitoringToken      string
 	syncMasterKeyFile        string // TLS keyfile of local sync master
 	syncMasterClientCAFile   string // CA Certificate used for client certificate verification
-	syncMasterJWTSecret      string // JWT secret used to access the Sync Master (from Sync Worker)
+	syncMasterJWTSecretFile  string // File containing JWT secret used to access the Sync Master (from Sync Worker)
 	syncMQType               string // MQ type used to Sync Master
 
 	maskAny = errors.WithStack
@@ -192,7 +192,7 @@ func init() {
 	f.BoolSliceVar(&startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
 	f.BoolSliceVar(&startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
 	f.StringVar(&syncMonitoringToken, "sync.monitoring.token", "", "Bearer token used to access ArangoSync monitoring endpoints")
-	f.StringVar(&syncMasterJWTSecret, "sync.master.jwtSecret", "", "JWT secret used to access the Sync Master (from Sync Worker)")
+	f.StringVar(&syncMasterJWTSecretFile, "sync.master.jwt-secret", "", "File containing JWT secret used to access the Sync Master (from Sync Worker)")
 	f.StringVar(&syncMQType, "sync.mq.type", "direct", "Type of message queue used by the Sync Master")
 	f.StringVar(&syncMasterKeyFile, "sync.server.keyfile", "", "TLS keyfile of local sync master")
 	f.StringVar(&syncMasterClientCAFile, "sync.server.client-cafile", "", "CA Certificate used for client certificate verification")
@@ -589,12 +589,12 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		}
 		/*		if startWorker := optionalBool(startSyncWorker, true); startWorker {
 				}*/
-		if syncMasterJWTSecret == "" {
-			if jwtSecret != "" {
+		if syncMasterJWTSecretFile == "" {
+			if jwtSecretFile != "" {
 				// Use cluster JWT secret
-				syncMasterJWTSecret = jwtSecret
+				syncMasterJWTSecretFile = jwtSecretFile
 			} else {
-				log.Fatalf("Error: sync.master.jwtSecret is missing")
+				log.Fatalf("Error: sync.master.jwt-secret is missing")
 			}
 		}
 		if syncMonitoringToken == "" {
@@ -626,40 +626,40 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 	bsCfg.Initialize()
 	serviceConfig := service.Config{
-		ArangodPath:            arangodPath,
-		ArangoSyncPath:         arangoSyncPath,
-		ArangodJSPath:          arangodJSPath,
-		MasterPort:             masterPort,
-		RrPath:                 rrPath,
-		DataDir:                dataDir,
-		OwnAddress:             ownAddress,
-		MasterAddresses:        masterAddresses,
-		Verbose:                verbose,
-		ServerThreads:          serverThreads,
-		AllPortOffsetsUnique:   allPortOffsetsUnique,
-		LogRotateFilesToKeep:   logRotateFilesToKeep,
-		LogRotateInterval:      logRotateInterval,
-		RunningInDocker:        isRunningInDocker(),
-		DockerContainerName:    dockerContainerName,
-		DockerEndpoint:         dockerEndpoint,
-		DockerArangodImage:     dockerArangodImage,
-		DockerArangoSyncImage:  dockerArangoSyncImage,
-		DockerImagePullPolicy:  imagePullPolicy,
-		DockerStarterImage:     dockerStarterImage,
-		DockerUser:             dockerUser,
-		DockerGCDelay:          dockerGCDelay,
-		DockerNetworkMode:      dockerNetworkMode,
-		DockerPrivileged:       dockerPrivileged,
-		DockerTTY:              dockerTTY,
-		ProjectVersion:         projectVersion,
-		ProjectBuild:           projectBuild,
-		DebugCluster:           debugCluster,
-		SyncEnabled:            enableSync,
-		SyncMonitoringToken:    syncMonitoringToken,
-		SyncMasterKeyFile:      syncMasterKeyFile,
-		SyncMasterClientCAFile: syncMasterClientCAFile,
-		SyncMasterJWTSecret:    syncMasterJWTSecret,
-		SyncMQType:             syncMQType,
+		ArangodPath:             arangodPath,
+		ArangoSyncPath:          arangoSyncPath,
+		ArangodJSPath:           arangodJSPath,
+		MasterPort:              masterPort,
+		RrPath:                  rrPath,
+		DataDir:                 dataDir,
+		OwnAddress:              ownAddress,
+		MasterAddresses:         masterAddresses,
+		Verbose:                 verbose,
+		ServerThreads:           serverThreads,
+		AllPortOffsetsUnique:    allPortOffsetsUnique,
+		LogRotateFilesToKeep:    logRotateFilesToKeep,
+		LogRotateInterval:       logRotateInterval,
+		RunningInDocker:         isRunningInDocker(),
+		DockerContainerName:     dockerContainerName,
+		DockerEndpoint:          dockerEndpoint,
+		DockerArangodImage:      dockerArangodImage,
+		DockerArangoSyncImage:   dockerArangoSyncImage,
+		DockerImagePullPolicy:   imagePullPolicy,
+		DockerStarterImage:      dockerStarterImage,
+		DockerUser:              dockerUser,
+		DockerGCDelay:           dockerGCDelay,
+		DockerNetworkMode:       dockerNetworkMode,
+		DockerPrivileged:        dockerPrivileged,
+		DockerTTY:               dockerTTY,
+		ProjectVersion:          projectVersion,
+		ProjectBuild:            projectBuild,
+		DebugCluster:            debugCluster,
+		SyncEnabled:             enableSync,
+		SyncMonitoringToken:     syncMonitoringToken,
+		SyncMasterKeyFile:       syncMasterKeyFile,
+		SyncMasterClientCAFile:  syncMasterClientCAFile,
+		SyncMasterJWTSecretFile: syncMasterJWTSecretFile,
+		SyncMQType:              syncMQType,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)

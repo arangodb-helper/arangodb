@@ -77,12 +77,12 @@ type Config struct {
 	DockerTTY             bool
 	RunningInDocker       bool
 
-	SyncEnabled            bool   // If set, arangosync servers are activated
-	SyncMasterKeyFile      string // TLS keyfile of local sync master
-	SyncMasterClientCAFile string // CA Certificate used for client certificate verification
-	SyncMasterJWTSecret    string // JWT secret used to access the Sync Master (from Sync Worker)
-	SyncMonitoringToken    string // Bearer token used for arangosync --monitoring.token
-	SyncMQType             string // MQType used by sync master
+	SyncEnabled             bool   // If set, arangosync servers are activated
+	SyncMasterKeyFile       string // TLS keyfile of local sync master
+	SyncMasterClientCAFile  string // CA Certificate used for client certificate verification
+	SyncMasterJWTSecretFile string // File containing JWT secret used to access the Sync Master (from Sync Worker)
+	SyncMonitoringToken     string // Bearer token used for arangosync --monitoring.token
+	SyncMQType              string // MQType used by sync master
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -238,9 +238,10 @@ const (
 )
 
 const (
-	confFileName          = "arangod.conf"
-	arangodLogFileName    = "arangod.log"
-	arangoSyncLogFileName = "arangosync.log"
+	arangodConfFileName      = "arangod.conf"
+	arangodJWTSecretFileName = "arangod.jwtsecret"
+	arangodLogFileName       = "arangod.log"
+	arangoSyncLogFileName    = "arangosync.log"
 )
 
 // IsSecure returns true when the cluster is using SSL for connections, false otherwise.

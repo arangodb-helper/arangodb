@@ -119,9 +119,16 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	// Create/read arangod.conf
 	var confVolumes []Volume
 	var arangodConfig configFile
+	var containerSecretFileName string
 	if processType == ProcessTypeArangod {
 		var err error
 		confVolumes, arangodConfig, err = createArangodConf(log, bsCfg, myHostDir, myContainerDir, strconv.Itoa(myPort), serverType)
+		if err != nil {
+			return nil, false, maskAny(err)
+		}
+	} else if processType == ProcessTypeArangoSync {
+		var err error
+		confVolumes, containerSecretFileName, err = createArangoSyncClusterSecretFile(log, bsCfg, myHostDir, myContainerDir, serverType)
 		if err != nil {
 			return nil, false, maskAny(err)
 		}
@@ -132,7 +139,7 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 
 	// Create server command line arguments
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
-	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, bsCfg.JwtSecret)
+	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
