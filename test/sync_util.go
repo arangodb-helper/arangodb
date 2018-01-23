@@ -55,9 +55,9 @@ type syncCertificates struct {
 }
 
 // TestDockerClusterSync runs 3 arangodb starters in docker with arangosync enabled.
-func createSyncCertificates(t *testing.T, ip string) syncCertificates {
+func createSyncCertificates(t *testing.T, ip string, useDocker bool) syncCertificates {
 	image := os.Getenv("ARANGODB")
-	if image == "" {
+	if image == "" && useDocker {
 		t.Fatal("Need ARANGODB envvar with name of ArangoDB docker image")
 	}
 
@@ -75,21 +75,31 @@ func createSyncCertificates(t *testing.T, ip string) syncCertificates {
 	}
 
 	for i, cmdLine := range cmdLines {
-		cid := createDockerID(fmt.Sprintf("starter-test-cluster-sync-util-%d", i))
-		dockerRun := Spawn(t, strings.Join([]string{
-			"docker run -i",
-			"--label starter-test=true",
-			"--name=" + cid,
-			"--rm",
-			fmt.Sprintf("-v %s:/data", dir),
-			image,
-			cmdLine,
-		}, " "))
-		defer dockerRun.Close()
-		defer removeDockerContainer(t, cid)
+		if useDocker {
+			cid := createDockerID(fmt.Sprintf("starter-test-cluster-sync-util-%d", i))
+			dockerRun := Spawn(t, strings.Join([]string{
+				"docker run -i",
+				"--label starter-test=true",
+				"--name=" + cid,
+				"--rm",
+				fmt.Sprintf("-v %s:/data", dir),
+				image,
+				cmdLine,
+			}, " "))
+			defer dockerRun.Close()
+			defer removeDockerContainer(t, cid)
 
-		if err := dockerRun.WaitTimeout(time.Minute); err != nil {
-			t.Fatalf("Failed to run '%s': %s", cmdLine, err)
+			if err := dockerRun.WaitTimeout(time.Minute); err != nil {
+				t.Fatalf("Failed to run '%s': %s", cmdLine, err)
+			}
+		} else {
+			dataDir := strings.TrimRight(dir, "/") + "/"
+			run := Spawn(t, strings.Replace(cmdLine, "/data/", dataDir, -1))
+			defer run.Close()
+
+			if err := run.WaitTimeout(time.Minute); err != nil {
+				t.Fatalf("Failed to run '%s': %s", cmdLine, err)
+			}
 		}
 	}
 

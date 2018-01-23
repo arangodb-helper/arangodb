@@ -42,7 +42,7 @@ func TestDockerClusterSync(t *testing.T) {
 	}
 
 	// Create certificates
-	certs := createSyncCertificates(t, ip)
+	certs := createSyncCertificates(t, ip, true)
 
 	volID1 := createDockerID("vol-starter-test-cluster-sync1-")
 	createDockerVolume(t, volID1)

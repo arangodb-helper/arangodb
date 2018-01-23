@@ -154,7 +154,7 @@ release-major: $(RELEASE)
 TESTCONTAINER := arangodb-starter-test
 
 test-images:
-	docker pull $(ARANGODB)
+	#docker pull $(ARANGODB)
 	docker build --build-arg "from=$(ARANGODB)" -t arangodb-golang -f test/Dockerfile-arangodb-golang .
 
 # Run all integration tests

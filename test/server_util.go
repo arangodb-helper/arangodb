@@ -83,7 +83,7 @@ func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API
 // testClusterWithSync runs a series of tests to verify a good cluster with synchronization enabled.
 func testClusterWithSync(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, 0)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, time.Minute*2)
 	return c
 }
 
