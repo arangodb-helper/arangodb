@@ -317,6 +317,12 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 		if myPeer.HasCoordinator() {
 			expectedServers++
 		}
+		if myPeer.HasSyncMaster() {
+			expectedServers++
+		}
+		if myPeer.HasSyncWorker() {
+			expectedServers++
+		}
 
 		createServerProcess := func(serverType ServerType, p Process) client.ServerProcess {
 			return client.ServerProcess{
@@ -341,6 +347,12 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 		}
 		if p := s.runtimeServerManager.singleProc; p != nil {
 			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
+		}
+		if p := s.runtimeServerManager.syncMasterProc; p != nil {
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSyncMaster, p))
+		}
+		if p := s.runtimeServerManager.syncWorkerProc; p != nil {
+			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSyncWorker, p))
 		}
 	}
 	if mode.IsSingleMode() {
