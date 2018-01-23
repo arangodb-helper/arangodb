@@ -72,7 +72,7 @@ type runtimeServerManagerContext interface {
 }
 
 // startServer starts a single Arangod/Arangosync server of the given type.
-func startServer(log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
+func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
 	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
@@ -146,7 +146,7 @@ func startServer(log *logging.Logger, runtimeContext runtimeServerManagerContext
 	}
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, myPeer.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
-	p, err = runner.Start(processType, args[0], args[1:], vols, ports, containerName, myHostDir)
+	p, err = runner.Start(ctx, processType, args[0], args[1:], vols, ports, containerName, myHostDir)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
@@ -203,7 +203,7 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 	for {
 		myHostAddress := myPeer.Address
 		startTime := time.Now()
-		p, portInUse, err := startServer(log, runtimeContext, runner, config, bsCfg, myHostAddress, serverType, restart)
+		p, portInUse, err := startServer(ctx, log, runtimeContext, runner, config, bsCfg, myHostAddress, serverType, restart)
 		if err != nil {
 			log.Errorf("Error while starting %s: %#v", serverType, err)
 			if !portInUse {

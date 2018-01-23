@@ -23,6 +23,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -132,7 +133,7 @@ func (r *dockerRunner) GetRunningServer(serverDir string) (Process, error) {
 	}, nil
 }
 
-func (r *dockerRunner) Start(processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
+func (r *dockerRunner) Start(ctx context.Context, processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
 	// Start gc (once)
 	r.startGC()
 
@@ -150,19 +151,19 @@ func (r *dockerRunner) Start(processType ProcessType, command string, args []str
 	// Pull docker image
 	switch r.imagePullPolicy {
 	case ImagePullPolicyAlways:
-		if err := r.pullImage(image); err != nil {
+		if err := r.pullImage(ctx, image); err != nil {
 			return nil, maskAny(err)
 		}
 	case ImagePullPolicyIfNotPresent:
-		if found, err := r.imageExists(image); err != nil {
+		if found, err := r.imageExists(ctx, image); err != nil {
 			return nil, maskAny(err)
 		} else if !found {
-			if err := r.pullImage(image); err != nil {
+			if err := r.pullImage(ctx, image); err != nil {
 				return nil, maskAny(err)
 			}
 		}
 	case ImagePullPolicyNever:
-		if found, err := r.imageExists(image); err != nil {
+		if found, err := r.imageExists(ctx, image); err != nil {
 			return nil, maskAny(err)
 		} else if !found {
 			return nil, maskAny(fmt.Errorf("Image '%s' not found", image))
@@ -191,7 +192,7 @@ func (r *dockerRunner) Start(processType ProcessType, command string, args []str
 		return nil
 	}
 
-	if err := retry(op, time.Minute*2); err != nil {
+	if err := retry(ctx, op, time.Minute*2); err != nil {
 		return nil, maskAny(err)
 	}
 	return result, nil
@@ -253,6 +254,7 @@ func (r *dockerRunner) start(image string, command string, args []string, volume
 	r.log.Debugf("Creating container %s", containerName)
 	c, err := r.client.CreateContainer(opts)
 	if err != nil {
+		r.log.Errorf("Creating container failed: %s %#v", err, opts)
 		return nil, maskAny(err)
 	}
 	r.recordContainerID(c.ID) // Record ID so we can clean it up later
@@ -278,7 +280,7 @@ func (r *dockerRunner) start(image string, command string, args []string, volume
 }
 
 // imageExists looks for a local image and returns true it it exists, false otherwise.
-func (r *dockerRunner) imageExists(image string) (bool, error) {
+func (r *dockerRunner) imageExists(ctx context.Context, image string) (bool, error) {
 	found := false
 	op := func() error {
 		if _, err := r.client.InspectImage(image); isNoSuchImage(err) {
@@ -292,7 +294,7 @@ func (r *dockerRunner) imageExists(image string) (bool, error) {
 		}
 	}
 
-	if err := retry(op, time.Minute*2); err != nil {
+	if err := retry(ctx, op, time.Minute*2); err != nil {
 		return false, maskAny(err)
 	}
 	return found, nil
@@ -300,7 +302,7 @@ func (r *dockerRunner) imageExists(image string) (bool, error) {
 
 // pullImage tries to pull the given image.
 // It retries several times upon failure.
-func (r *dockerRunner) pullImage(image string) error {
+func (r *dockerRunner) pullImage(ctx context.Context, image string) error {
 	// Pull docker image
 	repo, tag := docker.ParseRepositoryTag(image)
 
@@ -318,7 +320,7 @@ func (r *dockerRunner) pullImage(image string) error {
 		return nil
 	}
 
-	if err := retry(op, time.Minute*2); err != nil {
+	if err := retry(ctx, op, time.Minute*2); err != nil {
 		return maskAny(err)
 	}
 	return nil
