@@ -62,7 +62,7 @@ const (
 var (
 	projectVersion = "dev"
 	projectBuild   = "dev"
-	cmdMain        = cobra.Command{
+	cmdMain        = &cobra.Command{
 		Use:              projectName,
 		Short:            "Start ArangoDB clusters & single servers with ease",
 		Run:              cmdMainRun,
@@ -404,6 +404,12 @@ func main() {
 	arangoSyncPath, _ = findExecutable("arangosync", defaultArangoSyncPath)
 
 	cmdMain.Execute()
+}
+
+// Cobra run function using the usage of the given command
+func cmdShowUsage(cmd *cobra.Command, args []string) {
+	log.Infof("%s version %s, build %s", projectName, projectVersion, projectBuild)
+	cmd.Usage()
 }
 
 func cmdShowVersionRun(cmd *cobra.Command, args []string) {
