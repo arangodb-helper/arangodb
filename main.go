@@ -581,10 +581,10 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		}
 		if startMaster := optionalBool(startSyncMaster, true); startMaster {
 			if syncMasterKeyFile == "" {
-				log.Fatalf("Error: sync.server.keyfile is missing")
+				showSyncMasterServerKeyfileMissingHelp()
 			}
 			if syncMasterClientCAFile == "" {
-				log.Fatalf("Error: sync.server.client-cafile is missing")
+				showSyncMasterClientCAFileMissingHelp()
 			}
 		}
 		/*		if startWorker := optionalBool(startSyncWorker, true); startWorker {
