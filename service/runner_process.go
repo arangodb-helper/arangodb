@@ -23,6 +23,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -90,7 +91,7 @@ func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
 	return &process{log: r.log, p: p, isChild: false}, nil
 }
 
-func (r *processRunner) Start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
+func (r *processRunner) Start(ctx context.Context, processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
 	c := exec.Command(command, args...)
 	if err := c.Start(); err != nil {
 		return nil, maskAny(err)
@@ -98,7 +99,7 @@ func (r *processRunner) Start(command string, args []string, volumes []Volume, p
 	return &process{log: r.log, p: c.Process, isChild: true}, nil
 }
 
-func (r *processRunner) CreateStartArangodbCommand(myDataDir string, index int, masterIP, masterPort, starterImageName string) string {
+func (r *processRunner) CreateStartArangodbCommand(myDataDir string, index int, masterIP, masterPort, starterImageName string, clusterConfig ClusterConfig) string {
 	if masterIP == "" {
 		masterIP = "127.0.0.1"
 	}

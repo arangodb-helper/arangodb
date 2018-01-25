@@ -77,13 +77,13 @@ func TestDockerSingle(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), false)
+		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
 // TestDockerSingleAutoKeyFile runs the arangodb starter in docker with `--starter.mode=single` && `--ssl.auto-key`
@@ -135,13 +135,13 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, secureStarterEndpoint(0), true)
+		testSingle(t, secureStarterEndpoint(0*portIncrement), true)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, secureStarterEndpoint(0))
+	ShutdownStarter(t, secureStarterEndpoint(0*portIncrement))
 }
 
 // TestDockerSingleAutoContainerName runs the arangodb starter in docker with `--starter.mode=single` automatic detection of its container name.
@@ -189,13 +189,13 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), false)
+		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
 // TestDockerSingleAutoRocksdb runs the arangodb starter in docker with `--server.storage-engine=rocksdb` and a 3.2 image.
@@ -248,13 +248,13 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), false)
+		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
 // TestOldDockerSingleAutoKeyFile runs the arangodb starter in docker with `--mode=single` && `--sslAutoKeyFile`
@@ -304,11 +304,11 @@ func TestOldDockerSingleAutoKeyFile(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, secureStarterEndpoint(0), true)
+		testSingle(t, secureStarterEndpoint(0*portIncrement), true)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, secureStarterEndpoint(0))
+	ShutdownStarter(t, secureStarterEndpoint(0*portIncrement))
 }

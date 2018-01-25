@@ -87,7 +87,7 @@ func TestDockerClusterDefault(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID2,
 		"--rm",
-		fmt.Sprintf("-p %d:%d", basePort+5, basePort),
+		fmt.Sprintf("-p %d:%d", basePort+(1*portIncrement), basePort),
 		fmt.Sprintf("-v %s:/data", volID2),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -105,7 +105,7 @@ func TestDockerClusterDefault(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID3,
 		"--rm",
-		fmt.Sprintf("-p %d:%d", basePort+10, basePort),
+		fmt.Sprintf("-p %d:%d", basePort+(2*portIncrement), basePort),
 		fmt.Sprintf("-v %s:/data", volID3),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -119,17 +119,17 @@ func TestDockerClusterDefault(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
-		testCluster(t, insecureStarterEndpoint(5), false)
-		testCluster(t, insecureStarterEndpoint(10), false)
+		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
-	ShutdownStarter(t, insecureStarterEndpoint(5))
-	ShutdownStarter(t, insecureStarterEndpoint(10))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
 }
 
 // TestOldDockerClusterDefault runs 3 arangodb starters in docker with default settings.
@@ -189,7 +189,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID2,
 		"--rm",
-		fmt.Sprintf("-p %d:%d", basePort+5, basePort),
+		fmt.Sprintf("-p %d:%d", basePort+(1*portIncrement), basePort),
 		fmt.Sprintf("-v %s:/data", volID2),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -207,7 +207,7 @@ func TestOldDockerClusterDefault(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID3,
 		"--rm",
-		fmt.Sprintf("-p %d:%d", basePort+10, basePort),
+		fmt.Sprintf("-p %d:%d", basePort+(2*portIncrement), basePort),
 		fmt.Sprintf("-v %s:/data", volID3),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
@@ -221,15 +221,15 @@ func TestOldDockerClusterDefault(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
-		testCluster(t, insecureStarterEndpoint(5), false)
-		testCluster(t, insecureStarterEndpoint(10), false)
+		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
+		testCluster(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
-	ShutdownStarter(t, insecureStarterEndpoint(5))
-	ShutdownStarter(t, insecureStarterEndpoint(10))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
 }

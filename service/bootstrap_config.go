@@ -27,20 +27,23 @@ import "crypto/tls"
 // BootstrapConfig holds all configuration for a service that will
 // not change through the lifetime of a cluster.
 type BootstrapConfig struct {
-	ID                       string      // Unique identifier of this peer
-	Mode                     ServiceMode // Service mode cluster|single
-	AgencySize               int         // Number of agents in the agency
-	StartLocalSlaves         bool        // If set, start sufficient slave (Service's) locally.
-	StartAgent               *bool       // If not nil, sets if starter starts a agent, otherwise default handling applies
-	StartDBserver            *bool       // If not nil, sets if starter starts a dbserver, otherwise default handling applies
-	StartCoordinator         *bool       // If not nil, sets if starter starts a coordinator, otherwise default handling applies
-	StartResilientSingle     *bool       // If not nil, sets if starter starts a resilient single, otherwise default handling applies
-	ServerStorageEngine      string      // mmfiles | rocksdb
-	JwtSecret                string      // JWT secret used for arangod communication
-	SslKeyFile               string      // Path containing an x509 certificate + private key to be used by the servers.
-	SslCAFile                string      // Path containing an x509 CA certificate used to authenticate clients.
-	RocksDBEncryptionKeyFile string      // Path containing encryption key for RocksDB encryption.
-	DisableIPv6              bool        // If set, no IPv6 notation will be used
+	ID                        string      // Unique identifier of this peer
+	Mode                      ServiceMode // Service mode cluster|single
+	AgencySize                int         // Number of agents in the agency
+	StartLocalSlaves          bool        // If set, start sufficient slave (Service's) locally.
+	StartAgent                *bool       // If not nil, sets if starter starts a agent, otherwise default handling applies
+	StartDBserver             *bool       // If not nil, sets if starter starts a dbserver, otherwise default handling applies
+	StartCoordinator          *bool       // If not nil, sets if starter starts a coordinator, otherwise default handling applies
+	StartResilientSingle      *bool       // If not nil, sets if starter starts a resilient single, otherwise default handling applies
+	StartSyncMaster           *bool       // If not nil, sets if the starter starts a sync master, otherwise default handling applies
+	StartSyncWorker           *bool       // If not nil, sets if the starter starts a sync worker, otherwise default handling applies
+	ServerStorageEngine       string      // mmfiles | rocksdb
+	JwtSecret                 string      // JWT secret used for arangod communication
+	ArangosyncMonitoringToken string      // Bearer token used for arangosync authentication
+	SslKeyFile                string      // Path containing an x509 certificate + private key to be used by the servers.
+	SslCAFile                 string      // Path containing an x509 CA certificate used to authenticate clients.
+	RocksDBEncryptionKeyFile  string      // Path containing encryption key for RocksDB encryption.
+	DisableIPv6               bool        // If set, no IPv6 notation will be used
 }
 
 // Initialize auto-configures some optional values

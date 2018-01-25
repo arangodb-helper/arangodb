@@ -43,7 +43,7 @@ func TestProcessSingle(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), false)
+		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
@@ -67,13 +67,13 @@ func TestProcessSingleShutdownViaAPI(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), false)
+		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
 // TestProcessSingleAutoKeyFile runs `arangodb --starter.mode=single --ssl.auto-key`
@@ -91,7 +91,7 @@ func TestProcessSingleAutoKeyFile(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, secureStarterEndpoint(0), true)
+		testSingle(t, secureStarterEndpoint(0*portIncrement), true)
 	}
 
 	if isVerbose {
@@ -115,7 +115,7 @@ func TestOldProcessSingle(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, insecureStarterEndpoint(0), false)
+		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
@@ -139,7 +139,7 @@ func TestOldProcessSingleAutoKeyFile(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
-		testSingle(t, secureStarterEndpoint(0), true)
+		testSingle(t, secureStarterEndpoint(0*portIncrement), true)
 	}
 
 	if isVerbose {

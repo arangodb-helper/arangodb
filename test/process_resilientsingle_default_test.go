@@ -44,19 +44,19 @@ func TestProcessResilientSingleDefault(t *testing.T) {
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.port=8533 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave1 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=resilientsingle --cluster.start-single=false --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=resilientsingle --cluster.start-single=false --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, master, slave1 /* not slave2 */); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
-		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
-		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
-		testResilientSingle(t, insecureStarterEndpoint(10), false, true) // due to --cluster.start-single=false
+		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, true) // due to --cluster.start-single=false
 	}
 
 	if isVerbose {
@@ -81,25 +81,25 @@ func TestProcessResilientSingleDefaultShutdownViaAPI(t *testing.T) {
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.port=8533 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave1 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, master, slave1, slave2); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
-		testResilientSingle(t, insecureStarterEndpoint(0), false, false)
-		testResilientSingle(t, insecureStarterEndpoint(5), false, false)
-		testResilientSingle(t, insecureStarterEndpoint(10), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
+		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
-	ShutdownStarter(t, insecureStarterEndpoint(5))
-	ShutdownStarter(t, insecureStarterEndpoint(10))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
 }

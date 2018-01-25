@@ -44,11 +44,13 @@ type Peer struct {
 	HasDBServerFlag        *bool  `json:"HasDBServer,omitempty"`        // If set or is nil, this peer is running a dbserver
 	HasCoordinatorFlag     *bool  `json:"HasCoordinator,omitempty"`     // If set or is nil, this peer is running a coordinator
 	HasResilientSingleFlag bool   `json:"HasResilientSingle,omitempty"` // If set, this peer is running a resilient single server
+	HasSyncMasterFlag      bool   `json:"HasSyncMaster,omitempty"`      // If set, this peer is running a sync master
+	HasSyncWorkerFlag      bool   `json:"HasSyncWorker,omitempty"`      // If set, this peer is running a sync worker
 	IsSecure               bool   // If set, servers started by this peer are using an SSL connection
 }
 
 // NewPeer initializes a new Peer instance with given values.
-func NewPeer(id, address string, port, portOffset int, dataDir string, hasAgent, hasDBServer, hasCoordinator, hasResilientSingle, isSecure bool) Peer {
+func NewPeer(id, address string, port, portOffset int, dataDir string, hasAgent, hasDBServer, hasCoordinator, hasResilientSingle, hasSyncMaster, hasSyncWorker, isSecure bool) Peer {
 	p := Peer{
 		ID:                     id,
 		Address:                address,
@@ -58,6 +60,8 @@ func NewPeer(id, address string, port, portOffset int, dataDir string, hasAgent,
 		HasAgentFlag:           hasAgent,
 		IsSecure:               isSecure,
 		HasResilientSingleFlag: hasResilientSingle,
+		HasSyncMasterFlag:      hasSyncMaster,
+		HasSyncWorkerFlag:      hasSyncWorker,
 	}
 	if !hasDBServer {
 		p.HasDBServerFlag = boolRef(false)
@@ -79,6 +83,12 @@ func (p Peer) HasCoordinator() bool { return p.HasCoordinatorFlag == nil || *p.H
 
 // HasResilientSingle returns true if this peer is running an resilient single server
 func (p Peer) HasResilientSingle() bool { return p.HasResilientSingleFlag }
+
+// HasSyncMaster returns true if this peer is running an arangosync master server
+func (p Peer) HasSyncMaster() bool { return p.HasSyncMasterFlag }
+
+// HasSyncWorker returns true if this peer is running an arangosync worker server
+func (p Peer) HasSyncWorker() bool { return p.HasSyncWorkerFlag }
 
 // CreateStarterURL creates a URL to the relative path to the starter on this peer.
 func (p Peer) CreateStarterURL(relPath string) string {
@@ -102,9 +112,8 @@ func (p Peer) CreateDBServerAPI(prepareRequest func(*http.Request) error) (arang
 			return nil, maskAny(err)
 		}
 		return c.Server()
-	} else {
-		return nil, maskAny(fmt.Errorf("Peer has no dbserver"))
 	}
+	return nil, maskAny(fmt.Errorf("Peer has no dbserver"))
 }
 
 // CreateCoordinatorAPI creates a client for the coordinator of the peer
@@ -121,17 +130,16 @@ func (p Peer) CreateCoordinatorAPI(prepareRequest func(*http.Request) error) (ar
 			return nil, maskAny(err)
 		}
 		return c.Server()
-	} else {
-		return nil, maskAny(fmt.Errorf("Peer has no coordinator"))
 	}
+	return nil, maskAny(fmt.Errorf("Peer has no coordinator"))
 }
 
 // PortRangeOverlaps returns true if the port range of this peer overlaps with a port
 // range starting at given port.
-func (p Peer) PortRangeOverlaps(otherPort int) bool {
-	myStart := p.Port + p.PortOffset                // Inclusive
-	myEnd := myStart + portOffsetIncrement - 1      // Inclusive
-	otherEnd := otherPort + portOffsetIncrement - 1 // Inclusive
+func (p Peer) PortRangeOverlaps(otherPort int, clusterConfig ClusterConfig) bool {
+	myStart := p.Port + p.PortOffset                        // Inclusive
+	myEnd := clusterConfig.NextPortOffset(myStart) - 1      // Inclusive
+	otherEnd := clusterConfig.NextPortOffset(otherPort) - 1 // Inclusive
 
 	return (otherPort >= myStart && otherPort <= myEnd) ||
 		(otherEnd >= myStart && otherEnd <= myEnd)

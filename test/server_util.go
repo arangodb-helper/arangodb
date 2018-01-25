@@ -36,7 +36,8 @@ import (
 )
 
 const (
-	basePort = service.DefaultMasterPort
+	basePort            = service.DefaultMasterPort
+	syncMonitoringToken = "syncMonitoringSecretToken"
 )
 
 var (
@@ -75,27 +76,34 @@ func secureStarterEndpoint(portOffset int) string {
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, 0)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, false, 0)
+	return c
+}
+
+// testClusterWithSync runs a series of tests to verify a good cluster with synchronization enabled.
+func testClusterWithSync(t *testing.T, starterEndpoint string, isSecure bool) client.API {
+	c := NewStarterClient(t, starterEndpoint)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, time.Minute*2)
 	return c
 }
 
 // testSingle runs a series of tests to verify a good single server.
 func testSingle(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "single", starterEndpoint, isSecure, false, 0)
+	testProcesses(t, c, "single", starterEndpoint, isSecure, false, false, 0)
 	return c
 }
 
 // testResilientSingle runs a series of tests to verify good resilientsingle servers.
 func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, expectAgencyOnly bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, time.Second*30)
+	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, false, time.Second*30)
 	return c
 }
 
 // testProcesses runs a series of tests to verify a good series of database servers.
 func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool,
-	expectAgencyOnly bool, reachableTimeout time.Duration) {
+	expectAgencyOnly bool, syncEnabled bool, reachableTimeout time.Duration) {
 	ctx := context.Background()
 
 	// Fetch version
@@ -178,6 +186,40 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 	} else if (mode == "single" || mode == "resilientsingle") && !expectAgencyOnly {
 		t.Errorf("No single found in %s", starterEndpoint)
 	}
+
+	// Check syncmaster
+	if sp, ok := processes.ServerByType(client.ServerTypeSyncMaster); ok {
+		if sp.IsSecure != isSecure {
+			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
+		}
+		if mode != "cluster" || !syncEnabled {
+			t.Errorf("Found syncmaster, not allowed in cluster mode without sync")
+		} else {
+			if isVerbose {
+				t.Logf("Found syncmaster at %s:%d", sp.IP, sp.Port)
+			}
+			testArangoSyncReachable(t, sp, reachableTimeout)
+		}
+	} else if (mode == "cluster") && syncEnabled {
+		t.Errorf("No syncmaster found in %s", starterEndpoint)
+	}
+
+	// Check syncworker
+	if sp, ok := processes.ServerByType(client.ServerTypeSyncWorker); ok {
+		if sp.IsSecure != isSecure {
+			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
+		}
+		if mode != "cluster" || !syncEnabled {
+			t.Errorf("Found syncworker, not allowed in cluster mode without sync")
+		} else {
+			if isVerbose {
+				t.Logf("Found syncworker at %s:%d", sp.IP, sp.Port)
+			}
+			testArangoSyncReachable(t, sp, reachableTimeout)
+		}
+	} else if (mode == "cluster") && syncEnabled {
+		t.Errorf("No syncworker found in %s", starterEndpoint)
+	}
 }
 
 // testArangodReachable tries to call some HTTP API methods of the given server process to make sure
@@ -196,6 +238,29 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess, timeout time.Du
 		}
 		if timeout == 0 || time.Since(start) > timeout {
 			t.Errorf("Failed to reach arangod at %s:%d (%#v)", sp.IP, sp.Port, err)
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// testArangoSyncReachable tries to call some HTTP API methods of the given server process to make sure
+// it is reachable.
+func testArangoSyncReachable(t *testing.T, sp client.ServerProcess, timeout time.Duration) {
+	start := time.Now()
+	for {
+		url := fmt.Sprintf("https://%s:%d/_api/version", sp.IP, sp.Port)
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			t.Fatalf("NewRequest failed: %s", describe(err))
+		}
+		req.Header.Set("Authorization", "bearer "+syncMonitoringToken)
+		_, err = httpClient.Do(req)
+		if err == nil {
+			return
+		}
+		if timeout == 0 || time.Since(start) > timeout {
+			t.Errorf("Failed to reach arangosync at %s:%d (%#v)", sp.IP, sp.Port, describe(err))
 			return
 		}
 		time.Sleep(time.Second)

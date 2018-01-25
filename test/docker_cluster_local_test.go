@@ -77,13 +77,13 @@ func TestDockerClusterLocal(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
 // TestDockerClusterLocalAgencySize1 runs the arangodb starter in docker
@@ -136,13 +136,13 @@ func TestDockerClusterLocalAgencySize1(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
 // TestOldDockerClusterLocal runs the arangodb starter in docker with `--local`
@@ -191,11 +191,11 @@ func TestOldDockerClusterLocal(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
-		testCluster(t, insecureStarterEndpoint(0), false)
+		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }

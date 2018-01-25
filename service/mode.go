@@ -44,3 +44,8 @@ func (m ServiceMode) IsSingleMode() bool {
 func (m ServiceMode) IsResilientSingleMode() bool {
 	return m == "resilientsingle"
 }
+
+// SupportsArangoSync returns true when the given mode support running arangosync on it.
+func (m ServiceMode) SupportsArangoSync() bool {
+	return m == ServiceModeCluster
+}

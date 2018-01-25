@@ -32,7 +32,8 @@ import (
 )
 
 const (
-	cgroupDockerMarker = ":/docker/"
+	cgroupDockerMarker   = ":/docker/"
+	cgroupDockerCEMarker = ":/docker-ce/docker/"
 )
 
 type containerInfo struct {
@@ -61,7 +62,12 @@ func findDockerContainerInfo(dockerEndpoint string) (containerInfo, error) {
 		lines := strings.Split(string(raw), "\n")
 		for _, line := range lines {
 
-			if i := strings.Index(line, cgroupDockerMarker); i > 0 {
+			if i := strings.Index(line, cgroupDockerCEMarker); i > 0 {
+				id := strings.TrimSpace(line[i+len(cgroupDockerCEMarker):])
+				if id != "" {
+					return id, nil
+				}
+			} else if i := strings.Index(line, cgroupDockerMarker); i > 0 {
 				id := strings.TrimSpace(line[i+len(cgroupDockerMarker):])
 				if id != "" {
 					return id, nil

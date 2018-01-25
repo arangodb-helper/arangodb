@@ -35,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
 	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
@@ -52,6 +53,8 @@ const (
 	projectName                 = "arangodb"
 	defaultDockerGCDelay        = time.Minute * 10
 	defaultDockerStarterImage   = "arangodb/arangodb-starter"
+	defaultArangodPath          = "/usr/sbin/arangod"
+	defaultArangoSyncPath       = "/usr/sbin/arangosync"
 	defaultLogRotateFilesToKeep = 5
 	defaultLogRotateInterval    = time.Minute * 60 * 24
 )
@@ -76,12 +79,15 @@ var (
 	agencySize               int
 	arangodPath              string
 	arangodJSPath            string
+	arangoSyncPath           string
 	masterPort               int
 	rrPath                   string
 	startAgent               []bool
 	startDBserver            []bool
 	startCoordinator         []bool
 	startResilientSingle     []bool
+	startSyncMaster          []bool
+	startSyncWorker          []bool
 	startLocalSlaves         bool
 	mode                     string
 	dataDir                  string
@@ -102,7 +108,8 @@ var (
 	logRotateFilesToKeep     int
 	logRotateInterval        time.Duration
 	dockerEndpoint           string
-	dockerImage              string
+	dockerArangodImage       string
+	dockerArangoSyncImage    string
 	dockerImagePullPolicy    string
 	dockerStarterImage       = defaultDockerStarterImage
 	dockerUser               string
@@ -114,6 +121,12 @@ var (
 	dockerTTY                bool
 	passthroughOptions       = make(map[string]*service.PassthroughOption)
 	debugCluster             bool
+	enableSync               bool
+	syncMonitoringToken      string
+	syncMasterKeyFile        string // TLS keyfile of local sync master
+	syncMasterClientCAFile   string // CA Certificate used for client certificate verification
+	syncMasterJWTSecretFile  string // File containing JWT secret used to access the Sync Master (from Sync Worker)
+	syncMQType               string // MQ type used to Sync Master
 
 	maskAny = errors.WithStack
 )
@@ -135,6 +148,7 @@ func init() {
 	f.StringVar(&dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
 	f.BoolVar(&debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
+	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
 
 	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
@@ -146,7 +160,8 @@ func init() {
 	f.BoolSliceVar(&startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
 	f.BoolSliceVar(&startResilientSingle, "cluster.start-single", nil, "should a (resilient) single server instance be started")
 
-	f.StringVar(&arangodPath, "server.arangod", "/usr/sbin/arangod", "Path of arangod")
+	f.StringVar(&arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
+	f.StringVar(&arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
 	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
@@ -154,7 +169,8 @@ func init() {
 	f.StringVar(&rocksDBEncryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
-	f.StringVar(&dockerImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&dockerArangodImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&dockerArangoSyncImage, "docker.sync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
 	f.StringVar(&dockerImagePullPolicy, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
 	f.StringVar(&dockerUser, "docker.user", "", "use the given name as user to run the Docker container")
 	f.StringVar(&dockerContainerName, "docker.container", "", "name of the docker container that is running this process")
@@ -173,16 +189,28 @@ func init() {
 	f.StringVar(&sslAutoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
 	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
 
+	f.BoolSliceVar(&startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
+	f.BoolSliceVar(&startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
+	f.StringVar(&syncMonitoringToken, "sync.monitoring.token", "", "Bearer token used to access ArangoSync monitoring endpoints")
+	f.StringVar(&syncMasterJWTSecretFile, "sync.master.jwt-secret", "", "File containing JWT secret used to access the Sync Master (from Sync Worker)")
+	f.StringVar(&syncMQType, "sync.mq.type", "direct", "Type of message queue used by the Sync Master")
+	f.StringVar(&syncMasterKeyFile, "sync.server.keyfile", "", "TLS keyfile of local sync master")
+	f.StringVar(&syncMasterClientCAFile, "sync.server.client-cafile", "", "CA Certificate used for client certificate verification")
+
 	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
 	// Setup passthrough arguments
-	getPassthroughOption := func(arg, prefix string) *service.PassthroughOption {
-		arg = arg[len(prefix):]
-		name := strings.TrimSpace(strings.Split(arg, "=")[0])
-		result, found := passthroughOptions[name]
+	getPassthroughOption := func(arg, fullArgPrefix, ptPrefix string, f *pflag.FlagSet) *service.PassthroughOption {
+		nameAndValue := arg[len(fullArgPrefix):]
+		optionName := strings.TrimSpace(strings.Split(nameAndValue, "=")[0])
+		fullOptionName := ptPrefix + "." + optionName
+		if f.Lookup(fullOptionName) != nil {
+			return nil
+		}
+		result, found := passthroughOptions[optionName]
 		if !found {
-			result = &service.PassthroughOption{Name: name}
-			passthroughOptions[name] = result
+			result = &service.PassthroughOption{Name: optionName}
+			passthroughOptions[optionName] = result
 		}
 		return result
 	}
@@ -195,19 +223,39 @@ func init() {
 		{"coordinators", "all coordinator instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Coordinators }},
 		{"dbservers", "all dbserver instances", func(option *service.PassthroughOption) *[]string { return &option.Values.DBServers }},
 		{"agents", "all agent instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Agents }},
+		{"sync", "all sync instances", func(option *service.PassthroughOption) *[]string { return &option.Values.AllSync }},
+		{"syncmasters", "all sync master instances", func(option *service.PassthroughOption) *[]string { return &option.Values.SyncMasters }},
+		{"syncworkers", "all sync worker instances", func(option *service.PassthroughOption) *[]string { return &option.Values.SyncWorkers }},
 	}
 	for _, a := range os.Args {
 		for _, ptPrefix := range passthroughPrefixes {
-			fullPrefix := "--" + ptPrefix.Prefix + "."
-			if strings.HasPrefix(a, fullPrefix) {
-				option := getPassthroughOption(a, fullPrefix)
-				if option.IsForbidden() {
-					log.Fatalf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
+			fullArgPrefix := "--" + ptPrefix.Prefix + "."
+			if strings.HasPrefix(a, fullArgPrefix) {
+				option := getPassthroughOption(a, fullArgPrefix, ptPrefix.Prefix, f)
+				if option != nil {
+					if option.IsForbidden() {
+						log.Fatalf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
+					}
+					fullOptionName := ptPrefix.Prefix + "." + option.Name
+					f.StringSliceVar(ptPrefix.FieldSelector(option), fullOptionName, nil, fmt.Sprintf("Passed through to %s as --%s", ptPrefix.Usage, option.Name))
 				}
-				f.StringSliceVar(ptPrefix.FieldSelector(option), ptPrefix.Prefix+"."+option.Name, nil, fmt.Sprintf("Passed through to %s as --%s", ptPrefix.Usage, option.Name))
 			}
 		}
 	}
+
+}
+
+// setFlagValuesFromEnv sets defaults from environment variables
+func setFlagValuesFromEnv(fs *pflag.FlagSet) {
+	envKeyReplacer := strings.NewReplacer(".", "_", "-", "_")
+	fs.VisitAll(func(f *pflag.Flag) {
+		if !f.Changed {
+			envKey := "ARANGODB_" + strings.ToUpper(envKeyReplacer.Replace(f.Name))
+			if value := os.Getenv(envKey); value != "" {
+				fs.Set(f.Name, value)
+			}
+		}
+	})
 }
 
 var (
@@ -275,9 +323,11 @@ func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
 }
 
-func findExecutable() {
+// findExecutable uses a platform dependent approach to find an executable
+// with given process name.
+func findExecutable(processName, defaultPath string) (executablePath string, isBuild bool) {
 	var pathList = make([]string, 0, 10)
-	pathList = append(pathList, "build/bin/arangod")
+	pathList = append(pathList, "build/bin/"+processName)
 	switch runtime.GOOS {
 	case "windows":
 		// Look in the default installation location:
@@ -293,7 +343,7 @@ func findExecutable() {
 						if strings.HasPrefix(name, "ArangoDB3 ") ||
 							strings.HasPrefix(name, "ArangoDB3e ") {
 							foundPaths = append(foundPaths, basePath+"/"+name+
-								"/usr/bin/arangod.exe")
+								"/usr/bin/"+processName+".exe")
 						}
 					}
 				}
@@ -308,43 +358,56 @@ func findExecutable() {
 		pathList = append(pathList, foundPaths...)
 	case "darwin":
 		pathList = append(pathList,
-			"/Applications/ArangoDB3-CLI.app/Contents/MacOS/usr/sbin/arangod",
-			"/usr/local/opt/arangodb/sbin/arangod",
+			"/Applications/ArangoDB3-CLI.app/Contents/MacOS/usr/sbin/"+processName,
+			"/usr/local/opt/arangodb/sbin/"+processName,
 		)
 	case "linux":
 		pathList = append(pathList,
-			"/usr/sbin/arangod",
-			"/usr/local/sbin/arangod",
+			"/usr/sbin/"+processName,
+			"/usr/local/sbin/"+processName,
 		)
 	}
 	// Add local folder to search path
 	if exePath, err := os.Executable(); err == nil {
 		folder := filepath.Dir(exePath)
-		pathList = append(pathList, filepath.Join(folder, "arangod"+filepath.Ext(exePath)))
+		pathList = append(pathList, filepath.Join(folder, processName+filepath.Ext(exePath)))
 	}
 
 	// Search to search path for the first path that exists.
 	for _, p := range pathList {
 		if _, e := os.Stat(filepath.Clean(filepath.FromSlash(p))); e == nil || !os.IsNotExist(e) {
-			arangodPath, _ = filepath.Abs(filepath.FromSlash(p))
-			if p == "build/bin/arangod" {
-				arangodJSPath, _ = filepath.Abs("js")
-			} else {
-				arangodJSPath, _ = filepath.Abs(filepath.FromSlash(filepath.Dir(p) + "/../share/arangodb3/js"))
-			}
+			executablePath, _ = filepath.Abs(filepath.FromSlash(p))
+			isBuild = p == "build/bin/arangod"
 			return
 		}
 	}
+
+	return defaultPath, false
+}
+
+// findJSDir returns the JS directory to match the given executable path.
+func findJSDir(executablePath string, isBuild bool) (jsPath string) {
+	if isBuild {
+		jsPath, _ = filepath.Abs("js")
+	} else {
+		relPath := filepath.Join(filepath.Dir(executablePath), "../share/arangodb3/js")
+		jsPath, _ = filepath.Abs(relPath)
+	}
+	return
 }
 
 func main() {
 	// Find executable and jsdir default in a platform dependent way:
-	findExecutable()
+	var isBuild bool
+	arangodPath, isBuild = findExecutable("arangod", defaultArangodPath)
+	arangodJSPath = findJSDir(arangodPath, isBuild)
+	arangoSyncPath, _ = findExecutable("arangosync", defaultArangoSyncPath)
 
 	cmdMain.Execute()
 }
 
 func cmdShowVersionRun(cmd *cobra.Command, args []string) {
+	setFlagValuesFromEnv(cmd.PersistentFlags())
 	if cmd.Use == "version" || showVersion {
 		fmt.Printf("Version %s, build %s\n", projectVersion, projectBuild)
 		os.Exit(0)
@@ -417,7 +480,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	if agencySize == 1 && ownAddress == "" {
 		log.Fatal("Error: if cluster.agency-size==1, starter.address must be given.")
 	}
-	if dockerImage != "" && rrPath != "" {
+	if dockerArangodImage != "" && rrPath != "" {
 		log.Fatal("Error: using --docker.image and --server.rr is not possible.")
 	}
 	if dockerNetHost {
@@ -427,7 +490,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 			log.Fatal("Error: cannot set --docker.net-host and --docker.net-mode at the same time")
 		}
 	}
-	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerImage)
+	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerArangodImage)
 	if err != nil {
 		log.Fatalf("Unsupport image pull policy '%s': %#v", dockerImagePullPolicy, err)
 	}
@@ -435,6 +498,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	// Expand home-dis (~) in paths
 	arangodPath = mustExpand(arangodPath)
 	arangodJSPath = mustExpand(arangodJSPath)
+	arangoSyncPath = mustExpand(arangoSyncPath)
 	rrPath = mustExpand(rrPath)
 	dataDir = mustExpand(dataDir)
 	jwtSecretFile = mustExpand(jwtSecretFile)
@@ -495,17 +559,50 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		log.Infof("Using self-signed certificate: %s", sslKeyFile)
 	}
 
-	getOptionalBool := func(flagName string, v []bool) *bool {
-		switch len(v) {
-		case 0:
-			return nil
-		case 1:
-			x := v[0]
-			return &x
-		default:
-			log.Fatalf("Expected 0 or 1 %s options, got %d", flagName, len(v))
-			return nil
+	// Check sync settings
+	if enableSync {
+		// Check mode
+		if !service.ServiceMode(mode).SupportsArangoSync() {
+			log.Fatalf("ArangoSync is not supported in combination with mode '%s'\n", mode)
 		}
+		if !runningInDocker {
+			// Check arangosync executable
+			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
+				log.Errorf("Cannot find arangosync (expected at %s).", arangoSyncPath)
+				log.Fatal("Please install ArangoSync locally or run the ArangoDB starter in docker (see README for details).")
+			}
+			log.Debugf("Using %s as default arangosync executable.", arangoSyncPath)
+		} else {
+			// Check arangosync docker image
+			if dockerArangoSyncImage == "" {
+				// Default to arangod docker image
+				dockerArangoSyncImage = dockerArangodImage
+			}
+		}
+		if startMaster := optionalBool(startSyncMaster, true); startMaster {
+			if syncMasterKeyFile == "" {
+				log.Fatalf("Error: sync.server.keyfile is missing")
+			}
+			if syncMasterClientCAFile == "" {
+				log.Fatalf("Error: sync.server.client-cafile is missing")
+			}
+		}
+		/*		if startWorker := optionalBool(startSyncWorker, true); startWorker {
+				}*/
+		if syncMasterJWTSecretFile == "" {
+			if jwtSecretFile != "" {
+				// Use cluster JWT secret
+				syncMasterJWTSecretFile = jwtSecretFile
+			} else {
+				log.Fatalf("Error: sync.master.jwt-secret is missing")
+			}
+		}
+		if syncMonitoringToken == "" {
+			syncMonitoringToken = uniuri.New()
+		}
+	} else {
+		startSyncMaster = []bool{false}
+		startSyncWorker = []bool{false}
 	}
 
 	// Create service
@@ -514,10 +611,12 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		Mode:                     service.ServiceMode(mode),
 		AgencySize:               agencySize,
 		StartLocalSlaves:         startLocalSlaves,
-		StartAgent:               getOptionalBool("cluster.start-agent", startAgent),
-		StartDBserver:            getOptionalBool("cluster.start-dbserver", startDBserver),
-		StartCoordinator:         getOptionalBool("cluster.start-coordinator", startCoordinator),
-		StartResilientSingle:     getOptionalBool("cluster.start-single", startResilientSingle),
+		StartAgent:               mustGetOptionalBoolRef("cluster.start-agent", startAgent),
+		StartDBserver:            mustGetOptionalBoolRef("cluster.start-dbserver", startDBserver),
+		StartCoordinator:         mustGetOptionalBoolRef("cluster.start-coordinator", startCoordinator),
+		StartResilientSingle:     mustGetOptionalBoolRef("cluster.start-single", startResilientSingle),
+		StartSyncMaster:          mustGetOptionalBoolRef("sync.start-master", startSyncMaster),
+		StartSyncWorker:          mustGetOptionalBoolRef("sync.start-worker", startSyncWorker),
 		ServerStorageEngine:      serverStorageEngine,
 		JwtSecret:                jwtSecret,
 		SslKeyFile:               sslKeyFile,
@@ -527,32 +626,40 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 	bsCfg.Initialize()
 	serviceConfig := service.Config{
-		ArangodPath:           arangodPath,
-		ArangodJSPath:         arangodJSPath,
-		MasterPort:            masterPort,
-		RrPath:                rrPath,
-		DataDir:               dataDir,
-		OwnAddress:            ownAddress,
-		MasterAddresses:       masterAddresses,
-		Verbose:               verbose,
-		ServerThreads:         serverThreads,
-		LogRotateFilesToKeep:  logRotateFilesToKeep,
-		LogRotateInterval:     logRotateInterval,
-		AllPortOffsetsUnique:  allPortOffsetsUnique,
-		RunningInDocker:       isRunningInDocker(),
-		DockerContainerName:   dockerContainerName,
-		DockerEndpoint:        dockerEndpoint,
-		DockerImage:           dockerImage,
-		DockerImagePullPolicy: imagePullPolicy,
-		DockerStarterImage:    dockerStarterImage,
-		DockerUser:            dockerUser,
-		DockerGCDelay:         dockerGCDelay,
-		DockerNetworkMode:     dockerNetworkMode,
-		DockerPrivileged:      dockerPrivileged,
-		DockerTTY:             dockerTTY,
-		ProjectVersion:        projectVersion,
-		ProjectBuild:          projectBuild,
-		DebugCluster:          debugCluster,
+		ArangodPath:             arangodPath,
+		ArangoSyncPath:          arangoSyncPath,
+		ArangodJSPath:           arangodJSPath,
+		MasterPort:              masterPort,
+		RrPath:                  rrPath,
+		DataDir:                 dataDir,
+		OwnAddress:              ownAddress,
+		MasterAddresses:         masterAddresses,
+		Verbose:                 verbose,
+		ServerThreads:           serverThreads,
+		AllPortOffsetsUnique:    allPortOffsetsUnique,
+		LogRotateFilesToKeep:    logRotateFilesToKeep,
+		LogRotateInterval:       logRotateInterval,
+		RunningInDocker:         isRunningInDocker(),
+		DockerContainerName:     dockerContainerName,
+		DockerEndpoint:          dockerEndpoint,
+		DockerArangodImage:      dockerArangodImage,
+		DockerArangoSyncImage:   dockerArangoSyncImage,
+		DockerImagePullPolicy:   imagePullPolicy,
+		DockerStarterImage:      dockerStarterImage,
+		DockerUser:              dockerUser,
+		DockerGCDelay:           dockerGCDelay,
+		DockerNetworkMode:       dockerNetworkMode,
+		DockerPrivileged:        dockerPrivileged,
+		DockerTTY:               dockerTTY,
+		ProjectVersion:          projectVersion,
+		ProjectBuild:            projectBuild,
+		DebugCluster:            debugCluster,
+		SyncEnabled:             enableSync,
+		SyncMonitoringToken:     syncMonitoringToken,
+		SyncMasterKeyFile:       syncMasterKeyFile,
+		SyncMasterClientCAFile:  syncMasterClientCAFile,
+		SyncMasterJWTSecretFile: syncMasterJWTSecretFile,
+		SyncMQType:              syncMQType,
 	}
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
@@ -579,4 +686,30 @@ func mustExpand(s string) string {
 		log.Fatalf("Cannot expand '%s': %#v", s, err)
 	}
 	return result
+}
+
+// mustGetOptionalBoolRef returns a reference to a boolean based on given
+// slice with either 0 or 1 elements.
+// 0 elements -> nil
+// 1 elements -> &element[0]
+func mustGetOptionalBoolRef(flagName string, v []bool) *bool {
+	switch len(v) {
+	case 0:
+		return nil
+	case 1:
+		x := v[0]
+		return &x
+	default:
+		log.Fatalf("Expected 0 or 1 %s options, got %d", flagName, len(v))
+		return nil
+	}
+}
+
+// optionalBool returns either the first element of the given slice
+// or the given default value if the slice is empty.
+func optionalBool(v []bool, defaultValue bool) bool {
+	if len(v) == 0 {
+		return defaultValue
+	}
+	return v[0]
 }

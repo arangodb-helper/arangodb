@@ -23,6 +23,7 @@
 package service
 
 import (
+	"context"
 	"time"
 
 	logging "github.com/op/go-logging"
@@ -44,10 +45,10 @@ type Runner interface {
 	GetRunningServer(serverDir string) (Process, error)
 
 	// Start a server with given arguments
-	Start(command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error)
+	Start(ctx context.Context, processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error)
 
 	// Create a command that a user should use to start a slave arangodb instance.
-	CreateStartArangodbCommand(myDataDir string, index int, masterIP, masterPort, starterImageName string) string
+	CreateStartArangodbCommand(myDataDir string, index int, masterIP, masterPort, starterImageName string, clusterConfig ClusterConfig) string
 
 	// Cleanup after all processes are dead and have been cleaned themselves
 	Cleanup() error

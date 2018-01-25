@@ -50,6 +50,7 @@ const (
 type Config struct {
 	ArangodPath          string
 	ArangodJSPath        string
+	ArangoSyncPath       string
 	MasterPort           int
 	RrPath               string
 	DataDir              string
@@ -65,7 +66,8 @@ type Config struct {
 
 	DockerContainerName   string // Name of the container running this process
 	DockerEndpoint        string // Where to reach the docker daemon
-	DockerImage           string // Name of Arangodb docker image
+	DockerArangodImage    string // Name of Arangodb docker image
+	DockerArangoSyncImage string // Name of Arangodb docker image
 	DockerImagePullPolicy ImagePullPolicy
 	DockerStarterImage    string
 	DockerUser            string
@@ -75,6 +77,13 @@ type Config struct {
 	DockerTTY             bool
 	RunningInDocker       bool
 
+	SyncEnabled             bool   // If set, arangosync servers are activated
+	SyncMasterKeyFile       string // TLS keyfile of local sync master
+	SyncMasterClientCAFile  string // CA Certificate used for client certificate verification
+	SyncMasterJWTSecretFile string // File containing JWT secret used to access the Sync Master (from Sync Worker)
+	SyncMonitoringToken     string // Bearer token used for arangosync --monitoring.token
+	SyncMQType              string // MQType used by sync master
+
 	ProjectVersion string
 	ProjectBuild   string
 }
@@ -82,7 +91,7 @@ type Config struct {
 // UseDockerRunner returns true if the docker runner should be used.
 // (instead of the local process runner).
 func (c Config) UseDockerRunner() bool {
-	return c.DockerEndpoint != "" && c.DockerImage != ""
+	return c.DockerEndpoint != "" && c.DockerArangodImage != ""
 }
 
 // GuessOwnAddress fills in the OwnAddress field if needed and returns an update config.
@@ -135,7 +144,8 @@ func (c Config) GetNetworkEnvironment(log *logging.Logger) (Config, int, bool) {
 func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
 	var runner Runner
 	if c.UseDockerRunner() {
-		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerImage, c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
+		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerArangodImage, c.DockerArangoSyncImage,
+			c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
 			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
 		if err != nil {
 			log.Fatalf("Failed to create docker runner: %#v", err)
@@ -144,6 +154,7 @@ func (c Config) CreateRunner(log *logging.Logger) (Runner, Config, bool) {
 		// Set executables to their image path's
 		c.ArangodPath = "/usr/sbin/arangod"
 		c.ArangodJSPath = "/usr/share/arangodb3/js"
+		c.ArangoSyncPath = "/usr/sbin/arangosync"
 		// Docker setup uses different volumes with same dataDir, allow that
 		allowSameDataDir := true
 
@@ -215,7 +226,10 @@ const (
 	_portOffsetCoordinator = 1 // Coordinator/single server
 	_portOffsetDBServer    = 2
 	_portOffsetAgent       = 3
-	portOffsetIncrement    = 5 // {our http server, agent, coordinator, dbserver, reserved}
+	_portOffsetSyncMaster  = 4
+	_portOffsetSyncWorker  = 5
+	portOffsetIncrementOld = 5  // {our http server, agent, coordinator, dbserver, reserved}
+	portOffsetIncrementNew = 10 // {our http server, agent, coordinator, dbserver, syncmaster, syncworker, reserved...}
 )
 
 const (
@@ -224,8 +238,10 @@ const (
 )
 
 const (
-	confFileName = "arangod.conf"
-	logFileName  = "arangod.log"
+	arangodConfFileName      = "arangod.conf"
+	arangodJWTSecretFileName = "arangod.jwtsecret"
+	arangodLogFileName       = "arangod.log"
+	arangoSyncLogFileName    = "arangosync.log"
 )
 
 // IsSecure returns true when the cluster is using SSL for connections, false otherwise.
@@ -432,11 +448,18 @@ func (s *Service) serverHostDir(serverType ServerType) (string, error) {
 }
 
 // serverExecutable returns the path of the server's executable.
-func (s *Config) serverExecutable() string {
-	if s.RrPath != "" {
-		return s.RrPath
+func (c *Config) serverExecutable(processType ProcessType) string {
+	switch processType {
+	case ProcessTypeArangod:
+		if c.RrPath != "" {
+			return c.RrPath
+		}
+		return c.ArangodPath
+	case ProcessTypeArangoSync:
+		return c.ArangoSyncPath
+	default:
+		return ""
 	}
-	return s.ArangodPath
 }
 
 // StatusItem contain a single point in time for a status feedback channel.
@@ -453,8 +476,8 @@ type instanceUpInfo struct {
 }
 
 // TestInstance checks the `up` status of an arangod server instance.
-func (s *Service) TestInstance(ctx context.Context, address string, port int,
-	expectedRole, expectedMode string, statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool) {
+func (s *Service) TestInstance(ctx context.Context, serverType ServerType, address string, port int,
+	statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan instanceUpInfo)
 	statusCodes := make(chan int)
 	if statusChanged != nil {
@@ -463,17 +486,19 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int,
 	go func() {
 		defer close(instanceUp)
 		defer close(statusCodes)
-		client := &http.Client{Timeout: time.Second * 10}
-		scheme := "http"
-		if s.IsSecure() {
-			scheme = "https"
-			client.Transport = &http.Transport{
+		client := &http.Client{
+			Timeout: time.Second * 10,
+			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: true,
 				},
-			}
+			},
 		}
-		makeVersionRequest := func() (string, int, error) {
+		scheme := "http"
+		if s.IsSecure() {
+			scheme = "https"
+		}
+		makeArangodVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
 			req, err := http.NewRequest("GET", url, nil)
@@ -500,7 +525,48 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int,
 			}
 			return versionResponse.Version, resp.StatusCode, nil
 		}
+		makeArangoSyncVersionRequest := func() (string, int, error) {
+			addr := net.JoinHostPort(address, strconv.Itoa(port))
+			url := fmt.Sprintf("https://%s/_api/version", addr)
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				return "", -1, maskAny(err)
+			}
+			if err := addBearerTokenHeader(req, s.cfg.SyncMonitoringToken); err != nil {
+				return "", -2, maskAny(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return "", -3, maskAny(err)
+			}
+			if resp.StatusCode != 200 {
+				return "", resp.StatusCode, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+			}
+			versionResponse := struct {
+				Version string `json:"version"`
+				Build   string `json:"build"`
+			}{}
+			defer resp.Body.Close()
+			decoder := json.NewDecoder(resp.Body)
+			if err := decoder.Decode(&versionResponse); err != nil {
+				return "", -4, maskAny(fmt.Errorf("Unexpected version response: %#v", err))
+			}
+			return versionResponse.Version, resp.StatusCode, nil
+		}
+		makeVersionRequest := func() (string, int, error) {
+			switch serverType.ProcessType() {
+			case ProcessTypeArangod:
+				return makeArangodVersionRequest()
+			case ProcessTypeArangoSync:
+				return makeArangoSyncVersionRequest()
+			default:
+				return "", 0, maskAny(fmt.Errorf("Unknown process type '%s'", serverType.ProcessType()))
+			}
+		}
 		makeRoleRequest := func() (string, string, int, error) {
+			if serverType.ProcessType() == ProcessTypeArangoSync {
+				return "", "", 200, nil
+			}
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 			url := fmt.Sprintf("%s://%s/_admin/server/role", scheme, addr)
 			req, err := http.NewRequest("GET", url, nil)
@@ -553,6 +619,7 @@ func (s *Service) TestInstance(ctx context.Context, address string, port int,
 	for {
 		select {
 		case instanceInfo := <-instanceUp:
+			expectedRole, expectedMode := serverType.ExpectedServerRole()
 			up = instanceInfo.Version != ""
 			correctRole = instanceInfo.Role == expectedRole || expectedRole == ""
 			correctMode := instanceInfo.Mode == expectedMode || expectedMode == ""
@@ -711,11 +778,22 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			if req.Coordinator != nil {
 				hasCoordinator = *req.Coordinator
 			}
-			hasResilientSingle := true
+			hasResilientSingle := s.mode.IsResilientSingleMode()
 			if req.ResilientSingle != nil {
 				hasResilientSingle = *req.ResilientSingle
 			}
-			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, hasAgent, hasDBServer, hasCoordinator, hasResilientSingle, req.IsSecure)
+			hasSyncMaster := s.mode.SupportsArangoSync() && s.cfg.SyncEnabled
+			if req.SyncMaster != nil {
+				hasSyncMaster = *req.SyncMaster
+			}
+			hasSyncWorker := s.mode.SupportsArangoSync() && s.cfg.SyncEnabled
+			if req.SyncWorker != nil {
+				hasSyncWorker = *req.SyncWorker
+			}
+			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir,
+				hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
+				hasSyncMaster, hasSyncWorker,
+				req.IsSecure)
 			s.myPeers.AddPeer(newPeer)
 			s.log.Infof("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
 		}

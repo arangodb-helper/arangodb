@@ -50,16 +50,19 @@ const (
 	starterModeCluster         = "cluster"
 	starterModeSingle          = "single"
 	starterModeResilientSingle = "resilientsingle"
+	portIncrement              = 10
 )
 
 var (
 	isVerbose    bool
+	isEnterprise bool
 	testModes    []string
 	starterModes []string
 )
 
 func init() {
 	isVerbose = os.Getenv("VERBOSE") != ""
+	isEnterprise = os.Getenv("ENTERPRISE") != ""
 	testModes = strings.Split(os.Getenv("TEST_MODES"), ",")
 	if len(testModes) == 1 && testModes[0] == "" {
 		testModes = nil
@@ -92,6 +95,13 @@ func needStarterMode(t *testing.T, starterMode string) {
 		return
 	}
 	t.Skipf("Starter mode '%s' not set", starterMode)
+}
+
+func needEnterprise(t *testing.T) {
+	if isEnterprise {
+		return
+	}
+	t.Skip("Enterprise is not available")
 }
 
 // Spawn a command an return its process.

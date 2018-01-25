@@ -31,12 +31,16 @@ type PassthroughOption struct {
 		Coordinators []string
 		DBServers    []string
 		Agents       []string
+		AllSync      []string
+		SyncMasters  []string
+		SyncWorkers  []string
 	}
 }
 
 var (
 	// forbiddenPassthroughOptions holds a list of options that are not allowed to be overriden.
 	forbiddenPassthroughOptions = []string{
+		// Arangod
 		"agency.activate",
 		"agency.endpoint",
 		"agency.my-address",
@@ -55,6 +59,10 @@ var (
 		"server.storage-engine",
 		"ssl.cafile",
 		"ssl.keyfile",
+		// ArangoSync
+		"cluster.endpoint",
+		"master.endpoint",
+		"server.endpoint",
 	}
 )
 
@@ -71,11 +79,22 @@ func (o *PassthroughOption) valueForServerType(serverType ServerType) []string {
 		result = o.Values.DBServers
 	case ServerTypeAgent:
 		result = o.Values.Agents
+	case ServerTypeSyncMaster:
+		result = o.Values.SyncMasters
+	case ServerTypeSyncWorker:
+		result = o.Values.SyncWorkers
 	}
 	if len(result) > 0 {
 		return result
 	}
-	return o.Values.All
+	switch serverType.ProcessType() {
+	case ProcessTypeArangod:
+		return o.Values.All
+	case ProcessTypeArangoSync:
+		return o.Values.AllSync
+	default:
+		return nil
+	}
 }
 
 // IsForbidden returns true if the option cannot be overwritten.

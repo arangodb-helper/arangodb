@@ -23,6 +23,7 @@
 package service
 
 import (
+	"context"
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -37,9 +38,13 @@ func (e *PermanentError) Error() string {
 	return e.Err.Error()
 }
 
-func retry(op func() error, timeout time.Duration) error {
+func retry(ctx context.Context, op func() error, timeout time.Duration) error {
 	var failure error
 	wrappedOp := func() error {
+		if err := ctx.Err(); err != nil {
+			failure = err
+			return nil
+		}
 		if err := op(); err == nil {
 			return nil
 		} else {

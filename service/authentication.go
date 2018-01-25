@@ -51,3 +51,15 @@ func addJwtHeader(req *http.Request, jwtSecret string) error {
 	req.Header.Set("Authorization", "bearer "+signedToken)
 	return nil
 }
+
+// addBearerTokenHeader adds an authorization header based on the given bearer token
+// to the given request.
+// If the given token is empty, nothing is done.
+func addBearerTokenHeader(req *http.Request, bearerToken string) error {
+	if bearerToken == "" {
+		return nil
+	}
+
+	req.Header.Set("Authorization", "bearer "+bearerToken)
+	return nil
+}

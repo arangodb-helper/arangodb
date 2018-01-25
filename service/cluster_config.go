@@ -36,9 +36,10 @@ import (
 // ClusterConfig contains all the informtion of a cluster from a starter's point of view.
 // When this type (or any of the types used in here) is changed, increase `SetupConfigVersion`.
 type ClusterConfig struct {
-	AllPeers     []Peer     `json:"Peers"` // All peers
-	AgencySize   int        // Number of agents
-	LastModified *time.Time `json:"LastModified,omitempty"` // Time of last modification
+	AllPeers            []Peer     `json:"Peers"` // All peers
+	AgencySize          int        // Number of agents
+	LastModified        *time.Time `json:"LastModified,omitempty"`        // Time of last modification
+	PortOffsetIncrement int        `json:"PortOffsetIncrement,omitempty"` // Increment of port offsets for peers on same address
 }
 
 // PeerByID returns a peer with given id & true, or false if not found.
@@ -66,6 +67,7 @@ func (p ClusterConfig) AllAgents() []Peer {
 func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int) {
 	p.AllPeers = []Peer{initialPeer}
 	p.AgencySize = agencySize
+	p.PortOffsetIncrement = portOffsetIncrementNew
 	p.updateLastModified()
 }
 
@@ -127,9 +129,9 @@ func (p ClusterConfig) GetFreePortOffset(peerAddress string, basePort int, allPo
 	peerAddress = normalizeHostName(peerAddress)
 	for {
 		found := false
-		for _, p := range p.AllPeers {
-			if p.PortRangeOverlaps(basePort + portOffset) {
-				if allPortOffsetsUnique || normalizeHostName(p.Address) == peerAddress {
+		for _, peer := range p.AllPeers {
+			if peer.PortRangeOverlaps(basePort+portOffset, p) {
+				if allPortOffsetsUnique || normalizeHostName(peer.Address) == peerAddress {
 					found = true
 					break
 				}
@@ -138,8 +140,16 @@ func (p ClusterConfig) GetFreePortOffset(peerAddress string, basePort int, allPo
 		if !found {
 			return portOffset
 		}
-		portOffset += portOffsetIncrement
+		portOffset = p.NextPortOffset(portOffset)
 	}
+}
+
+// NextPortOffset returns the next port offset (from given offset)
+func (p ClusterConfig) NextPortOffset(portOffset int) int {
+	if p.PortOffsetIncrement == 0 {
+		return portOffset + portOffsetIncrementOld
+	}
+	return portOffset + portOffsetIncrementNew
 }
 
 // HaveEnoughAgents returns true when the number of peers that have an agent
@@ -207,6 +217,23 @@ func (p ClusterConfig) GetCoordinatorEndpoints() ([]url.URL, error) {
 			port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
 			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+			if err != nil {
+				return nil, maskAny(err)
+			}
+			endpoints = append(endpoints, *u)
+		}
+	}
+	return endpoints, nil
+}
+
+// GetSyncMasterEndpoints creates a list of URL's for all sync masters.
+func (p ClusterConfig) GetSyncMasterEndpoints() ([]url.URL, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.AllPeers {
+		if p.HasSyncMaster() {
+			port := p.Port + p.PortOffset + ServerType(ServerTypeSyncMaster).PortOffset()
+			u, err := url.Parse(fmt.Sprintf("https://%s", net.JoinHostPort(p.Address, strconv.Itoa(port))))
 			if err != nil {
 				return nil, maskAny(err)
 			}
