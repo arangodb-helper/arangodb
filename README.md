@@ -186,7 +186,7 @@ To run a starter with DC2DC support you add the following arguments to the start
 --starter.address=<publicly visible address of this machine>
 --starter.sync
 --server.storage-engine=rocksdb
---sync.master.jwtSecret=<secret used for communication between local syncmaster & workers>
+--sync.master.jwt-secret=<path of file containing JWT secret used for communication between local syncmaster & workers>
 --sync.server.keyfile=<path of keyfile containing TLS certificate & key for local syncmaster>
 --sync.server.client-cafile=<path of file containing CA certificate for syncmaster client authentication>
 ```
@@ -458,19 +458,19 @@ Datacenter to datacenter replication options
 
 - `--sync.start-master=bool`
 
-Should an ArangoSync master instance be started (only relevant when starter.sync is enabled)
+Should an ArangoSync master instance be started (only relevant when starter.sync is enabled, defaults to `true`)
 
 - `--sync.start-worker=bool`
 
-Should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)
+Should an ArangoSync worker instance be started (only relevant when starter.sync is enabled, defaults to `true`)
 
 - `--sync.monitoring.token=<token>`
 
 Bearer token used to access ArangoSync monitoring endpoints.
 
-- `--sync.master.jwtSecret=<secret>`
+- `--sync.master.jwt-secret=<secret>`
 
-JWT secret used to access the Sync Master (from Sync Worker).
+Path of file containing JWT secret used to access the Sync Master (from Sync Worker).
 
 - `--sync.mq.type=<message queue type>`
 
