@@ -18,8 +18,9 @@ After creating the `RECOVERY` file, start the starter using all the normal comma
 
 The starter will now:
 1) Talk to the remaining starters to find the ID of the starter it replaces and use that ID to join the remaining starters.
-2) Talk to the remaining agents to find the ID of the agent is replaces and adjust the commandline arguments of the agent (it will start) to use that ID.
+1) Talk to the remaining agents to find the ID of the agent is replaces and adjust the commandline arguments of the agent (it will start) to use that ID.
    This is skipped in the starter was not running an agent.
+1) Remove the `RECOVERY` file from the data directory.
 
 After that the cluster will now recover automatically.
 It will however have 1 more coordinators & dbservers than expected.
