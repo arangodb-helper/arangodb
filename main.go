@@ -537,7 +537,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	// Auto create key file (if needed)
 	if sslAutoKeyFile && generateAutoKeyFile {
 		if sslKeyFile != "" {
-			log.Fatalf("Cannot specify both --ssl.auto-key and --ssl.keyfile")
+			showSslAutoKeyAndKeyFileNotBothAllowedHelp()
 		}
 		hosts := []string{"arangod.server"}
 		if sslAutoServerName != "" {
@@ -562,13 +562,12 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	if enableSync {
 		// Check mode
 		if !service.ServiceMode(mode).SupportsArangoSync() {
-			log.Fatalf("ArangoSync is not supported in combination with mode '%s'\n", mode)
+			showArangoSyncNotAllowedWithModeHelp(mode)
 		}
 		if !runningInDocker {
 			// Check arangosync executable
 			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
-				log.Errorf("Cannot find arangosync (expected at %s).", arangoSyncPath)
-				log.Fatal("Please install ArangoSync locally or run the ArangoDB starter in docker (see README for details).")
+				showArangoSyncExecutableNotFoundHelp(arangoSyncPath)
 			}
 			log.Debugf("Using %s as default arangosync executable.", arangoSyncPath)
 		} else {
@@ -593,7 +592,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 				// Use cluster JWT secret
 				syncMasterJWTSecretFile = jwtSecretFile
 			} else {
-				log.Fatalf("Error: sync.master.jwt-secret is missing")
+				showSyncMasterJWTSecretMissingHelp()
 			}
 		}
 		if syncMonitoringToken == "" {

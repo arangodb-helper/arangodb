@@ -86,7 +86,7 @@ func showDockerNetHostAndNotModeNotBothAllowedHelp() {
 		"It is not allowed to set `--docker.net-host` and `--docker.net-mode` at the same time.",
 		"",
 		"How to solve this:",
-		"1 - Remove  one of these two commandline arguments.",
+		"1 - Remove one of these two commandline arguments.",
 		"",
 	)
 }
@@ -102,6 +102,42 @@ func showArangodExecutableNotFoundHelp(arangodPath string) {
 	)
 }
 
+// cannnot specify both `--ssl.auto-key` and `--ssl.keyfile`
+func showSslAutoKeyAndKeyFileNotBothAllowedHelp() {
+	showFatalHelp(
+		"Specifying both `--ssl.auto-key` and `--ssl.keyfile` is not allowed.",
+		"",
+		"How to solve this:",
+		"1 - Remove one of these two commandline arguments.",
+		"",
+	)
+}
+
+// arangosync is not allowed with given starter mode.
+func showArangoSyncNotAllowedWithModeHelp(mode string) {
+	showFatalHelp(
+		fmt.Sprintf("ArangoSync is not supported in combination with mode '%s'\n", mode),
+		"",
+		"How to solve this:",
+		"1 - Use the cluster starter mode:",
+		"",
+		"    `arangodb --starter.mode=cluster --starter.sync ...`",
+		"",
+	)
+}
+
+// ArangoSync is not found at given path.
+func showArangoSyncExecutableNotFoundHelp(arangosyncPath string) {
+	showFatalHelp(
+		fmt.Sprintf("Cannot find `arangosync` (expected at `%s`).", arangosyncPath),
+		"",
+		"How to solve this:",
+		"1 - Install ArangoSync locally or run the ArangoDB starter in docker. (see RADME for details).",
+		"    Make sure to use an Enterprise version of ArangoDB.",
+		"",
+	)
+}
+
 // --sync.server.keyfile is missing
 func showSyncMasterServerKeyfileMissingHelp() {
 	showFatalHelp(
@@ -110,13 +146,13 @@ func showSyncMasterServerKeyfileMissingHelp() {
 		"How to solve this:",
 		"1 - If you do not have TLS CA certificate certificate, create it using the following command:",
 		"",
-		"    `arangosync create tls ca \\",
+		"    `arangodb create tls ca \\",
 		"        --cert=<yourfolder>/tls-ca.crt --key=<yourfolder>/tls-ca.key`",
 		"",
-		"2 - Distribute the resulting `tls-ca.crt` file to all machines that you run the starer on.",
+		"2 - Distribute the resulting `tls-ca.crt` file to all machines (in both datacenters)  that you run the starter on.",
 		"3 - Create a TLS certificate certificate, using the following command:",
 		"",
-		"    `arangosync create tls keyfile \\",
+		"    `arangodb create tls keyfile \\",
 		"        --cacert=<yourfolder>/tls-ca.crt --cakey=<yourfolder>/tls-ca.key \\",
 		"        --keyfile=<yourfolder>/tls.keyfile \\",
 		"        --host=<current host address/name>`",
@@ -136,12 +172,30 @@ func showSyncMasterClientCAFileMissingHelp() {
 		"How to solve this:",
 		"1 - Create a client authentication CA certificate using the following command:",
 		"",
-		"    `arangosync create client-auth ca --cert=<yourfolder>/client-auth-ca.crt --key=<yourfolder>/client-auth-ca.key`",
+		"    `arangodb create client-auth ca --cert=<yourfolder>/client-auth-ca.crt --key=<yourfolder>/client-auth-ca.key`",
 		"",
-		"2 - Distribute the resulting `client-auth-ca.crt` file to all machines that you run the starer on.",
+		"2 - Distribute the resulting `client-auth-ca.crt` file to all machines (in both datacenters) that you run the starter on.",
 		"3 - Add a commandline argument:",
 		"",
 		"    `arangodb ... --sync.server.client-cafile=<yourfolder>/client-auth-ca.crt`",
+		"",
+	)
+}
+
+// --sync.master.jwt-secret is missing
+func showSyncMasterJWTSecretMissingHelp() {
+	showFatalHelp(
+		"A JWT secret used for authentication of the arangosync syncworkers at the syncmaster is missing.",
+		"",
+		"How to solve this:",
+		"1 - If needed, create JWT secret file using the following command:",
+		"",
+		"    `arangodb create jwt-secret --secret=<yourfolder>/syncmaster.jwtsecret`",
+		"",
+		"2 - Distribute the resulting `syncmaster.jwtsecret` file to all machines in the current datacenter, that you run the starter on.",
+		"3 - Add a commandline argument:",
+		"",
+		"    `arangodb ... --sync.master.jwt-secret=<yourfolder>/syncmaster.jwtsecret`",
 		"",
 	)
 }
