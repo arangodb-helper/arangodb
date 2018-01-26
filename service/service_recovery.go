@@ -68,6 +68,12 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 		return bsCfg, maskAny(err)
 	}
 
+	// Check mode
+	if !s.mode.SupportsRecovery() {
+		s.log.Errorf("Recovery is not support for mode '%s'", s.mode)
+		return bsCfg, maskAny(fmt.Errorf("Recovery not supported"))
+	}
+
 	// Notify user
 	s.log.Infof("Trying to recover as starter %s:%d", starterHost, port)
 
