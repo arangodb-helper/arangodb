@@ -44,6 +44,7 @@ type BootstrapConfig struct {
 	SslCAFile                 string      // Path containing an x509 CA certificate used to authenticate clients.
 	RocksDBEncryptionKeyFile  string      // Path containing encryption key for RocksDB encryption.
 	DisableIPv6               bool        // If set, no IPv6 notation will be used
+	RecoveryAgentID           string      `json:"-"` // ID of the agent. Only set during recovery
 }
 
 // Initialize auto-configures some optional values

@@ -60,6 +60,9 @@ type runtimeServerManagerContext interface {
 	// serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
 	serverHostDir(serverType ServerType) (string, error)
 
+	// removeRecoveryFile removes any recorded RECOVERY file.
+	removeRecoveryFile()
+
 	// TestInstance checks the `up` status of an arangod server instance.
 	TestInstance(ctx context.Context, serverType ServerType, address string, port int,
 		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool)
@@ -139,7 +142,7 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 
 	// Create server command line arguments
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
-	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName)
+	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName, bsCfg.RecoveryAgentID)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
@@ -268,6 +271,7 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 								log.Infof("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
 								log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
 								s.logMutex.Unlock()
+								runtimeContext.removeRecoveryFile()
 							}
 						}
 						if serverType == ServerTypeSyncMaster && !runtimeContext.IsLocalSlave() {
