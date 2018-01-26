@@ -169,7 +169,8 @@ func (s *Service) removeRecoveryFile() {
 		if err := os.Remove(s.recoveryFile); err != nil {
 			s.log.Errorf("Failed to remove RECOVERY file: %#v", err)
 		} else {
-			s.log.Info("Removed RECOVERY file")
+			s.log.Info("Removed RECOVERY file.")
+			s.log.Info("Most likely there is now an extra coordinator & dbserver in FAILED state. Remove them manually using the web UI.")
 			s.recoveryFile = ""
 		}
 	}
