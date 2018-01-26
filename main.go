@@ -134,9 +134,10 @@ var (
 func init() {
 	cmdMain.AddCommand(cmdVersion)
 
-	f := cmdMain.PersistentFlags()
+	pf := cmdMain.PersistentFlags()
+	f := cmdMain.Flags()
 
-	f.BoolVar(&showVersion, "version", false, "If set, show version and exit")
+	pf.BoolVar(&showVersion, "version", false, "If set, show version and exit")
 
 	f.StringSliceVar(&masterAddresses, "starter.join", nil, "join a cluster with master at given address")
 	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|resilientsingle)")
@@ -150,7 +151,7 @@ func init() {
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
 
-	f.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
+	pf.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
 	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
 
@@ -243,6 +244,8 @@ func init() {
 		}
 	}
 
+	cmdStart.Flags().AddFlagSet(f)
+	cmdStop.Flags().AddFlagSet(f)
 }
 
 // setFlagValuesFromEnv sets defaults from environment variables
