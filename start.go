@@ -69,10 +69,10 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 
 	// Build command line
 	childArgs := make([]string, 0, len(os.Args))
-	cmd.InheritedFlags().VisitAll(func(f *pflag.Flag) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if f.Changed {
 			switch f.Name {
-			case "ssl.auto-key", "ssl.auto-server-name", "ssl.auto-organization", "ssl.keyfile":
+			case "ssl.auto-key", "ssl.auto-server-name", "ssl.auto-organization", "ssl.keyfile", "starter.wait":
 				// Do not pass these along
 			default:
 				a := "--" + f.Name
