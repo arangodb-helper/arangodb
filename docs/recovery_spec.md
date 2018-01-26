@@ -14,7 +14,7 @@ E.g.
 echo "192.168.1.25:8528" > $DATADIR/RECOVERY
 ```
 
-After creating the RECOVERY file, start the starter using all the normal command line arguments.
+After creating the `RECOVERY` file, start the starter using all the normal command line arguments.
 
 The starter will now:
 1) Talk to the remaining starters to find the ID of the starter it replaces and use that ID to join the remaining starters.
