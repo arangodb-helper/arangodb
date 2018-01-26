@@ -23,6 +23,8 @@
 package cli
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -50,6 +52,11 @@ var (
 		Use:   "create",
 		Short: "Create certificates",
 		Run:   cmdShowUsage,
+	}
+	cmdCreateJWTSecret = &cobra.Command{
+		Use:   "jwt-secret",
+		Short: "Create a JWT secret and save it in a plain text file",
+		Run:   cmdCreateJWTSecretRun,
 	}
 	cmdCreateTLS = &cobra.Command{
 		Use:   "tls",
@@ -93,7 +100,8 @@ var (
 	}
 
 	createOptions struct {
-		tls struct {
+		jwtsecret createJWTSecretOptions
+		tls       struct {
 			ca          createCAOptions
 			keyFile     createKeyFileOptions
 			certificate createCertificateOptions
@@ -105,6 +113,33 @@ var (
 		}
 	}
 )
+
+type createJWTSecretOptions struct {
+	secretFile   string
+	secretLength int
+}
+
+func (o *createJWTSecretOptions) ConfigureFlags(f *pflag.FlagSet) {
+	f.StringVar(&o.secretFile, "secret", "secret.jwt", "Filename of the generated JWT secret")
+	f.IntVar(&o.secretLength, "length", 32, "Number of bytes in the secret")
+}
+
+func (o *createJWTSecretOptions) CreateSecret() {
+	if o.secretFile == "" {
+		logFatal(nil, "--secret missing")
+	}
+
+	// Create secrey
+	secret := make([]byte, o.secretLength)
+	rand.Read(secret)
+
+	// Encode as hex & store
+	encoded := hex.EncodeToString(secret)
+	mustWriteFile(encoded, o.secretFile, 0600, "secret")
+
+	fmt.Printf("Created JWT secret in %s\n", o.secretFile)
+	fmt.Println("Make sure to store this files in a secure location.")
+}
 
 type createCAOptions struct {
 	certFile   string
@@ -271,6 +306,7 @@ func AddCommands(cmd *cobra.Command, logFatalFunc func(error, string), showUsage
 	showUsage = showUsageFunc
 
 	cmd.AddCommand(cmdCreate)
+	cmdCreate.AddCommand(cmdCreateJWTSecret)
 	cmdCreate.AddCommand(cmdCreateTLS)
 	cmdCreateTLS.AddCommand(cmdCreateTLSCA)
 	cmdCreateTLS.AddCommand(cmdCreateTLSKeyFile)
@@ -280,6 +316,7 @@ func AddCommands(cmd *cobra.Command, logFatalFunc func(error, string), showUsage
 	cmdCreateClientAuth.AddCommand(cmdCreateClientAuthCA)
 	cmdCreateClientAuth.AddCommand(cmdCreateClientAuthKeyFile)
 
+	createOptions.jwtsecret.ConfigureFlags(cmdCreateJWTSecret.Flags())
 	createOptions.tls.ca.ConfigureFlags(cmdCreateTLSCA.Flags(), "tls-ca", defaultTLSCAValidFor)
 	createOptions.tls.keyFile.ConfigureFlags(cmdCreateTLSKeyFile.Flags(), "tls-ca", "tls", defaultTLSValidFor)
 	createOptions.tls.certificate.ConfigureFlags(cmdCreateTLSCertificate.Flags(), "tls-ca", "tls", defaultTLSValidFor)
@@ -291,6 +328,11 @@ func AddCommands(cmd *cobra.Command, logFatalFunc func(error, string), showUsage
 // Cobra run function using the usage of the given command
 func cmdShowUsage(cmd *cobra.Command, args []string) {
 	showUsage(cmd, args)
+}
+
+// cmdCreateJWTSecretRun creates a JWT secret and writes it to file
+func cmdCreateJWTSecretRun(cmd *cobra.Command, args []string) {
+	createOptions.jwtsecret.CreateSecret()
 }
 
 // cmdCreateTLSCARun creates a CA used to sign TLS certificates
