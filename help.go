@@ -97,7 +97,7 @@ func showArangodExecutableNotFoundHelp(arangodPath string) {
 		fmt.Sprintf("Cannot find `arangod` (expected at `%s`).", arangodPath),
 		"",
 		"How to solve this:",
-		"1 - Install ArangoDB locally or run the ArangoDB starter in docker. (see RADME for details).",
+		"1 - Install ArangoDB locally or run the ArangoDB starter in docker. (see README for details).",
 		"",
 	)
 }
@@ -132,7 +132,7 @@ func showArangoSyncExecutableNotFoundHelp(arangosyncPath string) {
 		fmt.Sprintf("Cannot find `arangosync` (expected at `%s`).", arangosyncPath),
 		"",
 		"How to solve this:",
-		"1 - Install ArangoSync locally or run the ArangoDB starter in docker. (see RADME for details).",
+		"1 - Install ArangoSync locally or run the ArangoDB starter in docker. (see README for details).",
 		"    Make sure to use an Enterprise version of ArangoDB.",
 		"",
 	)
