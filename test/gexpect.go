@@ -107,6 +107,15 @@ func (sp *SubProcess) Close() error {
 	return nil
 }
 
+// Kill terminates the process the hard way.
+func (sp *SubProcess) Kill() error {
+	if p := sp.cmd.Process; p != nil {
+		p.Signal(syscall.SIGKILL)
+		p.Wait()
+	}
+	return nil
+}
+
 // SendIntr sends a SIGINT to the process.
 func (sp *SubProcess) SendIntr() error {
 	if p := sp.cmd.Process; p != nil {

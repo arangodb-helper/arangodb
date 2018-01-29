@@ -62,6 +62,7 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 		s.log.Errorf("Invalid content of RECOVERY file; expected `host:port`: %#v", err)
 		return bsCfg, maskAny(err)
 	}
+	starterHost = normalizeHostName(starterHost)
 	port, err := strconv.Atoi(starterPort)
 	if err != nil {
 		s.log.Errorf("Invalid port of RECOVERY file; expected `host:port`: %#v", err)
