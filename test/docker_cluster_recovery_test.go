@@ -147,9 +147,7 @@ func TestDockerClusterRecovery(t *testing.T) {
 	for _, s := range plist.Servers {
 		containersToKill = append(containersToKill, s.ContainerID)
 	}
-	killDockerRun2 := Spawn(t, strings.Join([]string{
-		"docker rm -vf " + cID2,
-	}, " "))
+	killDockerRun2 := Spawn(t, "docker rm -vf "+strings.Join(containersToKill, " "))
 	killDockerRun2.Wait()
 
 	// Remove entire docker volume
@@ -213,7 +211,7 @@ func TestDockerClusterRecovery(t *testing.T) {
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
+	ShutdownStarter(t, insecureStarterEndpoint(0))
+	ShutdownStarter(t, insecureStarterEndpoint(100))
+	ShutdownStarter(t, insecureStarterEndpoint(200))
 }
