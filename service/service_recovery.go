@@ -34,12 +34,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	driver "github.com/arangodb/go-driver"
 )
 
 const (
-	recoveryFileName = "RECOVERY"
+	recoveryFileName             = "RECOVERY"
+	recoveryClusterConfigTimeout = time.Minute * 2
 )
 
 // PerformRecovery looks for a RECOVERY file in the data directory and performs
@@ -215,18 +217,33 @@ func (s *Service) getRecoveryClusterConfig(ctx context.Context, masterAddresses 
 
 	// Go over all master addresses, asking for the cluster config.
 	// The first to return a valid value is used.
-	for _, addr := range masterAddresses {
-		if strings.ToLower(addr) == strings.ToLower(recoveryAddress) {
-			// Skip using our own address
-			continue
+	start := time.Now()
+	for {
+		for _, addr := range masterAddresses {
+			if strings.ToLower(addr) == strings.ToLower(recoveryAddress) {
+				// Skip using our own address
+				continue
+			}
+			masterURL := s.createBootstrapMasterURL(addr, s.cfg)
+			cCfg, err := fetch(ctx, masterURL)
+			if err == nil {
+				return cCfg, nil
+			}
+			s.log.Debugf("Fetching cluster configure from %s failed: %#v", masterURL, err)
 		}
-		masterURL := s.createBootstrapMasterURL(addr, s.cfg)
-		cCfg, err := fetch(ctx, masterURL)
-		if err == nil {
-			return cCfg, nil
-		}
-		s.log.Debugf("Fetching cluster configure from %s failed: %#v", masterURL, err)
-	}
 
-	return ClusterConfig{}, maskAny(fmt.Errorf("No starter is able to answer our recovery request"))
+		if time.Since(start) > recoveryClusterConfigTimeout {
+			return ClusterConfig{}, maskAny(fmt.Errorf("No starter is able to answer our recovery request"))
+		}
+
+		// All masters failed, wait a bit
+		s.log.Debugf("All masters failed to yield a cluster configuration. Waiting a bit...")
+		select {
+		case <-time.After(time.Second * 2):
+			// Continue
+		case <-ctx.Done():
+			// Context canceled
+			return ClusterConfig{}, maskAny(ctx.Err())
+		}
+	}
 }
