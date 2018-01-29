@@ -62,7 +62,7 @@ const (
 var (
 	projectVersion = "dev"
 	projectBuild   = "dev"
-	cmdMain        = cobra.Command{
+	cmdMain        = &cobra.Command{
 		Use:              projectName,
 		Short:            "Start ArangoDB clusters & single servers with ease",
 		Run:              cmdMainRun,
@@ -409,6 +409,12 @@ func main() {
 	cmdMain.Execute()
 }
 
+// Cobra run function using the usage of the given command
+func cmdShowUsage(cmd *cobra.Command, args []string) {
+	log.Infof("%s version %s, build %s", projectName, projectVersion, projectBuild)
+	cmd.Usage()
+}
+
 func cmdShowVersionRun(cmd *cobra.Command, args []string) {
 	setFlagValuesFromEnv(cmd.PersistentFlags())
 	if cmd.Use == "version" || showVersion {
@@ -470,7 +476,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		info, err := findDockerContainerInfo(dockerEndpoint)
 		if err != nil {
 			if dockerContainerName == "" {
-				log.Fatalf("Cannot find docker container name. Please specify using --dockerContainer=...")
+				showDockerContainerNameMissingHelp()
 			}
 		} else {
 			if dockerContainerName == "" {
@@ -484,19 +490,19 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 
 	// Some plausibility checks:
 	if agencySize%2 == 0 || agencySize <= 0 {
-		log.Fatal("Error: cluster.agency-size needs to be a positive, odd number.")
+		showClusterAgencySizeInvalidHelp()
 	}
 	if agencySize == 1 && ownAddress == "" {
-		log.Fatal("Error: if cluster.agency-size==1, starter.address must be given.")
+		showClusterAgencySize1WithoutAddressHelp()
 	}
 	if dockerArangodImage != "" && rrPath != "" {
-		log.Fatal("Error: using --docker.image and --server.rr is not possible.")
+		showDockerImageWithRRIsNotAllowedHelp()
 	}
 	if dockerNetHost {
 		if dockerNetworkMode == "" {
 			dockerNetworkMode = "host"
 		} else if dockerNetworkMode != "host" {
-			log.Fatal("Error: cannot set --docker.net-host and --docker.net-mode at the same time")
+			showDockerNetHostAndNotModeNotBothAllowedHelp()
 		}
 	}
 	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerArangodImage)
@@ -518,8 +524,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	// Check database executable
 	if !runningInDocker {
 		if _, err := os.Stat(arangodPath); os.IsNotExist(err) {
-			log.Errorf("Cannot find arangod (expected at %s).", arangodPath)
-			log.Fatal("Please install ArangoDB locally or run the ArangoDB starter in docker (see README for details).")
+			showArangodExecutableNotFoundHelp(arangodPath)
 		}
 		log.Debugf("Using %s as default arangod executable.", arangodPath)
 		log.Debugf("Using %s as default JS dir.", arangodJSPath)
@@ -547,7 +552,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	// Auto create key file (if needed)
 	if sslAutoKeyFile && generateAutoKeyFile {
 		if sslKeyFile != "" {
-			log.Fatalf("Cannot specify both --ssl.auto-key and --ssl.keyfile")
+			showSslAutoKeyAndKeyFileNotBothAllowedHelp()
 		}
 		hosts := []string{"arangod.server"}
 		if sslAutoServerName != "" {
@@ -572,13 +577,12 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	if enableSync {
 		// Check mode
 		if !service.ServiceMode(mode).SupportsArangoSync() {
-			log.Fatalf("ArangoSync is not supported in combination with mode '%s'\n", mode)
+			showArangoSyncNotAllowedWithModeHelp(mode)
 		}
 		if !runningInDocker {
 			// Check arangosync executable
 			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
-				log.Errorf("Cannot find arangosync (expected at %s).", arangoSyncPath)
-				log.Fatal("Please install ArangoSync locally or run the ArangoDB starter in docker (see README for details).")
+				showArangoSyncExecutableNotFoundHelp(arangoSyncPath)
 			}
 			log.Debugf("Using %s as default arangosync executable.", arangoSyncPath)
 		} else {
@@ -590,10 +594,10 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		}
 		if startMaster := optionalBool(startSyncMaster, true); startMaster {
 			if syncMasterKeyFile == "" {
-				log.Fatalf("Error: sync.server.keyfile is missing")
+				showSyncMasterServerKeyfileMissingHelp()
 			}
 			if syncMasterClientCAFile == "" {
-				log.Fatalf("Error: sync.server.client-cafile is missing")
+				showSyncMasterClientCAFileMissingHelp()
 			}
 		}
 		/*		if startWorker := optionalBool(startSyncWorker, true); startWorker {
@@ -603,7 +607,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 				// Use cluster JWT secret
 				syncMasterJWTSecretFile = jwtSecretFile
 			} else {
-				log.Fatalf("Error: sync.master.jwt-secret is missing")
+				showSyncMasterJWTSecretMissingHelp()
 			}
 		}
 		if syncMonitoringToken == "" {
