@@ -23,12 +23,18 @@
 package service
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+
+	driver "github.com/arangodb/go-driver"
+	driver_http "github.com/arangodb/go-driver/http"
 
 	"github.com/arangodb-helper/arangodb/service/arangod"
 )
@@ -46,6 +52,17 @@ type ClusterConfig struct {
 func (p ClusterConfig) PeerByID(id string) (Peer, bool) {
 	for _, x := range p.AllPeers {
 		if x.ID == id {
+			return x, true
+		}
+	}
+	return Peer{}, false
+}
+
+// PeerByAddressAndPort returns a peer with given address, port & true, or false if not found.
+func (p ClusterConfig) PeerByAddressAndPort(address string, port int) (Peer, bool) {
+	address = strings.ToLower(address)
+	for _, x := range p.AllPeers {
+		if x.Port+x.PortOffset == port && strings.ToLower(x.Address) == address {
 			return x, true
 		}
 	}
@@ -269,6 +286,41 @@ func (p ClusterConfig) CreateClusterAPI(prepareRequest func(*http.Request) error
 		return nil, maskAny(err)
 	}
 	return c.Cluster(), nil
+}
+
+// CreateCoordinatorsClient creates go-driver client targeting the coordinators.
+func (p ClusterConfig) CreateCoordinatorsClient(ctx context.Context, jwtSecret string) (driver.Client, error) {
+	// Build endpoint list
+	endpoints, err := p.GetCoordinatorEndpoints()
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	epStrList := make([]string, len(endpoints))
+	for i, x := range endpoints {
+		epStrList[i] = x.String()
+	}
+	conn, err := driver_http.NewConnection(driver_http.ConnectionConfig{
+		Endpoints: epStrList,
+		TLSConfig: &tls.Config{InsecureSkipVerify: true},
+	})
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	options := driver.ClientConfig{
+		Connection: conn,
+	}
+	if jwtSecret != "" {
+		value, err := arangod.CreateArangodJwtAuthorizationHeader(jwtSecret)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		options.Authentication = driver.RawAuthentication(value)
+	}
+	c, err := driver.NewClient(options)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return c, nil
 }
 
 // Set the LastModified timestamp to now.

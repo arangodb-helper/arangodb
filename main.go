@@ -442,6 +442,12 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	go handleSignal(sigChannel, cancel, svc.RotateLogFiles)
 
+	// Read RECOVERY file if it exists and perform recovery.
+	bsCfg, err := svc.PerformRecovery(rootCtx, bsCfg)
+	if err != nil {
+		log.Fatalf("Failed to recover: %#v", err)
+	}
+
 	// Read setup.json (if exists)
 	bsCfg, peers, relaunch, _ := service.ReadSetupConfig(log, dataDir, bsCfg)
 

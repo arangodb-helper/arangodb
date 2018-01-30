@@ -130,7 +130,7 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
 func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
-	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile) []string {
+	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string) []string {
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 
 	args := make([]string, 0, 40)
@@ -178,6 +178,11 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
 				)
 			}
+		}
+		if agentRecoveryID != "" {
+			options = append(options,
+				optionPair{"--agency.disaster-recovery-id", agentRecoveryID},
+			)
 		}
 	case ServerTypeDBServer:
 		options = append(options,

@@ -49,3 +49,8 @@ func (m ServiceMode) IsResilientSingleMode() bool {
 func (m ServiceMode) SupportsArangoSync() bool {
 	return m == ServiceModeCluster
 }
+
+// SupportsRecovery returns true when the given mode support recovering from permanent failed machines.
+func (m ServiceMode) SupportsRecovery() bool {
+	return m == "" || m == ServiceModeCluster || m == ServiceModeResilientSingle
+}

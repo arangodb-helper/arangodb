@@ -98,6 +98,7 @@ $(GOBUILDDIR):
 	@mkdir -p $(ORGDIR)
 	@rm -f $(REPODIR) && ln -s $(GOBUILDLINKTARGET) $(REPODIR)
 	@rm -f $(GOBUILDDIR)/src/github.com/aktau && ln -s ../../../vendor/github.com/aktau $(GOBUILDDIR)/src/github.com/aktau
+	@rm -f $(GOBUILDDIR)/src/github.com/arangodb && ln -s ../../../vendor/github.com/arangodb $(GOBUILDDIR)/src/github.com/arangodb
 	@rm -f $(GOBUILDDIR)/src/github.com/dchest && ln -s ../../../vendor/github.com/dchest $(GOBUILDDIR)/src/github.com/dchest
 	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../vendor/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
 	@rm -f $(GOBUILDDIR)/src/github.com/kballard && ln -s ../../../vendor/github.com/kballard $(GOBUILDDIR)/src/github.com/kballard

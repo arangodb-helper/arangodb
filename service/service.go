@@ -198,7 +198,8 @@ type Service struct {
 	mutex                 sync.Mutex  // Mutex used to protect access to this datastructure
 	allowSameDataDir      bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
 	isLocalSlave          bool
-	learnOwnAddress       bool // If set, the HTTP server will update my peer with address information gathered from a /hello request.
+	learnOwnAddress       bool   // If set, the HTTP server will update my peer with address information gathered from a /hello request.
+	recoveryFile          string // Path of RECOVERY file (if any)
 	runtimeServerManager  runtimeServerManager
 	runtimeClusterManager runtimeClusterManager
 }
