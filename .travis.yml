@@ -13,7 +13,7 @@ env:
   - TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,resilientsingle"
   - TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,resilientsingle"
 
-script: make clean && make $TEST_SUITE
+script: make $TEST_SUITE
 
 # 3.1 cluster startup is not always a success, causing lots of false positive.
 matrix:
