@@ -63,10 +63,15 @@ var (
 	projectVersion = "dev"
 	projectBuild   = "dev"
 	cmdMain        = &cobra.Command{
-		Use:              projectName,
-		Short:            "Start ArangoDB clusters & single servers with ease",
-		Run:              cmdMainRun,
-		PersistentPreRun: cmdShowVersionRun,
+		Use:   projectName,
+		Short: "Start ArangoDB clusters & single servers with ease",
+		Run:   cmdMainRun,
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			// Load commandline options from envvars
+			setFlagValuesFromEnv(cmd.Flags())
+			// Show version if requested
+			cmdShowVersionRun(cmd, args)
+		},
 	}
 	cmdVersion = &cobra.Command{
 		Use:   "version",
@@ -416,7 +421,6 @@ func cmdShowUsage(cmd *cobra.Command, args []string) {
 }
 
 func cmdShowVersionRun(cmd *cobra.Command, args []string) {
-	setFlagValuesFromEnv(cmd.PersistentFlags())
 	if cmd.Use == "version" || showVersion {
 		fmt.Printf("Version %s, build %s\n", projectVersion, projectBuild)
 		os.Exit(0)
