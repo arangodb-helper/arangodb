@@ -78,13 +78,9 @@ starter default port.
 
 Additional servers can be added in the same way.
 
-If two or more of the `arangodb` instances run on the same machine,
-one has to use the `--starter.data-dir` option to let each use a different
-directory.
+## More usage info
 
-The `arangodb` program will find the ArangoDB executable and the
-other installation files automatically. If this fails, use the
-`--server.arangod` and `--server.js-dir` options described below.
+Look [here](./docs/manual/usage.md) for more information on how to use the starter.
 
 ## HTTP API
 
