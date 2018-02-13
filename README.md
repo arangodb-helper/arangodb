@@ -89,7 +89,7 @@ See [HTTP API](./docs/http_api.md).
 ## Future plans
 
 - Allow starter with agent to be removed from cluster
-- Enable cluster to be updated in a controlled manor.
+- Enable cluster to be updated in a controlled manner.
 
 ## Technical explanation as to what happens
 

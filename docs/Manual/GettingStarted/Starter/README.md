@@ -144,7 +144,7 @@ arangodb --starter.local
 
 Using the starter this way does not provide resilience and high availability of your cluster!
 
-Note: When you restart the started, it remembers the original `--starter.local` flag.
+Note: When you restart the starter, it remembers the original `--starter.local` flag.
 
 ## Starting a cluster with datacenter to datacenter synchronization
 
