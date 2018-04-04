@@ -80,7 +80,7 @@ Additional servers can be added in the same way.
 
 ## More usage info
 
-Look [here](https://docs.arangodb.com/devel/Manual/GettingStarted/Starter/) for more information on how to use the starter.
+See the [ArangoDB Starter Tutorial](https://docs.arangodb.com/devel/Manual/Tutorials/Starter/).
 
 ## HTTP API
 
