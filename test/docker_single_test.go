@@ -214,7 +214,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 			--starter.address=$IP \
 			--starter.mode=single \
 			--server.storage-engine=rocksdb \
-			--docker.image=arangodb/arangodb-preview:3.2.devel
+			--docker.image=arangodb/arangodb:3.2.6
 	*/
 	volID := createDockerID("vol-starter-test-single-")
 	createDockerVolume(t, volID)
@@ -240,7 +240,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 		"--starter.address=$IP",
 		"--starter.mode=single",
 		"--server.storage-engine=rocksdb",
-		"--docker.image=arangodb/arangodb-preview:3.2.devel",
+		"--docker.image=arangodb/arangodb:3.2.6",
 		createEnvironmentStarterOptions(skipDockerImage),
 	}, " "))
 	defer dockerRun.Close()
