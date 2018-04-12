@@ -24,12 +24,6 @@ package service
 
 type ServiceMode string
 
-const (
-	ServiceModeCluster_        = ServiceMode("cluster")
-	ServiceModeSingle_         = ServiceMode("single")
-	ServiceModeActiveFailover_ = ServiceMode("activefailover")
-)
-
 // IsClusterMode returns true when the service is running in cluster mode.
 func (m ServiceMode) IsClusterMode() bool {
 	return m == "cluster"
