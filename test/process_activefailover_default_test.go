@@ -28,9 +28,9 @@ import (
 	"time"
 )
 
-// TestProcessResilientSingleDefault starts a master starter, followed by 2 slave starters.
-// All are started in resilientsingle mode.
-func TestProcessResilientSingleDefault(t *testing.T) {
+// TestProcessActiveFailoverDefault starts a master starter, followed by 2 slave starters.
+// All are started in activefailover mode.
+func TestProcessActiveFailoverDefault(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	needStarterMode(t, starterModeActiveFailover)
@@ -39,21 +39,21 @@ func TestProcessResilientSingleDefault(t *testing.T) {
 
 	start := time.Now()
 
-	master := Spawn(t, "${STARTER} --starter.mode=resilientsingle "+createEnvironmentStarterOptions())
+	master := Spawn(t, "${STARTER} --starter.mode=activefailover "+createEnvironmentStarterOptions())
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave1 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=activefailover --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=resilientsingle --cluster.start-single=false --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=activefailover --cluster.start-single=false --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, master, slave1 /* not slave2 */); ok {
-		t.Logf("ResilientSingle start took %s", time.Since(start))
+		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, true) // due to --cluster.start-single=false
@@ -65,9 +65,9 @@ func TestProcessResilientSingleDefault(t *testing.T) {
 	SendIntrAndWait(t, master, slave1, slave2)
 }
 
-// TestProcessResilientSingleDefaultShutdownViaAPI starts a master starter, followed by 2 slave starters, shutting all down through the API.
-// All are started in resilientsingle mode.
-func TestProcessResilientSingleDefaultShutdownViaAPI(t *testing.T) {
+// TestProcessActiveFailoverDefaultShutdownViaAPI starts a master starter, followed by 2 slave starters, shutting all down through the API.
+// All are started in activefailover mode.
+func TestProcessActiveFailoverDefaultShutdownViaAPI(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	needStarterMode(t, starterModeActiveFailover)
@@ -76,21 +76,21 @@ func TestProcessResilientSingleDefaultShutdownViaAPI(t *testing.T) {
 
 	start := time.Now()
 
-	master := Spawn(t, "${STARTER} --starter.mode=resilientsingle "+createEnvironmentStarterOptions())
+	master := Spawn(t, "${STARTER} --starter.mode=activefailover "+createEnvironmentStarterOptions())
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave1 := Spawn(t, "${STARTER} --starter.port=8538 --starter.mode=activefailover --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=activefailover --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, master, slave1, slave2); ok {
-		t.Logf("ResilientSingle start took %s", time.Since(start))
+		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, false)

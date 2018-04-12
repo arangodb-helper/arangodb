@@ -455,7 +455,7 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 		if bsCfg.StartSyncWorker == nil || *bsCfg.StartSyncWorker {
 			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSyncWorker, &s.syncWorkerProc)
 		}
-	} else if mode.IsResilientSingleMode() {
+	} else if mode.IsActiveFailoverMode() {
 		// Start agent:
 		if myPeer.HasAgent() {
 			go s.runServer(ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, &s.agentProc)

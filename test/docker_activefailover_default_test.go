@@ -30,9 +30,9 @@ import (
 	"time"
 )
 
-// TestDockerResilientSingleDefault runs 3 arangodb starters in docker with mode=resilientsingle
+// TestDockerActiveFailoverDefault runs 3 arangodb starters in docker with mode=activefailover
 // and otherwise default settings.
-func TestDockerResilientSingleDefault(t *testing.T) {
+func TestDockerActiveFailoverDefault(t *testing.T) {
 	needTestMode(t, testModeDocker)
 	needStarterMode(t, starterModeActiveFailover)
 	if os.Getenv("IP") == "" {
@@ -46,17 +46,17 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 			arangodb/arangodb-starter \
 			--docker.container=adb1 \
 			--starter.address=$IP \
-			--starter.mode=resilientsingle
+			--starter.mode=activefailover
 	*/
-	volID1 := createDockerID("vol-starter-test-resilientsingle-default1-")
+	volID1 := createDockerID("vol-starter-test-activefailover-default1-")
 	createDockerVolume(t, volID1)
 	defer removeDockerVolume(t, volID1)
 
-	volID2 := createDockerID("vol-starter-test-resilientsingle-default2-")
+	volID2 := createDockerID("vol-starter-test-activefailover-default2-")
 	createDockerVolume(t, volID2)
 	defer removeDockerVolume(t, volID2)
 
-	volID3 := createDockerID("vol-starter-test-resilientsingle-default3-")
+	volID3 := createDockerID("vol-starter-test-activefailover-default3-")
 	createDockerVolume(t, volID3)
 	defer removeDockerVolume(t, volID3)
 
@@ -66,7 +66,7 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 
 	start := time.Now()
 
-	cID1 := createDockerID("starter-test-resilientsingle-default1-")
+	cID1 := createDockerID("starter-test-activefailover-default1-")
 	dockerRun1 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -78,13 +78,13 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID1,
 		"--starter.address=$IP",
-		"--starter.mode=resilientsingle",
+		"--starter.mode=activefailover",
 		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
-	cID2 := createDockerID("starter-test-resilientsingle-default2-")
+	cID2 := createDockerID("starter-test-activefailover-default2-")
 	dockerRun2 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -96,14 +96,14 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID2,
 		"--starter.address=$IP",
-		"--starter.mode=resilientsingle",
+		"--starter.mode=activefailover",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
 
-	cID3 := createDockerID("starter-test-resilientsingle-default3-")
+	cID3 := createDockerID("starter-test-activefailover-default3-")
 	dockerRun3 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -115,7 +115,7 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID3,
 		"--starter.address=$IP",
-		"--starter.mode=resilientsingle",
+		"--starter.mode=activefailover",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
@@ -123,7 +123,7 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 	defer removeDockerContainer(t, cID3)
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2, dockerRun3); ok {
-		t.Logf("ResilientSingle start took %s", time.Since(start))
+		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, false)
@@ -137,9 +137,9 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
 }
 
-// TestDockerResilientSingle2Instance runs 3 arangodb starters in docker with mode=resilientsingle
+// TestDockerActiveFailover2Instance runs 3 arangodb starters in docker with mode=activefailover
 // and only 2 servers should start a single server instance.
-func TestDockerResilientSingle2Instance(t *testing.T) {
+func TestDockerActiveFailover2Instance(t *testing.T) {
 	needTestMode(t, testModeDocker)
 	needStarterMode(t, starterModeActiveFailover)
 	if os.Getenv("IP") == "" {
@@ -153,17 +153,17 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 			arangodb/arangodb-starter \
 			--docker.container=adb1 \
 			--starter.address=$IP \
-			--starter.mode=resilientsingle
+			--starter.mode=activefailover
 	*/
-	volID1 := createDockerID("vol-starter-test-resilientsingle-default1-")
+	volID1 := createDockerID("vol-starter-test-activefailover-default1-")
 	createDockerVolume(t, volID1)
 	defer removeDockerVolume(t, volID1)
 
-	volID2 := createDockerID("vol-starter-test-resilientsingle-default2-")
+	volID2 := createDockerID("vol-starter-test-activefailover-default2-")
 	createDockerVolume(t, volID2)
 	defer removeDockerVolume(t, volID2)
 
-	volID3 := createDockerID("vol-starter-test-resilientsingle-default3-")
+	volID3 := createDockerID("vol-starter-test-activefailover-default3-")
 	createDockerVolume(t, volID3)
 	defer removeDockerVolume(t, volID3)
 
@@ -173,7 +173,7 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 
 	start := time.Now()
 
-	cID1 := createDockerID("starter-test-resilientsingle-default1-")
+	cID1 := createDockerID("starter-test-activefailover-default1-")
 	dockerRun1 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -185,13 +185,13 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID1,
 		"--starter.address=$IP",
-		"--starter.mode=resilientsingle",
+		"--starter.mode=activefailover",
 		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
-	cID2 := createDockerID("starter-test-resilientsingle-default2-")
+	cID2 := createDockerID("starter-test-activefailover-default2-")
 	dockerRun2 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -203,14 +203,14 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID2,
 		"--starter.address=$IP",
-		"--starter.mode=resilientsingle",
+		"--starter.mode=activefailover",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
 
-	cID3 := createDockerID("starter-test-resilientsingle-default3-")
+	cID3 := createDockerID("starter-test-activefailover-default3-")
 	dockerRun3 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -222,7 +222,7 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID3,
 		"--starter.address=$IP",
-		"--starter.mode=resilientsingle",
+		"--starter.mode=activefailover",
 		"--cluster.start-single=false",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
@@ -231,7 +231,7 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 	defer removeDockerContainer(t, cID3)
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2 /*not docker3*/); ok {
-		t.Logf("ResilientSingle start took %s", time.Since(start))
+		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, true)
