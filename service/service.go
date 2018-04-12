@@ -779,7 +779,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			if req.Coordinator != nil {
 				hasCoordinator = *req.Coordinator
 			}
-			hasResilientSingle := s.mode.IsResilientSingleMode()
+			hasResilientSingle := s.mode.IsActiveFailoverMode()
 			if req.ResilientSingle != nil {
 				hasResilientSingle = *req.ResilientSingle
 			}
@@ -962,7 +962,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	s.sslKeyFile = bsCfg.SslKeyFile
 
 	// Check mode & flags
-	if bsCfg.Mode.IsClusterMode() || bsCfg.Mode.IsResilientSingleMode() {
+	if bsCfg.Mode.IsClusterMode() || bsCfg.Mode.IsActiveFailoverMode() {
 		if bsCfg.AgencySize < 1 {
 			return maskAny(fmt.Errorf("AgentSize must be >= 1"))
 		}

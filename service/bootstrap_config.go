@@ -77,12 +77,12 @@ func (bsCfg BootstrapConfig) CreateTLSConfig() (*tls.Config, error) {
 // PeersNeeded returns the minimum number of peers needed for the given config.
 func (bsCfg BootstrapConfig) PeersNeeded() int {
 	minServers := 1
-	switch bsCfg.Mode {
-	case ServiceModeCluster:
+	switch {
+	case bsCfg.Mode.IsClusterMode():
 		minServers = 3
-	case ServiceModeSingle:
+	case bsCfg.Mode.IsSingleMode():
 		minServers = 1
-	case ServiceModeResilientSingle:
+	case bsCfg.Mode.IsActiveFailoverMode():
 		minServers = 2
 	}
 	if minServers < bsCfg.AgencySize {

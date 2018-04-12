@@ -41,16 +41,16 @@ import (
 )
 
 const (
-	ctrlC                      = "\u0003"
-	whatCluster                = "cluster"
-	whatSingle                 = "single server"
-	whatResilientSingle        = "resilient single server"
-	testModeProcess            = "localprocess"
-	testModeDocker             = "docker"
-	starterModeCluster         = "cluster"
-	starterModeSingle          = "single"
-	starterModeResilientSingle = "resilientsingle"
-	portIncrement              = 10
+	ctrlC                     = "\u0003"
+	whatCluster               = "cluster"
+	whatSingle                = "single server"
+	whatResilientSingle       = "resilient single server"
+	testModeProcess           = "localprocess"
+	testModeDocker            = "docker"
+	starterModeCluster        = "cluster"
+	starterModeSingle         = "single"
+	starterModeActiveFailover = "activefailover"
+	portIncrement             = 10
 )
 
 var (

@@ -90,7 +90,7 @@ var (
 	startAgent               []bool
 	startDBserver            []bool
 	startCoordinator         []bool
-	startResilientSingle     []bool
+	startActiveFailover      []bool
 	startSyncMaster          []bool
 	startSyncWorker          []bool
 	startLocalSlaves         bool
@@ -145,7 +145,7 @@ func init() {
 	pf.BoolVar(&showVersion, "version", false, "If set, show version and exit")
 
 	f.StringSliceVar(&masterAddresses, "starter.join", nil, "join a cluster with master at given address")
-	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|resilientsingle)")
+	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|activefailover)")
 	f.BoolVar(&startLocalSlaves, "starter.local", false, "If set, local slaves will be started to create a machine local (test) cluster")
 	f.StringVar(&ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
 	f.StringVar(&id, "starter.id", "", "Unique identifier of this peer")
@@ -164,7 +164,7 @@ func init() {
 	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
 	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
 	f.BoolSliceVar(&startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
-	f.BoolSliceVar(&startResilientSingle, "cluster.start-single", nil, "should a (resilient) single server instance be started")
+	f.BoolSliceVar(&startActiveFailover, "cluster.start-single", nil, "should an active-failover single server instance be started")
 
 	f.StringVar(&arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
 	f.StringVar(&arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
@@ -631,7 +631,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		StartAgent:               mustGetOptionalBoolRef("cluster.start-agent", startAgent),
 		StartDBserver:            mustGetOptionalBoolRef("cluster.start-dbserver", startDBserver),
 		StartCoordinator:         mustGetOptionalBoolRef("cluster.start-coordinator", startCoordinator),
-		StartResilientSingle:     mustGetOptionalBoolRef("cluster.start-single", startResilientSingle),
+		StartResilientSingle:     mustGetOptionalBoolRef("cluster.start-single", startActiveFailover),
 		StartSyncMaster:          mustGetOptionalBoolRef("sync.start-master", startSyncMaster),
 		StartSyncWorker:          mustGetOptionalBoolRef("sync.start-worker", startSyncWorker),
 		ServerStorageEngine:      serverStorageEngine,

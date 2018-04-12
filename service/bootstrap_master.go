@@ -49,7 +49,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	hasAgent := boolFromRef(bsCfg.StartAgent, !s.mode.IsSingleMode())
 	hasDBServer := boolFromRef(bsCfg.StartDBserver, true)
 	hasCoordinator := boolFromRef(bsCfg.StartCoordinator, true)
-	hasResilientSingle := boolFromRef(bsCfg.StartResilientSingle, s.mode.IsResilientSingleMode())
+	hasResilientSingle := boolFromRef(bsCfg.StartResilientSingle, s.mode.IsActiveFailoverMode())
 	hasSyncMaster := boolFromRef(bsCfg.StartSyncMaster, true) && config.SyncEnabled
 	hasSyncWorker := boolFromRef(bsCfg.StartSyncWorker, true) && config.SyncEnabled
 	s.myPeers.Initialize(

@@ -30,8 +30,8 @@ import (
 	"time"
 )
 
-// TestDockerResilientSingleLocal runs the arangodb starter in docker with mode `resilientsingle` & `--starter.local`
-func TestDockerResilientSingleLocal(t *testing.T) {
+// TestDockerActiveFailoverLocal runs the arangodb starter in docker with mode `activefailover` & `--starter.local`
+func TestDockerActiveFailoverLocal(t *testing.T) {
 	needTestMode(t, testModeDocker)
 	needStarterMode(t, starterModeActiveFailover)
 	if os.Getenv("IP") == "" {
@@ -45,10 +45,10 @@ func TestDockerResilientSingleLocal(t *testing.T) {
 			arangodb/arangodb-starter \
 			--docker.container=adb \
 			--starter.address=$IP \
-			--starter.mode=resilientsingle \
+			--starter.mode=activefailover \
 			--starter.local
 	*/
-	volID := createDockerID("vol-starter-test-local-resilientsingle-")
+	volID := createDockerID("vol-starter-test-local-activefailover-")
 	createDockerVolume(t, volID)
 	defer removeDockerVolume(t, volID)
 
@@ -58,7 +58,7 @@ func TestDockerResilientSingleLocal(t *testing.T) {
 
 	start := time.Now()
 
-	cID := createDockerID("starter-test-local-resilientsingle-")
+	cID := createDockerID("starter-test-local-activefailover-")
 	dockerRun := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -70,7 +70,7 @@ func TestDockerResilientSingleLocal(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID,
 		"--starter.address=$IP",
-		"--starter.mode=resilientsingle",
+		"--starter.mode=activefailover",
 		"--starter.local",
 		createEnvironmentStarterOptions(),
 	}, " "))
@@ -78,7 +78,7 @@ func TestDockerResilientSingleLocal(t *testing.T) {
 	defer removeDockerContainer(t, cID)
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun); ok {
-		t.Logf("ResilientSingle start took %s", time.Since(start))
+		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 	}
 
@@ -88,9 +88,9 @@ func TestDockerResilientSingleLocal(t *testing.T) {
 	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
-// TestDockerResilientSingleLocalSecure runs the arangodb starter in docker with mode `resilientsingle`,
+// TestDockerActiveFailoverSecure runs the arangodb starter in docker with mode `activefailover`,
 // `--starter.local` & `--ssl.auto-key`
-func TestDockerResilientSingleLocalSecure(t *testing.T) {
+func TestDockerResilientActiveFailoverSecure(t *testing.T) {
 	needTestMode(t, testModeDocker)
 	needStarterMode(t, starterModeActiveFailover)
 	if os.Getenv("IP") == "" {
@@ -104,10 +104,10 @@ func TestDockerResilientSingleLocalSecure(t *testing.T) {
 			arangodb/arangodb-starter \
 			--docker.container=adb \
 			--starter.address=$IP \
-			--starter.mode=resilientsingle \
+			--starter.mode=activefailover \
 			--starter.local
 	*/
-	volID := createDockerID("vol-starter-test-local-resilientsingle-secure-")
+	volID := createDockerID("vol-starter-test-local-activefailover-secure-")
 	createDockerVolume(t, volID)
 	defer removeDockerVolume(t, volID)
 
@@ -117,7 +117,7 @@ func TestDockerResilientSingleLocalSecure(t *testing.T) {
 
 	start := time.Now()
 
-	cID := createDockerID("starter-test-local-resilientsingle-secure-")
+	cID := createDockerID("starter-test-local-activefailover-secure-")
 	dockerRun := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
@@ -129,7 +129,7 @@ func TestDockerResilientSingleLocalSecure(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID,
 		"--starter.address=$IP",
-		"--starter.mode=resilientsingle",
+		"--starter.mode=activefailover",
 		"--starter.local",
 		"--ssl.auto-key",
 		createEnvironmentStarterOptions(),
@@ -138,7 +138,7 @@ func TestDockerResilientSingleLocalSecure(t *testing.T) {
 	defer removeDockerContainer(t, cID)
 
 	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun); ok {
-		t.Logf("ResilientSingle start took %s", time.Since(start))
+		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, secureStarterEndpoint(0*portIncrement), true, false)
 	}
 
