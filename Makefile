@@ -32,7 +32,7 @@ REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.9.3-alpine
+GOVERSION := 1.10.1-alpine
 
 ifndef GOOS
 	GOOS := linux
@@ -180,6 +180,9 @@ run-tests-local-process: build test-images
 		go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
 
 run-tests-docker: docker
+ifdef TRAVIS
+	docker pull $(ARANGODB)
+endif
 	mkdir -p $(GOBUILDDIR)/tmp
 	GOPATH=$(GOBUILDDIR) TMPDIR=$(GOBUILDDIR)/tmp TEST_MODES=docker STARTER_MODES=$(STARTER_MODES) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
 
