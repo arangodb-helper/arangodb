@@ -198,7 +198,7 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
 }
 
-// TestDockerSingleAutoRocksdb runs the arangodb starter in docker with `--server.storage-engine=rocksdb` and a 3.2 image.
+// TestDockerSingleAutoRocksdb runs the arangodb starter in docker with `--server.storage-engine=rocksdb` and a 3.2+ image.
 func TestDockerSingleAutoRocksdb(t *testing.T) {
 	needTestMode(t, testModeDocker)
 	needStarterMode(t, starterModeSingle)
@@ -214,7 +214,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 			--starter.address=$IP \
 			--starter.mode=single \
 			--server.storage-engine=rocksdb \
-			--docker.image=arangodb/arangodb:3.2.6
+			--docker.image=arangodb/arangodb:...
 	*/
 	volID := createDockerID("vol-starter-test-single-")
 	createDockerVolume(t, volID)
@@ -226,7 +226,6 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 
 	start := time.Now()
 
-	skipDockerImage := true
 	cID := createDockerID("starter-test-single-")
 	dockerRun := Spawn(t, strings.Join([]string{
 		"docker run -i",
@@ -240,8 +239,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 		"--starter.address=$IP",
 		"--starter.mode=single",
 		"--server.storage-engine=rocksdb",
-		"--docker.image=arangodb/arangodb:3.2.6",
-		createEnvironmentStarterOptions(skipDockerImage),
+		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
