@@ -1,5 +1,6 @@
 # Changes from version 0.10.4 to master
 
+- Added `POST /data-auto-upgrade` support to perform a rolling upgrade of all servers (with single `--database.auto-upgrade` restart)
 - Renamed mode option `resilientsingle` to `activefailover`. (`resilientsingle` is being supported as alias for a while)
 - Added support for log file rotation for started server components.
 - Added support for running datacenter to datacenter replication servers (`arangosync`) from the starter.
