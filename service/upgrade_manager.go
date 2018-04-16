@@ -24,12 +24,16 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	driver "github.com/arangodb/go-driver"
 	logging "github.com/op/go-logging"
+	"github.com/ryanuber/columnize"
 
 	"github.com/arangodb-helper/arangodb/service/arangod"
 )
@@ -306,7 +310,14 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 	}
 
 	// We're done
-	m.log.Info("Upgrading done.")
+	allSameVersion, err := m.ShowArangodServerVersions(ctx)
+	if err != nil {
+		m.log.Errorf("Failed to show server versions: %v", err)
+	} else if allSameVersion {
+		m.log.Info("Upgrading done.")
+	} else {
+		m.log.Info("Upgrading of all servers controlled by this starter done, you can continue with the next starter now.")
+	}
 }
 
 // waitUntilUpgradeServerStarted waits until the updateNeeded is false.
@@ -543,4 +554,82 @@ func (m *upgradeManager) enableSupervision(ctx context.Context) error {
 		return maskAny(err)
 	}
 	return nil
+}
+
+// ShowServerVersions queries the versions of all Arangod servers in the cluster and shows them.
+// Returns true when all servers are the same, false otherwise.
+func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, error) {
+	prepareReq := m.upgradeManagerContext.PrepareDatabaseServerRequestFunc()
+	// Get cluster config
+	clusterConfig, _, mode := m.upgradeManagerContext.ClusterConfig()
+	versions := make(map[string]struct{})
+	rows := []string{}
+
+	showGroup := func(serverType ServerType, endpoints []url.URL) {
+		groupVersions := make([]string, len(endpoints))
+		for i, ep := range endpoints {
+			c, err := arangod.NewServerClient(ep, prepareReq, false)
+			if err != nil {
+				groupVersions[i] = "?"
+				continue
+			}
+			sa, err := c.Server()
+			if err != nil {
+				groupVersions[i] = "?"
+				continue
+			}
+			if info, err := sa.Version(ctx); err != nil {
+				groupVersions[i] = "?"
+				continue
+			} else {
+				groupVersions[i] = info.Version
+			}
+		}
+		for i, v := range groupVersions {
+			versions[v] = struct{}{}
+			rows = append(rows, fmt.Sprintf("%s %d | %s", serverType, i+1, v))
+		}
+	}
+
+	if mode.HasAgency() {
+		endpoints, err := clusterConfig.GetAgentEndpoints()
+		if err != nil {
+			return false, maskAny(err)
+		}
+		showGroup(ServerTypeAgent, endpoints)
+	}
+	if mode.IsSingleMode() {
+		endpoints, err := clusterConfig.GetSingleEndpoints(true)
+		if err != nil {
+			return false, maskAny(err)
+		}
+		showGroup(ServerTypeSingle, endpoints)
+	}
+	if mode.IsActiveFailoverMode() {
+		endpoints, err := clusterConfig.GetSingleEndpoints(false)
+		if err != nil {
+			return false, maskAny(err)
+		}
+		showGroup(ServerTypeResilientSingle, endpoints)
+	}
+	if mode.IsClusterMode() {
+		endpoints, err := clusterConfig.GetDBServerEndpoints()
+		if err != nil {
+			return false, maskAny(err)
+		}
+		showGroup(ServerTypeDBServer, endpoints)
+		endpoints, err = clusterConfig.GetCoordinatorEndpoints()
+		if err != nil {
+			return false, maskAny(err)
+		}
+		showGroup(ServerTypeCoordinator, endpoints)
+	}
+
+	m.log.Info("Server versions:")
+	rows = strings.Split(columnize.SimpleFormat(rows), "\n")
+	for _, r := range rows {
+		m.log.Info(r)
+	}
+
+	return len(versions) == 1, nil
 }
