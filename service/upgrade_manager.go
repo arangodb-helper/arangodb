@@ -92,17 +92,21 @@ func (m *upgradeManager) StartDatabaseUpgrade() error {
 	ctx := context.Background()
 	var lock arangod.Lock
 	if mode.HasAgency() {
+		m.log.Debug("Creating agency API")
 		api, err := m.createAgencyAPI()
 		if err != nil {
 			return maskAny(err)
 		}
+		m.log.Debug("Creating lock")
 		lock, err = arangod.NewLock(m.log, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
 		if err != nil {
 			return maskAny(err)
 		}
 
 		// Claim the upgrade lock
+		m.log.Debug("Locking lock")
 		if err := lock.Lock(ctx); err != nil {
+			m.log.Debugf("Lock failed: %v", err)
 			return maskAny(err)
 		}
 	}

@@ -97,6 +97,9 @@ func (l *lock) Lock(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 	if err := l.api.WriteKeyIfEmpty(ctx, l.key, l.id, l.ttl); err != nil {
+		if IsPreconditionFailed(err) {
+			return maskAny(AlreadyLockedError)
+		}
 		return maskAny(err)
 	}
 

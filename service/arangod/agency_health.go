@@ -67,6 +67,7 @@ func AreAgentsHealthy(ctx context.Context, clients []AgencyAPI) error {
 				} else {
 					// Unexpected / invalid response
 					statuses[i].IsResponding = false
+					//fmt.Printf("Agency response: %v\n", err)
 				}
 			}
 		}(i, c)

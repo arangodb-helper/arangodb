@@ -58,6 +58,11 @@ func IsKeyNotFound(err error) bool {
 	return errors.Cause(err) == KeyNotFoundError
 }
 
+func IsPreconditionFailed(err error) bool {
+	statusCode, ok := IsStatusError(err)
+	return ok && statusCode == 412
+}
+
 // NotLeaderError indicates the response of an agent when it is
 // not the leader of the agency.
 type NotLeaderError struct {
@@ -71,7 +76,7 @@ func (e NotLeaderError) Error() string {
 
 // IsNotLeader returns true if the given error is (or is caused by) a NotLeaderError.
 func IsNotLeader(err error) (string, bool) {
-	nlErr, ok := err.(NotLeaderError)
+	nlErr, ok := errors.Cause(err).(NotLeaderError)
 	if ok {
 		return nlErr.Leader, true
 	}
