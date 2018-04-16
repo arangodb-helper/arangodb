@@ -158,6 +158,15 @@ type writeResult struct {
 	Results []int64 `json:"results"`
 }
 
+// WriteKey writes the given value with the given key.
+func (c *client) WriteKey(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
+	condition := writeCondition{}
+	if err := c.write(ctx, key, value, condition, ttl); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
 // WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
 func (c *client) WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
 	oldEmpty := true
@@ -246,11 +255,28 @@ func (c *client) write(ctx context.Context, key []string, value interface{}, con
 // RemoveKeyIfEqualTo removes the given key only if the existing value for that key equals
 // to the given old value.
 func (c *client) RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue interface{}) error {
-	url := c.createURL("/_api/agency/write", nil)
-
 	condition := writeCondition{
 		Old: oldValue,
 	}
+	if err := c.removeKey(ctx, key, condition); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// RemoveKey removes the given key.
+func (c *client) RemoveKey(ctx context.Context, key []string) error {
+	condition := writeCondition{}
+	if err := c.removeKey(ctx, key, condition); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// removeKey removes the given key if the given condition is met.
+func (c *client) removeKey(ctx context.Context, key []string, condition writeCondition) error {
+	url := c.createURL("/_api/agency/write", nil)
+
 	fullKey := createFullKey(key)
 	writeTxs := writeTransactions{
 		writeTransaction{

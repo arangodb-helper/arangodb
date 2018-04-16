@@ -50,12 +50,18 @@ type AgencyAPI interface {
 	// ReadKey reads the value of a given key in the agency.
 	ReadKey(ctx context.Context, key []string) (interface{}, error)
 
+	// WriteKey writes the given value with the given key.
+	WriteKey(ctx context.Context, key []string, value interface{}, ttl time.Duration) error
+
 	// WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
 	WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error
 
 	// WriteKeyIfEqualTo writes the given new value with the given key only if the existing value for that key equals
 	// to the given old value.
 	WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error
+
+	// RemoveKey removes the given key.
+	RemoveKey(ctx context.Context, key []string) error
 
 	// RemoveKeyIfEqualTo removes the given key only if the existing value for that key equals
 	// to the given old value.

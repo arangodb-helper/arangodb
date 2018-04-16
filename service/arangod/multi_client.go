@@ -94,6 +94,20 @@ func (c *multiClient) ReadKey(ctx context.Context, key []string) (interface{}, e
 	}
 }
 
+// WriteKey writes the given value with the given key.
+func (c *multiClient) WriteKey(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if err := c.Agency().WriteKey(ctx, key, value, ttl); err != nil {
+			return nil, maskAny(err)
+		}
+		return nil, nil
+	}
+	if _, err := c.handleMultiRequests(ctx, op); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
 // WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
 func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
 	op := func(ctx context.Context, c API) (interface{}, error) {
@@ -113,6 +127,20 @@ func (c *multiClient) WriteKeyIfEmpty(ctx context.Context, key []string, value i
 func (c *multiClient) WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error {
 	op := func(ctx context.Context, c API) (interface{}, error) {
 		if err := c.Agency().WriteKeyIfEqualTo(ctx, key, newValue, oldValue, ttl); err != nil {
+			return nil, maskAny(err)
+		}
+		return nil, nil
+	}
+	if _, err := c.handleMultiRequests(ctx, op); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// RemoveKey removes the given key
+func (c *multiClient) RemoveKey(ctx context.Context, key []string) error {
+	op := func(ctx context.Context, c API) (interface{}, error) {
+		if err := c.Agency().RemoveKey(ctx, key); err != nil {
 			return nil, maskAny(err)
 		}
 		return nil, nil
