@@ -96,6 +96,9 @@ type httpServerContext interface {
 	// Stop the peer
 	Stop()
 
+	// UpgradeManager returns the database upgrade manager
+	UpgradeManager() UpgradeManager
+
 	// Handle a hello request.
 	// If req==nil, this is a GET request, otherwise it is a POST request.
 	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error)
@@ -159,6 +162,7 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/logs/syncworker", s.syncWorkerLogsHandler)
 		mux.HandleFunc("/version", s.versionHandler)
 		mux.HandleFunc("/shutdown", s.shutdownHandler)
+		mux.HandleFunc("/database-auto-upgrade", s.databaseAutoUpgradeHandler)
 		// Agency callback
 		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
 	}
@@ -550,6 +554,22 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	s.context.Stop()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+// databaseAutoUpgradeHandler initiates an upgrade of the database version.
+func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Start the upgrade process
+	if err := s.context.UpgradeManager().StartDatabaseUpgrade(); err != nil {
+		handleError(w, err)
+	} else {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}
 }
 
 // cbMasterChanged is a callback called by the agency when the master URL is modified.

@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -49,6 +50,15 @@ func NewClusterClient(endpoints []url.URL, prepareRequest func(*http.Request) er
 
 type multiClient struct {
 	clients []API
+}
+
+// Returns the endpoint of the specific agency this api targets.
+func (c *multiClient) Endpoint() string {
+	result := make([]string, 0, len(c.clients))
+	for _, c := range c.clients {
+		result = append(result, c.Agency().Endpoint())
+	}
+	return strings.Join(result, ",")
 }
 
 // Agency returns API of the agency

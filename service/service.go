@@ -202,6 +202,7 @@ type Service struct {
 	recoveryFile          string // Path of RECOVERY file (if any)
 	runtimeServerManager  runtimeServerManager
 	runtimeClusterManager runtimeClusterManager
+	upgradeManager        UpgradeManager
 }
 
 // NewService creates a new Service instance from the given config.
@@ -219,6 +220,7 @@ func NewService(ctx context.Context, log *logging.Logger, config Config, isLocal
 		state:        stateStart,
 		isLocalSlave: isLocalSlave,
 	}
+	s.upgradeManager = NewUpgradeManager(log, s)
 	s.bootstrapCompleted.ctx, s.bootstrapCompleted.trigger = context.WithCancel(ctx)
 	return s
 }
@@ -461,6 +463,11 @@ func (c *Config) serverExecutable(processType ProcessType) string {
 	default:
 		return ""
 	}
+}
+
+// UpgradeManager returns the upgrade manager service.
+func (s *Service) UpgradeManager() UpgradeManager {
+	return s.upgradeManager
 }
 
 // StatusItem contain a single point in time for a status feedback channel.
@@ -868,6 +875,14 @@ func (s *Service) runRotateLogFiles(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// RestartServer triggers a restart of the server of the given type.
+func (s *Service) RestartServer(serverType ServerType) error {
+	if err := s.runtimeServerManager.RestartServer(s.log, serverType); err != nil {
+		return maskAny(err)
+	}
+	return nil
 }
 
 func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {

@@ -48,3 +48,8 @@ func (m ServiceMode) SupportsArangoSync() bool {
 func (m ServiceMode) SupportsRecovery() bool {
 	return m == "" || m.IsClusterMode() || m.IsActiveFailoverMode()
 }
+
+// HasAgency returns true when the given mode involves an agency.
+func (m ServiceMode) HasAgency() bool {
+	return !m.IsSingleMode()
+}

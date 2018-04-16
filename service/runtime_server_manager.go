@@ -63,6 +63,9 @@ type runtimeServerManagerContext interface {
 	// removeRecoveryFile removes any recorded RECOVERY file.
 	removeRecoveryFile()
 
+	// UpgradeManager returns the upgrade manager service.
+	UpgradeManager() UpgradeManager
+
 	// TestInstance checks the `up` status of an arangod server instance.
 	TestInstance(ctx context.Context, serverType ServerType, address string, port int,
 		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool)
@@ -142,7 +145,9 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 
 	// Create server command line arguments
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
-	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName, bsCfg.RecoveryAgentID)
+	upgradeManager := runtimeContext.UpgradeManager()
+	databaseAutoUpgrade := upgradeManager.ServerDatabaseAutoUpgrade(serverType)
+	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName, bsCfg.RecoveryAgentID, databaseAutoUpgrade)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
@@ -159,6 +164,10 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	p, err = runner.Start(ctx, processType, args[0], args[1:], vols, ports, containerName, myHostDir)
 	if err != nil {
 		return nil, false, maskAny(err)
+	}
+	if databaseAutoUpgrade {
+		// Notify the context that we've succesfully started a server with database.auto-upgrade on.
+		upgradeManager.ServerDatabaseAutoUpgradeStarter(serverType)
 	}
 	return p, false, nil
 }
@@ -533,4 +542,36 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 	if err := runner.Cleanup(); err != nil {
 		log.Warningf("Failed to cleanup runner: %v", err)
 	}
+}
+
+// RestartServer triggers a restart of the server of the given type.
+func (s *runtimeServerManager) RestartServer(log *logging.Logger, serverType ServerType) error {
+	var p Process
+	var name string
+	switch serverType {
+	case ServerTypeAgent:
+		p = s.agentProc
+		name = "agent"
+	case ServerTypeDBServer:
+		p = s.dbserverProc
+		name = "dbserver"
+	case ServerTypeCoordinator:
+		p = s.coordinatorProc
+		name = "coordinator"
+	case ServerTypeSingle:
+		p = s.singleProc
+		name = "single server"
+	case ServerTypeSyncMaster:
+		p = s.syncMasterProc
+		name = "sync master"
+	case ServerTypeSyncWorker:
+		p = s.syncWorkerProc
+		name = "sync worker"
+	default:
+		return maskAny(fmt.Errorf("Unknown server type '%s'", serverType))
+	}
+	if p != nil {
+		terminateProcess(log, p, name, time.Minute)
+	}
+	return nil
 }

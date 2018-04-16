@@ -24,6 +24,7 @@ package arangod
 
 import (
 	"context"
+	"net/url"
 	"time"
 )
 
@@ -44,6 +45,8 @@ type API interface {
 
 // AgencyAPI abstracts the API of the ArangoDB agency
 type AgencyAPI interface {
+	// Returns the endpoint of the specific agency this api targets.
+	Endpoint() string
 	// ReadKey reads the value of a given key in the agency.
 	ReadKey(ctx context.Context, key []string) (interface{}, error)
 
@@ -66,6 +69,8 @@ type AgencyAPI interface {
 
 // ServerAPI abstracts the API of a single ArangoDB server
 type ServerAPI interface {
+	// Gets the version of this server.
+	Version(ctx context.Context) (VersionInfo, error)
 	// Gets the ID of this server in the cluster.
 	// ID will be empty for single servers.
 	ID(ctx context.Context) (string, error)
@@ -85,9 +90,39 @@ type ClusterAPI interface {
 	NumberOfServers(ctx context.Context) (NumberOfServersResponse, error)
 }
 
+// Version is the response of an /_api/version calls to an ArangDB server.
+type VersionInfo struct {
+	// This will always contain "arango"
+	Server string `json:"server,omitempty"`
+	//  The server version string. The string has the format "major.minor.sub".
+	// Major and minor will be numeric, and sub may contain a number or a textual version.
+	Version string `json:"version,omitempty"`
+	// Type of license of the server
+	License string `json:"license,omitempty"`
+	// Optional additional details. This is returned only if the context is configured using WithDetails.
+	Details map[string]interface{} `json:"details,omitempty"`
+}
+
 // NumberOfServersResponse holds the data returned from a NumberOfServer request.
 type NumberOfServersResponse struct {
 	NoCoordinators   int      `json:"numberOfCoordinators,omitempty"`
 	NoDBServers      int      `json:"numberOfDBServers,omitempty"`
 	CleanedServerIDs []string `json:"cleanedServers,omitempty"`
+}
+
+// IsSameEndpoint returns true when the 2 given endpoints
+// refer to the same server.
+func IsSameEndpoint(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ua, err := url.Parse(a)
+	if err != nil {
+		return false
+	}
+	ub, err := url.Parse(b)
+	if err != nil {
+		return false
+	}
+	return ua.Hostname() == ub.Hostname()
 }
