@@ -308,38 +308,43 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 			cancel()
 		}
 		uptime := time.Since(startTime)
-		var isRecentFailure bool
-		if uptime < time.Second*30 {
-			recentFailures++
-			isRecentFailure = true
+		isTerminationExpected := runtimeContext.UpgradeManager().IsServerUpgradeInProgress(serverType)
+		if isTerminationExpected {
+			log.Debugf("%s stopped as expected", serverType)
 		} else {
-			recentFailures = 0
-			isRecentFailure = false
-		}
+			var isRecentFailure bool
+			if uptime < time.Second*30 {
+				recentFailures++
+				isRecentFailure = true
+			} else {
+				recentFailures = 0
+				isRecentFailure = false
+			}
 
-		if isRecentFailure && !s.stopping {
-			if !portInUse {
-				log.Infof("%s has terminated, quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
-				if recentFailures >= minRecentFailuresForLog && config.DebugCluster {
+			if isRecentFailure && !s.stopping {
+				if !portInUse {
+					log.Infof("%s has terminated quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
+					if recentFailures >= minRecentFailuresForLog && config.DebugCluster {
+						// Show logs of the server
+						s.showRecentLogs(log, runtimeContext, serverType)
+					}
+				}
+				if recentFailures >= maxRecentFailures {
+					log.Errorf("%s has failed %d times, giving up", serverType, recentFailures)
+					runtimeContext.Stop()
+					s.stopping = true
+					break
+				}
+			} else {
+				log.Infof("%s has terminated", serverType)
+				if config.DebugCluster && !s.stopping {
 					// Show logs of the server
 					s.showRecentLogs(log, runtimeContext, serverType)
 				}
 			}
-			if recentFailures >= maxRecentFailures {
-				log.Errorf("%s has failed %d times, giving up", serverType, recentFailures)
-				runtimeContext.Stop()
-				s.stopping = true
-				break
+			if portInUse {
+				time.Sleep(time.Second)
 			}
-		} else {
-			log.Infof("%s has terminated", serverType)
-			if config.DebugCluster && !s.stopping {
-				// Show logs of the server
-				s.showRecentLogs(log, runtimeContext, serverType)
-			}
-		}
-		if portInUse {
-			time.Sleep(time.Second)
 		}
 
 		if s.stopping {
@@ -558,7 +563,7 @@ func (s *runtimeServerManager) RestartServer(log *logging.Logger, serverType Ser
 	case ServerTypeCoordinator:
 		p = s.coordinatorProc
 		name = "coordinator"
-	case ServerTypeSingle:
+	case ServerTypeSingle, ServerTypeResilientSingle:
 		p = s.singleProc
 		name = "single server"
 	case ServerTypeSyncMaster:

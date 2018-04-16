@@ -39,6 +39,9 @@ type UpgradeManager interface {
 	// StartDatabaseUpgrade is called to start the upgrade process
 	StartDatabaseUpgrade() error
 
+	// IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
+	IsServerUpgradeInProgress(serverType ServerType) bool
+
 	// ServerDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
 	ServerDatabaseAutoUpgrade(serverType ServerType) bool
 
@@ -84,6 +87,7 @@ type upgradeManager struct {
 	log                   *logging.Logger
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     ServerType
+	updateNeeded          bool
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
@@ -123,15 +127,20 @@ func (m *upgradeManager) StartDatabaseUpgrade() error {
 	return nil
 }
 
+// IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
+func (m *upgradeManager) IsServerUpgradeInProgress(serverType ServerType) bool {
+	return m.upgradeServerType == serverType
+}
+
 // serverDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
 func (m *upgradeManager) ServerDatabaseAutoUpgrade(serverType ServerType) bool {
-	return m.upgradeServerType == serverType
+	return m.updateNeeded && m.upgradeServerType == serverType
 }
 
 // serverDatabaseAutoUpgradeStarter is called when a server of given type has been be started with --database.auto-upgrade
 func (m *upgradeManager) ServerDatabaseAutoUpgradeStarter(serverType ServerType) {
 	if m.upgradeServerType == serverType {
-		m.upgradeServerType = ""
+		m.updateNeeded = false
 	}
 }
 
@@ -149,6 +158,7 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 	// Unlock when we're done
 	defer func() {
 		m.upgradeServerType = ""
+		m.updateNeeded = false
 		if lock != nil {
 			lock.Unlock(context.Background())
 		}
@@ -184,6 +194,7 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 			// Restart the agency in auto-upgrade mode
 			m.log.Info("Upgrading agent")
 			m.upgradeServerType = ServerTypeAgent
+			m.updateNeeded = true
 			if err := m.upgradeManagerContext.RestartServer(ServerTypeAgent); err != nil {
 				m.log.Errorf("Failed to restart agent: %v", err)
 				return
@@ -201,10 +212,11 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 		}
 	}
 
-	if mode.IsSingleMode() || (mode.IsActiveFailoverMode() && myPeer.HasResilientSingle()) {
+	if mode.IsSingleMode() {
 		// Restart the single server in auto-upgrade mode
 		m.log.Info("Upgrading single server")
 		m.upgradeServerType = ServerTypeSingle
+		m.updateNeeded = true
 		if err := m.upgradeManagerContext.RestartServer(ServerTypeSingle); err != nil {
 			m.log.Errorf("Failed to restart single server: %v", err)
 			return
@@ -219,11 +231,33 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 		if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
 			return
 		}
+	} else if mode.IsActiveFailoverMode() {
+		if myPeer.HasResilientSingle() {
+			// Restart the single server in auto-upgrade mode
+			m.log.Info("Upgrading single server")
+			m.upgradeServerType = ServerTypeResilientSingle
+			m.updateNeeded = true
+			if err := m.upgradeManagerContext.RestartServer(ServerTypeResilientSingle); err != nil {
+				m.log.Errorf("Failed to restart resilient single server: %v", err)
+				return
+			}
+
+			// Wait until single server restarted
+			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
+				return
+			}
+
+			// Wait until all single servers respond
+			if err := m.waitUntil(ctx, m.areSingleServersResponding, "Resilient single server is not yet responding: %v"); err != nil {
+				return
+			}
+		}
 	} else if mode.IsClusterMode() {
 		if myPeer.HasDBServer() {
 			// Restart the dbserver in auto-upgrade mode
 			m.log.Info("Upgrading dbserver")
 			m.upgradeServerType = ServerTypeDBServer
+			m.updateNeeded = true
 			if err := m.upgradeManagerContext.RestartServer(ServerTypeDBServer); err != nil {
 				m.log.Errorf("Failed to restart dbserver: %v", err)
 				return
@@ -244,6 +278,7 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 			// Restart the coordinator in auto-upgrade mode
 			m.log.Info("Upgrading coordinator")
 			m.upgradeServerType = ServerTypeCoordinator
+			m.updateNeeded = true
 			if err := m.upgradeManagerContext.RestartServer(ServerTypeCoordinator); err != nil {
 				m.log.Errorf("Failed to restart coordinator: %v", err)
 				return
@@ -274,10 +309,10 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 	m.log.Info("Upgrading done.")
 }
 
-// waitUntilUpgradeServerStarted waits until the upgradeServerType field is empty.
+// waitUntilUpgradeServerStarted waits until the updateNeeded is false.
 func (m *upgradeManager) waitUntilUpgradeServerStarted(ctx context.Context) error {
 	for {
-		if m.upgradeServerType == "" {
+		if !m.updateNeeded {
 			return nil
 		}
 		select {

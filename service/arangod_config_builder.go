@@ -152,6 +152,10 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, arangodLogFileName))},
 		optionPair{"--log.force-direct", "false"},
 	)
+	if databaseAutoUpgrade {
+		options = append(options,
+			optionPair{"--database.auto-upgrade", "true"})
+	}
 	if config.ServerThreads != 0 {
 		options = append(options,
 			optionPair{"--server.threads", strconv.Itoa(config.ServerThreads)})
