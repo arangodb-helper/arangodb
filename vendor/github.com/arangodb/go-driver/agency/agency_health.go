@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
 // Author Ewout Prangsma
 //
 
-package arangod
+package agency
 
 import (
 	"context"
@@ -31,16 +31,10 @@ import (
 	"time"
 
 	driver "github.com/arangodb/go-driver"
-	"github.com/arangodb/go-driver/agency"
-	"github.com/pkg/errors"
 )
 
 const (
 	maxAgentResponseTime = time.Second * 10
-)
-
-var (
-	maskAny = errors.WithStack
 )
 
 // agentStatus is a helper structure used in AreAgentsHealthy.
@@ -64,11 +58,11 @@ func AreAgentsHealthy(ctx context.Context, clients []driver.Connection) error {
 			lctx, cancel := context.WithTimeout(ctx, maxAgentResponseTime)
 			defer cancel()
 			var result interface{}
-			a, err := agency.NewAgency(c)
+			a, err := NewAgency(c)
 			if err == nil {
 				var resp driver.Response
 				lctx = driver.WithResponse(lctx, &resp)
-				if err := a.ReadKey(lctx, invalidKey, &result); err == nil || agency.IsKeyNotFound(err) {
+				if err := a.ReadKey(lctx, invalidKey, &result); err == nil || IsKeyNotFound(err) {
 					// We got a valid read from the leader
 					statuses[i].IsLeader = true
 					statuses[i].LeaderEndpoint = strings.Join(c.Endpoints(), ",")
@@ -94,7 +88,7 @@ func AreAgentsHealthy(ctx context.Context, clients []driver.Connection) error {
 	noLeaders := 0
 	for i, status := range statuses {
 		if !status.IsResponding {
-			return maskAny(fmt.Errorf("Agent %s is not responding", strings.Join(clients[i].Endpoints(), ",")))
+			return driver.WithStack(fmt.Errorf("Agent %s is not responding", strings.Join(clients[i].Endpoints(), ",")))
 		}
 		if status.IsLeader {
 			noLeaders++
@@ -103,12 +97,12 @@ func AreAgentsHealthy(ctx context.Context, clients []driver.Connection) error {
 			// Compare leader endpoint with previous
 			prev := statuses[i-1].LeaderEndpoint
 			if !IsSameEndpoint(prev, status.LeaderEndpoint) {
-				return maskAny(fmt.Errorf("Not all agents report the same leader endpoint"))
+				return driver.WithStack(fmt.Errorf("Not all agents report the same leader endpoint"))
 			}
 		}
 	}
 	if noLeaders != 1 {
-		return maskAny(fmt.Errorf("Unexpected number of agency leaders: %d", noLeaders))
+		return driver.WithStack(fmt.Errorf("Unexpected number of agency leaders: %d", noLeaders))
 	}
 	return nil
 }

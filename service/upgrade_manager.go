@@ -33,8 +33,6 @@ import (
 	"github.com/arangodb/go-driver/agency"
 	logging "github.com/op/go-logging"
 	"github.com/ryanuber/columnize"
-
-	"github.com/arangodb-helper/arangodb/service/arangod"
 )
 
 // UpgradeManager is the API of a service used to control the upgrade process from 1 database version to the next.
@@ -377,7 +375,7 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 		clients = append(clients, c.Connection())
 	}
 	// Check health
-	if err := arangod.AreAgentsHealthy(ctx, clients); err != nil {
+	if err := agency.AreAgentsHealthy(ctx, clients); err != nil {
 		return maskAny(err)
 	}
 	return nil
