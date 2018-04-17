@@ -13,7 +13,7 @@ The procedure is as follows:
 
 - Send an HTTP `POST` request with empty body to `/database-auto-upgrade` on one of the starters.
 
-The Starters will respond to this request depending on the deployment mode.
+The Starter will respond to this request depending on the deployment mode.
 
 If the deployment mode is `single`, the Starter will:
 
@@ -49,3 +49,5 @@ If the deployment mode is `cluster`, the Starters will:
   This coordinator will perform the auto-upgrade and then stop.
   After that the Starter will automatically restart it with its normal arguments.
 - Turning on supervision in the Agency and wait for it to be confirmed.
+
+Once all servers in the starter have upgraded, repeat the procedure for the next starter.
