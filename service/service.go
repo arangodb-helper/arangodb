@@ -38,6 +38,9 @@ import (
 	"time"
 
 	"github.com/arangodb-helper/arangodb/client"
+	driver "github.com/arangodb/go-driver"
+	driver_http "github.com/arangodb/go-driver/http"
+	"github.com/arangodb/go-driver/jwt"
 	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
 )
@@ -303,7 +306,7 @@ func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
 
 	// Prepare cluster client
 	ctx := context.Background()
-	c, err := s.myPeers.CreateClusterAPI(s.PrepareDatabaseServerRequestFunc())
+	c, err := s.myPeers.CreateClusterAPI(ctx, s.CreateClient)
 	if err != nil {
 		return false, maskAny(err)
 	}
@@ -312,11 +315,11 @@ func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
 	if peer.HasDBServer() {
 		// Find id of dbserver
 		s.log.Info("Finding server ID of dbserver")
-		sc, err := peer.CreateDBServerAPI(s.PrepareDatabaseServerRequestFunc())
+		sc, err := peer.CreateDBServerAPI(s.CreateClient)
 		if err != nil {
 			return false, maskAny(err)
 		}
-		sid, err := sc.ID(ctx)
+		sid, err := sc.ServerID(ctx)
 		if err != nil {
 			return false, maskAny(err)
 		}
@@ -350,11 +353,11 @@ func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
 	if peer.HasCoordinator() {
 		// Find id of coordinator
 		s.log.Info("Finding server ID of coordinator")
-		sc, err := peer.CreateCoordinatorAPI(s.PrepareDatabaseServerRequestFunc())
+		sc, err := peer.CreateCoordinatorAPI(s.CreateClient)
 		if err != nil {
 			return false, maskAny(err)
 		}
-		sid, err := sc.ID(ctx)
+		sid, err := sc.ServerID(ctx)
 		if err != nil {
 			return false, maskAny(err)
 		}
@@ -832,6 +835,29 @@ func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
 		addJwtHeader(req, s.jwtSecret)
 		return nil
 	}
+}
+
+// CreateClient creates a go-driver client with authentication for the given endpoints.
+func (s *Service) CreateClient(endpoints []string, followRedirect bool) (driver.Client, error) {
+	conn, err := driver_http.NewConnection(driver_http.ConnectionConfig{
+		Endpoints:          endpoints,
+		DontFollowRedirect: !followRedirect,
+	})
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	jwtBearer, err := jwt.CreateArangodJwtAuthorizationHeader(s.jwtSecret, "starter")
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	c, err := driver.NewClient(driver.ClientConfig{
+		Connection:     conn,
+		Authentication: driver.RawAuthentication(jwtBearer),
+	})
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return c, nil
 }
 
 // UpdateClusterConfig updates the current cluster configuration.

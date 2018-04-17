@@ -25,12 +25,10 @@ package service
 import (
 	"fmt"
 	"net"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/arangodb-helper/arangodb/service/arangod"
+	driver "github.com/arangodb/go-driver"
 )
 
 // Peer contains all persistent settings of a starter.
@@ -99,37 +97,31 @@ func (p Peer) CreateStarterURL(relPath string) string {
 }
 
 // CreateDBServerAPI creates a client for the dbserver of the peer
-func (p Peer) CreateDBServerAPI(prepareRequest func(*http.Request) error) (arangod.ServerAPI, error) {
+func (p Peer) CreateDBServerAPI(clientBuilder ClientBuilder) (driver.Client, error) {
 	if p.HasDBServer() {
 		port := p.Port + p.PortOffset + ServerType(ServerTypeDBServer).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
-		u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+		c, err := clientBuilder([]string{ep}, false)
 		if err != nil {
 			return nil, maskAny(err)
 		}
-		c, err := arangod.NewServerClient(*u, prepareRequest, true)
-		if err != nil {
-			return nil, maskAny(err)
-		}
-		return c.Server()
+		return c, nil
 	}
 	return nil, maskAny(fmt.Errorf("Peer has no dbserver"))
 }
 
 // CreateCoordinatorAPI creates a client for the coordinator of the peer
-func (p Peer) CreateCoordinatorAPI(prepareRequest func(*http.Request) error) (arangod.ServerAPI, error) {
+func (p Peer) CreateCoordinatorAPI(clientBuilder ClientBuilder) (driver.Client, error) {
 	if p.HasCoordinator() {
 		port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
-		u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+		c, err := clientBuilder([]string{ep}, false)
 		if err != nil {
 			return nil, maskAny(err)
 		}
-		c, err := arangod.NewServerClient(*u, prepareRequest, true)
-		if err != nil {
-			return nil, maskAny(err)
-		}
-		return c.Server()
+		return c, nil
 	}
 	return nil, maskAny(fmt.Errorf("Peer has no coordinator"))
 }

@@ -27,12 +27,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"reflect"
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/service/arangod"
+	driver "github.com/arangodb/go-driver"
+	"github.com/arangodb/go-driver/agency"
 	logging "github.com/op/go-logging"
 )
 
@@ -61,21 +61,19 @@ type runtimeClusterManagerContext interface {
 	// ChangeState alters the current state of the service
 	ChangeState(newState State)
 
-	// PrepareDatabaseServerRequestFunc returns a function that is used to
-	// prepare a request to a database server (including authentication).
-	PrepareDatabaseServerRequestFunc() func(*http.Request) error
+	// CreateClient returns go-driver client with authentication configured for the given endpoint.
+	CreateClient(endpoint []string, followRedirect bool) (driver.Client, error)
 
 	// UpdateClusterConfig updates the current cluster configuration.
 	UpdateClusterConfig(ClusterConfig)
 }
 
 // Create a client for the agency
-func (s *runtimeClusterManager) createAgencyAPI() (arangod.AgencyAPI, error) {
-	prepareReq := s.runtimeContext.PrepareDatabaseServerRequestFunc()
+func (s *runtimeClusterManager) createAgencyAPI() (agency.Agency, error) {
 	// Get cluster config
 	clusterConfig, _, _ := s.runtimeContext.ClusterConfig()
 	// Create client
-	return clusterConfig.CreateAgencyAPI(prepareReq)
+	return clusterConfig.CreateAgencyAPI(s.runtimeContext.CreateClient)
 }
 
 // getMasterURL tries to get the URL of the current master from
@@ -89,8 +87,9 @@ func (s *runtimeClusterManager) getMasterURL(ctx context.Context) (string, error
 	// Try to read master URL
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
-	if result, err := api.ReadKey(ctx, masterURLKey); err != nil {
-		if arangod.IsKeyNotFound(err) {
+	var result interface{}
+	if err := api.ReadKey(ctx, masterURLKey, &result); err != nil {
+		if agency.IsKeyNotFound(err) {
 			return "", nil
 		}
 		return "", maskAny(err)

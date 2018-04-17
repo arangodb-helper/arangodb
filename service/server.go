@@ -407,20 +407,20 @@ func (s *httpServer) endpointsHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		} else {
-			resp.Starters = urlListToStringSlice(endpoints)
+			resp.Starters = endpoints
 		}
 		if isRunning {
 			if endpoints, err := clusterConfig.GetAgentEndpoints(); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			} else {
-				resp.Agents = urlListToStringSlice(endpoints)
+				resp.Agents = endpoints
 			}
 			if endpoints, err := clusterConfig.GetCoordinatorEndpoints(); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			} else {
-				resp.Coordinators = urlListToStringSlice(endpoints)
+				resp.Coordinators = endpoints
 			}
 		}
 
