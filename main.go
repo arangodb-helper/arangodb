@@ -96,6 +96,7 @@ var (
 	startLocalSlaves         bool
 	mode                     string
 	dataDir                  string
+	logDir                   string // Custom log directory (default "")
 	ownAddress               string
 	bindAddress              string
 	masterAddresses          []string
@@ -159,6 +160,7 @@ func init() {
 	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
 
 	pf.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
+	pf.StringVar(&logDir, "log.dir", getEnvVar("LOG_DIR", ""), "Custom log file directory.")
 	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
 	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
 
@@ -545,6 +547,14 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		log.Fatalf("Cannot create data directory %s because %v, giving up.", dataDir, err)
 	}
 
+	// Make custom log directory absolute
+	if logDir != "" {
+		logDir, _ = filepath.Abs(logDir)
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			log.Fatalf("Cannot create custom log directory %s because %v, giving up.", logDir, err)
+		}
+	}
+
 	// Read jwtSecret (if any)
 	var jwtSecret string
 	if jwtSecretFile != "" {
@@ -651,6 +661,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		MasterPort:              masterPort,
 		RrPath:                  rrPath,
 		DataDir:                 dataDir,
+		LogDir:                  logDir,
 		OwnAddress:              ownAddress,
 		BindAddress:             bindAddress,
 		MasterAddresses:         masterAddresses,

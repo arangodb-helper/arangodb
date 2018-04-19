@@ -73,14 +73,14 @@ func collectServerConfigVolumes(serverType ServerType, config configFile) []Volu
 }
 
 // createServerArgs returns the command line arguments needed to run an arangod/arangosync server of given type.
-func createServerArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
+func createServerArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
 	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile,
 	clusterJWTSecretFile, agentRecoveryID string, databaseAutoUpgrade bool) ([]string, error) {
 	switch serverType.ProcessType() {
 	case ProcessTypeArangod:
-		return createArangodArgs(log, config, clusterConfig, myContainerDir, myPeerID, myAddress, myPort, serverType, arangodConfig, agentRecoveryID, databaseAutoUpgrade), nil
+		return createArangodArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, arangodConfig, agentRecoveryID, databaseAutoUpgrade), nil
 	case ProcessTypeArangoSync:
-		return createArangoSyncArgs(log, config, clusterConfig, myContainerDir, myPeerID, myAddress, myPort, serverType, clusterJWTSecretFile)
+		return createArangoSyncArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, clusterJWTSecretFile)
 	default:
 		return nil, nil
 	}

@@ -71,7 +71,7 @@ func createArangoSyncClusterSecretFile(log *logging.Logger, bsCfg BootstrapConfi
 }
 
 // createArangoSyncArgs returns the command line arguments needed to run an arangosync server of given type.
-func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
+func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
 	myPeerID, myAddress, myPort string, serverType ServerType, clusterJWTSecretFile string) ([]string, error) {
 
 	options := make([]optionPair, 0, 32)
@@ -81,7 +81,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 	}
 
 	options = append(options,
-		optionPair{"--log.file", filepath.Join(myContainerDir, arangoSyncLogFileName)},
+		optionPair{"--log.file", myContainerLogFile},
 		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
 		optionPair{"--server.port", myPort},
 		optionPair{"--monitoring.token", config.SyncMonitoringToken},

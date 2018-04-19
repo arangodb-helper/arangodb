@@ -32,7 +32,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/arangodb-helper/arangodb/client"
@@ -85,8 +84,8 @@ type httpServerContext interface {
 	// IsRunningMaster returns if the starter is the running master.
 	IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string)
 
-	// serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
-	serverHostDir(serverType ServerType) (string, error)
+	// serverHostLogFile returns the path of the logfile (in host namespace) to which the given server will write its logs.
+	serverHostLogFile(serverType ServerType) (string, error)
 
 	// sendMasterLeaveCluster informs the master that we're leaving for good.
 	// The master will remove the database servers from the cluster and update
@@ -496,14 +495,12 @@ func (s *httpServer) syncWorkerLogsHandler(w http.ResponseWriter, r *http.Reques
 
 func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverType ServerType) {
 	// Find log path
-	myHostDir, err := s.context.serverHostDir(serverType)
+	logPath, err := s.context.serverHostLogFile(serverType)
 	if err != nil {
 		// Not ready yet
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
-	logFileName := serverType.ProcessType().LogFileName()
-	logPath := filepath.Join(myHostDir, logFileName)
 	s.log.Debugf("Fetching logs in %s", logPath)
 	rd, err := os.Open(logPath)
 	if os.IsNotExist(err) {
