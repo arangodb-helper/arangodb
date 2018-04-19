@@ -61,6 +61,17 @@ that `--cluster.agency-size` is set to 1 (see below), the master has to know
 under which address it can be reached from the outside. If you specify
 `localhost` here, then all instances must run on the local machine.
 
+- `--starter.host=addr`
+
+`addr` is the address to which this server binds. (default "0.0.0.0")
+
+Usually there is no need to specify this option.
+Only when you want to bind the starter to specific network device,
+would you set this.
+Note that setting this option to `127.0.0.1` will make this starter
+unreachable for other starters, which is only allowed for
+`single` server deployments or when using `--starter.local`.
+
 - `--docker.image=image`
 
 `image` is the name of a Docker image to run instead of the normal

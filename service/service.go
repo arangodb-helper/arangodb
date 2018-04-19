@@ -58,6 +58,7 @@ type Config struct {
 	RrPath               string
 	DataDir              string
 	OwnAddress           string // IP address of used to reach this process
+	BindAddress          string // IP address the HTTP server binds to (typically '0.0.0.0')
 	MasterAddresses      []string
 	Verbose              bool
 	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
@@ -935,7 +936,7 @@ func (s *Service) createHTTPServer(config Config) (srv *httpServer, containerPor
 	if err != nil {
 		return nil, 0, "", "", maskAny(err)
 	}
-	containerAddr = fmt.Sprintf("0.0.0.0:%d", containerPort)
+	containerAddr = net.JoinHostPort(config.BindAddress, strconv.Itoa(containerPort))
 	hostAddr = net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
 
 	// Create HTTP server
