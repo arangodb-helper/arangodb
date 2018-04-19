@@ -27,16 +27,14 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	driver "github.com/arangodb/go-driver"
+	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
-
-	"github.com/arangodb-helper/arangodb/service/arangod"
+	"github.com/arangodb/go-driver/jwt"
 )
 
 // ClusterConfig contains all the informtion of a cluster from a starter's point of view.
@@ -192,136 +190,126 @@ func (p ClusterConfig) IsSecure() bool {
 }
 
 // GetPeerEndpoints creates a list of URL's for all peer.
-func (p ClusterConfig) GetPeerEndpoints() ([]url.URL, error) {
+func (p ClusterConfig) GetPeerEndpoints() ([]string, error) {
 	// Build endpoint list
-	var endpoints []url.URL
+	var endpoints []string
 	for _, p := range p.AllPeers {
 		port := p.Port + p.PortOffset
 		scheme := NewURLSchemes(p.IsSecure).Browser
-		u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
-		if err != nil {
-			return nil, maskAny(err)
-		}
-		endpoints = append(endpoints, *u)
+		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+		endpoints = append(endpoints, ep)
 	}
 	return endpoints, nil
 }
 
 // GetAgentEndpoints creates a list of URL's for all agents.
-func (p ClusterConfig) GetAgentEndpoints() ([]url.URL, error) {
+func (p ClusterConfig) GetAgentEndpoints() ([]string, error) {
 	// Build endpoint list
-	var endpoints []url.URL
+	var endpoints []string
 	for _, p := range p.AllPeers {
 		if p.HasAgent() {
 			port := p.Port + p.PortOffset + ServerType(ServerTypeAgent).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
-			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
-			if err != nil {
-				return nil, maskAny(err)
-			}
-			endpoints = append(endpoints, *u)
+			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+			endpoints = append(endpoints, ep)
 		}
 	}
 	return endpoints, nil
 }
 
 // GetDBServerEndpoints creates a list of URL's for all dbservers.
-func (p ClusterConfig) GetDBServerEndpoints() ([]url.URL, error) {
+func (p ClusterConfig) GetDBServerEndpoints() ([]string, error) {
 	// Build endpoint list
-	var endpoints []url.URL
+	var endpoints []string
 	for _, p := range p.AllPeers {
 		if p.HasDBServer() {
 			port := p.Port + p.PortOffset + ServerType(ServerTypeDBServer).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
-			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
-			if err != nil {
-				return nil, maskAny(err)
-			}
-			endpoints = append(endpoints, *u)
+			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+			endpoints = append(endpoints, ep)
 		}
 	}
 	return endpoints, nil
 }
 
 // GetCoordinatorEndpoints creates a list of URL's for all coordinators.
-func (p ClusterConfig) GetCoordinatorEndpoints() ([]url.URL, error) {
+func (p ClusterConfig) GetCoordinatorEndpoints() ([]string, error) {
 	// Build endpoint list
-	var endpoints []url.URL
+	var endpoints []string
 	for _, p := range p.AllPeers {
 		if p.HasCoordinator() {
 			port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
-			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
-			if err != nil {
-				return nil, maskAny(err)
-			}
-			endpoints = append(endpoints, *u)
+			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+			endpoints = append(endpoints, ep)
 		}
 	}
 	return endpoints, nil
 }
 
 // GetSingleEndpoints creates a list of URL's for all single servers.
-func (p ClusterConfig) GetSingleEndpoints(all bool) ([]url.URL, error) {
+func (p ClusterConfig) GetSingleEndpoints(all bool) ([]string, error) {
 	// Build endpoint list
-	var endpoints []url.URL
+	var endpoints []string
 	for _, p := range p.AllPeers {
 		if all || p.HasResilientSingle() {
 			port := p.Port + p.PortOffset + ServerType(ServerTypeSingle).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
-			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
-			if err != nil {
-				return nil, maskAny(err)
-			}
-			endpoints = append(endpoints, *u)
+			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+			endpoints = append(endpoints, ep)
 		}
 	}
 	return endpoints, nil
 }
 
 // GetSyncMasterEndpoints creates a list of URL's for all sync masters.
-func (p ClusterConfig) GetSyncMasterEndpoints() ([]url.URL, error) {
+func (p ClusterConfig) GetSyncMasterEndpoints() ([]string, error) {
 	// Build endpoint list
-	var endpoints []url.URL
+	var endpoints []string
 	for _, p := range p.AllPeers {
 		if p.HasSyncMaster() {
 			port := p.Port + p.PortOffset + ServerType(ServerTypeSyncMaster).PortOffset()
-			u, err := url.Parse(fmt.Sprintf("https://%s", net.JoinHostPort(p.Address, strconv.Itoa(port))))
-			if err != nil {
-				return nil, maskAny(err)
-			}
-			endpoints = append(endpoints, *u)
+			ep := fmt.Sprintf("https://%s", net.JoinHostPort(p.Address, strconv.Itoa(port)))
+			endpoints = append(endpoints, ep)
 		}
 	}
 	return endpoints, nil
 }
 
 // CreateAgencyAPI creates a client for the agency
-func (p ClusterConfig) CreateAgencyAPI(prepareRequest func(*http.Request) error) (arangod.AgencyAPI, error) {
+func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agency, error) {
 	// Build endpoint list
 	endpoints, err := p.GetAgentEndpoints()
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := arangod.NewClusterClient(endpoints, prepareRequest)
+	c, err := clientBuilder(endpoints, true)
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	return c.Agency(), nil
+	a, err := agency.NewAgency(c.Connection())
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return a, nil
 }
 
 // CreateClusterAPI creates a client for the cluster
-func (p ClusterConfig) CreateClusterAPI(prepareRequest func(*http.Request) error) (arangod.ClusterAPI, error) {
+func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder ClientBuilder) (driver.Cluster, error) {
 	// Build endpoint list
 	endpoints, err := p.GetCoordinatorEndpoints()
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := arangod.NewClusterClient(endpoints, prepareRequest)
+	c, err := clientBuilder(endpoints, true)
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	return c.Cluster(), nil
+	cluster, err := c.Cluster(ctx)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return cluster, nil
 }
 
 // CreateCoordinatorsClient creates go-driver client targeting the coordinators.
@@ -331,12 +319,8 @@ func (p ClusterConfig) CreateCoordinatorsClient(ctx context.Context, jwtSecret s
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	epStrList := make([]string, len(endpoints))
-	for i, x := range endpoints {
-		epStrList[i] = x.String()
-	}
 	conn, err := driver_http.NewConnection(driver_http.ConnectionConfig{
-		Endpoints: epStrList,
+		Endpoints: endpoints,
 		TLSConfig: &tls.Config{InsecureSkipVerify: true},
 	})
 	if err != nil {
@@ -346,7 +330,7 @@ func (p ClusterConfig) CreateCoordinatorsClient(ctx context.Context, jwtSecret s
 		Connection: conn,
 	}
 	if jwtSecret != "" {
-		value, err := arangod.CreateArangodJwtAuthorizationHeader(jwtSecret)
+		value, err := jwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
 		if err != nil {
 			return nil, maskAny(err)
 		}

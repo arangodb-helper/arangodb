@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@
 // Author Ewout Prangsma
 //
 
-package arangod
+package agency
 
 import (
 	"context"
@@ -29,7 +29,7 @@ import (
 	"sync"
 	"time"
 
-	logging "github.com/op/go-logging"
+	driver "github.com/arangodb/go-driver"
 )
 
 const (
@@ -52,8 +52,13 @@ type Lock interface {
 	IsLocked() bool
 }
 
+// Logger abstracts a logger.
+type Logger interface {
+	Errorf(msg string, args ...interface{})
+}
+
 // NewLock creates a new lock on the given key.
-func NewLock(log *logging.Logger, api AgencyAPI, key []string, id string, ttl time.Duration) (Lock, error) {
+func NewLock(log Logger, api Agency, key []string, id string, ttl time.Duration) (Lock, error) {
 	if ttl < minLockTTL {
 		ttl = minLockTTL
 	}
@@ -73,8 +78,8 @@ func NewLock(log *logging.Logger, api AgencyAPI, key []string, id string, ttl ti
 
 type lock struct {
 	mutex         sync.Mutex
-	log           *logging.Logger
-	api           AgencyAPI
+	log           Logger
+	api           Agency
 	key           []string
 	id            string
 	ttl           time.Duration
@@ -90,17 +95,17 @@ func (l *lock) Lock(ctx context.Context) error {
 	defer l.mutex.Unlock()
 
 	if l.locked {
-		return maskAny(AlreadyLockedError)
+		return driver.WithStack(AlreadyLockedError)
 	}
 
 	// Try to claim lock
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 	if err := l.api.WriteKeyIfEmpty(ctx, l.key, l.id, l.ttl); err != nil {
-		if IsPreconditionFailed(err) {
-			return maskAny(AlreadyLockedError)
+		if driver.IsPreconditionFailed(err) {
+			return driver.WithStack(AlreadyLockedError)
 		}
-		return maskAny(err)
+		return driver.WithStack(err)
 	}
 
 	// Success
@@ -122,14 +127,14 @@ func (l *lock) Unlock(ctx context.Context) error {
 	defer l.mutex.Unlock()
 
 	if !l.locked {
-		return maskAny(NotLockedError)
+		return driver.WithStack(NotLockedError)
 	}
 
 	// Release the lock
 	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 	if err := l.api.RemoveKeyIfEqualTo(ctx, l.key, l.id); err != nil {
-		return maskAny(err)
+		return driver.WithStack(err)
 	}
 
 	// Cleanup
@@ -158,32 +163,34 @@ func (l *lock) renewLock(ctx context.Context) {
 		defer l.mutex.Unlock()
 
 		if !l.locked {
-			return true, maskAny(NotLockedError)
+			return true, driver.WithStack(NotLockedError)
 		}
 
 		// Update key in agency
 		ctx, cancel := context.WithTimeout(ctx, time.Second*10)
 		defer cancel()
 		if err := l.api.WriteKeyIfEqualTo(ctx, l.key, l.id, l.id, l.ttl); err != nil {
-			if IsConditionFailed(err) {
+			if driver.IsPreconditionFailed(err) {
 				// We're not longer the leader
 				l.locked = false
 				l.cancelRenewal = nil
-				return true, maskAny(err)
+				return true, driver.WithStack(err)
 			}
-			return false, maskAny(err)
+			return false, driver.WithStack(err)
 		}
 		return false, nil
 	}
 	for {
 		delay := l.ttl / 2
 		stop, err := op()
-		if err != nil {
-			l.log.Errorf("Failed to renew lock %s. %v", l.key, err)
-			delay = time.Second
-		}
-		if stop {
+		if stop || driver.Cause(err) == context.Canceled {
 			return
+		}
+		if err != nil {
+			if l.log != nil {
+				l.log.Errorf("Failed to renew lock %s. %v", l.key, err)
+			}
+			delay = time.Second
 		}
 
 		select {

@@ -110,7 +110,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 			}
 			for _, ep := range clusterEPs {
 				options = append(options,
-					optionPair{"--cluster.endpoint", ep.String()})
+					optionPair{"--cluster.endpoint", ep})
 			}
 		} else {
 			log.Errorf("Cannot find coordinator endpoints: %#v", err)
@@ -124,7 +124,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 			}
 			for _, ep := range syncMasterEPs {
 				options = append(options,
-					optionPair{"--master.endpoint", ep.String()})
+					optionPair{"--master.endpoint", ep})
 			}
 		} else {
 			log.Errorf("Cannot find sync master endpoints: %#v", err)

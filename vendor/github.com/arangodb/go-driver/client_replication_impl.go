@@ -20,21 +20,9 @@
 // Author Ewout Prangsma
 //
 
-package arangod
+package driver
 
-import (
-	"github.com/pkg/errors"
-)
-
-var (
-	AlreadyLockedError = errors.New("already locked")
-	NotLockedError     = errors.New("not locked")
-)
-
-func IsAlreadyLocked(err error) bool {
-	return errors.Cause(err) == AlreadyLockedError
-}
-
-func IsNotLocked(err error) bool {
-	return errors.Cause(err) == NotLockedError
+// Replication provides access to replication specific operations.
+func (c *client) Replication() Replication {
+	return c
 }

@@ -25,17 +25,14 @@ package service
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	driver "github.com/arangodb/go-driver"
+	"github.com/arangodb/go-driver/agency"
 	logging "github.com/op/go-logging"
 	"github.com/ryanuber/columnize"
-
-	"github.com/arangodb-helper/arangodb/service/arangod"
 )
 
 // UpgradeManager is the API of a service used to control the upgrade process from 1 database version to the next.
@@ -57,9 +54,8 @@ type UpgradeManager interface {
 type UpgradeManagerContext interface {
 	// ClusterConfig returns the current cluster configuration and the current peer
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
-	// PrepareDatabaseServerRequestFunc returns a function that is used to
-	// prepare a request to a database server (including authentication).
-	PrepareDatabaseServerRequestFunc() func(*http.Request) error
+	// CreateClient creates a go-driver client with authentication for the given endpoints.
+	CreateClient(endpoints []string, followRedirect bool) (driver.Client, error)
 	// RestartServer triggers a restart of the server of the given type.
 	RestartServer(serverType ServerType) error
 }
@@ -104,7 +100,7 @@ func (m *upgradeManager) StartDatabaseUpgrade() error {
 
 	// Create lock (if needed)
 	ctx := context.Background()
-	var lock arangod.Lock
+	var lock agency.Lock
 	if mode.HasAgency() {
 		m.log.Debug("Creating agency API")
 		api, err := m.createAgencyAPI()
@@ -112,7 +108,7 @@ func (m *upgradeManager) StartDatabaseUpgrade() error {
 			return maskAny(err)
 		}
 		m.log.Debug("Creating lock")
-		lock, err = arangod.NewLock(m.log, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+		lock, err = agency.NewLock(m.log, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -149,16 +145,19 @@ func (m *upgradeManager) ServerDatabaseAutoUpgradeStarter(serverType ServerType)
 }
 
 // Create a client for the agency
-func (m *upgradeManager) createAgencyAPI() (arangod.AgencyAPI, error) {
-	prepareReq := m.upgradeManagerContext.PrepareDatabaseServerRequestFunc()
+func (m *upgradeManager) createAgencyAPI() (agency.Agency, error) {
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Create client
-	return clusterConfig.CreateAgencyAPI(prepareReq)
+	a, err := clusterConfig.CreateAgencyAPI(m.upgradeManagerContext.CreateClient)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return a, nil
 }
 
 // runUpgradeProcess runs the entire upgrade process until it is finished.
-func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode, lock arangod.Lock) {
+func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode, lock agency.Lock) {
 	// Unlock when we're done
 	defer func() {
 		m.upgradeServerType = ""
@@ -359,7 +358,6 @@ func (m *upgradeManager) waitUntil(ctx context.Context, predicate func(ctx conte
 // when the agency is not healthy or its health state could not
 // be determined.
 func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
-	prepareReq := m.upgradeManagerContext.PrepareDatabaseServerRequestFunc()
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Build endpoint list
@@ -368,16 +366,16 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 		return maskAny(err)
 	}
 	// Build agency clients
-	clients := make([]arangod.AgencyAPI, 0, len(endpoints))
+	clients := make([]driver.Connection, 0, len(endpoints))
 	for _, ep := range endpoints {
-		c, err := arangod.NewServerClient(ep, prepareReq, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
 		if err != nil {
 			return maskAny(err)
 		}
-		clients = append(clients, c.Agency())
+		clients = append(clients, c.Connection())
 	}
 	// Check health
-	if err := arangod.AreAgentsHealthy(ctx, clients); err != nil {
+	if err := agency.AreAgentsHealthy(ctx, clients); err != nil {
 		return maskAny(err)
 	}
 	return nil
@@ -385,7 +383,6 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 
 // areDBServersResponding performs a check if all dbservers are responding.
 func (m *upgradeManager) areDBServersResponding(ctx context.Context) error {
-	prepareReq := m.upgradeManagerContext.PrepareDatabaseServerRequestFunc()
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Build endpoint list
@@ -395,15 +392,11 @@ func (m *upgradeManager) areDBServersResponding(ctx context.Context) error {
 	}
 	// Check all
 	for _, ep := range endpoints {
-		c, err := arangod.NewServerClient(ep, prepareReq, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
 		if err != nil {
 			return maskAny(err)
 		}
-		sa, err := c.Server()
-		if err != nil {
-			return maskAny(err)
-		}
-		if _, err := sa.ID(ctx); err != nil {
+		if _, err := c.ServerID(ctx); err != nil {
 			return maskAny(err)
 		}
 	}
@@ -412,7 +405,6 @@ func (m *upgradeManager) areDBServersResponding(ctx context.Context) error {
 
 // areCoordinatorsResponding performs a check if all coordinators are responding.
 func (m *upgradeManager) areCoordinatorsResponding(ctx context.Context) error {
-	prepareReq := m.upgradeManagerContext.PrepareDatabaseServerRequestFunc()
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Build endpoint list
@@ -422,15 +414,11 @@ func (m *upgradeManager) areCoordinatorsResponding(ctx context.Context) error {
 	}
 	// Check all
 	for _, ep := range endpoints {
-		c, err := arangod.NewServerClient(ep, prepareReq, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
 		if err != nil {
 			return maskAny(err)
 		}
-		sa, err := c.Server()
-		if err != nil {
-			return maskAny(err)
-		}
-		if _, err := sa.ID(ctx); err != nil {
+		if _, err := c.ServerID(ctx); err != nil {
 			return maskAny(err)
 		}
 	}
@@ -439,7 +427,6 @@ func (m *upgradeManager) areCoordinatorsResponding(ctx context.Context) error {
 
 // areSingleServersResponding performs a check if all single servers are responding.
 func (m *upgradeManager) areSingleServersResponding(ctx context.Context) error {
-	prepareReq := m.upgradeManagerContext.PrepareDatabaseServerRequestFunc()
 	// Get cluster config
 	clusterConfig, _, mode := m.upgradeManagerContext.ClusterConfig()
 	// Build endpoint list
@@ -449,15 +436,11 @@ func (m *upgradeManager) areSingleServersResponding(ctx context.Context) error {
 	}
 	// Check all
 	for _, ep := range endpoints {
-		c, err := arangod.NewServerClient(ep, prepareReq, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
 		if err != nil {
 			return maskAny(err)
 		}
-		sa, err := c.Server()
-		if err != nil {
-			return maskAny(err)
-		}
-		if _, err := sa.Version(ctx); err != nil {
+		if _, err := c.Version(ctx); err != nil {
 			return maskAny(err)
 		}
 	}
@@ -467,7 +450,6 @@ func (m *upgradeManager) areSingleServersResponding(ctx context.Context) error {
 // isSuperVisionMaintenanceSupported checks all agents for their version number.
 // If it is to low to support supervision maintenance mode, false is returned.
 func (m *upgradeManager) isSuperVisionMaintenanceSupported(ctx context.Context) (bool, error) {
-	prepareReq := m.upgradeManagerContext.PrepareDatabaseServerRequestFunc()
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Build endpoint list
@@ -477,15 +459,11 @@ func (m *upgradeManager) isSuperVisionMaintenanceSupported(ctx context.Context) 
 	}
 	// Check agents
 	for _, ep := range endpoints {
-		c, err := arangod.NewServerClient(ep, prepareReq, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
 		if err != nil {
 			return false, maskAny(err)
 		}
-		sa, err := c.Server()
-		if err != nil {
-			return false, maskAny(err)
-		}
-		info, err := sa.Version(ctx)
+		info, err := c.Version(ctx)
 		if err != nil {
 			return false, maskAny(err)
 		}
@@ -524,7 +502,8 @@ func (m *upgradeManager) disableSupervision(ctx context.Context) error {
 	}
 	// Wait for agency to acknowledge
 	for {
-		value, err := api.ReadKey(ctx, superVisionStateKey)
+		var value interface{}
+		err := api.ReadKey(ctx, superVisionStateKey, &value)
 		if err != nil {
 			m.log.Warningf("Failed to read supervision state: %v", err)
 		} else if valueStr, ok := value.(string); !ok {
@@ -559,30 +538,24 @@ func (m *upgradeManager) enableSupervision(ctx context.Context) error {
 // ShowServerVersions queries the versions of all Arangod servers in the cluster and shows them.
 // Returns true when all servers are the same, false otherwise.
 func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, error) {
-	prepareReq := m.upgradeManagerContext.PrepareDatabaseServerRequestFunc()
 	// Get cluster config
 	clusterConfig, _, mode := m.upgradeManagerContext.ClusterConfig()
 	versions := make(map[string]struct{})
 	rows := []string{}
 
-	showGroup := func(serverType ServerType, endpoints []url.URL) {
+	showGroup := func(serverType ServerType, endpoints []string) {
 		groupVersions := make([]string, len(endpoints))
 		for i, ep := range endpoints {
-			c, err := arangod.NewServerClient(ep, prepareReq, false)
+			c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
 			if err != nil {
 				groupVersions[i] = "?"
 				continue
 			}
-			sa, err := c.Server()
-			if err != nil {
-				groupVersions[i] = "?"
-				continue
-			}
-			if info, err := sa.Version(ctx); err != nil {
+			if info, err := c.Version(ctx); err != nil {
 				groupVersions[i] = "?"
 				continue
 			} else {
-				groupVersions[i] = info.Version
+				groupVersions[i] = string(info.Version)
 			}
 		}
 		for i, v := range groupVersions {

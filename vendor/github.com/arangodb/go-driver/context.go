@@ -53,6 +53,9 @@ const (
 	keyIgnoreRevs               ContextKey = "arangodb-ignoreRevs"
 	keyEnforceReplicationFactor ContextKey = "arangodb-enforceReplicationFactor"
 	keyConfigured               ContextKey = "arangodb-configured"
+	keyFollowLeaderRedirect     ContextKey = "arangodb-followLeaderRedirect"
+	keyDBServerID               ContextKey = "arangodb-dbserverID"
+	keyBatchID                  ContextKey = "arangodb-batchID"
 )
 
 // WithRevision is used to configure a context to make document
@@ -192,6 +195,24 @@ func WithConfigured(parent context.Context, value ...bool) context.Context {
 	return context.WithValue(contextOrBackground(parent), keyConfigured, v)
 }
 
+// WithFollowLeaderRedirect is used to configure a context to return turn on/off
+// following redirection responses from the server when the request is answered by a follower.
+// Default behavior is "on".
+func WithFollowLeaderRedirect(parent context.Context, value bool) context.Context {
+	return context.WithValue(contextOrBackground(parent), keyFollowLeaderRedirect, value)
+}
+
+// WithDBServerID is used to configure a context that includes an ID of a specific DBServer.
+func WithDBServerID(parent context.Context, id string) context.Context {
+	return context.WithValue(contextOrBackground(parent), keyDBServerID, id)
+}
+
+// WithBatchID is used to configure a context that includes an ID of a Batch.
+// This is used in replication functions.
+func WithBatchID(parent context.Context, id string) context.Context {
+	return context.WithValue(contextOrBackground(parent), keyBatchID, id)
+}
+
 type contextSettings struct {
 	Silent                   bool
 	WaitForSync              bool
@@ -205,6 +226,9 @@ type contextSettings struct {
 	IgnoreRevs               *bool
 	EnforceReplicationFactor *bool
 	Configured               *bool
+	FollowLeaderRedirect     *bool
+	DBServerID               string
+	BatchID                  string
 }
 
 // applyContextSettings returns the settings configured in the context in the given request.
@@ -312,6 +336,26 @@ func applyContextSettings(ctx context.Context, req Request) contextSettings {
 			result.Configured = &configured
 		}
 	}
+	// FollowLeaderRedirect
+	if v := ctx.Value(keyFollowLeaderRedirect); v != nil {
+		if followLeaderRedirect, ok := v.(bool); ok {
+			result.FollowLeaderRedirect = &followLeaderRedirect
+		}
+	}
+	// DBServerID
+	if v := ctx.Value(keyDBServerID); v != nil {
+		if id, ok := v.(string); ok {
+			req.SetQuery("DBserver", id)
+			result.DBServerID = id
+		}
+	}
+	// BatchID
+	if v := ctx.Value(keyBatchID); v != nil {
+		if id, ok := v.(string); ok {
+			req.SetQuery("batchId", id)
+			result.BatchID = id
+		}
+	}
 	return result
 }
 
@@ -356,12 +400,12 @@ func withDocumentAt(ctx context.Context, index int) (context.Context, error) {
 	// ReturnOld
 	if v := ctx.Value(keyReturnOld); v != nil {
 		val := reflect.ValueOf(v)
-		ctx = WithReturnOld(ctx, val.Index(index).Interface())
+		ctx = WithReturnOld(ctx, val.Index(index).Addr().Interface())
 	}
 	// ReturnNew
 	if v := ctx.Value(keyReturnNew); v != nil {
 		val := reflect.ValueOf(v)
-		ctx = WithReturnNew(ctx, val.Index(index).Interface())
+		ctx = WithReturnNew(ctx, val.Index(index).Addr().Interface())
 	}
 
 	return ctx, nil
