@@ -59,6 +59,13 @@ type runtimeServerManagerContext interface {
 
 	// serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
 	serverHostDir(serverType ServerType) (string, error)
+	// serverContainerDir returns the path of the folder (in container namespace) containing data for the given server.
+	serverContainerDir(serverType ServerType) (string, error)
+
+	// serverHostLogFile returns the path of the logfile (in host namespace) to which the given server will write its logs.
+	serverHostLogFile(serverType ServerType) (string, error)
+	// serverContainerLogFile returns the path of the logfile (in container namespace) to which the given server will write its logs.
+	serverContainerLogFile(serverType ServerType) (string, error)
 
 	// removeRecoveryFile removes any recorded RECOVERY file.
 	removeRecoveryFile()
@@ -88,6 +95,15 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
+	myContainerDir, err := runtimeContext.serverContainerDir(serverType)
+	if err != nil {
+		return nil, false, maskAny(err)
+	}
+	myContainerLogFile, err := runtimeContext.serverContainerLogFile(serverType)
+	if err != nil {
+		return nil, false, maskAny(err)
+	}
+
 	os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 	os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
 
@@ -120,7 +136,6 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	}
 
 	log.Infof("Starting %s on port %d", serverType, myPort)
-	myContainerDir := runner.GetContainerDir(myHostDir, dockerDataDir)
 	processType := serverType.ProcessType()
 	// Create/read arangod.conf
 	var confVolumes []Volume
@@ -147,7 +162,7 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
 	upgradeManager := runtimeContext.UpgradeManager()
 	databaseAutoUpgrade := upgradeManager.ServerDatabaseAutoUpgrade(serverType)
-	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName, bsCfg.RecoveryAgentID, databaseAutoUpgrade)
+	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName, bsCfg.RecoveryAgentID, databaseAutoUpgrade)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
@@ -174,13 +189,11 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 
 // showRecentLogs dumps the most recent log lines of the server of given type to the console.
 func (s *runtimeServerManager) showRecentLogs(log *logging.Logger, runtimeContext runtimeServerManagerContext, serverType ServerType) {
-	myHostDir, err := runtimeContext.serverHostDir(serverType)
+	logPath, err := runtimeContext.serverHostLogFile(serverType)
 	if err != nil {
-		log.Errorf("Cannot find server host dir: %#v", err)
+		log.Errorf("Cannot find server host log file: %#v", err)
 		return
 	}
-	logFileName := serverType.ProcessType().LogFileName()
-	logPath := filepath.Join(myHostDir, logFileName)
 	logFile, err := os.Open(logPath)
 	if os.IsNotExist(err) {
 		log.Infof("Log file for %s is empty", serverType)
@@ -363,13 +376,11 @@ func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log *logging.L
 	}
 
 	// Prepare log path
-	myHostDir, err := runtimeContext.serverHostDir(serverType)
+	logPath, err := runtimeContext.serverHostLogFile(serverType)
 	if err != nil {
-		log.Debugf("Failed to get host directory for '%s': %s", serverType, err)
+		log.Debugf("Failed to get host log file for '%s': %s", serverType, err)
 		return
 	}
-	logFileName := serverType.ProcessType().LogFileName()
-	logPath := filepath.Join(myHostDir, logFileName)
 	log.Debugf("Rotating %s log file: %s", serverType, logPath)
 
 	// Move old files

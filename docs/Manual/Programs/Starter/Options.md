@@ -277,6 +277,14 @@ debugging only.
 
 show more information (default false).
 
+- `--log.dir=path`
+
+set a custom directory to which all log files will be written to.
+When using the Starter in docker, make sure that this directory is
+mounted as a volume for the Starter.
+
+Note: When using a custom log directory, all files will be named as `arangod-<role>-<port>.log`.
+
 - `--log.rotate-files-to-keep=int`
 
 set the number of old log files to keep when rotating log files of server components (default 5).

@@ -57,6 +57,7 @@ type Config struct {
 	MasterPort           int
 	RrPath               string
 	DataDir              string
+	LogDir               string // Custom directory to which log files are written (default "")
 	OwnAddress           string // IP address of used to reach this process
 	BindAddress          string // IP address the HTTP server binds to (typically '0.0.0.0')
 	MasterAddresses      []string
@@ -204,6 +205,7 @@ type Service struct {
 	isLocalSlave          bool
 	learnOwnAddress       bool   // If set, the HTTP server will update my peer with address information gathered from a /hello request.
 	recoveryFile          string // Path of RECOVERY file (if any)
+	runner                Runner
 	runtimeServerManager  runtimeServerManager
 	runtimeClusterManager runtimeClusterManager
 	upgradeManager        UpgradeManager
@@ -247,8 +249,6 @@ const (
 const (
 	arangodConfFileName      = "arangod.conf"
 	arangodJWTSecretFileName = "arangod.jwtsecret"
-	arangodLogFileName       = "arangod.log"
-	arangoSyncLogFileName    = "arangosync.log"
 )
 
 // IsSecure returns true when the cluster is using SSL for connections, false otherwise.
@@ -452,6 +452,66 @@ func (s *Service) serverHostDir(serverType ServerType) (string, error) {
 		return "", maskAny(err)
 	}
 	return filepath.Join(s.cfg.DataDir, fmt.Sprintf("%s%d", serverType, myPort)), nil
+}
+
+// serverContainerDir returns the path of the folder (in container namespace) containing data for the given server.
+func (s *Service) serverContainerDir(serverType ServerType) (string, error) {
+	hostDir, err := s.serverHostDir(serverType)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	if s.runner == nil {
+		return "", maskAny(fmt.Errorf("Runner is not yet set"))
+	}
+	return s.runner.GetContainerDir(hostDir, dockerDataDir), nil
+}
+
+// serverLogFileNameSuffix returns the suffix used for the log file of given server type.
+func (s *Service) serverLogFileNameSuffix(serverType ServerType) (string, error) {
+	if s.cfg.LogDir != "" {
+		// Use custom log dir
+		port, err := s.serverPort(serverType)
+		if err != nil {
+			return "", maskAny(err)
+		}
+		return fmt.Sprintf("-%s-%d", serverType, port), nil
+	}
+	return "", nil
+}
+
+// serverHostLogFile returns the path of the logfile (in host namespace) to which the given server will write its logs.
+func (s *Service) serverHostLogFile(serverType ServerType) (string, error) {
+	suffix, err := s.serverLogFileNameSuffix(serverType)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	if s.cfg.LogDir != "" {
+		// Use custom log dir
+		return filepath.Join(s.cfg.LogDir, serverType.ProcessType().LogFileName(suffix)), nil
+	}
+	hostDir, err := s.serverHostDir(serverType)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	return filepath.Join(hostDir, serverType.ProcessType().LogFileName(suffix)), nil
+}
+
+// serverContainerLogFile returns the path of the logfile (in container namespace) to which the given server will write its logs.
+func (s *Service) serverContainerLogFile(serverType ServerType) (string, error) {
+	suffix, err := s.serverLogFileNameSuffix(serverType)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	if s.cfg.LogDir != "" {
+		// Use custom log dir.
+		// Client has to ensure that directory is mapped into the container
+		return filepath.Join(s.cfg.LogDir, serverType.ProcessType().LogFileName(suffix)), nil
+	}
+	containerDir, err := s.serverContainerDir(serverType)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	return filepath.Join(containerDir, serverType.ProcessType().LogFileName(suffix)), nil
 }
 
 // serverExecutable returns the path of the server's executable.
@@ -1029,6 +1089,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	// Create a runner
 	var runner Runner
 	runner, s.cfg, s.allowSameDataDir = s.cfg.CreateRunner(s.log)
+	s.runner = runner
 
 	// Start a rotate log file time
 	if s.cfg.LogRotateInterval > 0 {

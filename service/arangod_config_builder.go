@@ -129,7 +129,7 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 }
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
-func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
+func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
 	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool) []string {
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 
@@ -149,7 +149,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
 		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
 		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
-		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, arangodLogFileName))},
+		optionPair{"--log.file", slasher(myContainerLogFile)},
 		optionPair{"--log.force-direct", "false"},
 	)
 	if databaseAutoUpgrade {

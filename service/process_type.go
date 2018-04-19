@@ -22,6 +22,8 @@
 
 package service
 
+import "fmt"
+
 // ProcessType specifies the types of process (the starter can work with).
 type ProcessType string
 
@@ -49,12 +51,12 @@ func (s ProcessType) CommandFileName() string {
 }
 
 // LogFileName returns the name of the log file used by this process
-func (s ProcessType) LogFileName() string {
+func (s ProcessType) LogFileName(suffix string) string {
 	switch s {
 	case ProcessTypeArangod:
-		return arangodLogFileName
+		return fmt.Sprintf("arangod%s.log", suffix)
 	case ProcessTypeArangoSync:
-		return arangoSyncLogFileName
+		return fmt.Sprintf("arangosync%s.log", suffix)
 	default:
 		return ""
 	}

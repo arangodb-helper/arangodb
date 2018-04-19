@@ -52,6 +52,7 @@ var (
 		"database.directory",
 		"javascript.startup-directory",
 		"javascript.app-path",
+		"log.file",
 		"rocksdb.encryption-keyfile",
 		"server.endpoint",
 		"server.authentication",
