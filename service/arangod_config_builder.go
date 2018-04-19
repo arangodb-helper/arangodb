@@ -130,7 +130,7 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
 func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir string,
-	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string) []string {
+	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool) []string {
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 
 	args := make([]string, 0, 40)
@@ -152,6 +152,10 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		optionPair{"--log.file", slasher(filepath.Join(myContainerDir, arangodLogFileName))},
 		optionPair{"--log.force-direct", "false"},
 	)
+	if databaseAutoUpgrade {
+		options = append(options,
+			optionPair{"--database.auto-upgrade", "true"})
+	}
 	if config.ServerThreads != 0 {
 		options = append(options,
 			optionPair{"--server.threads", strconv.Itoa(config.ServerThreads)})

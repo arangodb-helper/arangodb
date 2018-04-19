@@ -225,6 +225,24 @@ func (p ClusterConfig) GetAgentEndpoints() ([]url.URL, error) {
 	return endpoints, nil
 }
 
+// GetDBServerEndpoints creates a list of URL's for all dbservers.
+func (p ClusterConfig) GetDBServerEndpoints() ([]url.URL, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.AllPeers {
+		if p.HasDBServer() {
+			port := p.Port + p.PortOffset + ServerType(ServerTypeDBServer).PortOffset()
+			scheme := NewURLSchemes(p.IsSecure).Browser
+			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+			if err != nil {
+				return nil, maskAny(err)
+			}
+			endpoints = append(endpoints, *u)
+		}
+	}
+	return endpoints, nil
+}
+
 // GetCoordinatorEndpoints creates a list of URL's for all coordinators.
 func (p ClusterConfig) GetCoordinatorEndpoints() ([]url.URL, error) {
 	// Build endpoint list
@@ -232,6 +250,24 @@ func (p ClusterConfig) GetCoordinatorEndpoints() ([]url.URL, error) {
 	for _, p := range p.AllPeers {
 		if p.HasCoordinator() {
 			port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
+			scheme := NewURLSchemes(p.IsSecure).Browser
+			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
+			if err != nil {
+				return nil, maskAny(err)
+			}
+			endpoints = append(endpoints, *u)
+		}
+	}
+	return endpoints, nil
+}
+
+// GetSingleEndpoints creates a list of URL's for all single servers.
+func (p ClusterConfig) GetSingleEndpoints(all bool) ([]url.URL, error) {
+	// Build endpoint list
+	var endpoints []url.URL
+	for _, p := range p.AllPeers {
+		if all || p.HasResilientSingle() {
+			port := p.Port + p.PortOffset + ServerType(ServerTypeSingle).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
 			u, err := url.Parse(fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port))))
 			if err != nil {

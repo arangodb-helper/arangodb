@@ -45,8 +45,9 @@ func NewServerClient(endpoint url.URL, prepareRequest func(*http.Request) error,
 		prepareRequest: prepareRequest,
 	}
 	if !followRedirects {
+
 		c.client.CheckRedirect = func(*http.Request, []*http.Request) error {
-			return maskAny(redirectionError)
+			return http.ErrUseLastResponse // Do not wrap, standard library will not understand
 		}
 	}
 	return c, nil
@@ -81,6 +82,11 @@ func (c *client) Server() (ServerAPI, error) {
 // Endpoints must be URL's of one or more coordinators of the cluster.
 func (c *client) Cluster() ClusterAPI {
 	return c
+}
+
+// Returns the endpoint of the specific agency this api targets.
+func (c *client) Endpoint() string {
+	return c.endpoint.String()
 }
 
 // ReadKey reads the value of a given key in the agency.
@@ -150,6 +156,15 @@ type writeTransactions []writeTransaction
 
 type writeResult struct {
 	Results []int64 `json:"results"`
+}
+
+// WriteKey writes the given value with the given key.
+func (c *client) WriteKey(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
+	condition := writeCondition{}
+	if err := c.write(ctx, key, value, condition, ttl); err != nil {
+		return maskAny(err)
+	}
+	return nil
 }
 
 // WriteKeyIfEmpty writes the given value with the given key only if the key was empty before.
@@ -240,11 +255,28 @@ func (c *client) write(ctx context.Context, key []string, value interface{}, con
 // RemoveKeyIfEqualTo removes the given key only if the existing value for that key equals
 // to the given old value.
 func (c *client) RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue interface{}) error {
-	url := c.createURL("/_api/agency/write", nil)
-
 	condition := writeCondition{
 		Old: oldValue,
 	}
+	if err := c.removeKey(ctx, key, condition); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// RemoveKey removes the given key.
+func (c *client) RemoveKey(ctx context.Context, key []string) error {
+	condition := writeCondition{}
+	if err := c.removeKey(ctx, key, condition); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// removeKey removes the given key if the given condition is met.
+func (c *client) removeKey(ctx context.Context, key []string, condition writeCondition) error {
+	url := c.createURL("/_api/agency/write", nil)
+
 	fullKey := createFullKey(key)
 	writeTxs := writeTransactions{
 		writeTransaction{
@@ -402,6 +434,35 @@ func (c *client) UnregisterChangeCallback(ctx context.Context, key []string, cbU
 
 type idResponse struct {
 	ID string `json:"id,omitempty"`
+}
+
+// Gets the Version of this server.
+func (c *client) Version(ctx context.Context) (VersionInfo, error) {
+	url := c.createURL("/_api/version", nil)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return VersionInfo{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	if c.prepareRequest != nil {
+		if err := c.prepareRequest(req); err != nil {
+			return VersionInfo{}, maskAny(err)
+		}
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return VersionInfo{}, maskAny(err)
+	}
+	var result VersionInfo
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return VersionInfo{}, maskAny(err)
+	}
+
+	// Success
+	return result, nil
 }
 
 // Gets the ID of this server in the cluster.
@@ -563,6 +624,12 @@ func (c *client) handleResponse(resp *http.Response, method, url string, result 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return maskAny(errors.Wrapf(err, "Failed reading response data from %s request to %s: %v", method, url, err))
+	}
+
+	if resp.StatusCode == 307 {
+		// Not leader
+		location := resp.Header.Get("Location")
+		return NotLeaderError{Leader: location}
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

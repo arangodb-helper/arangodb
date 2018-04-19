@@ -166,6 +166,19 @@ Status codes:
 - 412 When this starter cannot be removed.
 - 503 When starter is not yet ready to be removed.
 
+### POST `/database-auto-upgrade`
+
+Initiates an upgrade process of all ArangoDB servers started by this starter.
+
+The request does not expect any input.
+
+Returns `OK` as text/plain on success.
+
+Status codes:
+
+- 200 On success
+- 412 When this starter cannot be start the upgrade process. Usually because another starter is already upgrading its servers.
+
 ## Internal API
 
 ### GET `/id` 
