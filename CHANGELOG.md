@@ -1,5 +1,6 @@
 # Changes from version 0.10.4 to master
 
+- Added `--starter.host` option, to bind the HTTP server to a specific network interface instead of the default `0.0.0.0`.
 - Added `POST /data-auto-upgrade` support to perform a rolling upgrade of all servers (with single `--database.auto-upgrade` restart)
 - Renamed mode option `resilientsingle` to `activefailover`. (`resilientsingle` is being supported as alias for a while)
 - Added support for log file rotation for started server components.

@@ -97,6 +97,7 @@ var (
 	mode                     string
 	dataDir                  string
 	ownAddress               string
+	bindAddress              string
 	masterAddresses          []string
 	verbose                  bool
 	serverThreads            int
@@ -148,6 +149,7 @@ func init() {
 	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|activefailover)")
 	f.BoolVar(&startLocalSlaves, "starter.local", false, "If set, local slaves will be started to create a machine local (test) cluster")
 	f.StringVar(&ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
+	f.StringVar(&bindAddress, "starter.host", "0.0.0.0", "address used to bind the starter to")
 	f.StringVar(&id, "starter.id", "", "Unique identifier of this peer")
 	f.IntVar(&masterPort, "starter.port", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
 	f.BoolVar(&allPortOffsetsUnique, "starter.unique-port-offsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
@@ -650,6 +652,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		RrPath:                  rrPath,
 		DataDir:                 dataDir,
 		OwnAddress:              ownAddress,
+		BindAddress:             bindAddress,
 		MasterAddresses:         masterAddresses,
 		Verbose:                 verbose,
 		ServerThreads:           serverThreads,
