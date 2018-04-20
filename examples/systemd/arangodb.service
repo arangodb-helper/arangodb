@@ -1,0 +1,23 @@
+[Unit]
+Description=Run the ArangoDB Starter 
+After=network.target
+
+[Service]
+Restart=on-failure
+User=arangodb
+Group=arangodb
+EnvironmentFile=/etc/arangodb.env
+Environment=DATADIR=/var/lib/arangodb/cluster
+ExecStartPre=/usr/bin/sh -c "mkdir -p $(dirname $CLUSTERSECRETPATH)"
+ExecStartPre=/usr/bin/sh -c "mkdir -p ${DATADIR}"
+ExecStartPre=/usr/bin/sh -c "echo ${CLUSTERSECRET} > ${CLUSTERSECRETPATH}"
+ExecStart=/usr/bin/arangodb \
+    --starter.data-dir=${DATADIR} \
+    --starter.join=${STARTERENDPOINTS} \
+    --server.storage-engine=rocksdb \
+    --auth.jwt-secret=${CLUSTERSECRETPATH} \
+    --all.log.level=info --all.log.output=+
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
