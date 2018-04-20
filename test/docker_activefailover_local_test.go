@@ -77,7 +77,7 @@ func TestDockerActiveFailoverLocal(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, 1, dockerRun); ok {
 		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 	}
@@ -137,7 +137,7 @@ func TestDockerResilientActiveFailoverSecure(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, 1, dockerRun); ok {
 		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, secureStarterEndpoint(0*portIncrement), true, false)
 	}

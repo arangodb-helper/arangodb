@@ -122,7 +122,7 @@ func TestDockerClusterRecovery(t *testing.T) {
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0), false)
 		testCluster(t, insecureStarterEndpoint(100), false)
@@ -196,7 +196,7 @@ func TestDockerClusterRecovery(t *testing.T) {
 	defer removeDockerContainer(t, recCID2)
 
 	// Wait until recovered
-	if ok := WaitUntilStarterReady(t, whatCluster, recDockerRun2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, recDockerRun2); ok {
 		t.Logf("Cluster start (with recovery) took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0), false)
 		testCluster(t, insecureStarterEndpoint(100), false)

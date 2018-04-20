@@ -41,7 +41,7 @@ func TestProcessSingle(t *testing.T) {
 	child := Spawn(t, "${STARTER} --starter.mode=single "+createEnvironmentStarterOptions())
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
@@ -65,7 +65,7 @@ func TestProcessSingleShutdownViaAPI(t *testing.T) {
 	child := Spawn(t, "${STARTER} --starter.mode=single "+createEnvironmentStarterOptions())
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
@@ -89,7 +89,7 @@ func TestProcessSingleAutoKeyFile(t *testing.T) {
 	child := Spawn(t, "${STARTER} --starter.mode=single --ssl.auto-key "+createEnvironmentStarterOptions())
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, secureStarterEndpoint(0*portIncrement), true)
 	}
@@ -113,7 +113,7 @@ func TestOldProcessSingle(t *testing.T) {
 	child := Spawn(t, "${STARTER} --mode=single "+createEnvironmentStarterOptions())
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
@@ -137,7 +137,7 @@ func TestOldProcessSingleAutoKeyFile(t *testing.T) {
 	child := Spawn(t, "${STARTER} --mode=single --sslAutoKeyFile "+createEnvironmentStarterOptions())
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatSingle, child); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, child); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, secureStarterEndpoint(0*portIncrement), true)
 	}

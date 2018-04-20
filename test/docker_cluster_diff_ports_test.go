@@ -121,7 +121,7 @@ func TestDockerClusterDifferentPorts(t *testing.T) {
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, "http://localhost:6000", false)
 		testCluster(t, "http://localhost:7000", false)

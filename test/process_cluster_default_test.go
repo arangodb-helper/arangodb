@@ -51,7 +51,7 @@ func TestProcessClusterDefault(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
@@ -87,7 +87,7 @@ func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
@@ -125,7 +125,7 @@ func TestOldProcessClusterDefault(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)

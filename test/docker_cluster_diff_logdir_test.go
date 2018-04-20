@@ -135,7 +135,7 @@ func TestDockerClusterDifferentLogDir(t *testing.T) {
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun1, dockerRun2, dockerRun3); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
