@@ -542,14 +542,15 @@ type StatusItem struct {
 }
 
 type instanceUpInfo struct {
-	Version string
-	Role    string
-	Mode    string
+	Version  string
+	Role     string
+	Mode     string
+	IsLeader bool
 }
 
 // TestInstance checks the `up` status of an arangod server instance.
 func (s *Service) TestInstance(ctx context.Context, serverType ServerType, address string, port int,
-	statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool) {
+	statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, isLeader bool, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan instanceUpInfo)
 	statusCodes := make(chan int)
 	if statusChanged != nil {
@@ -666,14 +667,42 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 			}
 			return roleResponse.Role, roleResponse.Mode, resp.StatusCode, nil
 		}
+		makeIsLeaderRequest := func() (bool, error) {
+			if serverType != ServerTypeResilientSingle {
+				return false, nil
+			}
+			addr := net.JoinHostPort(address, strconv.Itoa(port))
+			url := fmt.Sprintf("%s://%s/_api/database", scheme, addr)
+			req, err := http.NewRequest("GET", url, nil)
+			if err != nil {
+				return false, maskAny(err)
+			}
+			if err := addJwtHeader(req, s.jwtSecret); err != nil {
+				return false, maskAny(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				return false, maskAny(err)
+			}
+			if resp.StatusCode == 200 {
+				return true, nil
+			}
+			if resp.StatusCode == 503 && resp.Header.Get("X-Arango-Endpoint") != "" {
+				return false, nil
+			}
+			return false, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+		}
 
 		for i := 0; i < 300; i++ {
 			if version, statusCode, err := makeVersionRequest(); err == nil {
 				if role, mode, statusCode, err := makeRoleRequest(); err == nil {
-					instanceUp <- instanceUpInfo{
-						Version: version,
-						Role:    role,
-						Mode:    mode,
+					if isLeader, err := makeIsLeaderRequest(); err == nil {
+						instanceUp <- instanceUpInfo{
+							Version:  version,
+							Role:     role,
+							Mode:     mode,
+							IsLeader: isLeader,
+						}
 					}
 				} else {
 					statusCodes <- statusCode
@@ -695,7 +724,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 			up = instanceInfo.Version != ""
 			correctRole = instanceInfo.Role == expectedRole || expectedRole == ""
 			correctMode := instanceInfo.Mode == expectedMode || expectedMode == ""
-			return up, correctRole && correctMode, instanceInfo.Version, instanceInfo.Role, instanceInfo.Mode, statusTrail, false
+			return up, correctRole && correctMode, instanceInfo.Version, instanceInfo.Role, instanceInfo.Mode, instanceInfo.IsLeader, statusTrail, false
 		case statusCode := <-statusCodes:
 			lastStatusCode := math.MinInt32
 			if len(statusTrail) > 0 {
@@ -712,7 +741,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 				}
 			}
 		case <-ctx.Done():
-			return false, false, "", "", "", statusTrail, true
+			return false, false, "", "", "", false, statusTrail, true
 		}
 	}
 }

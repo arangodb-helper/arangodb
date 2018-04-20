@@ -1,5 +1,6 @@
 # Changes from version 0.10.4 to master
 
+- For `activefailover` deployments, the message where to reach your database is now only shown for the current leader.
 - Added SystemD example. See `examples/systemd/README.md`.
 - Added `--log.dir` option to configure a custom directory to which all log files will be written.
 - It is no longer allowed to use `log.file` as a passthrough option.

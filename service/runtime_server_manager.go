@@ -75,7 +75,7 @@ type runtimeServerManagerContext interface {
 
 	// TestInstance checks the `up` status of an arangod server instance.
 	TestInstance(ctx context.Context, serverType ServerType, address string, port int,
-		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool)
+		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, isLeader bool, statusTrail []int, cancelled bool)
 
 	// IsLocalSlave returns true if this peer is running as a local slave
 	IsLocalSlave() bool
@@ -116,7 +116,7 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	if p != nil {
 		log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		up, correctRole, _, _, _, _, _ := runtimeContext.TestInstance(ctx, serverType, myHostAddress, myPort, nil)
+		up, correctRole, _, _, _, _, _, _ := runtimeContext.TestInstance(ctx, serverType, myHostAddress, myPort, nil)
 		cancel()
 		if up && correctRole {
 			log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
@@ -271,7 +271,7 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 						}
 					}
 				}()
-				if up, correctRole, version, role, mode, statusTrail, cancelled := runtimeContext.TestInstance(ctx, serverType, myHostAddress, port, statusChanged); !cancelled {
+				if up, correctRole, version, role, mode, isLeader, statusTrail, cancelled := runtimeContext.TestInstance(ctx, serverType, myHostAddress, port, statusChanged); !cancelled {
 					if up && correctRole {
 						log.Infof("%s up and running (version %s).", serverType, version)
 						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle || serverType == ServerTypeResilientSingle {
@@ -289,10 +289,12 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 								} else if serverType == ServerTypeResilientSingle {
 									what = "resilient single server"
 								}
-								s.logMutex.Lock()
-								log.Infof("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
-								log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
-								s.logMutex.Unlock()
+								if serverType != ServerTypeResilientSingle || isLeader {
+									s.logMutex.Lock()
+									log.Infof("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
+									log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
+									s.logMutex.Unlock()
+								}
 								runtimeContext.removeRecoveryFile()
 							}
 						}
