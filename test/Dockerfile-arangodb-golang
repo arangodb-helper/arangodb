@@ -1,48 +1,14 @@
 ARG from
 FROM ${from}
 
-# gcc for cgo
-RUN apt-get update && apt-get install -y --no-install-recommends \
-		g++ \
-		gcc \
-		libc6-dev \
-		make \
-		pkg-config \
-        wget \
-		ca-certificates \
-		procps \
-	&& rm -rf /var/lib/apt/lists/*
+RUN uname -a
 
-ENV GOLANG_VERSION 1.9
+# If you change this, make matching changes in docker_install_go.sh
+# to reflect the hashes.
+ENV GOLANG_VERSION 1.10.1
 
-RUN set -eux; \
-	\
-	dpkgArch="$(dpkg --print-architecture)"; \
-	case "${dpkgArch##*-}" in \
-		ppc64el) goRelArch='linux-ppc64le';; \
-		i386) goRelArch='linux-386';; \
-		s390x) goRelArch='linux-s390x';; \
-		armhf) goRelArch='linux-armv6l';; \
-		amd64) goRelArch='linux-amd64';; \
-		*) goRelArch='src'; \
-			echo >&2; echo >&2 "warning: current architecture ($dpkgArch) does not have a corresponding Go binary release; will be building from source"; echo >&2 ;; \
-	esac; \
-	\
-	url="https://golang.org/dl/go${GOLANG_VERSION}.${goRelArch}.tar.gz"; \
-	wget -q -O go.tgz "$url"; \
-	tar -C /usr/local -xzf go.tgz; \
-	rm go.tgz; \
-	\
-	if [ "$goRelArch" = 'src' ]; then \
-		echo >&2; \
-		echo >&2 'error: UNIMPLEMENTED'; \
-		echo >&2 'TODO install golang-any from jessie-backports for GOROOT_BOOTSTRAP (and uninstall after build)'; \
-		echo >&2; \
-		exit 1; \
-	fi; \
-	\
-	export PATH="/usr/local/go/bin:$PATH"; \
-	go version
+ADD test/docker_install_go.sh /bin
+RUN /bin/docker_install_go.sh
 
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:/usr/local/go/bin:$PATH
