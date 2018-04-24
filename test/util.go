@@ -61,13 +61,13 @@ var (
 )
 
 func init() {
-	isVerbose = os.Getenv("VERBOSE") != ""
-	isEnterprise = os.Getenv("ENTERPRISE") != ""
-	testModes = strings.Split(os.Getenv("TEST_MODES"), ",")
+	isVerbose = strings.TrimSpace(os.Getenv("VERBOSE")) != ""
+	isEnterprise = strings.TrimSpace(os.Getenv("ENTERPRISE")) != ""
+	testModes = strings.Split(strings.TrimSpace(os.Getenv("TEST_MODES")), ",")
 	if len(testModes) == 1 && testModes[0] == "" {
 		testModes = nil
 	}
-	starterModes = strings.Split(os.Getenv("STARTER_MODES"), ",")
+	starterModes = strings.Split(strings.TrimSpace(os.Getenv("STARTER_MODES")), ",")
 	if len(starterModes) == 1 && starterModes[0] == "" {
 		starterModes = nil
 	}

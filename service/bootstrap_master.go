@@ -41,7 +41,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	if err != nil {
 		s.log.Fatalf("Cannot find HTTP server info: %#v", err)
 	}
-	if !WaitUntilPortAvailable(containerHTTPPort, time.Second*5) {
+	if !WaitUntilPortAvailable(config.BindAddress, containerHTTPPort, time.Second*5) {
 		s.log.Fatalf("Port %d is already in use", containerHTTPPort)
 	}
 

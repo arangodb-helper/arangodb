@@ -23,14 +23,14 @@
 package service
 
 import (
-	"fmt"
 	"net"
+	"strconv"
 	"time"
 )
 
 // IsPortOpen checks if a TCP port is free to listen on.
-func IsPortOpen(port int) bool {
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func IsPortOpen(host string, port int) bool {
+	l, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		return false
 	}
@@ -41,10 +41,10 @@ func IsPortOpen(port int) bool {
 // WaitUntilPortAvailable waits until a TCP port is free to listen on
 // or a timeout occurs.
 // Returns true when port is free to listen on.
-func WaitUntilPortAvailable(port int, timeout time.Duration) bool {
+func WaitUntilPortAvailable(host string, port int, timeout time.Duration) bool {
 	start := time.Now()
 	for {
-		if IsPortOpen(port) {
+		if IsPortOpen(host, port) {
 			return true
 		}
 		if time.Since(start) >= timeout {

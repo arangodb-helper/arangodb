@@ -131,7 +131,7 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	}
 
 	// Check availability of port
-	if !WaitUntilPortAvailable(myPort, time.Second*3) {
+	if !WaitUntilPortAvailable("", myPort, time.Second*3) {
 		return nil, true, maskAny(fmt.Errorf("Cannot start %s, because port %d is already in use", serverType, myPort))
 	}
 
@@ -339,7 +339,7 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 			if isRecentFailure && !s.stopping {
 				if !portInUse {
 					log.Infof("%s has terminated quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
-					if recentFailures >= minRecentFailuresForLog && config.DebugCluster {
+					if recentFailures >= minRecentFailuresForLog {
 						// Show logs of the server
 						s.showRecentLogs(log, runtimeContext, serverType)
 					}
