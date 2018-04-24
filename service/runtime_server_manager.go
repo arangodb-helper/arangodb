@@ -273,7 +273,11 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 				}()
 				if up, correctRole, version, role, mode, isLeader, statusTrail, cancelled := runtimeContext.TestInstance(ctx, serverType, myHostAddress, port, statusChanged); !cancelled {
 					if up && correctRole {
-						log.Infof("%s up and running (version %s).", serverType, version)
+						msgPostfix := ""
+						if serverType == ServerTypeResilientSingle && !isLeader {
+							msgPostfix = " as follower"
+						}
+						log.Infof("%s up and running%s (version %s).", serverType, msgPostfix, version)
 						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle || serverType == ServerTypeResilientSingle {
 							hostPort, err := p.HostPort(port)
 							if err != nil {
