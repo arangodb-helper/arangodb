@@ -932,6 +932,9 @@ func (s *Service) CreateClient(endpoints []string, followRedirect bool) (driver.
 	conn, err := driver_http.NewConnection(driver_http.ConnectionConfig{
 		Endpoints:          endpoints,
 		DontFollowRedirect: !followRedirect,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
 	})
 	if err != nil {
 		return nil, maskAny(err)
