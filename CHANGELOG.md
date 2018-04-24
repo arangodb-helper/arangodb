@@ -1,4 +1,6 @@
-# Changes from version 0.11.0 to master
+# Changes from version 0.11.0 to 0.11.1
+
+- Fix port binding check when using `--starter.host`. It used to check against the `any` interface, now it checks against `--starter.host`.
 
 # Changes from version 0.10.4 to 0.11.0
 
