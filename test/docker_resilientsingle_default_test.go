@@ -122,7 +122,7 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2, dockerRun3); ok {
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, 1, dockerRun1, dockerRun2, dockerRun3); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
@@ -230,7 +230,7 @@ func TestDockerResilientSingle2Instance(t *testing.T) {
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
-	if ok := WaitUntilStarterReady(t, whatResilientSingle, dockerRun1, dockerRun2 /*not docker3*/); ok {
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, 1, dockerRun1, dockerRun2 /*not docker3*/); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)

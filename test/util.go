@@ -94,7 +94,7 @@ func needStarterMode(t *testing.T, starterMode string) {
 	if len(starterModes) == 0 {
 		return
 	}
-	t.Skipf("Starter mode '%s' not set", starterMode)
+	t.Skipf("Starter mode '%s' not set, have %v", starterMode, starterModes)
 }
 
 func needEnterprise(t *testing.T) {
@@ -135,33 +135,62 @@ func SetUniqueDataDir(t *testing.T) string {
 	return dataDir
 }
 
+type waitUntilReadyResult struct {
+	Ready    bool
+	TimeSpan time.Duration
+	Message  string
+}
+
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
-func WaitUntilStarterReady(t *testing.T, what string, starters ...*SubProcess) bool {
-	g := sync.WaitGroup{}
-	result := true
+func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, starters ...*SubProcess) bool {
+	results := make(chan waitUntilReadyResult, len(starters))
 	for index, starter := range starters {
 		starter := starter // Used in nested function
-		g.Add(1)
 		id := fmt.Sprintf("starter-%d", index+1)
 		go func() {
-			defer g.Done()
 			started := time.Now()
 			if err := starter.ExpectTimeout(time.Minute*2, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
-				result = false
 				timeSpan := time.Since(started)
-				t.Errorf("Starter is not ready in time (after %s): %s", timeSpan, describe(err))
+				results <- waitUntilReadyResult{
+					Ready:    false,
+					TimeSpan: timeSpan,
+					Message:  fmt.Sprintf("Starter is not ready in time (after %s): %s", timeSpan, describe(err)),
+				}
+			} else {
+				results <- waitUntilReadyResult{
+					Ready: true,
+				}
 			}
 		}()
 	}
-	g.Wait()
-	if !result && os.Getenv("DEBUG_CLUSTER") == "interactive" {
+	okCount := 0
+	errorCount := 0
+	errorMessages := make([]string, 0, len(starters))
+	for result := range results {
+		if result.Ready {
+			okCount++
+		} else {
+			errorCount++
+			errorMessages = append(errorMessages, result.Message)
+		}
+		if okCount >= requiredGoodResults {
+			return true
+		}
+		if okCount+errorCount == len(starters) {
+			break
+		}
+	}
+	if os.Getenv("DEBUG_CLUSTER") == "interactive" {
 		// Halt forever
 		fmt.Println("Cluster not ready in time, halting forever for debugging")
 		for {
 			time.Sleep(time.Hour)
 		}
 	}
-	return result
+	for _, msg := range errorMessages {
+		t.Error(msg)
+	}
+	return false
 }
 
 // SendIntrAndWait stops all all given starter processes by sending a Ctrl-C into it.

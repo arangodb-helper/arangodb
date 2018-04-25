@@ -28,6 +28,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"net"
 	"net/http"
@@ -687,15 +688,22 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 			if resp.StatusCode == 200 {
 				return true, nil
 			}
-			if resp.StatusCode == 503 && resp.Header.Get("X-Arango-Endpoint") != "" {
-				return false, nil
+			defer resp.Body.Close()
+			if data, err := ioutil.ReadAll(resp.Body); err != nil {
+				return false, maskAny(err)
+			} else {
+				if IsNoLeaderError(data) {
+					// Server is up, just not the leader
+					return false, nil
+				}
 			}
 			return false, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
 		}
 
-		for i := 0; i < 300; i++ {
+		checkInstanceOnce := func() bool {
 			if version, statusCode, err := makeVersionRequest(); err == nil {
-				if role, mode, statusCode, err := makeRoleRequest(); err == nil {
+				var role, mode string
+				if role, mode, statusCode, err = makeRoleRequest(); err == nil {
 					if isLeader, err := makeIsLeaderRequest(); err == nil {
 						instanceUp <- instanceUpInfo{
 							Version:  version,
@@ -703,13 +711,17 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 							Mode:     mode,
 							IsLeader: isLeader,
 						}
+						return true
 					}
-				} else {
-					statusCodes <- statusCode
 				}
-				break
-			} else {
 				statusCodes <- statusCode
+			}
+			return false
+		}
+
+		for i := 0; i < 300; i++ {
+			if checkInstanceOnce() {
+				return
 			}
 			time.Sleep(time.Millisecond * 500)
 		}
@@ -932,6 +944,9 @@ func (s *Service) CreateClient(endpoints []string, followRedirect bool) (driver.
 	conn, err := driver_http.NewConnection(driver_http.ConnectionConfig{
 		Endpoints:          endpoints,
 		DontFollowRedirect: !followRedirect,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
 	})
 	if err != nil {
 		return nil, maskAny(err)

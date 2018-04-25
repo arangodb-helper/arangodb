@@ -75,7 +75,7 @@ func TestDockerSingle(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
@@ -133,7 +133,7 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, secureStarterEndpoint(0*portIncrement), true)
 	}
@@ -187,7 +187,7 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
@@ -244,7 +244,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
@@ -300,7 +300,7 @@ func TestOldDockerSingleAutoKeyFile(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatSingle, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatSingle, 1, dockerRun); ok {
 		t.Logf("Single server start took %s", time.Since(start))
 		testSingle(t, secureStarterEndpoint(0*portIncrement), true)
 	}

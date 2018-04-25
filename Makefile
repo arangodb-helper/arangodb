@@ -168,6 +168,7 @@ run-tests-local-process: build test-images
 		--name=$(TESTCONTAINER) \
 		-v $(ROOTDIR):/usr/code \
 		-e CGO_ENABLED=0 \
+		-e GOCACHE=off \
 		-e GOPATH=/usr/code/.gobuild \
 		-e DATA_DIR=/tmp \
 		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
@@ -185,8 +186,8 @@ ifdef TRAVIS
 	docker pull $(ARANGODB)
 endif
 	mkdir -p $(GOBUILDDIR)/tmp
-	GOPATH=$(GOBUILDDIR) TMPDIR=$(GOBUILDDIR)/tmp TEST_MODES=docker STARTER_MODES=$(STARTER_MODES) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
+	GOCACHE=off GOPATH=$(GOBUILDDIR) TMPDIR=$(GOBUILDDIR)/tmp TEST_MODES=docker STARTER_MODES=$(STARTER_MODES) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
 
 # Run all integration tests on the local system
 run-tests-local: local
-	GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess,docker" STARTER_MODES=$(STARTER_MODES) STARTER=$(ROOTDIR)/arangodb go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
+	GOCACHE=off GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess,docker" STARTER_MODES=$(STARTER_MODES) STARTER=$(ROOTDIR)/arangodb go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test

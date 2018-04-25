@@ -75,7 +75,7 @@ func TestDockerClusterLocal(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, dockerRun); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
@@ -134,7 +134,7 @@ func TestDockerClusterLocalAgencySize1(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, dockerRun); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
@@ -189,7 +189,7 @@ func TestOldDockerClusterLocal(t *testing.T) {
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, dockerRun); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, dockerRun); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 	}

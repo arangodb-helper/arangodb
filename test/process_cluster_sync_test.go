@@ -94,7 +94,7 @@ func TestProcessClusterSync(t *testing.T) {
 	}, " "))
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testClusterWithSync(t, insecureStarterEndpoint(0*portIncrement), false)
 		testClusterWithSync(t, insecureStarterEndpoint(1*portIncrement), false)
