@@ -169,13 +169,13 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 	s.server.Addr = containerAddr
 	s.server.Handler = mux
 	if tlsConfig != nil {
-		s.log.Infof("Listening on %s (%s) using TLS", containerAddr, hostAddr)
+		s.log.Infof("ArangoDB Starter listening on %s (%s) using TLS", containerAddr, hostAddr)
 		s.server.TLSConfig = tlsConfig
 		if err := s.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			return maskAny(err)
 		}
 	} else {
-		s.log.Infof("Listening on %s (%s)", containerAddr, hostAddr)
+		s.log.Infof("ArangoDB Starter listening on %s (%s)", containerAddr, hostAddr)
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			return maskAny(err)
 		}
