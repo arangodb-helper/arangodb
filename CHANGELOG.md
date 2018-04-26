@@ -1,3 +1,7 @@
+# Changes from version 0.11.0 to master
+
+- Changed default ECDSA curve used by `arangodb create tls ...` from `P521` to `p256`.
+
 # Changes from version 0.11.0 to 0.11.1
 
 - Fix port binding check when using `--starter.host`. It used to check against the `any` interface, now it checks against `--starter.host`.
