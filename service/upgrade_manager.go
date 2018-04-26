@@ -55,7 +55,7 @@ type UpgradeManagerContext interface {
 	// ClusterConfig returns the current cluster configuration and the current peer
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
 	// CreateClient creates a go-driver client with authentication for the given endpoints.
-	CreateClient(endpoints []string, followRedirect bool) (driver.Client, error)
+	CreateClient(endpoints []string, connectionType ConnectionType) (driver.Client, error)
 	// RestartServer triggers a restart of the server of the given type.
 	RestartServer(serverType ServerType) error
 }
@@ -368,7 +368,7 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 	// Build agency clients
 	clients := make([]driver.Connection, 0, len(endpoints))
 	for _, ep := range endpoints {
-		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeAgency)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -392,7 +392,7 @@ func (m *upgradeManager) areDBServersResponding(ctx context.Context) error {
 	}
 	// Check all
 	for _, ep := range endpoints {
-		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeDatabase)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -414,7 +414,7 @@ func (m *upgradeManager) areCoordinatorsResponding(ctx context.Context) error {
 	}
 	// Check all
 	for _, ep := range endpoints {
-		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeDatabase)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -436,7 +436,7 @@ func (m *upgradeManager) areSingleServersResponding(ctx context.Context) error {
 	}
 	// Check all
 	for _, ep := range endpoints {
-		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeDatabase)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -459,7 +459,7 @@ func (m *upgradeManager) isSuperVisionMaintenanceSupported(ctx context.Context) 
 	}
 	// Check agents
 	for _, ep := range endpoints {
-		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeAgency)
 		if err != nil {
 			return false, maskAny(err)
 		}
@@ -546,7 +546,7 @@ func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, e
 	showGroup := func(serverType ServerType, endpoints []string) {
 		groupVersions := make([]string, len(endpoints))
 		for i, ep := range endpoints {
-			c, err := m.upgradeManagerContext.CreateClient([]string{ep}, false)
+			c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeDatabase)
 			if err != nil {
 				groupVersions[i] = "?"
 				continue
