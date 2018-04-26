@@ -1,4 +1,4 @@
-# Changes from version 0.11.1 to master
+# Changes from version 0.11.1 to 0.11.2
 
 - Solved problem connection to agency when using TLS & authentication.
 - Changed TLS algorithm for `-ssl.auto-key` from RSA (2048 bits) to ECDSA (`P256` curve).
