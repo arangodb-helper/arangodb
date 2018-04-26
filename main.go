@@ -579,7 +579,6 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		}
 		keyFile, err := service.CreateCertificate(service.CreateCertificateOptions{
 			Hosts:        hosts,
-			RSABits:      2048,
 			Organization: sslAutoOrganization,
 		}, dataDir)
 		if err != nil {
