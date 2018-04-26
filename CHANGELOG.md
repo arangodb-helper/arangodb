@@ -1,6 +1,7 @@
 # Changes from version 0.11.1 to master
 
-- Changed default ECDSA curve used by `arangodb create tls ...` from `P521` to `p256`.
+- Changed TLS algorithm for `-ssl.auto-key` from RSA (2048 bits) to ECDSA (`P256` curve).
+- Changed default ECDSA curve used by `arangodb create tls ...` from `P521` to `P256`.
 - Log text showing the address the starter is listening on has been changed from "Listening on ..." to "ArangoDB Starter listening on ...".
 - Solved problem where starter did not properly log a resilientsingle server ("Your resilient single server can now be accessed ...") when leadership challenge was still ongoing.
 
