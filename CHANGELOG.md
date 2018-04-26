@@ -1,6 +1,8 @@
 # Changes from version 0.11.0 to master
 
 - Changed default ECDSA curve used by `arangodb create tls ...` from `P521` to `p256`.
+- Log text showing the address the starter is listening on has been changed from "Listening on ..." to "ArangoDB Starter listening on ...".
+- Solved problem where starter did not properly log a resilientsingle server ("Your resilient single server can now be accessed ...") when leadership challenge was still ongoing.
 
 # Changes from version 0.11.0 to 0.11.1
 
