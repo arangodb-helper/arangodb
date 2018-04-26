@@ -288,9 +288,6 @@ func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agen
 		return nil, maskAny(err)
 	}
 	conn := c.Connection()
-	/*	if err := conn.UpdateEndpoints(endpoints); err != nil {
-		return nil, maskAny(err)
-	}*/
 	a, err := agency.NewAgency(conn)
 	if err != nil {
 		return nil, maskAny(err)
