@@ -283,11 +283,15 @@ func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agen
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := clientBuilder(endpoints, true)
+	c, err := clientBuilder(endpoints, ConnectionTypeAgency)
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	a, err := agency.NewAgency(c.Connection())
+	conn := c.Connection()
+	/*	if err := conn.UpdateEndpoints(endpoints); err != nil {
+		return nil, maskAny(err)
+	}*/
+	a, err := agency.NewAgency(conn)
 	if err != nil {
 		return nil, maskAny(err)
 	}
@@ -301,7 +305,7 @@ func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder Clien
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := clientBuilder(endpoints, true)
+	c, err := clientBuilder(endpoints, ConnectionTypeDatabase)
 	if err != nil {
 		return nil, maskAny(err)
 	}

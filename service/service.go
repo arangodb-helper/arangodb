@@ -40,6 +40,7 @@ import (
 
 	"github.com/arangodb-helper/arangodb/client"
 	driver "github.com/arangodb/go-driver"
+	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
 	"github.com/arangodb/go-driver/jwt"
 	logging "github.com/op/go-logging"
@@ -940,14 +941,24 @@ func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
 }
 
 // CreateClient creates a go-driver client with authentication for the given endpoints.
-func (s *Service) CreateClient(endpoints []string, followRedirect bool) (driver.Client, error) {
-	conn, err := driver_http.NewConnection(driver_http.ConnectionConfig{
+func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType) (driver.Client, error) {
+	connConfig := driver_http.ConnectionConfig{
 		Endpoints:          endpoints,
-		DontFollowRedirect: !followRedirect,
+		DontFollowRedirect: connectionType == ConnectionTypeAgency,
 		TLSConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
-	})
+	}
+	var conn driver.Connection
+	var err error
+	switch connectionType {
+	case ConnectionTypeDatabase:
+		conn, err = driver_http.NewConnection(connConfig)
+	case ConnectionTypeAgency:
+		conn, err = agency.NewAgencyConnection(connConfig)
+	default:
+		return nil, maskAny(fmt.Errorf("Unknown ConnectionType: %d", connectionType))
+	}
 	if err != nil {
 		return nil, maskAny(err)
 	}

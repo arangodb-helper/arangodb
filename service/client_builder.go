@@ -24,6 +24,13 @@ package service
 
 import driver "github.com/arangodb/go-driver"
 
+type ConnectionType int
+
+const (
+	ConnectionTypeDatabase ConnectionType = iota
+	ConnectionTypeAgency
+)
+
 // ClientBuilder is a callback used to create authenticated go-driver clients with or without
 // follow-redirect.
-type ClientBuilder func(endpoints []string, followRedirect bool) (driver.Client, error)
+type ClientBuilder func(endpoints []string, connectionType ConnectionType) (driver.Client, error)

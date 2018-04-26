@@ -62,7 +62,7 @@ type runtimeClusterManagerContext interface {
 	ChangeState(newState State)
 
 	// CreateClient returns go-driver client with authentication configured for the given endpoint.
-	CreateClient(endpoint []string, followRedirect bool) (driver.Client, error)
+	CreateClient(endpoint []string, connectionType ConnectionType) (driver.Client, error)
 
 	// UpdateClusterConfig updates the current cluster configuration.
 	UpdateClusterConfig(ClusterConfig)

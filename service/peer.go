@@ -102,7 +102,7 @@ func (p Peer) CreateDBServerAPI(clientBuilder ClientBuilder) (driver.Client, err
 		port := p.Port + p.PortOffset + ServerType(ServerTypeDBServer).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
 		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-		c, err := clientBuilder([]string{ep}, false)
+		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase)
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -117,7 +117,7 @@ func (p Peer) CreateCoordinatorAPI(clientBuilder ClientBuilder) (driver.Client, 
 		port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
 		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-		c, err := clientBuilder([]string{ep}, false)
+		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase)
 		if err != nil {
 			return nil, maskAny(err)
 		}
