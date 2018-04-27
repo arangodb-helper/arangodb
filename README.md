@@ -1,5 +1,6 @@
 # Starting an ArangoDB cluster or database the easy way
 
+[![Docker Pulls](https://img.shields.io/docker/pulls/arangodb/arangodb-starter.svg)](https://hub.docker.com/r/arangodb/arangodb-starter/)
 [![GoDoc](https://godoc.org/github.com/arangodb-helper/arangodb/client?status.svg)](http://godoc.org/github.com/arangodb-helper/arangodb/client)
 
 ## Downloading Releases
