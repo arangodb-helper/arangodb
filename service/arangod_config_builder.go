@@ -175,6 +175,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 			optionPair{"--agency.supervision", "true"},
 			optionPair{"--foxx.queues", "false"},
 			optionPair{"--server.statistics", "false"},
+			optionPair{"--javascript.enabled", "false"},
 		)
 		for _, p := range clusterConfig.AllAgents() {
 			if p.ID != myPeerID {
