@@ -87,6 +87,7 @@ type runtimeServerManagerContext interface {
 // startServer starts a single Arangod/Arangosync server of the given type.
 func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
 	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
+	log.Infof("enter start server")
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -162,13 +163,24 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
 	upgradeManager := runtimeContext.UpgradeManager()
 	databaseAutoUpgrade := upgradeManager.ServerDatabaseAutoUpgrade(serverType)
+	command, allowConsole := config.exectutionPrefix(processType, strconv.Itoa(myPort))
 	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName, bsCfg.RecoveryAgentID, databaseAutoUpgrade)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
-	writeCommand(log, filepath.Join(myHostDir, processType.CommandFileName()), config.serverExecutable(processType), args)
+
+	command = append(command, args...)
+	writeCommand(log, filepath.Join(myHostDir, processType.CommandFileName()), command[0], args)
+	if allowConsole && processType == ProcessTypeArangod {
+		// must not be saved in the startup file!!
+		command = append(command, "--console")
+	}
+
+	writeCommand(log, filepath.Join(myHostDir, processType.CommandFileName()), command[0], command)
+
 	// Collect volumes
 	vols := addVolume(confVolumes, myHostDir, myContainerDir, false)
+
 	// Start process/container
 	containerNamePrefix := ""
 	if config.DockerContainerName != "" {
@@ -176,7 +188,8 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	}
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, myPeer.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
-	p, err = runner.Start(ctx, processType, args[0], args[1:], vols, ports, containerName, myHostDir)
+	log.Infof("running command: %v", command)
+	p, err = runner.Start(ctx, processType, command[0], command[1:], vols, ports, containerName, myHostDir)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}

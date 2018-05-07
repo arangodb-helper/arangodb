@@ -87,6 +87,7 @@ var (
 	arangoSyncPath           string
 	masterPort               int
 	rrPath                   string
+	tmuxPath                 string
 	startAgent               []bool
 	startDBserver            []bool
 	startCoordinator         []bool
@@ -174,6 +175,7 @@ func init() {
 	f.StringVar(&arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
 	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
+	f.StringVar(&tmuxPath, "server.tmux", "", "Path of tmux")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
 	f.StringVar(&serverStorageEngine, "server.storage-engine", "mmfiles", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")
 	f.StringVar(&rocksDBEncryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
@@ -523,6 +525,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	arangodJSPath = mustExpand(arangodJSPath)
 	arangoSyncPath = mustExpand(arangoSyncPath)
 	rrPath = mustExpand(rrPath)
+	tmuxPath = mustExpand(tmuxPath)
 	dataDir = mustExpand(dataDir)
 	jwtSecretFile = mustExpand(jwtSecretFile)
 	sslKeyFile = mustExpand(sslKeyFile)
@@ -659,6 +662,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		ArangodJSPath:           arangodJSPath,
 		MasterPort:              masterPort,
 		RrPath:                  rrPath,
+		TmuxPath:                tmuxPath,
 		DataDir:                 dataDir,
 		LogDir:                  logDir,
 		OwnAddress:              ownAddress,

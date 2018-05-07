@@ -58,6 +58,7 @@ type Config struct {
 	ArangoSyncPath       string
 	MasterPort           int
 	RrPath               string
+	TmuxPath             string
 	DataDir              string
 	LogDir               string // Custom directory to which log files are written (default "")
 	OwnAddress           string // IP address of used to reach this process
@@ -516,19 +517,32 @@ func (s *Service) serverContainerLogFile(serverType ServerType) (string, error) 
 	return filepath.Join(containerDir, serverType.ProcessType().LogFileName(suffix)), nil
 }
 
-// serverExecutable returns the path of the server's executable.
-func (c *Config) serverExecutable(processType ProcessType) string {
+// serverExecutable returns optional start comamnd and flag if that shows if
+// instance can run with '--console'
+func (c *Config) exectutionPrefix(processType ProcessType, port string) ([]string, bool) {
+	var (
+		prefix       = []string{}
+		allowConsole = false
+	)
 	switch processType {
 	case ProcessTypeArangod:
-		if c.RrPath != "" {
-			return c.RrPath
+		if c.TmuxPath != "" {
+			prefix = append(prefix, c.TmuxPath)
+			//tmux options
+			prefix = append(prefix, "new-session", "-s", "arangod"+port)
 		}
-		return c.ArangodPath
+
+		if c.RrPath != "" {
+			prefix = append(prefix, c.RrPath)
+		}
+		allowConsole = true
+
 	case ProcessTypeArangoSync:
-		return c.ArangoSyncPath
+		prefix = append(prefix, c.ArangoSyncPath)
 	default:
-		return ""
+		prefix = append(prefix, "")
 	}
+	return prefix, allowConsole
 }
 
 // UpgradeManager returns the upgrade manager service.

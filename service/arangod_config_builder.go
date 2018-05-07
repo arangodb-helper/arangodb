@@ -137,9 +137,14 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 	options := make([]optionPair, 0, 32)
 	executable := config.ArangodPath
 	jsStartup := config.ArangodJSPath
-	if config.RrPath != "" {
-		args = append(args, config.RrPath)
-	}
+	//if config.RrPath != "" {
+	//	args = append(args, config.RrPath)
+	//}
+
+	//if config.TmuxPath != "" {
+	//	args = append(args, config.TmuxPath)
+	//}
+
 	args = append(args,
 		executable,
 		"-c", slasher(containerConfFileName),
@@ -156,6 +161,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		options = append(options,
 			optionPair{"--database.auto-upgrade", "true"})
 	}
+
 	if config.ServerThreads != 0 {
 		options = append(options,
 			optionPair{"--server.threads", strconv.Itoa(config.ServerThreads)})
