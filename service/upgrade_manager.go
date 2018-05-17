@@ -506,7 +506,7 @@ func (m *upgradeManager) disableSupervision(ctx context.Context) error {
 		err := api.ReadKey(ctx, superVisionStateKey, &value)
 		if err != nil {
 			m.log.Warningf("Failed to read supervision state: %v", err)
-		} else if valueStr, ok := value.(string); !ok {
+		} else if valueStr, ok := getMaintenanceMode(value); !ok {
 			m.log.Warningf("Supervision state is not a string but: %v", value)
 		} else if valueStr != superVisionStateMaintenance {
 			m.log.Warningf("Supervision state is not yet '%s' but '%s'", superVisionStateMaintenance, valueStr)
@@ -520,6 +520,20 @@ func (m *upgradeManager) disableSupervision(ctx context.Context) error {
 			// Try again
 		}
 	}
+}
+
+func getMaintenanceMode(value interface{}) (string, bool) {
+	if s, ok := value.(string); ok {
+		return s, true
+	}
+	if m, ok := value.(map[string]interface{}); ok {
+		if mode, ok := m["Mode"]; ok {
+			return getMaintenanceMode(mode)
+		} else if mode, ok := m["mode"]; ok {
+			return getMaintenanceMode(mode)
+		}
+	}
+	return "", false
 }
 
 // enableSupervision enabled supervision of the agency.
