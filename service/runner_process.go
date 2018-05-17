@@ -96,7 +96,6 @@ func (r *processRunner) Start(ctx context.Context, processType ProcessType, comm
 	if err := c.Start(); err != nil {
 		return nil, maskAny(err)
 	}
-	r.log.Infof("Starting: %s %s", command, strings.Join(args, " "))
 	return &process{log: r.log, p: c.Process, isChild: true}, nil
 }
 
