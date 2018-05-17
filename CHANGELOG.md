@@ -1,3 +1,7 @@
+# Changes from version 0.11.2 to 0.11.3
+
+- Solved problem with agency supervision mode in database auto-upgrade API.
+
 # Changes from version 0.11.1 to 0.11.2
 
 - Solved problem connection to agency when using TLS & authentication.
