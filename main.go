@@ -499,6 +499,10 @@ func configureLogging() {
 		} else {
 			logOpts.LogFile = filepath.Join(dataDir, logFileName)
 		}
+		logFileDir := filepath.Dir(logOpts.LogFile)
+		if err := os.MkdirAll(logFileDir, 0755); err != nil {
+			log.Fatal().Err(err).Str("directory", logFileDir).Msg("Failed to create log directory")
+		}
 	}
 	defaultLevel := "INFO"
 	if verbose {
