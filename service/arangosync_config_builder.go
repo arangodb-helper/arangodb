@@ -42,12 +42,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 // createArangoSyncClusterSecretFile creates an arangod.jwtsecret file in the given host directory if it does not yet exists.
 // The arangod.jwtsecret file contains the JWT secret used to authenticate with the local cluster.
-func createArangoSyncClusterSecretFile(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir string, serverType ServerType) ([]Volume, string, error) {
+func createArangoSyncClusterSecretFile(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir string, serverType ServerType) ([]Volume, string, error) {
 	// Is there a secret set?
 	if bsCfg.JwtSecret == "" {
 		return nil, "", nil
@@ -71,7 +71,7 @@ func createArangoSyncClusterSecretFile(log *logging.Logger, bsCfg BootstrapConfi
 }
 
 // createArangoSyncArgs returns the command line arguments needed to run an arangosync server of given type.
-func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
+func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
 	myPeerID, myAddress, myPort string, serverType ServerType, clusterJWTSecretFile string) ([]string, error) {
 
 	options := make([]optionPair, 0, 32)
@@ -113,7 +113,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 					optionPair{"--cluster.endpoint", ep})
 			}
 		} else {
-			log.Errorf("Cannot find coordinator endpoints: %#v", err)
+			log.Error().Err(err).Msg("Cannot find coordinator endpoints")
 			return nil, maskAny(err)
 		}
 	case ServerTypeSyncWorker:
@@ -127,7 +127,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 					optionPair{"--master.endpoint", ep})
 			}
 		} else {
-			log.Errorf("Cannot find sync master endpoints: %#v", err)
+			log.Error().Err(err).Msg("Cannot find sync master endpoints")
 			return nil, maskAny(err)
 		}
 	}
@@ -135,7 +135,7 @@ func createArangoSyncArgs(log *logging.Logger, config Config, clusterConfig Clus
 	for _, opt := range options {
 		ptValues := config.passthroughOptionValuesForServerType(strings.TrimPrefix(opt.Key, "--"), serverType)
 		if len(ptValues) > 0 {
-			log.Warningf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
+			log.Warn().Msgf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
 		} else {
 			args = append(args, opt.Key+"="+opt.Value)
 		}

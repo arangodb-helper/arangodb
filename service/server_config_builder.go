@@ -40,7 +40,7 @@ import (
 	"runtime"
 	"strings"
 
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 type optionPair struct {
@@ -73,7 +73,7 @@ func collectServerConfigVolumes(serverType ServerType, config configFile) []Volu
 }
 
 // createServerArgs returns the command line arguments needed to run an arangod/arangosync server of given type.
-func createServerArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
+func createServerArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
 	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile,
 	clusterJWTSecretFile, agentRecoveryID string, databaseAutoUpgrade bool) ([]string, error) {
 	switch serverType.ProcessType() {
@@ -87,11 +87,11 @@ func createServerArgs(log *logging.Logger, config Config, clusterConfig ClusterC
 }
 
 // writeCommand writes the command used to start a server in a file with given path.
-func writeCommand(log *logging.Logger, filename string, executable string, args []string) {
+func writeCommand(log zerolog.Logger, filename string, executable string, args []string) {
 	content := strings.Join(args, " \\\n") + "\n"
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
 		if err := ioutil.WriteFile(filename, []byte(content), 0755); err != nil {
-			log.Errorf("Failed to write command to %s: %#v", filename, err)
+			log.Error().Err(err).Msgf("Failed to write command to %s", filename)
 		}
 	}
 }

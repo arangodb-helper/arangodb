@@ -35,11 +35,11 @@ import (
 	"syscall"
 	"time"
 
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 // NewProcessRunner creates a runner that starts processes on the local OS.
-func NewProcessRunner(log *logging.Logger) Runner {
+func NewProcessRunner(log zerolog.Logger) Runner {
 	return &processRunner{
 		log: log,
 	}
@@ -47,11 +47,11 @@ func NewProcessRunner(log *logging.Logger) Runner {
 
 // processRunner implements a ProcessRunner that starts processes on the local OS.
 type processRunner struct {
-	log *logging.Logger
+	log zerolog.Logger
 }
 
 type process struct {
-	log     *logging.Logger
+	log     zerolog.Logger
 	p       *os.Process
 	isChild bool
 }
@@ -66,7 +66,7 @@ func (r *processRunner) GetContainerDir(hostDir, defaultContainerDir string) str
 func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
 	lockContent, err := ioutil.ReadFile(filepath.Join(serverDir, "data", "LOCK"))
 	if os.IsNotExist(err) {
-		r.log.Debugf("Cannot find %s", filepath.Join(serverDir, "data", "LOCK"))
+		r.log.Debug().Msgf("Cannot find %s", filepath.Join(serverDir, "data", "LOCK"))
 		return nil, nil
 	} else if err != nil {
 		return nil, maskAny(err)
@@ -79,12 +79,12 @@ func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
 	p, err := os.FindProcess(pid)
 	if err != nil {
 		// Cannot find pid
-		r.log.Debugf("Cannot find process %d", pid)
+		r.log.Debug().Msgf("Cannot find process %d", pid)
 		return nil, nil
 	}
 	if err := p.Signal(syscall.Signal(0)); err != nil {
 		// Process does not seem to exist anymore
-		r.log.Debugf("Cannot signal process %d", pid)
+		r.log.Debug().Msgf("Cannot signal process %d", pid)
 		return nil, nil
 	}
 	// Apparently we still have a server.
@@ -148,16 +148,16 @@ func (p *process) HostPort(containerPort int) (int, error) {
 
 func (p *process) Wait() {
 	if proc := p.p; proc != nil {
-		p.log.Debugf("Waiting on %d", proc.Pid)
+		p.log.Debug().Msgf("Waiting on %d", proc.Pid)
 		if p.isChild {
 			_, err := proc.Wait()
-			p.log.Debugf("Wait on %d returned %v\n", proc.Pid, err)
+			p.log.Debug().Err(err).Msgf("Wait on %d result", proc.Pid)
 		} else {
 			// Cannot wait on non-child process, so let's do it the hard way
 			for {
 				if err := proc.Signal(syscall.Signal(0)); err != nil {
 					// Process does not seem to exist anymore
-					p.log.Debugf("Wait on %d ended at process seems to be gone", proc.Pid)
+					p.log.Debug().Msgf("Wait on %d ended at process seems to be gone", proc.Pid)
 					break
 				}
 				time.Sleep(time.Second)

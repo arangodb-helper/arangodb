@@ -12,6 +12,7 @@ ExecStartPre=/usr/bin/sh -c "mkdir -p $(dirname $CLUSTERSECRETPATH)"
 ExecStartPre=/usr/bin/sh -c "mkdir -p ${DATADIR}"
 ExecStartPre=/usr/bin/sh -c "echo ${CLUSTERSECRET} > ${CLUSTERSECRETPATH}"
 ExecStart=/usr/bin/arangodb \
+    --log.file=false \
     --starter.data-dir=${DATADIR} \
     --starter.join=${STARTERENDPOINTS} \
     --server.storage-engine=rocksdb \

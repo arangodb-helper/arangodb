@@ -35,7 +35,7 @@ import (
 	"strconv"
 
 	"github.com/arangodb-helper/arangodb/client"
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 var (
@@ -67,7 +67,7 @@ type GoodbyeRequest struct {
 
 type httpServer struct {
 	//config Config
-	log                  *logging.Logger
+	log                  zerolog.Logger
 	server               *http.Server
 	context              httpServerContext
 	versionInfo          client.VersionInfo
@@ -111,7 +111,7 @@ type httpServerContext interface {
 }
 
 // newHTTPServer initializes and an HTTP server.
-func newHTTPServer(log *logging.Logger, context httpServerContext, runtimeServerManager *runtimeServerManager, config Config, serverID string) *httpServer {
+func newHTTPServer(log zerolog.Logger, context httpServerContext, runtimeServerManager *runtimeServerManager, config Config, serverID string) *httpServer {
 	// Create HTTP server
 	return &httpServer{
 		log:     log,
@@ -134,7 +134,7 @@ func newHTTPServer(log *logging.Logger, context httpServerContext, runtimeServer
 func (s *httpServer) Start(hostAddr, containerAddr string, tlsConfig *tls.Config) {
 	go func() {
 		if err := s.Run(hostAddr, containerAddr, tlsConfig, false); err != nil {
-			s.log.Errorf("Failed to listen on %s: %v", containerAddr, err)
+			s.log.Error().Err(err).Msgf("Failed to listen on %s", containerAddr)
 		}
 	}()
 }
@@ -169,13 +169,13 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 	s.server.Addr = containerAddr
 	s.server.Handler = mux
 	if tlsConfig != nil {
-		s.log.Infof("ArangoDB Starter listening on %s (%s) using TLS", containerAddr, hostAddr)
+		s.log.Info().Msgf("ArangoDB Starter listening on %s (%s) using TLS", containerAddr, hostAddr)
 		s.server.TLSConfig = tlsConfig
 		if err := s.server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			return maskAny(err)
 		}
 	} else {
-		s.log.Infof("ArangoDB Starter listening on %s (%s)", containerAddr, hostAddr)
+		s.log.Info().Msgf("ArangoDB Starter listening on %s (%s)", containerAddr, hostAddr)
 		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			return maskAny(err)
 		}
@@ -194,7 +194,7 @@ func (s *httpServer) Close() error {
 // HTTP service function:
 
 func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
-	s.log.Debugf("Received %s /hello request from %s", r.Method, r.RemoteAddr)
+	s.log.Debug().Msgf("Received %s /hello request from %s", r.Method, r.RemoteAddr)
 
 	// Derive own address
 	host, _, err := net.SplitHostPort(r.Host)
@@ -273,7 +273,7 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Remove the peer
-	s.log.Infof("Goodbye requested for peer %s", req.SlaveID)
+	s.log.Info().Msgf("Goodbye requested for peer %s", req.SlaveID)
 	if removed, err := s.context.HandleGoodbye(req.SlaveID); err != nil {
 		// Failure
 		handleError(w, err)
@@ -291,7 +291,7 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 func (s *httpServer) idHandler(w http.ResponseWriter, r *http.Request) {
 	data, err := json.Marshal(s.idInfo)
 	if err != nil {
-		s.log.Errorf("Failed to marshal ID response: %#v", err)
+		s.log.Error().Err(err).Msg("Failed to marshal ID response")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 	} else {
@@ -501,13 +501,13 @@ func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverT
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
-	s.log.Debugf("Fetching logs in %s", logPath)
+	s.log.Debug().Msgf("Fetching logs in %s", logPath)
 	rd, err := os.Open(logPath)
 	if os.IsNotExist(err) {
 		// Log file not there (yet), we allow this
 		w.WriteHeader(http.StatusOK)
 	} else if err != nil {
-		s.log.Errorf("Failed to open log file '%s': %#v", logPath, err)
+		s.log.Error().Err(err).Msgf("Failed to open log file '%s'", logPath)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 	} else {
@@ -522,7 +522,7 @@ func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverT
 func (s *httpServer) versionHandler(w http.ResponseWriter, r *http.Request) {
 	data, err := json.Marshal(s.versionInfo)
 	if err != nil {
-		s.log.Errorf("Failed to marshal version response: %#v", err)
+		s.log.Error().Err(err).Msg("Failed to marshal version response")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 	} else {
@@ -541,7 +541,7 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("mode") == "goodbye" {
 		// Inform the master we're leaving for good
 		if err := s.context.sendMasterLeaveCluster(); err != nil {
-			s.log.Errorf("Failed to send master goodbye: %#v", err)
+			s.log.Error().Err(err).Msg("Failed to send master goodbye")
 			handleError(w, err)
 			return
 		}
@@ -571,7 +571,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 
 // cbMasterChanged is a callback called by the agency when the master URL is modified.
 func (s *httpServer) cbMasterChanged(w http.ResponseWriter, r *http.Request) {
-	s.log.Debugf("Master changed callback from %s", r.RemoteAddr)
+	s.log.Debug().Msgf("Master changed callback from %s", r.RemoteAddr)
 	if r.Method != "POST" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return

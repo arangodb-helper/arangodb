@@ -33,7 +33,7 @@ import (
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -227,7 +227,7 @@ func (s *runtimeClusterManager) unregisterMasterChangedCallback(ctx context.Cont
 
 // Run keeps the cluster configuration up to date, either as master or as slave
 // during a running state.
-func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, runtimeContext runtimeClusterManagerContext) {
+func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, runtimeContext runtimeClusterManagerContext) {
 	s.runtimeContext = runtimeContext
 	s.interruptChan = make(chan struct{}, 32)
 	_, myPeer, mode := runtimeContext.ClusterConfig()
@@ -237,7 +237,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 	}
 	if myPeer == nil {
 		// We need to know our own peer
-		log.Error("Cannot run runtime cluster manager without own peer")
+		log.Error().Msg("Cannot run runtime cluster manager without own peer")
 		return
 	}
 	ownURL := myPeer.CreateStarterURL("/")
@@ -258,9 +258,9 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 		if err != nil {
 			// Cannot obtain master url, wait a while and try again
 			if gotMasterURLOnce || time.Since(startTime) >= time.Minute {
-				log.Infof("Failed to get master URL, retrying in 5sec (%#v)", err)
+				log.Info().Err(err).Msg("Failed to get master URL, retrying in 5sec")
 			} else {
-				log.Debugf("Failed to get master URL, retrying in 5sec (%#v)", err)
+				log.Debug().Err(err).Msg("Failed to get master URL, retrying in 5sec")
 			}
 			delay = time.Second * 5
 		} else {
@@ -272,11 +272,11 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 
 			// Register master changed callback (if needed)
 			if !callbackRegistered && masterURL != "" && !s.avoidBeingMaster {
-				log.Debug("Register master callback...")
+				log.Debug().Msg("Register master callback...")
 				if err := s.registerMasterChangedCallback(ctx, ownURL); err != nil {
-					log.Debugf("Failed to register master callback: %#v", err)
+					log.Debug().Err(err).Msg("Failed to register master callback")
 				} else {
-					log.Debug("Registered master callback")
+					log.Debug().Msg("Registered master callback")
 					callbackRegistered = true
 					defer s.unregisterMasterChangedCallback(context.Background(), ownURL)
 				}
@@ -285,12 +285,12 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			if masterURL == "" {
 				// There is currently no master, try to become master (if allowed)
 				if !s.avoidBeingMaster {
-					log.Debug("There is no current master, try to become master")
+					log.Debug().Msg("There is no current master, try to become master")
 					if err := s.tryBecomeMaster(ctx, ownURL); err != nil {
-						log.Infof("tried to become master but failed: %#v", err)
+						log.Info().Err(err).Msg("tried to become master but failed")
 						runtimeContext.ChangeState(stateRunningSlave)
 					} else {
-						log.Info("Just became master")
+						log.Info().Msg("Just became master")
 						runtimeContext.ChangeState(stateRunningMaster)
 					}
 					// Wait a bit, after which we'll register callback (if needed)
@@ -302,13 +302,13 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 				}
 			} else if masterURL == ownURL {
 				// We are the master, update our entry in the agency
-				log.Debug("We're master, try to remain it")
+				log.Debug().Msg("We're master, try to remain it")
 				runtimeContext.ChangeState(stateRunningMaster)
 
 				if !s.avoidBeingMaster {
 					// Update agency
 					if err := s.tryRemainMaster(ctx, ownURL); err != nil {
-						log.Warningf("Failed to remain master: %#v", err)
+						log.Warn().Err(err).Msg("Failed to remain master")
 						runtimeContext.ChangeState(stateRunningSlave)
 
 						// Retry soon
@@ -320,14 +320,14 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 					}
 				} else {
 					// We're master, but we want to avoid that, try giving up being master
-					log.Info("Trying to stop being master...")
+					log.Info().Msg("Trying to stop being master...")
 					if err := s.tryStopBeingMaster(ctx, ownURL); err != nil {
-						log.Warningf("Failed to stop being master: %#v", err)
+						log.Warn().Err(err).Msg("Failed to stop being master")
 						// Retry soon
 						delay = time.Second
 					} else {
 						// I'm no longer master
-						log.Info("Stopped being master")
+						log.Info().Msg("Stopped being master")
 						runtimeContext.ChangeState(stateRunningSlave)
 						// Come back soon to see who took over
 						delay = time.Second
@@ -335,12 +335,12 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 				}
 			} else {
 				// We are slave, try to update cluster configuration from master
-				log.Debugf("We're slave, try to update cluster config from %s", masterURL)
+				log.Debug().Msgf("We're slave, try to update cluster config from %s", masterURL)
 				runtimeContext.ChangeState(stateRunningSlave)
 
 				// Ask current master for cluster configuration
 				if err := s.updateClusterConfiguration(ctx, masterURL); err != nil {
-					log.Warningf("Failed to load cluster configuration from %s: %#v", masterURL, err)
+					log.Warn().Err(err).Msgf("Failed to load cluster configuration from %s", masterURL)
 				}
 
 				// Wait a bit until re-updating the configuration
@@ -357,7 +357,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log *logging.Logger, ru
 			return
 		case <-s.interruptChan:
 			// We're being interrupted
-			log.Debug("Being interrupted")
+			log.Debug().Msg("Being interrupted")
 			// continue now
 		}
 	}

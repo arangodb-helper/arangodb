@@ -25,13 +25,11 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
 	"strconv"
 	"sync"
 	"time"
 
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 // bootstrapMaster starts the Service as master and begins bootstrapping the cluster from nothing.
@@ -39,10 +37,10 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	// Check HTTP server port
 	containerHTTPPort, _, err := s.getHTTPServerPort()
 	if err != nil {
-		s.log.Fatalf("Cannot find HTTP server info: %#v", err)
+		s.log.Fatal().Err(err).Msg("Cannot find HTTP server info")
 	}
 	if !WaitUntilPortAvailable(config.BindAddress, containerHTTPPort, time.Second*5) {
-		s.log.Fatalf("Port %d is already in use", containerHTTPPort)
+		s.log.Fatal().Msgf("Port %d is already in use", containerHTTPPort)
 	}
 
 	// Create initial cluster configuration
@@ -64,7 +62,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	s.startHTTPServer(config)
 
 	// Permanent loop:
-	s.log.Infof("Serving as master with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
+	s.log.Info().Msgf("Serving as master with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
 
 	// Can we start right away?
 	needMorePeers := true
@@ -79,7 +77,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	if !needMorePeers {
 		// We have all the agents that we need, start a single server/cluster right now
 		s.saveSetup()
-		s.log.Info("Starting service...")
+		s.log.Info().Msg("Starting service...")
 		s.startRunning(runner, config, bsCfg)
 		return
 	}
@@ -90,7 +88,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 		s.createAndStartLocalSlaves(&wg, config, bsCfg)
 	} else {
 		// Show commands needed to start slaves
-		s.log.Infof("Waiting for %d servers to show up.\n", s.myPeers.AgencySize)
+		s.log.Info().Msgf("Waiting for %d servers to show up.\n", s.myPeers.AgencySize)
 		s.showSlaveStartCommands(runner, config)
 	}
 
@@ -99,7 +97,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 		select {
 		case <-s.bootstrapCompleted.ctx.Done():
 			s.saveSetup()
-			s.log.Info("Starting service...")
+			s.log.Info().Msg("Starting service...")
 			s.startRunning(runner, config, bsCfg)
 			return
 		default:
@@ -115,7 +113,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 
 // showSlaveStartCommands prints out the commands needed to start additional slaves.
 func (s *Service) showSlaveStartCommands(runner Runner, config Config) {
-	s.log.Infof("Use the following commands to start other servers:")
+	s.log.Info().Msg("Use the following commands to start other servers:")
 	fmt.Println()
 	for index := 2; index <= s.myPeers.AgencySize; index++ {
 		port := ""
@@ -128,10 +126,6 @@ func (s *Service) showSlaveStartCommands(runner Runner, config Config) {
 }
 
 // mustCreateIDLogger creates a logger that includes the given ID in each log line.
-func (s *Service) mustCreateIDLogger(id string) *logging.Logger {
-	backend := logging.NewLogBackend(os.Stderr, "", log.LstdFlags)
-	formattedBackend := logging.NewBackendFormatter(backend, logging.MustStringFormatter(fmt.Sprintf("[%s] %%{message}", id)))
-	log := logging.MustGetLogger(s.log.Module)
-	log.SetBackend(logging.AddModuleLevel(formattedBackend))
-	return log
+func (s *Service) mustCreateIDLogger(id string) zerolog.Logger {
+	return s.log.With().Str("id", id).Logger()
 }

@@ -113,10 +113,10 @@ func (s *Service) isPeerAddressMyself(rootCtx context.Context, peerAddr string, 
 	// Wait until we successfully fetched our local ID
 	select {
 	case <-localIDFound:
-		s.log.Infof("Found ID from localhost peer")
+		s.log.Info().Msg("Found ID from localhost peer")
 		// We can continue
 	case err := <-serverErrors:
-		s.log.Infof("Error while trying to run HTTP server: %#v", err)
+		s.log.Info().Err(err).Msg("Error while trying to run HTTP server")
 		return false, nil
 	}
 
@@ -131,10 +131,10 @@ func (s *Service) isPeerAddressMyself(rootCtx context.Context, peerAddr string, 
 	// Wait until a ID is found or we have a server run error.
 	select {
 	case id := <-idFound:
-		s.log.Infof("Found ID '%s' from peer, looking for '%s'", id, s.id)
+		s.log.Info().Msgf("Found ID '%s' from peer, looking for '%s'", id, s.id)
 		return s.id == id, nil
 	case err := <-serverErrors:
-		s.log.Infof("Error while trying to run HTTP server: %#v", err)
+		s.log.Info().Err(err).Msg("Error while trying to run HTTP server")
 		return false, nil
 	}
 }

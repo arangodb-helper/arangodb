@@ -55,11 +55,11 @@ func cmdStopRun(cmd *cobra.Command, args []string) {
 	}
 	starterURL, err := url.Parse(fmt.Sprintf("%s://127.0.0.1:%d", scheme, masterPort))
 	if err != nil {
-		log.Fatalf("Failed to create starter URL: %#v", err)
+		log.Fatal().Err(err).Msg("Failed to create starter URL")
 	}
 	client, err := client.NewArangoStarterClient(*starterURL)
 	if err != nil {
-		log.Fatalf("Failed to create starter client: %#v", err)
+		log.Fatal().Err(err).Msg("Failed to create starter client")
 	}
 
 	// Shutdown starter
@@ -68,7 +68,7 @@ func cmdStopRun(cmd *cobra.Command, args []string) {
 	err = client.Shutdown(ctx, false)
 	cancel()
 	if err != nil {
-		log.Fatalf("Failed to shutdown starter: %#v", err)
+		log.Fatal().Err(err).Msg("Failed to shutdown starter")
 	}
 
 	// Wait for starter to be really gone

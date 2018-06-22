@@ -29,9 +29,9 @@ import (
 func init() {
 	certificates.AddCommands(cmdMain, func(err error, msg string) {
 		if err != nil {
-			log.Fatalf("%s: %s", msg, err)
+			log.Fatal().Err(err).Msg(msg)
 		} else {
-			log.Fatal(msg)
+			log.Fatal().Msg(msg)
 		}
 	}, cmdShowUsage)
 }

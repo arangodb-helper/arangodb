@@ -31,7 +31,7 @@ import (
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
 )
 
@@ -61,7 +61,7 @@ type UpgradeManagerContext interface {
 }
 
 // NewUpgradeManager creates a new upgrade manager.
-func NewUpgradeManager(log *logging.Logger, upgradeManagerContext UpgradeManagerContext) UpgradeManager {
+func NewUpgradeManager(log zerolog.Logger, upgradeManagerContext UpgradeManagerContext) UpgradeManager {
 	return &upgradeManager{
 		log: log,
 		upgradeManagerContext: upgradeManagerContext,
@@ -84,7 +84,7 @@ const (
 // upgradeManager is a helper used to control the upgrade process from 1 database version to the next.
 type upgradeManager struct {
 	mutex                 sync.Mutex
-	log                   *logging.Logger
+	log                   zerolog.Logger
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     ServerType
 	updateNeeded          bool
@@ -102,21 +102,21 @@ func (m *upgradeManager) StartDatabaseUpgrade() error {
 	ctx := context.Background()
 	var lock agency.Lock
 	if mode.HasAgency() {
-		m.log.Debug("Creating agency API")
+		m.log.Debug().Msg("Creating agency API")
 		api, err := m.createAgencyAPI()
 		if err != nil {
 			return maskAny(err)
 		}
-		m.log.Debug("Creating lock")
-		lock, err = agency.NewLock(m.log, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+		m.log.Debug().Msg("Creating lock")
+		lock, err = agency.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
 		if err != nil {
 			return maskAny(err)
 		}
 
 		// Claim the upgrade lock
-		m.log.Debug("Locking lock")
+		m.log.Debug().Msg("Locking lock")
 		if err := lock.Lock(ctx); err != nil {
-			m.log.Debugf("Lock failed: %v", err)
+			m.log.Debug().Err(err).Msg("Lock failed")
 			return maskAny(err)
 		}
 	}
@@ -125,6 +125,11 @@ func (m *upgradeManager) StartDatabaseUpgrade() error {
 	go m.runUpgradeProcess(ctx, myPeer, mode, lock)
 
 	return nil
+}
+
+// Errorf is a wrapper for log.Error()... used by the agency lock
+func (m *upgradeManager) Errorf(msg string, args ...interface{}) {
+	m.log.Error().Msgf(msg, args...)
 }
 
 // IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
@@ -178,28 +183,28 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 		var err error
 		maintenanceModeSupported, err = m.isSuperVisionMaintenanceSupported(ctx)
 		if err != nil {
-			m.log.Errorf("Failed to check for support of maintenance mode: %v", err)
+			m.log.Error().Err(err).Msg("Failed to check for support of maintenance mode")
 			return
 		}
 
 		// If maintenance mode is supported, disable supervision now
 		if maintenanceModeSupported {
-			m.log.Info("Disabling agency supervision")
+			m.log.Info().Msg("Disabling agency supervision")
 			if err := m.disableSupervision(ctx); err != nil {
-				m.log.Errorf("Failed to disabled supervision in the agency: %v", err)
+				m.log.Error().Err(err).Msg("Failed to disabled supervision in the agency")
 				return
 			}
 		} else {
-			m.log.Info("Agency supervision maintenance mode not supported on this version")
+			m.log.Info().Msg("Agency supervision maintenance mode not supported on this version")
 		}
 
 		if myPeer.HasAgent() {
 			// Restart the agency in auto-upgrade mode
-			m.log.Info("Upgrading agent")
+			m.log.Info().Msg("Upgrading agent")
 			m.upgradeServerType = ServerTypeAgent
 			m.updateNeeded = true
 			if err := m.upgradeManagerContext.RestartServer(ServerTypeAgent); err != nil {
-				m.log.Errorf("Failed to restart agent: %v", err)
+				m.log.Error().Err(err).Msg("Failed to restart agent")
 				return
 			}
 
@@ -217,11 +222,11 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 
 	if mode.IsSingleMode() {
 		// Restart the single server in auto-upgrade mode
-		m.log.Info("Upgrading single server")
+		m.log.Info().Msg("Upgrading single server")
 		m.upgradeServerType = ServerTypeSingle
 		m.updateNeeded = true
 		if err := m.upgradeManagerContext.RestartServer(ServerTypeSingle); err != nil {
-			m.log.Errorf("Failed to restart single server: %v", err)
+			m.log.Error().Err(err).Msg("Failed to restart single server")
 			return
 		}
 
@@ -237,11 +242,11 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 	} else if mode.IsActiveFailoverMode() {
 		if myPeer.HasResilientSingle() {
 			// Restart the single server in auto-upgrade mode
-			m.log.Info("Upgrading single server")
+			m.log.Info().Msg("Upgrading single server")
 			m.upgradeServerType = ServerTypeResilientSingle
 			m.updateNeeded = true
 			if err := m.upgradeManagerContext.RestartServer(ServerTypeResilientSingle); err != nil {
-				m.log.Errorf("Failed to restart resilient single server: %v", err)
+				m.log.Error().Err(err).Msg("Failed to restart resilient single server")
 				return
 			}
 
@@ -258,11 +263,11 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 	} else if mode.IsClusterMode() {
 		if myPeer.HasDBServer() {
 			// Restart the dbserver in auto-upgrade mode
-			m.log.Info("Upgrading dbserver")
+			m.log.Info().Msg("Upgrading dbserver")
 			m.upgradeServerType = ServerTypeDBServer
 			m.updateNeeded = true
 			if err := m.upgradeManagerContext.RestartServer(ServerTypeDBServer); err != nil {
-				m.log.Errorf("Failed to restart dbserver: %v", err)
+				m.log.Error().Err(err).Msg("Failed to restart dbserver")
 				return
 			}
 
@@ -279,11 +284,11 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 
 		if myPeer.HasCoordinator() {
 			// Restart the coordinator in auto-upgrade mode
-			m.log.Info("Upgrading coordinator")
+			m.log.Info().Msg("Upgrading coordinator")
 			m.upgradeServerType = ServerTypeCoordinator
 			m.updateNeeded = true
 			if err := m.upgradeManagerContext.RestartServer(ServerTypeCoordinator); err != nil {
-				m.log.Errorf("Failed to restart coordinator: %v", err)
+				m.log.Error().Err(err).Msg("Failed to restart coordinator")
 				return
 			}
 
@@ -301,9 +306,9 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 
 	// If maintenance mode is supported, re-enable supervision now
 	if maintenanceModeSupported {
-		m.log.Info("Re-enabling agency supervision")
+		m.log.Info().Msg("Re-enabling agency supervision")
 		if err := m.enableSupervision(ctx); err != nil {
-			m.log.Errorf("Failed to enable supervision in the agency: %v", err)
+			m.log.Error().Err(err).Msg("Failed to enable supervision in the agency")
 			return
 		}
 	}
@@ -311,11 +316,11 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 	// We're done
 	allSameVersion, err := m.ShowArangodServerVersions(ctx)
 	if err != nil {
-		m.log.Errorf("Failed to show server versions: %v", err)
+		m.log.Error().Err(err).Msg("Failed to show server versions")
 	} else if allSameVersion {
-		m.log.Info("Upgrading done.")
+		m.log.Info().Msg("Upgrading done.")
 	} else {
-		m.log.Info("Upgrading of all servers controlled by this starter done, you can continue with the next starter now.")
+		m.log.Info().Msg("Upgrading of all servers controlled by this starter done, you can continue with the next starter now.")
 	}
 }
 
@@ -343,7 +348,7 @@ func (m *upgradeManager) waitUntil(ctx context.Context, predicate func(ctx conte
 		if err == nil {
 			return nil
 		}
-		m.log.Infof(errorLogTemplate, err)
+		m.log.Info().Msgf(errorLogTemplate, err)
 		select {
 		case <-ctx.Done():
 			return maskAny(ctx.Err())
@@ -505,11 +510,11 @@ func (m *upgradeManager) disableSupervision(ctx context.Context) error {
 		var value interface{}
 		err := api.ReadKey(ctx, superVisionStateKey, &value)
 		if err != nil {
-			m.log.Warningf("Failed to read supervision state: %v", err)
+			m.log.Warn().Err(err).Msg("Failed to read supervision state")
 		} else if valueStr, ok := getMaintenanceMode(value); !ok {
-			m.log.Warningf("Supervision state is not a string but: %v", value)
+			m.log.Warn().Msgf("Supervision state is not a string but: %v", value)
 		} else if valueStr != superVisionStateMaintenance {
-			m.log.Warningf("Supervision state is not yet '%s' but '%s'", superVisionStateMaintenance, valueStr)
+			m.log.Warn().Msgf("Supervision state is not yet '%s' but '%s'", superVisionStateMaintenance, valueStr)
 		} else {
 			return nil
 		}
@@ -612,10 +617,10 @@ func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, e
 		showGroup(ServerTypeCoordinator, endpoints)
 	}
 
-	m.log.Info("Server versions:")
+	m.log.Info().Msg("Server versions:")
 	rows = strings.Split(columnize.SimpleFormat(rows), "\n")
 	for _, r := range rows {
-		m.log.Info(r)
+		m.log.Info().Msg(r)
 	}
 
 	return len(versions) == 1, nil
