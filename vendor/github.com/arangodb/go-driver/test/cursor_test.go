@@ -229,10 +229,32 @@ func TestCreateCursor(t *testing.T) {
 	}
 }
 
+// TestCreateCursorReturnNull creates a cursor with a `RETURN NULL` query.
+func TestCreateCursorReturnNull(t *testing.T) {
+	ctx := context.Background()
+	c := createClientFromEnv(t, true)
+	db := ensureDatabase(ctx, c, "cursor_test", nil, t)
+
+	var result interface{}
+	query := "return null"
+	cursor, err := db.Query(ctx, query, nil)
+	if err != nil {
+		t.Fatalf("Query(return null) failed: %s", describe(err))
+	}
+	defer cursor.Close()
+	if _, err := cursor.ReadDocument(ctx, &result); err != nil {
+		t.Fatalf("ReadDocument failed: %s", describe(err))
+	}
+	if result != nil {
+		t.Errorf("Expected result to be nil, got %#v", result)
+	}
+}
+
 // Test stream query cursors. The goroutines are technically only
 // relevant for the MMFiles engine, but don't hurt on rocksdb either
 func TestCreateStreamCursor(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
 	c := createClientFromEnv(t, true)
 
 	version, err := c.Version(nil)
@@ -260,6 +282,7 @@ func TestCreateStreamCursor(t *testing.T) {
 			t.Fatalf("Expected success, got %s", describe(err))
 		}
 	}
+	t.Log("Completed inserting 10k docs")
 
 	const expectedResults int = 10 * 10000
 	query := "FOR doc IN cursor_stream_test RETURN doc"
@@ -269,14 +292,10 @@ func TestCreateStreamCursor(t *testing.T) {
 	// create a bunch of read-only cursors
 	for i := 0; i < 10; i++ {
 		cursor, err := db.Query(ctx2, query, nil)
-		if err == nil {
-			// Close upon exit of the function
-			defer cursor.Close()
-		}
 		if err != nil {
-			t.Errorf("Expected success in query %d (%s), got '%s'", i, query, describe(err))
-			continue
+			t.Fatalf("Expected success in query %d (%s), got '%s'", i, query, describe(err))
 		}
+		defer cursor.Close()
 		count := cursor.Count()
 		if count != 0 {
 			t.Errorf("Expected count of 0, got %d in query %d (%s)", count, i, query)
@@ -293,30 +312,27 @@ func TestCreateStreamCursor(t *testing.T) {
 		cursors = append(cursors, cursor)
 	}
 
-	out := make(chan bool)
-	defer close(out)
+	t.Logf("Created %d cursors", len(cursors))
 
 	// start a write query on the same collection inbetween
 	// contrary to normal cursors which are executed right
 	// away this will block until all read cursors are resolved
+	testReady := make(chan bool)
 	go func() {
 		query = "FOR doc IN 1..5 LET y = SLEEP(0.01) INSERT {name:'Peter', age:0} INTO cursor_stream_test"
 		cursor, err := db.Query(ctx2, query, nil) // should not return immediately
-		if err == nil {
-			// Close upon exit of the function
-			defer cursor.Close()
-		}
 		if err != nil {
-			t.Errorf("Expected success in write-query %s, got '%s'", query, describe(err))
+			t.Fatalf("Expected success in write-query %s, got '%s'", query, describe(err))
 		}
+		defer cursor.Close()
 
 		for cursor.HasMore() {
 			var data interface{}
 			if _, err := cursor.ReadDocument(ctx2, &data); err != nil {
-				t.Errorf("Failed to read document, err: %s", describe(err))
+				t.Fatalf("Failed to read document, err: %s", describe(err))
 			}
 		}
-		out <- true // signal write done
+		testReady <- true // signal write done
 	}()
 
 	readCount := 0
@@ -326,22 +342,26 @@ func TestCreateStreamCursor(t *testing.T) {
 			for cursor.HasMore() {
 				var user UserDoc
 				if _, err := cursor.ReadDocument(ctx2, &user); err != nil {
-					t.Errorf("Failed to result document %d: %s", i, describe(err))
+					t.Fatalf("Failed to result document %d: %s", i, describe(err))
 				}
 				readCount++
 			}
 		}
-		out <- false // signal read done
+		testReady <- false // signal read done
 	}()
 
 	writeDone := false
 	readDone := false
 	for {
-		done := <-out
-		if done {
-			writeDone = true
-		} else {
-			readDone = true
+		select {
+		case <-ctx.Done():
+			t.Fatal("Timeout")
+		case v := <-testReady:
+			if v {
+				writeDone = true
+			} else {
+				readDone = true
+			}
 		}
 		// On MMFiles the read-cursors have to finish first
 		if writeDone && !readDone && info.Type == driver.EngineTypeMMFiles {
@@ -349,6 +369,7 @@ func TestCreateStreamCursor(t *testing.T) {
 		}
 
 		if writeDone && readDone {
+			close(testReady)
 			break
 		}
 	}

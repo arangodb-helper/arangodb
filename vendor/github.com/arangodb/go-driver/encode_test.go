@@ -20,19 +20,19 @@
 // Author Ewout Prangsma
 //
 
-// +build go1.8
-
 package driver
 
-import "net/url"
+import "testing"
 
-// pathEscape the given value for use in a URL path.
-func pathEscape(s string) string {
-	return url.PathEscape(s)
-}
-
-// pathUnescape unescapes the given value for use in a URL path.
-func pathUnescape(s string) string {
-	r, _ := url.PathUnescape(s)
-	return r
+func TestPathEscape(t *testing.T) {
+	tests := map[string]string{ // Input : Expected-Output
+		"abc":        "abc",
+		"The Donald": "The%20Donald",
+	}
+	for input, expected := range tests {
+		result := pathEscape(input)
+		if result != expected {
+			t.Errorf("pathEscapse failed for '%s': Expected '%s', got '%s'", input, expected, result)
+		}
+	}
 }

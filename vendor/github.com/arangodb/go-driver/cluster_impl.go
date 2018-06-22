@@ -123,6 +123,10 @@ type cleanOutServerRequest struct {
 	Server string `json:"server"`
 }
 
+type cleanOutServerResponse struct {
+	JobID string `json:"id"`
+}
+
 // CleanOutServer triggers activities to clean out a DBServers.
 func (c *cluster) CleanOutServer(ctx context.Context, serverID string) error {
 	req, err := c.conn.NewRequest("POST", "_admin/cluster/cleanOutServer")
@@ -135,13 +139,20 @@ func (c *cluster) CleanOutServer(ctx context.Context, serverID string) error {
 	if _, err := req.SetBody(input); err != nil {
 		return WithStack(err)
 	}
-	applyContextSettings(ctx, req)
+	cs := applyContextSettings(ctx, req)
 	resp, err := c.conn.Do(ctx, req)
 	if err != nil {
 		return WithStack(err)
 	}
 	if err := resp.CheckStatus(200, 202); err != nil {
 		return WithStack(err)
+	}
+	var result cleanOutServerResponse
+	if err := resp.ParseBody("", &result); err != nil {
+		return WithStack(err)
+	}
+	if cs.JobIDResponse != nil {
+		*cs.JobIDResponse = result.JobID
 	}
 	return nil
 }
@@ -187,4 +198,26 @@ func (c *cluster) NumberOfServers(ctx context.Context) (NumberOfServersResponse,
 		return NumberOfServersResponse{}, WithStack(err)
 	}
 	return result, nil
+}
+
+// RemoveServer is a low-level option to remove a server from a cluster.
+// This function is suitable for servers of type coordinator or dbserver.
+// The use of `ClientServerAdmin.Shutdown` is highly recommended above this function.
+func (c *cluster) RemoveServer(ctx context.Context, serverID ServerID) error {
+	req, err := c.conn.NewRequest("POST", "_admin/cluster/removeServer")
+	if err != nil {
+		return WithStack(err)
+	}
+	if _, err := req.SetBody(serverID); err != nil {
+		return WithStack(err)
+	}
+	applyContextSettings(ctx, req)
+	resp, err := c.conn.Do(ctx, req)
+	if err != nil {
+		return WithStack(err)
+	}
+	if err := resp.CheckStatus(200, 202); err != nil {
+		return WithStack(err)
+	}
+	return nil
 }
