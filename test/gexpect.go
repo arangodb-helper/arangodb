@@ -24,6 +24,7 @@ package test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -153,7 +154,8 @@ func (sp *SubProcess) Wait() error {
 // ExpectTimeout waits for the output of the process to match the given expression, or until a timeout occurs.
 // If a match on the given expression is found, the process output is discard until the end of the match and
 // nil is returned, otherwise a timeout error is returned.
-func (sp *SubProcess) ExpectTimeout(timeout time.Duration, re *regexp.Regexp, id string) error {
+// If the given context is cancelled, nil is returned.
+func (sp *SubProcess) ExpectTimeout(ctx context.Context, timeout time.Duration, re *regexp.Regexp, id string) error {
 	found := make(chan struct{})
 
 	sp.mutex.Lock()
@@ -163,6 +165,8 @@ func (sp *SubProcess) ExpectTimeout(timeout time.Duration, re *regexp.Regexp, id
 	sp.matchExpressions()
 
 	select {
+	case <-ctx.Done():
+		return nil
 	case <-time.After(timeout):
 		// Return timeout error
 		var output []byte
