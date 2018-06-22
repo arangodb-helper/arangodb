@@ -40,7 +40,7 @@ func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup, config Config, b
 		var err error
 		p.ID, err = createUniqueID()
 		if err != nil {
-			s.log.Errorf("Failed to create unique ID: %#v", err)
+			s.log.Error().Err(err).Msg("Failed to create unique ID")
 			continue
 		}
 		p.DataDir = filepath.Join(config.DataDir, fmt.Sprintf("local-slave-%d", index-1))
@@ -52,7 +52,7 @@ func (s *Service) createAndStartLocalSlaves(wg *sync.WaitGroup, config Config, b
 // startLocalSlaves starts additional services for local slaves based on the given peers.
 func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg BootstrapConfig, peers []Peer) {
 	s.log = s.mustCreateIDLogger(s.id)
-	s.log.Infof("Starting %d local slaves...", len(peers)-1)
+	s.log.Info().Msgf("Starting %d local slaves...", len(peers)-1)
 	masterAddr := config.OwnAddress
 	if masterAddr == "" {
 		masterAddr = "127.0.0.1"
@@ -73,7 +73,7 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		slaveConfig := config // Create copy
 		slaveConfig.DataDir = p.DataDir
 		slaveConfig.MasterAddresses = []string{masterAddr}
-		slaveService := NewService(s.stopPeer.ctx, slaveLog, slaveConfig, true)
+		slaveService := NewService(s.stopPeer.ctx, slaveLog, s.logService, slaveConfig, true)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

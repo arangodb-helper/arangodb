@@ -36,10 +36,10 @@ import (
 func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Config, bsCfg BootstrapConfig) {
 	masterURL := s.createBootstrapMasterURL(peerAddress, config)
 	for {
-		s.log.Infof("Contacting master %s...", masterURL)
+		s.log.Info().Msgf("Contacting master %s...", masterURL)
 		_, hostPort, err := s.getHTTPServerPort()
 		if err != nil {
-			s.log.Fatalf("Failed to get HTTP server port: %#v", err)
+			s.log.Fatal().Err(err).Msg("Failed to get HTTP server port")
 		}
 		encoded, err := json.Marshal(HelloRequest{
 			DataDir:         config.DataDir,
@@ -55,15 +55,15 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			SyncWorker:      copyBoolRef(bsCfg.StartSyncWorker),
 		})
 		if err != nil {
-			s.log.Fatalf("Failed to encode Hello request: %#v", err)
+			s.log.Fatal().Err(err).Msg("Failed to encode Hello request")
 		}
 		helloURL, err := getURLWithPath(masterURL, "/hello")
 		if err != nil {
-			s.log.Fatalf("Failed to create Hello URL: %#v", err)
+			s.log.Fatal().Err(err).Msg("Failed to create Hello URL")
 		}
 		r, e := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
 		if e != nil {
-			s.log.Infof("Cannot start because of error from master: %v", e)
+			s.log.Info().Err(err).Msg("Cannot start because of error from master")
 			time.Sleep(time.Second)
 			continue
 		}
@@ -71,36 +71,36 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 		body, e := ioutil.ReadAll(r.Body)
 		r.Body.Close()
 		if e != nil {
-			s.log.Infof("Cannot start because HTTP response from master was bad: %v", e)
+			s.log.Info().Err(err).Msg("Cannot start because HTTP response from master was bad")
 			time.Sleep(time.Second)
 			continue
 		}
 
 		if r.StatusCode == http.StatusServiceUnavailable {
-			s.log.Infof("Cannot start because service unavailable: %v", e)
+			s.log.Info().Err(err).Msg("Cannot start because service unavailable")
 			time.Sleep(time.Second)
 			continue
 		}
 
 		if r.StatusCode == http.StatusNotFound {
-			s.log.Infof("Cannot start because service not found: %v", e)
+			s.log.Info().Err(err).Msg("Cannot start because service not found")
 			time.Sleep(time.Second)
 			continue
 		}
 
 		if r.StatusCode != http.StatusOK {
 			err := client.ParseResponseError(r, body)
-			s.log.Fatalf("Cannot start because of HTTP error from master: code=%d, message=%s\n", r.StatusCode, err.Error())
+			s.log.Fatal().Msgf("Cannot start because of HTTP error from master: code=%d, message=%s\n", r.StatusCode, err.Error())
 			return
 		}
 		var result ClusterConfig
 		if e := json.Unmarshal(body, &result); e != nil {
-			s.log.Warningf("Cannot parse body from master: %v", e)
+			s.log.Warn().Err(err).Msg("Cannot parse body from master")
 			return
 		}
 		// Check result
 		if _, found := result.PeerByID(s.id); !found {
-			s.log.Fatalf("Master responsed with cluster config that does not contain my ID, please check master")
+			s.log.Fatal().Msg("Master responsed with cluster config that does not contain my ID, please check master")
 			return
 		}
 		// Save cluster config
@@ -111,10 +111,10 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 	// Check HTTP server port
 	containerHTTPPort, _, err := s.getHTTPServerPort()
 	if err != nil {
-		s.log.Fatalf("Cannot find HTTP server info: %#v", err)
+		s.log.Fatal().Err(err).Msg("Cannot find HTTP server info")
 	}
 	if !WaitUntilPortAvailable(config.BindAddress, containerHTTPPort, time.Second*5) {
-		s.log.Fatalf("Port %d is already in use", containerHTTPPort)
+		s.log.Fatal().Msgf("Port %d is already in use", containerHTTPPort)
 	}
 
 	// Run the HTTP service so we can forward other clients
@@ -122,7 +122,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 
 	// Wait until we can start:
 	if s.myPeers.AgencySize > 1 {
-		s.log.Infof("Waiting for %d servers to show up...", s.myPeers.AgencySize)
+		s.log.Info().Msgf("Waiting for %d servers to show up...", s.myPeers.AgencySize)
 	}
 	for {
 		if s.myPeers.HaveEnoughAgents() {
@@ -134,10 +134,10 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			master := s.myPeers.AllPeers[0] // TODO replace with bootstrap master
 			r, err := httpClient.Get(master.CreateStarterURL("/hello"))
 			if err != nil {
-				s.log.Errorf("Failed to connect to master: %v", err)
+				s.log.Error().Err(err).Msg("Failed to connect to master")
 				time.Sleep(time.Second * 2)
 			} else if r.StatusCode != 200 {
-				s.log.Warningf("Invalid status received from master: %d", r.StatusCode)
+				s.log.Warn().Msgf("Invalid status received from master: %d", r.StatusCode)
 			} else {
 				defer r.Body.Close()
 				body, _ := ioutil.ReadAll(r.Body)
@@ -148,7 +148,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 		}
 	}
 
-	s.log.Infof("Serving as slave with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
+	s.log.Info().Msgf("Serving as slave with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
 	s.saveSetup()
 	s.startRunning(runner, config, bsCfg)
 }

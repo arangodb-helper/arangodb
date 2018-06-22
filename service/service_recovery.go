@@ -54,49 +54,49 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 		return bsCfg, nil
 	}
 	if err != nil {
-		s.log.Errorf("Cannot read RECOVERY file")
+		s.log.Error().Msg("Cannot read RECOVERY file")
 		return bsCfg, maskAny(err)
 	}
 
 	// Parse recovery file content (expected `host:port`)
 	starterHost, starterPort, err := net.SplitHostPort(strings.TrimSpace(string(recoveryContent)))
 	if err != nil {
-		s.log.Errorf("Invalid content of RECOVERY file; expected `host:port`: %#v", err)
+		s.log.Error().Err(err).Msg("Invalid content of RECOVERY file; expected `host:port`")
 		return bsCfg, maskAny(err)
 	}
 	starterHost = normalizeHostName(starterHost)
 	port, err := strconv.Atoi(starterPort)
 	if err != nil {
-		s.log.Errorf("Invalid port of RECOVERY file; expected `host:port`: %#v", err)
+		s.log.Error().Err(err).Msg("Invalid port of RECOVERY file; expected `host:port`")
 		return bsCfg, maskAny(err)
 	}
 
 	// Check mode
 	if !s.mode.SupportsRecovery() {
-		s.log.Errorf("Recovery is not support for mode '%s'", s.mode)
+		s.log.Error().Msgf("Recovery is not support for mode '%s'", s.mode)
 		return bsCfg, maskAny(fmt.Errorf("Recovery not supported"))
 	}
 
 	// Notify user
-	s.log.Infof("Trying to recover as starter %s:%d", starterHost, port)
+	s.log.Info().Msgf("Trying to recover as starter %s:%d", starterHost, port)
 
 	// Get cluster config info from one of the remaining starters.
 	clusterConfig, err := s.getRecoveryClusterConfig(ctx, s.cfg.MasterAddresses, net.JoinHostPort(starterHost, starterPort))
 	if err != nil {
-		s.log.Errorf("Cannot get cluster configuration from remaining starters: %#v", err)
+		s.log.Error().Err(err).Msg("Cannot get cluster configuration from remaining starters")
 		return bsCfg, maskAny(err)
 	}
 
 	// Look for ID of this starter
 	peer, found := clusterConfig.PeerByAddressAndPort(starterHost, port)
 	if !found {
-		s.log.Errorf("Cannot find a peer in cluster configuration for address %s with port %d", starterHost, port)
+		s.log.Error().Msgf("Cannot find a peer in cluster configuration for address %s with port %d", starterHost, port)
 		foundHosts := make([]string, 0, len(clusterConfig.AllPeers))
 		for _, p := range clusterConfig.AllPeers {
 			foundHosts = append(foundHosts, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset)))
 		}
 		sort.Strings(foundHosts)
-		s.log.Infof("Starters found are: %s", strings.Join(foundHosts, ", "))
+		s.log.Info().Msgf("Starters found are: %s", strings.Join(foundHosts, ", "))
 		return bsCfg, maskAny(fmt.Errorf("No peer found for %s:%d", starterHost, port))
 	}
 
@@ -110,19 +110,19 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 		// Ask cluster for its health in order to find the ID of our agent
 		client, err := clusterConfig.CreateCoordinatorsClient(ctx, bsCfg.JwtSecret)
 		if err != nil {
-			s.log.Errorf("Cannot create coordinator client: %#v", err)
+			s.log.Error().Err(err).Msg("Cannot create coordinator client")
 			return bsCfg, maskAny(err)
 		}
 
 		// Fetch cluster health
 		c, err := client.Cluster(ctx)
 		if err != nil {
-			s.log.Errorf("Cannot get cluster client: %#v", err)
+			s.log.Error().Err(err).Msg("Cannot get cluster client")
 			return bsCfg, maskAny(err)
 		}
 		h, err := c.Health(ctx)
 		if err != nil {
-			s.log.Errorf("Cannot get cluster health: %#v", err)
+			s.log.Error().Err(err).Msg("Cannot get cluster health")
 			return bsCfg, maskAny(err)
 		}
 
@@ -135,7 +135,7 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 			if server.Role == driver.ServerRoleAgent {
 				ep, err := url.Parse(server.Endpoint)
 				if err != nil {
-					s.log.Errorf("Failed to parse server endpoint: %#v", err)
+					s.log.Error().Err(err).Msg("Failed to parse server endpoint")
 				} else {
 					if strings.ToLower(ep.Host) == expectedAgentHost {
 						bsCfg.RecoveryAgentID = string(id)
@@ -148,16 +148,16 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 			}
 		}
 		if !found {
-			s.log.Errorf("Cannot find server ID of agent with host '%s'", expectedAgentHost)
+			s.log.Error().Msgf("Cannot find server ID of agent with host '%s'", expectedAgentHost)
 			sort.Strings(foundAgentHosts)
-			s.log.Infof("Agent found are: %s", strings.Join(foundAgentHosts, ", "))
+			s.log.Info().Msgf("Agent found are: %s", strings.Join(foundAgentHosts, ", "))
 			return bsCfg, maskAny(fmt.Errorf("Cannot find agent ID"))
 		}
 
 		// Remove agent data directory
 		agentDataDir, err := s.serverHostDir(ServerTypeAgent)
 		if err != nil {
-			s.log.Errorf("Cannot get agent directory: %#v", err)
+			s.log.Error().Err(err).Msg("Cannot get agent directory")
 			return bsCfg, maskAny(err)
 		}
 		os.RemoveAll(agentDataDir)
@@ -167,7 +167,7 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 	s.recoveryFile = recoveryPath
 
 	// Inform user
-	s.log.Infof("Recovery information all available, starting...")
+	s.log.Info().Msg("Recovery information all available, starting...")
 
 	return bsCfg, nil
 }
@@ -176,10 +176,10 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 func (s *Service) removeRecoveryFile() {
 	if s.recoveryFile != "" {
 		if err := os.Remove(s.recoveryFile); err != nil {
-			s.log.Errorf("Failed to remove RECOVERY file: %#v", err)
+			s.log.Error().Err(err).Msg("Failed to remove RECOVERY file")
 		} else {
-			s.log.Info("Removed RECOVERY file.")
-			s.log.Info("Most likely there is now an extra coordinator & dbserver in FAILED state. Remove them manually using the web UI.")
+			s.log.Info().Msg("Removed RECOVERY file.")
+			s.log.Info().Msg("Most likely there is now an extra coordinator & dbserver in FAILED state. Remove them manually using the web UI.")
 			s.recoveryFile = ""
 		}
 	}
@@ -229,7 +229,7 @@ func (s *Service) getRecoveryClusterConfig(ctx context.Context, masterAddresses 
 			if err == nil {
 				return cCfg, nil
 			}
-			s.log.Debugf("Fetching cluster configure from %s failed: %#v", masterURL, err)
+			s.log.Debug().Err(err).Msgf("Fetching cluster configure from %s failed", masterURL)
 		}
 
 		if time.Since(start) > recoveryClusterConfigTimeout {
@@ -237,7 +237,7 @@ func (s *Service) getRecoveryClusterConfig(ctx context.Context, masterAddresses 
 		}
 
 		// All masters failed, wait a bit
-		s.log.Debugf("All masters failed to yield a cluster configuration. Waiting a bit...")
+		s.log.Debug().Msg("All masters failed to yield a cluster configuration. Waiting a bit...")
 		select {
 		case <-time.After(time.Second * 2):
 			// Continue

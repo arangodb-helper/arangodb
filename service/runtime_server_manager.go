@@ -24,6 +24,7 @@ package service
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -33,7 +34,8 @@ import (
 	"sync"
 	"time"
 
-	logging "github.com/op/go-logging"
+	"github.com/arangodb-helper/arangodb/pkg/logging"
+	"github.com/rs/zerolog"
 )
 
 // runtimeServerManager implements the start, monitor, stop behavior of database servers in a runtime
@@ -85,7 +87,7 @@ type runtimeServerManagerContext interface {
 }
 
 // startServer starts a single Arangod/Arangosync server of the given type.
-func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
+func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
 	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
@@ -108,24 +110,24 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 	os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
 
 	// Check if the server is already running
-	log.Infof("Looking for a running instance of %s on port %d", serverType, myPort)
+	log.Info().Msgf("Looking for a running instance of %s on port %d", serverType, myPort)
 	p, err := runner.GetRunningServer(myHostDir)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
 	if p != nil {
-		log.Infof("%s seems to be running already, checking port %d...", serverType, myPort)
+		log.Info().Msgf("%s seems to be running already, checking port %d...", serverType, myPort)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 		up, correctRole, _, _, _, _, _, _ := runtimeContext.TestInstance(ctx, serverType, myHostAddress, myPort, nil)
 		cancel()
 		if up && correctRole {
-			log.Infof("%s is already running on %d. No need to start anything.", serverType, myPort)
+			log.Info().Msgf("%s is already running on %d. No need to start anything.", serverType, myPort)
 			return p, false, nil
 		} else if !up {
-			log.Infof("%s is not up on port %d. Terminating existing process and restarting it...", serverType, myPort)
+			log.Info().Msgf("%s is not up on port %d. Terminating existing process and restarting it...", serverType, myPort)
 		} else if !correctRole {
 			expectedRole, expectedMode := serverType.ExpectedServerRole()
-			log.Infof("%s is not of role '%s.%s' on port %d. Terminating existing process and restarting it...", serverType, expectedRole, expectedMode, myPort)
+			log.Info().Msgf("%s is not of role '%s.%s' on port %d. Terminating existing process and restarting it...", serverType, expectedRole, expectedMode, myPort)
 		}
 		p.Terminate()
 	}
@@ -135,7 +137,7 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 		return nil, true, maskAny(fmt.Errorf("Cannot start %s, because port %d is already in use", serverType, myPort))
 	}
 
-	log.Infof("Starting %s on port %d", serverType, myPort)
+	log.Info().Msgf("Starting %s on port %d", serverType, myPort)
 	processType := serverType.ProcessType()
 	// Create/read arangod.conf
 	var confVolumes []Volume
@@ -188,17 +190,17 @@ func startServer(ctx context.Context, log *logging.Logger, runtimeContext runtim
 }
 
 // showRecentLogs dumps the most recent log lines of the server of given type to the console.
-func (s *runtimeServerManager) showRecentLogs(log *logging.Logger, runtimeContext runtimeServerManagerContext, serverType ServerType) {
+func (s *runtimeServerManager) showRecentLogs(log zerolog.Logger, runtimeContext runtimeServerManagerContext, serverType ServerType) {
 	logPath, err := runtimeContext.serverHostLogFile(serverType)
 	if err != nil {
-		log.Errorf("Cannot find server host log file: %#v", err)
+		log.Error().Err(err).Msg("Cannot find server host log file")
 		return
 	}
 	logFile, err := os.Open(logPath)
 	if os.IsNotExist(err) {
-		log.Infof("Log file for %s is empty", serverType)
+		log.Info().Msgf("Log file for %s is empty", serverType)
 	} else if err != nil {
-		log.Errorf("Cannot open log file for %s: %#v", serverType, err)
+		log.Error().Err(err).Msgf("Cannot open log file for %s", serverType)
 	} else {
 		defer logFile.Close()
 		rd := bufio.NewReader(logFile)
@@ -217,18 +219,18 @@ func (s *runtimeServerManager) showRecentLogs(log *logging.Logger, runtimeContex
 				break
 			}
 		}
-		s.logMutex.Lock()
-		defer s.logMutex.Unlock()
-		log.Infof("## Start of %s log", serverType)
+		buf := bytes.Buffer{}
+		buf.WriteString(fmt.Sprintf("## Start of %s log\n", serverType))
 		for i := maxLines - 1; i >= 0; i-- {
-			fmt.Println("\t" + strings.TrimSuffix(lines[i], "\n"))
+			buf.WriteString("\t" + strings.TrimSuffix(lines[i], "\n") + "\n")
 		}
-		log.Infof("## End of %s log", serverType)
+		buf.WriteString(fmt.Sprintf("## End of %s log", serverType))
+		log.Info().Msg(buf.String())
 	}
 }
 
 // runServer starts a single Arangod/Arangosync server of the given type and keeps restarting it when needed.
-func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
+func (s *runtimeServerManager) runServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
 	config Config, bsCfg BootstrapConfig, myPeer Peer, serverType ServerType, processVar *Process) {
 	restart := 0
 	recentFailures := 0
@@ -237,7 +239,7 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 		startTime := time.Now()
 		p, portInUse, err := startServer(ctx, log, runtimeContext, runner, config, bsCfg, myHostAddress, serverType, restart)
 		if err != nil {
-			log.Errorf("Error while starting %s: %#v", serverType, err)
+			log.Error().Err(err).Msgf("Error while starting %s", serverType)
 			if !portInUse {
 				break
 			}
@@ -247,7 +249,7 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 			go func() {
 				port, err := runtimeContext.serverPort(serverType)
 				if err != nil {
-					log.Fatalf("Cannot collect serverPort: %#v", err)
+					log.Fatal().Err(err).Msg("Cannot collect serverPort")
 				}
 				statusChanged := make(chan StatusItem)
 				go func() {
@@ -260,9 +262,9 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 						}
 						if statusItem.PrevStatusCode != statusItem.StatusCode {
 							if config.DebugCluster {
-								log.Infof("%s status changed to %d", serverType, statusItem.StatusCode)
+								log.Info().Msgf("%s status changed to %d", serverType, statusItem.StatusCode)
 							} else {
-								log.Debugf("%s status changed to %d", serverType, statusItem.StatusCode)
+								log.Debug().Msgf("%s status changed to %d", serverType, statusItem.StatusCode)
 							}
 						}
 						if statusItem.Duration > showLogDuration {
@@ -277,12 +279,12 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 						if serverType == ServerTypeResilientSingle && !isLeader {
 							msgPostfix = " as follower"
 						}
-						log.Infof("%s up and running%s (version %s).", serverType, msgPostfix, version)
+						log.Info().Msgf("%s up and running%s (version %s).", serverType, msgPostfix, version)
 						if (serverType == ServerTypeCoordinator && !runtimeContext.IsLocalSlave()) || serverType == ServerTypeSingle || serverType == ServerTypeResilientSingle {
 							hostPort, err := p.HostPort(port)
 							if err != nil {
 								if id := p.ContainerID(); id != "" {
-									log.Infof("%s can only be accessed from inside a container.", serverType)
+									log.Info().Msgf("%s can only be accessed from inside a container.", serverType)
 								}
 							} else {
 								ip := myPeer.Address
@@ -295,8 +297,8 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 								}
 								if serverType != ServerTypeResilientSingle || isLeader {
 									s.logMutex.Lock()
-									log.Infof("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
-									log.Infof("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
+									log.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
+									log.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
 									s.logMutex.Unlock()
 								}
 								runtimeContext.removeRecoveryFile()
@@ -306,20 +308,20 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 							hostPort, err := p.HostPort(port)
 							if err != nil {
 								if id := p.ContainerID(); id != "" {
-									log.Infof("%s can only be accessed from inside a container.", serverType)
+									log.Info().Msgf("%s can only be accessed from inside a container.", serverType)
 								}
 							} else {
 								ip := myPeer.Address
 								s.logMutex.Lock()
-								log.Infof("Your syncmaster can now available at `https://%s:%d`", ip, hostPort)
+								log.Info().Msgf("Your syncmaster can now available at `https://%s:%d`", ip, hostPort)
 								s.logMutex.Unlock()
 							}
 						}
 					} else if !up {
-						log.Warningf("%s not ready after 5min!: Status trail: %#v", serverType, statusTrail)
+						log.Warn().Msgf("%s not ready after 5min!: Status trail: %#v", serverType, statusTrail)
 					} else if !correctRole {
 						expectedRole, expectedMode := serverType.ExpectedServerRole()
-						log.Warningf("%s does not have the expected role of '%s,%s' (but '%s,%s'): Status trail: %#v", serverType, expectedRole, expectedMode, role, mode, statusTrail)
+						log.Warn().Msgf("%s does not have the expected role of '%s,%s' (but '%s,%s'): Status trail: %#v", serverType, expectedRole, expectedMode, role, mode, statusTrail)
 					}
 				}
 			}()
@@ -329,7 +331,7 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 		uptime := time.Since(startTime)
 		isTerminationExpected := runtimeContext.UpgradeManager().IsServerUpgradeInProgress(serverType)
 		if isTerminationExpected {
-			log.Debugf("%s stopped as expected", serverType)
+			log.Debug().Msgf("%s stopped as expected", serverType)
 		} else {
 			var isRecentFailure bool
 			if uptime < time.Second*30 {
@@ -342,20 +344,20 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 
 			if isRecentFailure && !s.stopping {
 				if !portInUse {
-					log.Infof("%s has terminated quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
+					log.Info().Msgf("%s has terminated quickly, in %s (recent failures: %d)", serverType, uptime, recentFailures)
 					if recentFailures >= minRecentFailuresForLog {
 						// Show logs of the server
 						s.showRecentLogs(log, runtimeContext, serverType)
 					}
 				}
 				if recentFailures >= maxRecentFailures {
-					log.Errorf("%s has failed %d times, giving up", serverType, recentFailures)
+					log.Error().Msgf("%s has failed %d times, giving up", serverType, recentFailures)
 					runtimeContext.Stop()
 					s.stopping = true
 					break
 				}
 			} else {
-				log.Infof("%s has terminated", serverType)
+				log.Info().Msgf("%s has terminated", serverType)
 				if config.DebugCluster && !s.stopping {
 					// Show logs of the server
 					s.showRecentLogs(log, runtimeContext, serverType)
@@ -370,13 +372,13 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log *logging.Logge
 			break
 		}
 
-		log.Infof("restarting %s", serverType)
+		log.Info().Msgf("restarting %s", serverType)
 		restart++
 	}
 }
 
 // rotateLogFile rotates the log file of a single server.
-func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, myPeer Peer, serverType ServerType, p Process, filesToKeep int) {
+func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, myPeer Peer, serverType ServerType, p Process, filesToKeep int) {
 	if p == nil {
 		return
 	}
@@ -384,10 +386,10 @@ func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log *logging.L
 	// Prepare log path
 	logPath, err := runtimeContext.serverHostLogFile(serverType)
 	if err != nil {
-		log.Debugf("Failed to get host log file for '%s': %s", serverType, err)
+		log.Debug().Err(err).Msgf("Failed to get host log file for '%s'", serverType)
 		return
 	}
-	log.Debugf("Rotating %s log file: %s", serverType, logPath)
+	log.Debug().Msgf("Rotating %s log file: %s", serverType, logPath)
 
 	// Move old files
 	for i := filesToKeep; i >= 0; i-- {
@@ -401,17 +403,17 @@ func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log *logging.L
 			if i == filesToKeep {
 				// Remove file
 				if err := os.Remove(logPathX); err != nil {
-					log.Errorf("Failed to remove %s: %s", logPathX, err)
+					log.Error().Err(err).Msgf("Failed to remove %s: %s", logPathX)
 				} else {
-					log.Debugf("Removed old log file: %s", logPathX)
+					log.Debug().Msgf("Removed old log file: %s", logPathX)
 				}
 			} else {
 				// Rename log[.i] -> log.i+1
 				logPathNext := logPath + fmt.Sprintf(".%d", i+1)
 				if err := os.Rename(logPathX, logPathNext); err != nil {
-					log.Errorf("Failed to move %s to %s: %s", logPathX, logPathNext, err)
+					log.Error().Err(err).Msgf("Failed to move %s to %s", logPathX, logPathNext)
 				} else {
-					log.Debugf("Moved log file %s to %s", logPathX, logPathNext)
+					log.Debug().Msgf("Moved log file %s to %s", logPathX, logPathNext)
 				}
 			}
 		}
@@ -419,17 +421,18 @@ func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log *logging.L
 
 	// Send HUP signal
 	if err := p.Hup(); err != nil {
-		log.Errorf("Failed to send HUP signal: %s", err)
+		log.Error().Err(err).Msg("Failed to send HUP signal")
 	}
 	return
 }
 
 // RotateLogFiles rotates the log files of all servers
-func (s *runtimeServerManager) RotateLogFiles(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, config Config) {
-	log.Info("Rotating log files...")
+func (s *runtimeServerManager) RotateLogFiles(ctx context.Context, log zerolog.Logger, logService logging.Service, runtimeContext runtimeServerManagerContext, config Config) {
+	log.Info().Msg("Rotating log files...")
+	logService.RotateLogFiles()
 	_, myPeer, _ := runtimeContext.ClusterConfig()
 	if myPeer == nil {
-		log.Error("Cannot find my own peer in cluster configuration")
+		log.Error().Msg("Cannot find my own peer in cluster configuration")
 	} else {
 		if p := s.syncWorkerProc; p != nil {
 			s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeSyncWorker, p, config.LogRotateFilesToKeep)
@@ -453,10 +456,10 @@ func (s *runtimeServerManager) RotateLogFiles(ctx context.Context, log *logging.
 }
 
 // Run starts all relevant servers and keeps the running.
-func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, runtimeContext runtimeServerManagerContext, runner Runner, config Config, bsCfg BootstrapConfig) {
+func (s *runtimeServerManager) Run(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner, config Config, bsCfg BootstrapConfig) {
 	_, myPeer, mode := runtimeContext.ClusterConfig()
 	if myPeer == nil {
-		log.Fatal("Cannot find my own peer in cluster configuration")
+		log.Fatal().Msg("Cannot find my own peer in cluster configuration")
 	}
 
 	if mode.IsClusterMode() {
@@ -506,7 +509,7 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 	<-ctx.Done()
 	s.stopping = true
 
-	log.Info("Shutting down services...")
+	log.Info().Msg("Shutting down services...")
 	if p := s.syncWorkerProc; p != nil {
 		terminateProcess(log, p, "sync worker", time.Minute)
 	}
@@ -530,44 +533,44 @@ func (s *runtimeServerManager) Run(ctx context.Context, log *logging.Logger, run
 	// Cleanup containers
 	if p := s.syncWorkerProc; p != nil {
 		if err := p.Cleanup(); err != nil {
-			log.Warningf("Failed to cleanup sync worker: %v", err)
+			log.Warn().Err(err).Msg("Failed to cleanup sync worker")
 		}
 	}
 	if p := s.syncMasterProc; p != nil {
 		if err := p.Cleanup(); err != nil {
-			log.Warningf("Failed to cleanup sync master: %v", err)
+			log.Warn().Err(err).Msg("Failed to cleanup sync master")
 		}
 	}
 	if p := s.singleProc; p != nil {
 		if err := p.Cleanup(); err != nil {
-			log.Warningf("Failed to cleanup single server: %v", err)
+			log.Warn().Err(err).Msg("Failed to cleanup single server")
 		}
 	}
 	if p := s.coordinatorProc; p != nil {
 		if err := p.Cleanup(); err != nil {
-			log.Warningf("Failed to cleanup coordinator: %v", err)
+			log.Warn().Err(err).Msg("Failed to cleanup coordinator")
 		}
 	}
 	if p := s.dbserverProc; p != nil {
 		if err := p.Cleanup(); err != nil {
-			log.Warningf("Failed to cleanup dbserver: %v", err)
+			log.Warn().Err(err).Msg("Failed to cleanup dbserver")
 		}
 	}
 	if p := s.agentProc; p != nil {
 		time.Sleep(3 * time.Second)
 		if err := p.Cleanup(); err != nil {
-			log.Warningf("Failed to cleanup agent: %v", err)
+			log.Warn().Err(err).Msg("Failed to cleanup agent")
 		}
 	}
 
 	// Cleanup runner
 	if err := runner.Cleanup(); err != nil {
-		log.Warningf("Failed to cleanup runner: %v", err)
+		log.Warn().Err(err).Msg("Failed to cleanup runner: %v")
 	}
 }
 
 // RestartServer triggers a restart of the server of the given type.
-func (s *runtimeServerManager) RestartServer(log *logging.Logger, serverType ServerType) error {
+func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType ServerType) error {
 	var p Process
 	var name string
 	switch serverType {

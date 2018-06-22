@@ -42,12 +42,12 @@ import (
 	"strconv"
 	"strings"
 
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 // createArangodConf creates an arangod.conf file in the given host directory if it does not yet exists.
 // The arangod.conf file contains all settings that are considered static for the lifetime of the server.
-func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType ServerType) ([]Volume, configFile, error) {
+func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType ServerType) ([]Volume, configFile, error) {
 	hostConfFileName := filepath.Join(myHostDir, arangodConfFileName)
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 	volumes := addVolume(nil, hostConfFileName, containerConfFileName, true)
@@ -116,12 +116,12 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 
 	out, err := os.Create(hostConfFileName)
 	if err != nil {
-		log.Fatalf("Could not create configuration file %s, error: %#v", hostConfFileName, err)
+		log.Fatal().Err(err).Msgf("Could not create configuration file %s", hostConfFileName)
 		return nil, nil, maskAny(err)
 	}
 	defer out.Close()
 	if _, err := config.WriteTo(out); err != nil {
-		log.Fatalf("Cannot create config file: %v", err)
+		log.Fatal().Err(err).Msg("Cannot create config file")
 		return nil, nil, maskAny(err)
 	}
 
@@ -129,7 +129,7 @@ func createArangodConf(log *logging.Logger, bsCfg BootstrapConfig, myHostDir, my
 }
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
-func createArangodArgs(log *logging.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
+func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
 	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool) []string {
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 
@@ -227,7 +227,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 	for _, opt := range options {
 		ptValues := config.passthroughOptionValuesForServerType(strings.TrimPrefix(opt.Key, "--"), serverType)
 		if len(ptValues) > 0 {
-			log.Warningf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
+			log.Warn().Msgf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
 		} else {
 			args = append(args, opt.Key, opt.Value)
 		}
@@ -240,7 +240,7 @@ func createArangodArgs(log *logging.Logger, config Config, clusterConfig Cluster
 		// Look for overrides of configuration sections
 		if section := arangodConfig.FindSection(ptOpt.sectionName()); section != nil {
 			if confValue, found := section.Settings[ptOpt.sectionKey()]; found {
-				log.Warningf("Pass through option %s overrides generated configuration option with value '%s'", ptOpt.Name, confValue)
+				log.Warn().Msgf("Pass through option %s overrides generated configuration option with value '%s'", ptOpt.Name, confValue)
 			}
 		}
 		// Append all values

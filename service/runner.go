@@ -26,7 +26,7 @@ import (
 	"context"
 	"time"
 
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 type Volume struct {
@@ -79,23 +79,23 @@ type Process interface {
 
 // terminateProcess tries to terminate the given process gracefully.
 // When the process has not terminated after given timeout it is killed.
-func terminateProcess(log *logging.Logger, p Process, name string, killTimeout time.Duration) {
-	log.Debugf("Terminating %s...", name)
+func terminateProcess(log zerolog.Logger, p Process, name string, killTimeout time.Duration) {
+	log.Debug().Msgf("Terminating %s...", name)
 	terminated := make(chan struct{})
 	go func() {
 		defer close(terminated)
 		if err := p.Terminate(); err != nil {
-			log.Warningf("Failed to terminate %s: %#v", name, err)
+			log.Warn().Err(err).Msgf("Failed to terminate %s", name)
 		}
 		p.Wait()
-		log.Debugf("%s terminated", name)
+		log.Debug().Msgf("%s terminated", name)
 	}()
 	select {
 	case <-terminated:
 		// We're done
 	case <-time.After(killTimeout):
 		// Kill the process
-		log.Warningf("Killing %s...", name)
+		log.Warn().Msgf("Killing %s...", name)
 		p.Kill()
 	}
 }

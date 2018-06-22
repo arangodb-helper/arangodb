@@ -29,7 +29,7 @@ import (
 	"path/filepath"
 
 	"github.com/coreos/go-semver/semver"
-	logging "github.com/op/go-logging"
+	"github.com/rs/zerolog"
 )
 
 var (
@@ -67,11 +67,11 @@ func (s *Service) saveSetup() error {
 	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
-		s.log.Errorf("Cannot serialize config: %#v", err)
+		s.log.Error().Err(err).Msg("Cannot serialize config")
 		return maskAny(err)
 	}
 	if err := ioutil.WriteFile(filepath.Join(s.cfg.DataDir, setupFileName), b, 0644); err != nil {
-		s.log.Errorf("Error writing setup: %#v", err)
+		s.log.Error().Err(err).Msg("Error writing setup")
 		return maskAny(err)
 	}
 	return nil
@@ -79,7 +79,7 @@ func (s *Service) saveSetup() error {
 
 // ReadSetupConfig tries to read a setup.json config file and relaunch when that file exists and is valid.
 // Returns true on relaunch or false to continue with a fresh start.
-func ReadSetupConfig(log *logging.Logger, dataDir string, bsCfg BootstrapConfig) (BootstrapConfig, ClusterConfig, bool, error) {
+func ReadSetupConfig(log zerolog.Logger, dataDir string, bsCfg BootstrapConfig) (BootstrapConfig, ClusterConfig, bool, error) {
 	// Is this a new start or a restart?
 	setupContent, err := ioutil.ReadFile(filepath.Join(dataDir, setupFileName))
 	if err != nil {
@@ -88,19 +88,19 @@ func ReadSetupConfig(log *logging.Logger, dataDir string, bsCfg BootstrapConfig)
 	// Could read file
 	var cfg SetupConfigFile
 	if err := json.Unmarshal(setupContent, &cfg); err != nil {
-		log.Warningf("Failed to unmarshal existing %s: %#v", setupFileName, err)
+		log.Warn().Err(err).Msgf("Failed to unmarshal existing %s", setupFileName)
 		return bsCfg, ClusterConfig{}, false, nil
 	}
 	// Parse version
 	version, err := semver.NewVersion(cfg.Version)
 	if err != nil {
-		log.Warningf("Failed to parse version '%s' in %s: %#v", cfg.Version, setupFileName, err)
+		log.Warn().Err(err).Msgf("Failed to parse version '%s' in %s", cfg.Version, setupFileName)
 		return bsCfg, ClusterConfig{}, false, nil
 	}
 
 	// If version recent enough?
 	if version.LessThan(minSetupConfigVersion) {
-		log.Warningf("%s is outdated (version %s). Starting fresh...", setupFileName, cfg.Version)
+		log.Warn().Msgf("%s is outdated (version %s). Starting fresh...", setupFileName, cfg.Version)
 		return bsCfg, ClusterConfig{}, false, nil
 	}
 
@@ -122,10 +122,10 @@ func ReadSetupConfig(log *logging.Logger, dataDir string, bsCfg BootstrapConfig)
 }
 
 // RemoveSetupConfig tries to remove a setup.json config file.
-func RemoveSetupConfig(log *logging.Logger, dataDir string) error {
+func RemoveSetupConfig(log zerolog.Logger, dataDir string) error {
 	path := filepath.Join(dataDir, setupFileName)
 	if _, err := os.Stat(path); err == nil {
-		log.Infof("Removing starter config %s", path)
+		log.Info().Msgf("Removing starter config %s", path)
 		if err := os.Remove(path); err != nil {
 			return maskAny(err)
 		}

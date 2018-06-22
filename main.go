@@ -37,13 +37,15 @@ import (
 
 	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
-	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	_ "github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/logging"
 	"github.com/arangodb-helper/arangodb/pkg/net"
+	"github.com/arangodb-helper/arangodb/pkg/terminal"
 	service "github.com/arangodb-helper/arangodb/service"
 )
 
@@ -51,6 +53,7 @@ import (
 
 const (
 	projectName                 = "arangodb"
+	logFileName                 = projectName + ".log"
 	defaultDockerGCDelay        = time.Minute * 10
 	defaultDockerStarterImage   = "arangodb/arangodb-starter"
 	defaultArangodPath          = "/usr/sbin/arangod"
@@ -78,25 +81,31 @@ var (
 		Short: "Show ArangoDB version",
 		Run:   cmdShowVersionRun,
 	}
-	log                      = logging.MustGetLogger(projectName)
-	showVersion              bool
-	id                       string
-	agencySize               int
-	arangodPath              string
-	arangodJSPath            string
-	arangoSyncPath           string
-	masterPort               int
-	rrPath                   string
-	startAgent               []bool
-	startDBserver            []bool
-	startCoordinator         []bool
-	startActiveFailover      []bool
-	startSyncMaster          []bool
-	startSyncWorker          []bool
-	startLocalSlaves         bool
-	mode                     string
-	dataDir                  string
-	logDir                   string // Custom log directory (default "")
+	log                 zerolog.Logger
+	logService          logging.Service
+	showVersion         bool
+	id                  string
+	agencySize          int
+	arangodPath         string
+	arangodJSPath       string
+	arangoSyncPath      string
+	masterPort          int
+	rrPath              string
+	startAgent          []bool
+	startDBserver       []bool
+	startCoordinator    []bool
+	startActiveFailover []bool
+	startSyncMaster     []bool
+	startSyncWorker     []bool
+	startLocalSlaves    bool
+	mode                string
+	dataDir             string
+	logDir              string // Custom log directory (default "")
+	logOutput           struct {
+		Color   bool
+		Console bool
+		File    bool
+	}
 	ownAddress               string
 	bindAddress              string
 	masterAddresses          []string
@@ -139,6 +148,16 @@ var (
 )
 
 func init() {
+	log, _ = logging.NewRootLogger(logging.LoggerOutputOptions{
+		Stderr: true,
+	})
+
+	defaultLogColor := true
+	if !terminal.IsTerminal() {
+		// We're not running on a terminal, avoid colorizing logs
+		defaultLogColor = false
+	}
+
 	cmdMain.AddCommand(cmdVersion)
 
 	pf := cmdMain.PersistentFlags()
@@ -160,6 +179,9 @@ func init() {
 	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
 
 	pf.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
+	pf.BoolVar(&logOutput.Console, "log.console", true, "Send log output to console")
+	pf.BoolVar(&logOutput.File, "log.file", true, "Send log output to file")
+	pf.BoolVar(&logOutput.Color, "log.color", defaultLogColor, "Colorize the log output")
 	pf.StringVar(&logDir, "log.dir", getEnvVar("LOG_DIR", ""), "Custom log file directory.")
 	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
 	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
@@ -244,7 +266,7 @@ func init() {
 				option := getPassthroughOption(a, fullArgPrefix, ptPrefix.Prefix, f)
 				if option != nil {
 					if option.IsForbidden() {
-						log.Fatalf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
+						log.Fatal().Msgf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
 					}
 					fullOptionName := ptPrefix.Prefix + "." + option.Name
 					f.StringSliceVar(ptPrefix.FieldSelector(option), fullOptionName, nil, fmt.Sprintf("Passed through to %s as --%s", ptPrefix.Usage, option.Name))
@@ -360,11 +382,11 @@ func findExecutable(processName, defaultPath string) (executablePath string, isB
 					}
 				}
 			} else {
-				log.Errorf("Could not read directory %s to look for executable.", basePath)
+				log.Error().Msgf("Could not read directory %s to look for executable.", basePath)
 			}
 			d.Close()
 		} else {
-			log.Errorf("Could not open directory %s to look for executable.", basePath)
+			log.Error().Msgf("Could not open directory %s to look for executable.", basePath)
 		}
 		sort.Sort(sort.Reverse(sort.StringSlice(foundPaths)))
 		pathList = append(pathList, foundPaths...)
@@ -420,7 +442,7 @@ func main() {
 
 // Cobra run function using the usage of the given command
 func cmdShowUsage(cmd *cobra.Command, args []string) {
-	log.Infof("%s version %s, build %s", projectName, projectVersion, projectBuild)
+	log.Info().Msgf("%s version %s, build %s", projectName, projectVersion, projectBuild)
 	cmd.Usage()
 }
 
@@ -432,14 +454,14 @@ func cmdShowVersionRun(cmd *cobra.Command, args []string) {
 }
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
-	log.Infof("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
-
-	if len(args) > 0 {
-		log.Fatalf("Expected no arguments, got %q", args)
-	}
-
 	// Setup log level
 	configureLogging()
+
+	log.Info().Msgf("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
+
+	if len(args) > 0 {
+		log.Fatal().Msgf("Expected no arguments, got %q", args)
+	}
 
 	// Create service
 	svc, bsCfg := mustPrepareService(true)
@@ -453,7 +475,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	// Read RECOVERY file if it exists and perform recovery.
 	bsCfg, err := svc.PerformRecovery(rootCtx, bsCfg)
 	if err != nil {
-		log.Fatalf("Failed to recover: %#v", err)
+		log.Fatal().Err(err).Msg("Failed to recover")
 	}
 
 	// Read setup.json (if exists)
@@ -461,17 +483,33 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 
 	// Run the service
 	if err := svc.Run(rootCtx, bsCfg, peers, relaunch); err != nil {
-		log.Fatalf("Failed to run service: %#v", err)
+		log.Fatal().Err(err).Msg("Failed to run service")
 	}
 }
 
 // configureLogging configures the log object according to command line arguments.
 func configureLogging() {
-	if verbose {
-		logging.SetLevel(logging.DEBUG, projectName)
-	} else {
-		logging.SetLevel(logging.INFO, projectName)
+	logOpts := logging.LoggerOutputOptions{
+		Stderr: logOutput.Console,
+		Color:  logOutput.Color,
 	}
+	if logOutput.File {
+		if logDir != "" {
+			logOpts.LogFile = filepath.Join(logDir, logFileName)
+		} else {
+			logOpts.LogFile = filepath.Join(dataDir, logFileName)
+		}
+	}
+	defaultLevel := "INFO"
+	if verbose {
+		defaultLevel = "DEBUG"
+	}
+	var err error
+	logService, err = logging.NewService(defaultLevel, logOpts)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to configure logging service")
+	}
+	log = logService.MustGetLogger(projectName)
 }
 
 // mustPrepareService creates a new Service for the configured arguments,
@@ -515,7 +553,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerArangodImage)
 	if err != nil {
-		log.Fatalf("Unsupport image pull policy '%s': %#v", dockerImagePullPolicy, err)
+		log.Fatal().Err(err).Msgf("Unsupport image pull policy '%s'", dockerImagePullPolicy)
 	}
 
 	// Expand home-dis (~) in paths
@@ -534,8 +572,8 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		if _, err := os.Stat(arangodPath); os.IsNotExist(err) {
 			showArangodExecutableNotFoundHelp(arangodPath)
 		}
-		log.Debugf("Using %s as default arangod executable.", arangodPath)
-		log.Debugf("Using %s as default JS dir.", arangodJSPath)
+		log.Debug().Msgf("Using %s as default arangod executable.", arangodPath)
+		log.Debug().Msgf("Using %s as default JS dir.", arangodJSPath)
 	}
 
 	// Sort out work directory:
@@ -544,14 +582,14 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 	dataDir, _ = filepath.Abs(dataDir)
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		log.Fatalf("Cannot create data directory %s because %v, giving up.", dataDir, err)
+		log.Fatal().Err(err).Msgf("Cannot create data directory %s, giving up.", dataDir)
 	}
 
 	// Make custom log directory absolute
 	if logDir != "" {
 		logDir, _ = filepath.Abs(logDir)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
-			log.Fatalf("Cannot create custom log directory %s because %v, giving up.", logDir, err)
+			log.Fatal().Err(err).Msgf("Cannot create custom log directory %s, giving up.", logDir)
 		}
 	}
 
@@ -560,7 +598,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	if jwtSecretFile != "" {
 		content, err := ioutil.ReadFile(jwtSecretFile)
 		if err != nil {
-			log.Fatalf("Failed to read JWT secret file '%s': %v", jwtSecretFile, err)
+			log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", jwtSecretFile)
 		}
 		jwtSecret = strings.TrimSpace(string(content))
 	}
@@ -582,10 +620,10 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 			Organization: sslAutoOrganization,
 		}, dataDir)
 		if err != nil {
-			log.Fatalf("Failed to create keyfile: %v", err)
+			log.Fatal().Err(err).Msg("Failed to create keyfile")
 		}
 		sslKeyFile = keyFile
-		log.Infof("Using self-signed certificate: %s", sslKeyFile)
+		log.Info().Msgf("Using self-signed certificate: %s", sslKeyFile)
 	}
 
 	// Check sync settings
@@ -599,7 +637,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
 				showArangoSyncExecutableNotFoundHelp(arangoSyncPath)
 			}
-			log.Debugf("Using %s as default arangosync executable.", arangoSyncPath)
+			log.Debug().Msgf("Using %s as default arangosync executable.", arangoSyncPath)
 		} else {
 			// Check arangosync docker image
 			if dockerArangoSyncImage == "" {
@@ -694,7 +732,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
 	}
-	service := service.NewService(context.Background(), log, serviceConfig, false)
+	service := service.NewService(context.Background(), log, logService, serviceConfig, false)
 
 	return service, bsCfg
 }
@@ -713,7 +751,7 @@ func getEnvVar(key, defaultValue string) string {
 func mustExpand(s string) string {
 	result, err := homedir.Expand(s)
 	if err != nil {
-		log.Fatalf("Cannot expand '%s': %#v", s, err)
+		log.Fatal().Err(err).Msgf("Cannot expand '%s'", s)
 	}
 	return result
 }
@@ -730,7 +768,7 @@ func mustGetOptionalBoolRef(flagName string, v []bool) *bool {
 		x := v[0]
 		return &x
 	default:
-		log.Fatalf("Expected 0 or 1 %s options, got %d", flagName, len(v))
+		log.Fatal().Msgf("Expected 0 or 1 %s options, got %d", flagName, len(v))
 		return nil
 	}
 }

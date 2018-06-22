@@ -204,7 +204,7 @@ func showSyncMasterJWTSecretMissingHelp() {
 // underneeth and the exit with code 1.
 // Backticks in the lines are colored yellow.
 func showFatalHelp(title string, lines ...string) {
-	log.Error(highlight(title))
+	log.Error().Msg(highlight(title))
 	content := strings.Join(lines, "\n")
 	fmt.Println(highlight(content))
 	os.Exit(1)

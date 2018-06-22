@@ -53,10 +53,10 @@ func init() {
 }
 
 func cmdStartRun(cmd *cobra.Command, args []string) {
-	log.Infof("Starting %s version %s, build %s in the background", projectName, projectVersion, projectBuild)
-
 	// Setup logging
 	configureLogging()
+
+	log.Info().Msgf("Starting %s version %s, build %s in the background", projectName, projectVersion, projectBuild)
 
 	// Build service
 	service, bsCfg := mustPrepareService(true)
@@ -64,7 +64,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 	// Find executable
 	exePath, err := os.Executable()
 	if err != nil {
-		log.Fatalf("Cannot find executable path: %#v", err)
+		log.Fatal().Err(err).Msg("Cannot find executable path")
 	}
 
 	// Build command line
@@ -88,12 +88,12 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 		childArgs = append(childArgs, "--ssl.keyfile="+bsCfg.SslKeyFile)
 	}
 
-	log.Debugf("Found child args: %#v", childArgs)
+	log.Debug().Msgf("Found child args: %#v", childArgs)
 
 	// Start detached child
 	c := exec.Command(exePath, childArgs...)
 	if err := c.Start(); err != nil {
-		log.Fatalf("Failed to start detached child: %#v", err)
+		log.Fatal().Err(err).Msg("Failed to start detached child")
 	}
 	c.Process.Release()
 
@@ -104,15 +104,15 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 	}
 	starterURL, err := url.Parse(fmt.Sprintf("%s://127.0.0.1:%d", scheme, masterPort))
 	if err != nil {
-		log.Fatalf("Failed to create starter URL: %#v", err)
+		log.Fatal().Err(err).Msg("Failed to create starter URL")
 	}
 	client, err := client.NewArangoStarterClient(*starterURL)
 	if err != nil {
-		log.Fatalf("Failed to create starter client: %#v", err)
+		log.Fatal().Err(err).Msg("Failed to create starter client")
 	}
 
 	// Wait for detached starter to be alive
-	log.Info("Waiting for starter API to be available...")
+	log.Info().Msg("Waiting for starter API to be available...")
 	rootCtx := context.Background()
 	for {
 		ctx, cancel := context.WithTimeout(rootCtx, time.Second)
@@ -126,7 +126,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 
 	// Wait until all servers ready (if needed)
 	if waitForServers {
-		log.Info("Waiting for database instances to be available...")
+		log.Info().Msg("Waiting for database instances to be available...")
 		for {
 			var err error
 			ctx, cancel := context.WithTimeout(rootCtx, time.Second)
@@ -150,6 +150,6 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 			}
 			time.Sleep(time.Millisecond * 100)
 		}
-		log.Info("Database instances are available.")
+		log.Info().Msg("Database instances are available.")
 	}
 }

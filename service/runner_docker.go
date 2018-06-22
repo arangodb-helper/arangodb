@@ -35,8 +35,8 @@ import (
 	"time"
 
 	docker "github.com/fsouza/go-dockerclient"
-	logging "github.com/op/go-logging"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -48,7 +48,7 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
-func NewDockerRunner(log *logging.Logger, endpoint, arangodImage, arangoSyncImage string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
+func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
 	networkMode string, privileged, tty bool) (Runner, error) {
 	client, err := docker.NewClient(endpoint)
 	if err != nil {
@@ -72,7 +72,7 @@ func NewDockerRunner(log *logging.Logger, endpoint, arangodImage, arangoSyncImag
 
 // dockerRunner implements a Runner that starts processes in a docker container.
 type dockerRunner struct {
-	log             *logging.Logger
+	log             zerolog.Logger
 	client          *docker.Client
 	arangodImage    string
 	arangoSyncImage string
@@ -176,12 +176,12 @@ func (r *dockerRunner) Start(ctx context.Context, processType ProcessType, comma
 	var result Process
 	op := func() error {
 		// Make sure the container is really gone
-		r.log.Debugf("Removing container '%s' (if it exists)", containerName)
+		r.log.Debug().Msgf("Removing container '%s' (if it exists)", containerName)
 		if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
 			ID:    containerName,
 			Force: true,
 		}); err != nil && !isNoSuchContainer(err) {
-			r.log.Errorf("Failed to remove container '%s': %v", containerName, err)
+			r.log.Error().Err(err).Msgf("Failed to remove container '%s'", containerName)
 		}
 		// Try starting it now
 		p, err := r.start(image, command, args, volumes, ports, containerName, serverDir)
@@ -251,22 +251,22 @@ func (r *dockerRunner) start(image string, command string, args []string, volume
 			}
 		}
 	}
-	r.log.Debugf("Creating container %s", containerName)
+	r.log.Debug().Msgf("Creating container %s", containerName)
 	c, err := r.client.CreateContainer(opts)
 	if err != nil {
-		r.log.Errorf("Creating container failed: %s %#v", err, opts)
+		r.log.Error().Err(err).Interface("options", opts).Msg("Creating container failed")
 		return nil, maskAny(err)
 	}
 	r.recordContainerID(c.ID) // Record ID so we can clean it up later
-	r.log.Debugf("Starting container %s", containerName)
+	r.log.Debug().Msgf("Starting container %s", containerName)
 	if err := r.client.StartContainer(c.ID, opts.HostConfig); err != nil {
 		return nil, maskAny(err)
 	}
-	r.log.Debugf("Started container %s", containerName)
+	r.log.Debug().Msgf("Started container %s", containerName)
 	// Write container ID to disk
 	containerFilePath := filepath.Join(serverDir, containerFileName)
 	if err := ioutil.WriteFile(containerFilePath, []byte(c.ID), 0755); err != nil {
-		r.log.Errorf("Failed to store container ID in '%s': %v", containerFilePath, err)
+		r.log.Error().Err(err).Msgf("Failed to store container ID in '%s'", containerFilePath)
 	}
 	// Inspect container to make sure we have the latest info
 	c, err = r.client.InspectContainer(c.ID)
@@ -307,7 +307,7 @@ func (r *dockerRunner) pullImage(ctx context.Context, image string) error {
 	repo, tag := docker.ParseRepositoryTag(image)
 
 	op := func() error {
-		r.log.Debugf("Pulling image %s:%s", repo, tag)
+		r.log.Debug().Msgf("Pulling image %s:%s", repo, tag)
 		if err := r.client.PullImage(docker.PullImageOptions{
 			Repository: repo,
 			Tag:        tag,
@@ -356,13 +356,13 @@ func (r *dockerRunner) Cleanup() error {
 	defer r.mutex.Unlock()
 
 	for id := range r.containerIDs {
-		r.log.Infof("Removing container %s", id)
+		r.log.Info().Msgf("Removing container %s", id)
 		if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
 			ID:            id,
 			Force:         true,
 			RemoveVolumes: true,
 		}); err != nil && !isNoSuchContainer(err) {
-			r.log.Warningf("Failed to remove container %s: %#v", id, err)
+			r.log.Warn().Err(err).Msgf("Failed to remove container %s: %#v", id)
 		}
 	}
 	r.containerIDs = make(map[string]time.Time)
@@ -415,16 +415,16 @@ func (r *dockerRunner) gc() {
 					// container no longer exists
 					r.unrecordContainerID(id)
 				} else {
-					r.log.Warningf("Failed to inspect container %s: %#v", id, err)
+					r.log.Warn().Err(err).Msgf("Failed to inspect container %s", id)
 				}
 			} else if canGC(c) {
 				// Container is dead for more than 10 minutes, gc it.
-				r.log.Infof("Removing old container %s", id)
+				r.log.Info().Msgf("Removing old container %s", id)
 				if err := r.client.RemoveContainer(docker.RemoveContainerOptions{
 					ID:            id,
 					RemoveVolumes: true,
 				}); err != nil {
-					r.log.Warningf("Failed to remove container %s: %#v", id, err)
+					r.log.Warn().Err(err).Msgf("Failed to remove container %s", id)
 				} else {
 					// Remove succeeded
 					r.unrecordContainerID(id)

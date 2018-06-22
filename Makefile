@@ -23,6 +23,7 @@ ifndef BUILDDIR
 endif
 GOBUILDDIR := $(BUILDDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
+CACHEVOL := $(PROJECT)-gocache
 BINDIR := $(BUILDDIR)/bin
 
 ORGPATH := github.com/arangodb-helper
@@ -32,7 +33,7 @@ REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.10.1-alpine
+GOVERSION := 1.10.3-alpine
 
 ifndef GOOS
 	GOOS := linux
@@ -96,20 +97,29 @@ deps:
 
 $(GOBUILDDIR):
 	@mkdir -p $(ORGDIR)
+	@mkdir -p $(GOBUILDDIR)/src/golang.org
 	@rm -f $(REPODIR) && ln -s $(GOBUILDLINKTARGET) $(REPODIR)
 	@rm -f $(GOBUILDDIR)/src/github.com/aktau && ln -s ../../../vendor/github.com/aktau $(GOBUILDDIR)/src/github.com/aktau
 	@rm -f $(GOBUILDDIR)/src/github.com/arangodb && ln -s ../../../vendor/github.com/arangodb $(GOBUILDDIR)/src/github.com/arangodb
 	@rm -f $(GOBUILDDIR)/src/github.com/dchest && ln -s ../../../vendor/github.com/dchest $(GOBUILDDIR)/src/github.com/dchest
 	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../vendor/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
 	@rm -f $(GOBUILDDIR)/src/github.com/kballard && ln -s ../../../vendor/github.com/kballard $(GOBUILDDIR)/src/github.com/kballard
+	@rm -f $(GOBUILDDIR)/src/github.com/rs && ln -s ../../../vendor/github.com/rs $(GOBUILDDIR)/src/github.com/rs
 	@rm -f $(GOBUILDDIR)/src/github.com/shavac && ln -s ../../../vendor/github.com/shavac $(GOBUILDDIR)/src/github.com/shavac
 	@rm -f $(GOBUILDDIR)/src/github.com/voxelbrain && ln -s ../../../vendor/github.com/voxelbrain $(GOBUILDDIR)/src/github.com/voxelbrain
+	@rm -f $(GOBUILDDIR)/src/golang.org/x && ln -s ../../../vendor/golang.org/x $(GOBUILDDIR)/src/golang.org/x
 
-$(BIN): $(GOBUILDDIR) $(SOURCES)
+.PHONY: $(CACHEVOL)
+$(CACHEVOL):
+	@docker volume create $(CACHEVOL)
+
+$(BIN): $(GOBUILDDIR) $(SOURCES) $(CACHEVOL)
 	@mkdir -p $(BINDIR)
 	docker run \
 		--rm \
 		-v $(SRCDIR):/usr/code \
+		-v $(CACHEVOL):/usr/gocache \
+		-e GOCACHE=/usr/gocache \
 		-e GOPATH=/usr/code/.gobuild \
 		-e GOOS=$(GOOS) \
 		-e GOARCH=$(GOARCH) \
