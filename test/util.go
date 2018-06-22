@@ -144,12 +144,14 @@ type waitUntilReadyResult struct {
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
 func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, starters ...*SubProcess) bool {
 	results := make(chan waitUntilReadyResult, len(starters))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for index, starter := range starters {
 		starter := starter // Used in nested function
 		id := fmt.Sprintf("starter-%d", index+1)
 		go func() {
 			started := time.Now()
-			if err := starter.ExpectTimeout(time.Minute*2, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
+			if err := starter.ExpectTimeout(ctx, time.Minute*2, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
 				timeSpan := time.Since(started)
 				results <- waitUntilReadyResult{
 					Ready:    false,

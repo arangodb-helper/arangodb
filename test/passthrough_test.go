@@ -23,6 +23,7 @@
 package test
 
 import (
+	"context"
 	"os"
 	"regexp"
 	"testing"
@@ -39,7 +40,8 @@ func TestPassthroughConflict(t *testing.T) {
 	defer child.Close()
 
 	expr := regexp.MustCompile("is essential to the starters behavior and cannot be overwritten")
-	if err := child.ExpectTimeout(time.Second*15, expr, "starter-passthrough"); err != nil {
+	ctx := context.Background()
+	if err := child.ExpectTimeout(ctx, time.Second*15, expr, "starter-passthrough"); err != nil {
 		t.Errorf("Expected errors message, got %#v", err)
 	}
 }
