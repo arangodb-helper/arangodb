@@ -22,21 +22,51 @@
 
 package protocol
 
-import "sort"
+import (
+	"sort"
+	"sync"
+	"sync/atomic"
+)
 
 // Message is what is send back to the client in response to a request.
 type Message struct {
 	ID   uint64
 	Data []byte
 
-	chunks         []chunk
-	numberOfChunks uint32
-	response       chan Message
+	chunksMutex        sync.Mutex
+	chunks             []chunk
+	numberOfChunks     uint32
+	responseChanClosed int32
+	responseChan       chan Message
+}
+
+// closes the response channel if needed.
+func (m *Message) closeResponseChan() {
+	if atomic.CompareAndSwapInt32(&m.responseChanClosed, 0, 1) {
+		if ch := m.responseChan; ch != nil {
+			m.responseChan = nil
+			close(ch)
+		}
+	}
+}
+
+// notifyListener pushes itself onto its response channel and closes the response channel afterwards.
+func (m *Message) notifyListener() {
+	if atomic.CompareAndSwapInt32(&m.responseChanClosed, 0, 1) {
+		if ch := m.responseChan; ch != nil {
+			m.responseChan = nil
+			ch <- *m
+			close(ch)
+		}
+	}
 }
 
 // addChunk adds the given chunks to the list of chunks of the message.
 // If the given chunk is the first chunk, the expected number of chunks is recorded.
 func (m *Message) addChunk(c chunk) {
+	m.chunksMutex.Lock()
+	defer m.chunksMutex.Unlock()
+
 	m.chunks = append(m.chunks, c)
 	if c.IsFirst() {
 		m.numberOfChunks = c.NumberOfChunks()
@@ -48,6 +78,9 @@ func (m *Message) addChunk(c chunk) {
 // is returned.
 // If all chunks are available, the Data field is build and set and true is returned.
 func (m *Message) assemble() bool {
+	m.chunksMutex.Lock()
+	defer m.chunksMutex.Unlock()
+
 	if m.Data != nil {
 		// Already assembled
 		return true

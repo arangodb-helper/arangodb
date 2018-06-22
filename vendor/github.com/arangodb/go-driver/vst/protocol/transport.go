@@ -26,6 +26,7 @@ import (
 	"context"
 	"crypto/tls"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	driver "github.com/arangodb/go-driver"
@@ -33,6 +34,7 @@ import (
 
 const (
 	DefaultIdleConnTimeout = time.Minute
+	DefaultConnLimit       = 3
 )
 
 // TransportConfig contains configuration options for Transport.
@@ -42,6 +44,11 @@ type TransportConfig struct {
 	// itself.
 	// Zero means no limit.
 	IdleConnTimeout time.Duration
+
+	// ConnLimit is the upper limit to the number of connections to a single server.
+	// Due to the nature of the VST protocol, this value does not have to be high.
+	// The default is 3 (DefaultConnLimit).
+	ConnLimit int
 
 	// Version specifies the version of the Velocystream protocol
 	Version Version
@@ -62,6 +69,9 @@ type Transport struct {
 func NewTransport(hostAddr string, tlsConfig *tls.Config, config TransportConfig) *Transport {
 	if config.IdleConnTimeout == 0 {
 		config.IdleConnTimeout = DefaultIdleConnTimeout
+	}
+	if config.ConnLimit == 0 {
+		config.ConnLimit = DefaultConnLimit
 	}
 	return &Transport{
 		TransportConfig: config,
@@ -91,13 +101,16 @@ func (c *Transport) CloseIdleConnections() (closed, remaining int) {
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
 
-	for i, conn := range c.connections {
+	for i := 0; i < len(c.connections); {
+		conn := c.connections[i]
 		if conn.IsClosed() || conn.IsIdle(c.IdleConnTimeout) {
 			// Remove connection from list
 			c.connections = append(c.connections[:i], c.connections[i+1:]...)
 			// Close connection
 			go conn.Close()
 			closed++
+		} else {
+			i++
 		}
 	}
 
@@ -141,9 +154,13 @@ func (c *Transport) getConnection(ctx context.Context) (*Connection, error) {
 	// Invoke callback
 	if cb := c.onConnectionCreated; cb != nil {
 		if err := cb(ctx, conn); err != nil {
+			conn.Close()
 			return nil, driver.WithStack(err)
 		}
 	}
+
+	// Mark the connection as ready
+	atomic.StoreInt32(&conn.configured, 1)
 
 	return conn, nil
 }
@@ -154,15 +171,36 @@ func (c *Transport) getAvailableConnection() *Connection {
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
 
+	// Select the connection with the least amount of traffic
+	var bestConn *Connection
+	bestConnLoad := 0
+	activeConnCount := 0
 	for _, conn := range c.connections {
 		if !conn.IsClosed() {
-			conn.updateLastActivity()
-			return conn
+			activeConnCount++
+			if conn.IsConfigured() {
+				connLoad := conn.load()
+				if bestConn == nil || connLoad < bestConnLoad {
+					bestConn = conn
+					bestConnLoad = connLoad
+				}
+			}
 		}
 	}
 
-	// No connections available
-	return nil
+	if bestConn == nil {
+		// No connections available
+		return nil
+	}
+
+	// Is load is >0 AND the number of connections is below the limit, create a new one
+	if bestConnLoad > 0 && activeConnCount < c.ConnLimit {
+		return nil
+	}
+
+	// Use the best connection found
+	bestConn.updateLastActivity()
+	return bestConn
 }
 
 // createConnection creates a new connection.

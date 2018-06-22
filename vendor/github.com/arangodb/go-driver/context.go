@@ -56,6 +56,7 @@ const (
 	keyFollowLeaderRedirect     ContextKey = "arangodb-followLeaderRedirect"
 	keyDBServerID               ContextKey = "arangodb-dbserverID"
 	keyBatchID                  ContextKey = "arangodb-batchID"
+	keyJobIDResponse            ContextKey = "arangodb-jobIDResponse"
 )
 
 // WithRevision is used to configure a context to make document
@@ -213,6 +214,13 @@ func WithBatchID(parent context.Context, id string) context.Context {
 	return context.WithValue(contextOrBackground(parent), keyBatchID, id)
 }
 
+// WithJobIDResponse is used to configure a context that includes a reference to a JobID
+// that is filled on a error-free response.
+// This is used in cluster functions.
+func WithJobIDResponse(parent context.Context, jobID *string) context.Context {
+	return context.WithValue(contextOrBackground(parent), keyJobIDResponse, jobID)
+}
+
 type contextSettings struct {
 	Silent                   bool
 	WaitForSync              bool
@@ -229,6 +237,7 @@ type contextSettings struct {
 	FollowLeaderRedirect     *bool
 	DBServerID               string
 	BatchID                  string
+	JobIDResponse            *string
 }
 
 // applyContextSettings returns the settings configured in the context in the given request.
@@ -356,17 +365,13 @@ func applyContextSettings(ctx context.Context, req Request) contextSettings {
 			result.BatchID = id
 		}
 	}
-	return result
-}
-
-// okStatus returns one of the given status codes depending on the WaitForSync field value.
-// If WaitForSync==true, statusWithWaitForSync is returned, otherwise statusWithoutWaitForSync is returned.
-func (cs contextSettings) okStatus(statusWithWaitForSync, statusWithoutWaitForSync int) int {
-	if cs.WaitForSync {
-		return statusWithWaitForSync
-	} else {
-		return statusWithoutWaitForSync
+	// JobIDResponse
+	if v := ctx.Value(keyJobIDResponse); v != nil {
+		if idRef, ok := v.(*string); ok {
+			result.JobIDResponse = idRef
+		}
 	}
+	return result
 }
 
 // contextOrBackground returns the given context if it is not nil.
