@@ -3,7 +3,7 @@
 ## What does the Starter do
 
 The ArangoDB Starter is a program used to create ArangoDB database deployments
-on bare-metal (or virtual machines) with easy.
+on bare-metal (or virtual machines) with ease.
 It enables you to create everything from a simple Single server instance
 to a full blown Cluster with datacenter to datacenter replication in under 5 minutes.
 
@@ -22,7 +22,7 @@ For example, the Starter with version `0.11.2` can be used to create
 ArangoDB deployments with ArangoDB version `3.2.<something>` as well
 as deployments with ArangoDB version `3.3.<something>`.
 
-It also means that you can update the Starter independent from the ArangoDB
+It also means that you can update the Starter independently from the ArangoDB
 database.
 
 Note that the Starter is also included in all binary ArangoDB packages.
@@ -44,7 +44,7 @@ The Starter supports 3 different modes of ArangoDB deployments:
 1. Active failover
 1. Cluster
 
-Note: Datacenter replication is an option for the the `cluster` deployment mode.
+Note: Datacenter replication is an option for the `cluster` deployment mode.
 
 You select one of these modes using the `--starter.mode` command line option.
 
@@ -59,7 +59,7 @@ a common directory structure for storing the servers data, configuration & log f
 The Starter can run as normal processes directly on the host operating system,
 or as containers in a docker runtime.
 
-When running as normal process directly on the host operatoring system,
+When running as normal process directly on the host operating system,
 the Starter launches the servers as child processes and monitors those.
 If one of the server processes terminates, a new one is started automatically.
 
@@ -70,7 +70,7 @@ and if one terminates, a new container is launched automatically.
 
 ## Starter data-directory
 
-The Starters use a single directory with a well known structure to store
+The Starter uses a single directory with a well known structure to store
 all data for its own configuration & logs, as well as the configuration,
 data & logs of all servers it starts.
 
@@ -103,7 +103,7 @@ The minimum number of Starters needed is 3.
 The Starters running on those machines need to know about each others existence.
 In order to do so, the Starters form a "cluster" of their own (not to be confused
 with the ArangoDB database cluster).
-This cluster of Starters is form from the values given to the `--starter.join`
+This cluster of Starters is formed from the values given to the `--starter.join`
 command line option. You should pass the addresses (`<host>:<port>`) of all Starters.
 
 For example a typical commandline for a cluster deployment looks like this:
@@ -138,8 +138,8 @@ from scratch.
    is aborted and all Starters go directly to the `running` phase described below.
 1. All Starters create a unique ID
 1. The list of `--starter.join` arguments is sorted
-1. All Starters compare their unique ID with the ID their request from the first server
-   in the sorter `--starter.join` list.
+1. All Starters request the unique ID from the first server in the sorted `--starter.join` list,
+   and compares the result with its own unique ID.
 1. The Starter that finds its own unique ID, is continuing as `bootstrap master`
    the other Starters are continuing as `bootstrap slaves`.
 1. The `bootstrap master` waits for at least 2 `bootstrap slaves` to join it.
@@ -149,9 +149,9 @@ from scratch.
 1. The `bootstrap slaves` keep asking the `bootstrap master` about its state.
    As soon as they receive confirmation to do so, they also continue with the `running` phase.
 
-In the `running` all Starters launch the desired servers and keeps monitoring those
+In the `running` phase all Starters launch the desired servers and keeps monitoring those
 servers. Once a functional agency is detected, all Starters will try to be
-`running master` by trying to write their ID in a well know location in the agency.
+`running master` by trying to write their ID in a well known location in the agency.
 The first Starter to succeed in doing so wins this master election.
 
 The `running master` will keep writing its ID in the agency in order to remaining
