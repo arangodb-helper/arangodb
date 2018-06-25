@@ -1,3 +1,15 @@
+# Changes from version 0.11.3 to 0.12.0
+
+- Starter now writes it log output to file, unless you set the `--log.file` option to `false`.
+  In this change, a new logging component is used, that results in some changes in the
+  way the log messages appear in the log output. Also coloring of the logs has been slightly
+  changed.
+  Other new command line options are `--log.console=<bool>` to enable/disable logging
+  to the standard output and `--log.color=<bool>` to enable/disable coloring
+  log output. By default log output is using color when there is a terminal attached
+  to the standard input of the process and the OS is not Windows.
+- Fixed `arangodb start` command. (#112)
+
 # Changes from version 0.11.2 to 0.11.3
 
 - Solved problem with agency supervision mode in database auto-upgrade API.
