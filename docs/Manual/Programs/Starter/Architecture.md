@@ -93,14 +93,14 @@ It contains the following files & sub-directories.
 For the `activefailover` & `cluster` mode, it is required to run multiple
 Starters, as every Starter will only launch a subset of all servers needed
 to form the entire deployment.
-For example in `cluster` mode, a Starter will launch a single agents, a single dbserver
+For example in `cluster` mode, a Starter will launch a single agent, a single dbserver
 and a single coordinator.
 
 It is the responsibility of the user to run the Starter on multiple machines such
 that enough servers are started to form the entire deployment.
 The minimum number of Starters needed is 3.
 
-The Starters running on those machines need to know about each others existence.
+The Starters running on those machines need to know about each other's existence.
 In order to do so, the Starters form a "cluster" of their own (not to be confused
 with the ArangoDB database cluster).
 This cluster of Starters is formed from the values given to the `--starter.join`
