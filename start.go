@@ -24,10 +24,12 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/arangodb-helper/arangodb/client"
@@ -76,11 +78,26 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 				// Do not pass these along
 			default:
 				a := "--" + f.Name
-				value := f.Value.String()
-				if value != "" {
-					a = a + "=" + value
+				switch f.Value.Type() {
+				case "stringSlice":
+					values, err := parseStringSlice(f.Value.String())
+					if err != nil {
+						log.Fatal().Err(err).
+							Str("option", f.Name).
+							Str("argument", f.Value.String()).
+							Msg("Failed to parse string-slice argument")
+					} else {
+						for _, elem := range values {
+							childArgs = append(childArgs, a+"="+elem)
+						}
+					}
+				default:
+					value := f.Value.String()
+					if value != "" {
+						a = a + "=" + value
+					}
+					childArgs = append(childArgs, a)
 				}
-				childArgs = append(childArgs, a)
 			}
 		}
 	})
@@ -152,4 +169,14 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 		}
 		log.Info().Msg("Database instances are available.")
 	}
+}
+
+func parseStringSlice(val string) ([]string, error) {
+	if val == "" {
+		return nil, nil
+	}
+	val = val[1 : len(val)-1] // Trim of '[..]'
+	stringReader := strings.NewReader(val)
+	csvReader := csv.NewReader(stringReader)
+	return csvReader.Read()
 }
