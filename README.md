@@ -122,4 +122,4 @@ map the port they use to the exact same host port.
 ## Feedback
 
 Feedback is very welcome in the form of github issues, pull requests
-or an email to `support@arangodb.com`.
+or an email to `hackers@arangodb.com`.
