@@ -28,12 +28,16 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-// addJwtHeader calculates a JWT authorization header based on the given secret
-// and adds it to the given request.
-// If the secret is empty, nothing is done.
-func addJwtHeader(req *http.Request, jwtSecret string) error {
+const (
+	AuthorizationHeader = "Authorization"
+	BearerPrefix        = "bearer "
+)
+
+// CreateJwtToken calculates a JWT authorization token based on the given secret.
+// If the secret is empty, an empty token is returned.
+func CreateJwtToken(jwtSecret string) (string, error) {
 	if jwtSecret == "" {
-		return nil
+		return "", nil
 	}
 	// Create a new token object, specifying signing method and the claims
 	// you would like it to contain.
@@ -45,10 +49,25 @@ func addJwtHeader(req *http.Request, jwtSecret string) error {
 	// Sign and get the complete encoded token as a string using the secret
 	signedToken, err := token.SignedString([]byte(jwtSecret))
 	if err != nil {
+		return "", maskAny(err)
+	}
+
+	return signedToken, nil
+}
+
+// addJwtHeader calculates a JWT authorization header based on the given secret
+// and adds it to the given request.
+// If the secret is empty, nothing is done.
+func addJwtHeader(req *http.Request, jwtSecret string) error {
+	if jwtSecret == "" {
+		return nil
+	}
+	signedToken, err := CreateJwtToken(jwtSecret)
+	if err != nil {
 		return maskAny(err)
 	}
 
-	req.Header.Set("Authorization", "bearer "+signedToken)
+	req.Header.Set(AuthorizationHeader, BearerPrefix+signedToken)
 	return nil
 }
 
@@ -60,6 +79,6 @@ func addBearerTokenHeader(req *http.Request, bearerToken string) error {
 		return nil
 	}
 
-	req.Header.Set("Authorization", "bearer "+bearerToken)
+	req.Header.Set(AuthorizationHeader, BearerPrefix+bearerToken)
 	return nil
 }
