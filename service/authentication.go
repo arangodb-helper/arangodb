@@ -35,16 +35,20 @@ const (
 
 // CreateJwtToken calculates a JWT authorization token based on the given secret.
 // If the secret is empty, an empty token is returned.
-func CreateJwtToken(jwtSecret string) (string, error) {
+func CreateJwtToken(jwtSecret, user string) (string, error) {
 	if jwtSecret == "" {
 		return "", nil
 	}
 	// Create a new token object, specifying signing method and the claims
 	// you would like it to contain.
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+	claims := jwt.MapClaims{
 		"iss":       "arangodb",
 		"server_id": "foo",
-	})
+	}
+	if user != "" {
+		claims["preferred_username"] = user
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
 	// Sign and get the complete encoded token as a string using the secret
 	signedToken, err := token.SignedString([]byte(jwtSecret))
@@ -62,7 +66,7 @@ func addJwtHeader(req *http.Request, jwtSecret string) error {
 	if jwtSecret == "" {
 		return nil
 	}
-	signedToken, err := CreateJwtToken(jwtSecret)
+	signedToken, err := CreateJwtToken(jwtSecret, "")
 	if err != nil {
 		return maskAny(err)
 	}

@@ -50,6 +50,7 @@ var (
 	}
 	authOptions struct {
 		jwtSecretFile string
+		user          string
 	}
 )
 
@@ -60,6 +61,7 @@ func init() {
 
 	pf := cmdAuth.PersistentFlags()
 	pf.StringVar(&authOptions.jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
+	pf.StringVar(&authOptions.user, "auth.user", "", "name of a user to authenticate as. If empty, 'super-user' authentication is used")
 }
 
 // mustAuthCreateJWTToken creates a the JWT token based on authentication options.
@@ -75,7 +77,7 @@ func mustAuthCreateJWTToken() string {
 		log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", authOptions.jwtSecretFile)
 	}
 	jwtSecret := strings.TrimSpace(string(content))
-	token, err := service.CreateJwtToken(jwtSecret)
+	token, err := service.CreateJwtToken(jwtSecret, authOptions.user)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create JWT token")
 	}
