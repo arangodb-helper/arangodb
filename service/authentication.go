@@ -28,6 +28,37 @@ import (
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
+const (
+	AuthorizationHeader = "Authorization"
+	BearerPrefix        = "bearer "
+)
+
+// CreateJwtToken calculates a JWT authorization token based on the given secret.
+// If the secret is empty, an empty token is returned.
+func CreateJwtToken(jwtSecret, user string) (string, error) {
+	if jwtSecret == "" {
+		return "", nil
+	}
+	// Create a new token object, specifying signing method and the claims
+	// you would like it to contain.
+	claims := jwt.MapClaims{
+		"iss":       "arangodb",
+		"server_id": "foo",
+	}
+	if user != "" {
+		claims["preferred_username"] = user
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	// Sign and get the complete encoded token as a string using the secret
+	signedToken, err := token.SignedString([]byte(jwtSecret))
+	if err != nil {
+		return "", maskAny(err)
+	}
+
+	return signedToken, nil
+}
+
 // addJwtHeader calculates a JWT authorization header based on the given secret
 // and adds it to the given request.
 // If the secret is empty, nothing is done.
@@ -35,20 +66,12 @@ func addJwtHeader(req *http.Request, jwtSecret string) error {
 	if jwtSecret == "" {
 		return nil
 	}
-	// Create a new token object, specifying signing method and the claims
-	// you would like it to contain.
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"iss":       "arangodb",
-		"server_id": "foo",
-	})
-
-	// Sign and get the complete encoded token as a string using the secret
-	signedToken, err := token.SignedString([]byte(jwtSecret))
+	signedToken, err := CreateJwtToken(jwtSecret, "")
 	if err != nil {
 		return maskAny(err)
 	}
 
-	req.Header.Set("Authorization", "bearer "+signedToken)
+	req.Header.Set(AuthorizationHeader, BearerPrefix+signedToken)
 	return nil
 }
 
@@ -60,6 +83,6 @@ func addBearerTokenHeader(req *http.Request, bearerToken string) error {
 		return nil
 	}
 
-	req.Header.Set("Authorization", "bearer "+bearerToken)
+	req.Header.Set(AuthorizationHeader, BearerPrefix+bearerToken)
 	return nil
 }
