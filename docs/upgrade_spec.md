@@ -71,6 +71,14 @@ a JSON object with the following fields:
 - `servers_remaining` an array containing objects describing the servers that
   have not yet been upgraded.
 
+The objects contained in the `servers_upgraded` & `servers_remaining` arrays
+have the following fields:
+
+- `type` a string indicating the type of server
+  (`agent|dbserver|coordinator|single|syncmaster|syncworker`)
+- `port` an integer containing the port number that the server is listening on.
+- `address` a string container hostname or IP address of the server.
+
 ## Failures
 
 If the upgrade procedure of one of the servers fails (for whatever reason),
