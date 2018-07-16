@@ -174,6 +174,55 @@ func (c *client) Shutdown(ctx context.Context, goodbye bool) error {
 	return nil
 }
 
+// StartDatabaseUpgrade is called to start the upgrade process
+func (c *client) StartDatabaseUpgrade(ctx context.Context, force bool) error {
+	q := url.Values{}
+	if force {
+		q.Set("force", "true")
+	}
+	url := c.createURL("/database-auto-upgrade", q)
+
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := c.handleResponse(resp, "POST", url, nil); err != nil {
+		return maskAny(err)
+	}
+
+	return nil
+}
+
+// Status returns the status of any upgrade plan
+func (c *client) UpgradeStatus(ctx context.Context) (UpgradeStatus, error) {
+	url := c.createURL("/database-auto-upgrade", nil)
+
+	var result UpgradeStatus
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return UpgradeStatus{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return UpgradeStatus{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return UpgradeStatus{}, maskAny(err)
+	}
+
+	return result, nil
+}
+
 // handleResponse checks the given response status and decodes any JSON result.
 func (c *client) handleResponse(resp *http.Response, method, url string, result interface{}) error {
 	// Read response body into memory

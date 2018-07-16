@@ -555,17 +555,72 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 
 // databaseAutoUpgradeHandler initiates an upgrade of the database version.
 func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+	// IsRunningMaster returns if the starter is the running master.
+	isRunningMaster, isRunning, masterURL := s.context.IsRunningMaster()
+
+	if !isRunning {
+		// We must have reached the running state before we can handle this kind of request
+		writeError(w, http.StatusBadRequest, "Must be in running state to do upgrades")
 		return
 	}
 
-	// Start the upgrade process
-	if err := s.context.UpgradeManager().StartDatabaseUpgrade(); err != nil {
-		handleError(w, err)
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+	createMasterClient := func() (client.API, error) {
+		if masterURL == "" {
+			return nil, maskAny(fmt.Errorf("Starter master is not known"))
+		}
+		ep, err := url.Parse(masterURL)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		c, err := client.NewArangoStarterClient(*ep)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		return c, nil
+	}
+
+	ctx := r.Context()
+	switch r.Method {
+	case "POST":
+		// Start the upgrade process
+		force, _ := strconv.ParseBool(r.FormValue("force"))
+
+		if !isRunningMaster {
+			// We're not the starter leader.
+			// Forward the request to the leader.
+			c, err := createMasterClient()
+			if err != nil {
+				handleError(w, err)
+			} else {
+				if err := c.StartDatabaseUpgrade(ctx, force); err != nil {
+					handleError(w, err)
+				} else {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte("OK"))
+				}
+			}
+		} else {
+			// We're the starter leader, process the request
+			if err := s.context.UpgradeManager().StartDatabaseUpgrade(ctx, force); err != nil {
+				handleError(w, err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			}
+		}
+	case "GET":
+		if status, err := s.context.UpgradeManager().Status(ctx); err != nil {
+			handleError(w, err)
+		} else {
+			b, err := json.Marshal(status)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+			} else {
+				w.Write(b)
+			}
+		}
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 

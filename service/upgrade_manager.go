@@ -25,12 +25,15 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/client"
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
 )
@@ -38,7 +41,10 @@ import (
 // UpgradeManager is the API of a service used to control the upgrade process from 1 database version to the next.
 type UpgradeManager interface {
 	// StartDatabaseUpgrade is called to start the upgrade process
-	StartDatabaseUpgrade() error
+	StartDatabaseUpgrade(ctx context.Context, force bool) error
+
+	// Status returns the status of any upgrade plan
+	Status(context.Context) (client.UpgradeStatus, error)
 
 	// IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
 	IsServerUpgradeInProgress(serverType ServerType) bool
@@ -48,6 +54,9 @@ type UpgradeManager interface {
 
 	// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been be started with --database.auto-upgrade
 	ServerDatabaseAutoUpgradeStarter(serverType ServerType)
+
+	// RunWatchUpgradePlan keeps watching the upgrade plan until the given context is canceled.
+	RunWatchUpgradePlan(context.Context)
 }
 
 // UpgradeManagerContext holds methods used by the upgrade manager to control its context.
@@ -58,6 +67,8 @@ type UpgradeManagerContext interface {
 	CreateClient(endpoints []string, connectionType ConnectionType) (driver.Client, error)
 	// RestartServer triggers a restart of the server of the given type.
 	RestartServer(serverType ServerType) error
+	// IsRunningMaster returns if the starter is the running master.
+	IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string)
 }
 
 // NewUpgradeManager creates a new upgrade manager.
@@ -70,6 +81,7 @@ func NewUpgradeManager(log zerolog.Logger, upgradeManagerContext UpgradeManagerC
 
 var (
 	upgradeManagerLockKey     = []string{"arangodb-helper", "arangodb", "upgrade-manager"}
+	upgradePlanKey            = []string{"arangodb-helper", "arangodb", "upgrade-plan"}
 	superVisionMaintenanceKey = []string{"arango", "Supervision", "Maintenance"}
 	superVisionStateKey       = []string{"arango", "Supervision", "State"}
 )
@@ -81,6 +93,92 @@ const (
 	superVisionStateNormal      = "Normal"
 )
 
+// UpgradePlan is the JSON structure that describes a plan to upgrade
+// a deployment to a new version.
+type UpgradePlan struct {
+	CreatedAt       time.Time          `json:"created_at"`
+	LastModifiedAt  time.Time          `json:"last_modified_at"`
+	Entries         []UpgradePlanEntry `json:"entries"`
+	FinishedEntries []UpgradePlanEntry `json:"finished_entries"`
+}
+
+// IsReady returns true when all entries have finished.
+func (p UpgradePlan) IsReady() bool {
+	return len(p.Entries) == 0
+}
+
+// IsFailed returns true when one of the entries has failures.
+func (p UpgradePlan) IsFailed() bool {
+	for _, e := range p.Entries {
+		if e.Failures > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// UpgradeEntryType is a strongly typed upgrade plan item
+type UpgradeEntryType string
+
+const (
+	UpgradeEntryTypeAgent              = "agent"
+	UpgradeEntryTypeDBServer           = "dbserver"
+	UpgradeEntryTypeCoordinator        = "coordinator"
+	UpgradeEntryTypeSingle             = "single"
+	UpgradeEntryTypeSyncMaster         = "syncmaster"
+	UpgradeEntryTypeSyncWorker         = "syncworker"
+	UpgradeEntryTypeDisableSupervision = "disable-supervision"
+	UpgradeEntryTypeEnableSupervision  = "enable-supervision"
+)
+
+// UpgradePlanEntry is the JSON structure that describes a single entry
+// in an upgrade plan.
+type UpgradePlanEntry struct {
+	PeerID   string           `json:"peer_id"`
+	Type     UpgradeEntryType `json:"type"`
+	Failures int              `json:"failures,omitempty"`
+	Reason   string           `json:"reason,omitempty"`
+}
+
+// CreateStatusServer creates a UpgradeStatusServer for the given entry.
+// When the entry does not involve a specific server, nil is returned.
+func (e UpgradePlanEntry) CreateStatusServer(upgradeManagerContext UpgradeManagerContext) (*client.UpgradeStatusServer, error) {
+	config, _, mode := upgradeManagerContext.ClusterConfig()
+	var serverType ServerType
+	switch e.Type {
+	case UpgradeEntryTypeDisableSupervision, UpgradeEntryTypeEnableSupervision:
+		return nil, nil
+	case UpgradeEntryTypeAgent:
+		serverType = ServerTypeAgent
+	case UpgradeEntryTypeDBServer:
+		serverType = ServerTypeDBServer
+	case UpgradeEntryTypeCoordinator:
+		serverType = ServerTypeCoordinator
+	case UpgradeEntryTypeSingle:
+		if mode.IsActiveFailoverMode() {
+			serverType = ServerTypeResilientSingle
+		} else {
+			serverType = ServerTypeSingle
+		}
+	case UpgradeEntryTypeSyncMaster:
+		serverType = ServerTypeSyncMaster
+	case UpgradeEntryTypeSyncWorker:
+		serverType = ServerTypeSyncWorker
+	default:
+		return nil, maskAny(fmt.Errorf("Unknown entry type '%s'", e.Type))
+	}
+	peer, found := config.PeerByID(e.PeerID)
+	if !found {
+		return nil, maskAny(fmt.Errorf("Unknown entry peer ID '%s'", e.PeerID))
+	}
+	port := peer.Port + peer.PortOffset + ServerType(serverType).PortOffset()
+	return &client.UpgradeStatusServer{
+		Type:    client.ServerType(serverType),
+		Address: peer.Address,
+		Port:    port,
+	}, nil
+}
+
 // upgradeManager is a helper used to control the upgrade process from 1 database version to the next.
 type upgradeManager struct {
 	mutex                 sync.Mutex
@@ -91,39 +189,215 @@ type upgradeManager struct {
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
-func (m *upgradeManager) StartDatabaseUpgrade() error {
+func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	// Check the versions of all starters
+	if err := m.checkStarterVersions(ctx); err != nil {
+		return maskAny(err)
+	}
+
 	// Fetch mode
-	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
+	config, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
 
-	// Create lock (if needed)
-	ctx := context.Background()
-	var lock agency.Lock
-	if mode.HasAgency() {
-		m.log.Debug().Msg("Creating agency API")
-		api, err := m.createAgencyAPI()
-		if err != nil {
-			return maskAny(err)
-		}
-		m.log.Debug().Msg("Creating lock")
-		lock, err = agency.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
-		if err != nil {
-			return maskAny(err)
-		}
+	if !mode.HasAgency() {
+		// Run upgrade without agency
+		go m.runSingleServerUpgradeProcess(ctx, myPeer, mode)
+		return nil
+	}
 
-		// Claim the upgrade lock
-		m.log.Debug().Msg("Locking lock")
-		if err := lock.Lock(ctx); err != nil {
-			m.log.Debug().Err(err).Msg("Lock failed")
-			return maskAny(err)
+	// Run upgrade with agency.
+	// Create an agency lock, so we know we're the only one to create a plan.
+	m.log.Debug().Msg("Creating agency API")
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	m.log.Debug().Msg("Creating lock")
+	lock, err := agency.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	if err != nil {
+		return maskAny(err)
+	}
+
+	// Claim the upgrade lock
+	m.log.Debug().Msg("Locking lock")
+	if err := lock.Lock(ctx); err != nil {
+		m.log.Debug().Err(err).Msg("Lock failed")
+		return maskAny(err)
+	}
+
+	// Close agency lock when we're done
+	defer func() {
+		m.log.Debug().Msg("Unlocking lock")
+		lock.Unlock(context.Background())
+	}()
+
+	// Check existing plan
+	plan, err := m.readUpgradePlan(ctx)
+	if err != nil && !agency.IsKeyNotFound(err) {
+		// Failed to read upgrade plan
+		return errors.Wrapf(err, "Failed to read upgrade plan")
+	}
+
+	// Check plan status
+	if !plan.IsReady() && !force {
+		return errors.Wrap(client.BadRequestError, "Current upgrade plan has not finished yet")
+	}
+
+	// Create upgrade plan
+	m.log.Debug().Msg("Creating upgrade plan")
+	plan = UpgradePlan{
+		CreatedAt:      time.Now(),
+		LastModifiedAt: time.Now(),
+		Entries: []UpgradePlanEntry{
+			UpgradePlanEntry{
+				Type: UpgradeEntryTypeDisableSupervision,
+			},
+		},
+	}
+	// First add all agents
+	for _, p := range config.AllPeers {
+		if p.HasAgent() {
+			plan.Entries = append(plan.Entries, UpgradePlanEntry{
+				Type:   UpgradeEntryTypeAgent,
+				PeerID: p.ID,
+			})
+		}
+	}
+	// If active failover, add all singles
+	if mode.IsActiveFailoverMode() {
+		for _, p := range config.AllPeers {
+			if p.HasResilientSingle() {
+				plan.Entries = append(plan.Entries, UpgradePlanEntry{
+					Type:   UpgradeEntryTypeSingle,
+					PeerID: p.ID,
+				})
+			}
+		}
+	}
+	// If cluster...
+	if mode.IsClusterMode() {
+		// Add all dbservers
+		for _, p := range config.AllPeers {
+			if p.HasDBServer() {
+				plan.Entries = append(plan.Entries, UpgradePlanEntry{
+					Type:   UpgradeEntryTypeDBServer,
+					PeerID: p.ID,
+				})
+			}
+		}
+		// Add all coordinators
+		for _, p := range config.AllPeers {
+			if p.HasCoordinator() {
+				plan.Entries = append(plan.Entries, UpgradePlanEntry{
+					Type:   UpgradeEntryTypeCoordinator,
+					PeerID: p.ID,
+				})
+			}
+		}
+	}
+	// If sync ...
+	if mode.SupportsArangoSync() {
+		// Add all syncmasters
+		for _, p := range config.AllPeers {
+			if p.HasSyncMaster() {
+				plan.Entries = append(plan.Entries, UpgradePlanEntry{
+					Type:   UpgradeEntryTypeSyncMaster,
+					PeerID: p.ID,
+				})
+			}
+		}
+		// Add all syncworkers
+		for _, p := range config.AllPeers {
+			if p.HasSyncMaster() {
+				plan.Entries = append(plan.Entries, UpgradePlanEntry{
+					Type:   UpgradeEntryTypeSyncWorker,
+					PeerID: p.ID,
+				})
+			}
 		}
 	}
 
-	// Run the upgrade process
-	go m.runUpgradeProcess(ctx, myPeer, mode, lock)
+	// Save plan
+	m.log.Debug().Msg("Writing upgrade plan")
+	if err := m.writeUpgradePlan(ctx, plan); err != nil {
+		return errors.Wrap(err, "Failed to write upgrade plan")
+	}
 
+	// We're done
+	return nil
+}
+
+// Status returns the current status of the upgrade process.
+func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, error) {
+	plan, err := m.readUpgradePlan(ctx)
+	if agency.IsKeyNotFound(err) {
+		// No plan, return empty status
+		return client.UpgradeStatus{}, nil
+	} else if err != nil {
+		return client.UpgradeStatus{}, maskAny(err)
+	}
+	result := client.UpgradeStatus{
+		Ready:  plan.IsReady(),
+		Failed: plan.IsFailed(),
+	}
+	for _, entry := range plan.Entries {
+		if entry.Failures > 0 && result.Reason == "" {
+			result.Reason = entry.Reason
+		}
+		statusServer, err := entry.CreateStatusServer(m.upgradeManagerContext)
+		if err != nil {
+			return client.UpgradeStatus{}, maskAny(err)
+		}
+		if statusServer != nil {
+			result.ServersRemaining = append(result.ServersRemaining, *statusServer)
+		}
+	}
+	for _, entry := range plan.FinishedEntries {
+		statusServer, err := entry.CreateStatusServer(m.upgradeManagerContext)
+		if err != nil {
+			return client.UpgradeStatus{}, maskAny(err)
+		}
+		if statusServer != nil {
+			result.ServersUpgraded = append(result.ServersUpgraded, *statusServer)
+		}
+	}
+	return result, nil
+}
+
+// checkStarterVersions ensures that all starters have the same version.
+func (m *upgradeManager) checkStarterVersions(ctx context.Context) error {
+	config, _, _ := m.upgradeManagerContext.ClusterConfig()
+	endpoints, err := config.GetPeerEndpoints()
+	if err != nil {
+		return maskAny(err)
+	}
+	versions := make(map[string]struct{})
+	for _, ep := range endpoints {
+		m.log.Debug().Str("endpoint", ep).Msg("Checking Starter version")
+		epURL, err := url.Parse(ep)
+		if err != nil {
+			return maskAny(err)
+		}
+		c, err := client.NewArangoStarterClient(*epURL)
+		if err != nil {
+			return maskAny(err)
+		}
+		info, err := c.Version(ctx)
+		if err != nil {
+			return maskAny(err)
+		}
+		version := info.Version + " / " + info.Build
+		versions[version] = struct{}{}
+	}
+	if len(versions) > 1 {
+		list := make([]string, 0, len(versions))
+		for v := range versions {
+			list = append(list, v)
+		}
+		return maskAny(fmt.Errorf("Found multiple Starter versions: %s", strings.Join(list, ", ")))
+	}
 	return nil
 }
 
@@ -161,64 +435,113 @@ func (m *upgradeManager) createAgencyAPI() (agency.Agency, error) {
 	return a, nil
 }
 
-// runUpgradeProcess runs the entire upgrade process until it is finished.
-func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode, lock agency.Lock) {
+// readUpgradePlan reads the current upgrade plan from the agency.
+func (m *upgradeManager) readUpgradePlan(ctx context.Context) (UpgradePlan, error) {
+	var plan UpgradePlan
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return UpgradePlan{}, maskAny(err)
+	}
+	if err := api.ReadKey(ctx, upgradePlanKey, &plan); err != nil {
+		return UpgradePlan{}, maskAny(err)
+	}
+	return plan, nil
+}
+
+// writeUpgradePlan writes the given upgrade plan to the agency.
+func (m *upgradeManager) writeUpgradePlan(ctx context.Context, plan UpgradePlan) error {
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := api.WriteKey(ctx, upgradePlanKey, plan, 0); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// RunWatchUpgradePlan keeps watching the upgrade plan in the agency.
+// Once it detects that this starter has to act, it does.
+func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
+	for {
+		delay := time.Second * 10
+		plan, err := m.readUpgradePlan(ctx)
+		if agency.IsKeyNotFound(err) {
+			// Just try later
+		} else if err != nil {
+			// Failed to read plan
+			m.log.Info().Err(err).Msg("Failed to read upgrade plan")
+		} else if plan.IsReady() || plan.IsFailed() {
+			// Plan already finished or failed
+		} else if len(plan.Entries) > 0 {
+			// Let's inspect the first entry
+			if err := m.processUpgradePlan(ctx, plan); err != nil {
+				m.log.Error().Err(err).Msg("Failed to process upgrade plan entry")
+			}
+			delay = time.Second
+		}
+
+		select {
+		case <-time.After(delay):
+			// Continue
+		case <-ctx.Done():
+			// Context canceled
+			return
+		}
+	}
+}
+
+// processUpgradePlan inspects the first entry of the given plan and acts upon
+// it when needed.
+func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePlan) error {
+	//config, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
+	isRunningMaster, isRunning, _ := m.upgradeManagerContext.IsRunningMaster()
+	if !isRunning {
+		return maskAny(fmt.Errorf("Not in running phase"))
+	}
+
+	firstEntry := plan.Entries[0]
+	switch firstEntry.Type {
+	case UpgradeEntryTypeDisableSupervision:
+		if !isRunningMaster {
+			// Not for me
+			return nil
+		}
+		if err := m.disableSupervision(ctx); err != nil {
+			return maskAny(err)
+		}
+	case UpgradeEntryTypeEnableSupervision:
+		if !isRunningMaster {
+			// Not for me
+			return nil
+		}
+		if err := m.enableSupervision(ctx); err != nil {
+			return maskAny(err)
+		}
+		// TODO handle server upgrades
+	default:
+		return maskAny(fmt.Errorf("Unsupported upgrade plan entry type '%s'", firstEntry.Type))
+	}
+
+	// Move first entry to finished entries
+	plan.Entries = plan.Entries[1:]
+	plan.FinishedEntries = append(plan.FinishedEntries, firstEntry)
+	plan.LastModifiedAt = time.Now()
+
+	// Save plan
+	if err := m.writeUpgradePlan(ctx, plan); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// runSingleServerUpgradeProcess runs the entire upgrade process of a single server until it is finished.
+func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode) {
 	// Unlock when we're done
 	defer func() {
 		m.upgradeServerType = ""
 		m.updateNeeded = false
-		if lock != nil {
-			lock.Unlock(context.Background())
-		}
 	}()
-
-	maintenanceModeSupported := false
-	if mode.HasAgency() {
-		// First wait for the agency to be health
-		if err := m.waitUntil(ctx, m.isAgencyHealth, "Agency is not yet healthy: %v"); err != nil {
-			return
-		}
-
-		// Look for support of maintenance mode
-		var err error
-		maintenanceModeSupported, err = m.isSuperVisionMaintenanceSupported(ctx)
-		if err != nil {
-			m.log.Error().Err(err).Msg("Failed to check for support of maintenance mode")
-			return
-		}
-
-		// If maintenance mode is supported, disable supervision now
-		if maintenanceModeSupported {
-			m.log.Info().Msg("Disabling agency supervision")
-			if err := m.disableSupervision(ctx); err != nil {
-				m.log.Error().Err(err).Msg("Failed to disabled supervision in the agency")
-				return
-			}
-		} else {
-			m.log.Info().Msg("Agency supervision maintenance mode not supported on this version")
-		}
-
-		if myPeer.HasAgent() {
-			// Restart the agency in auto-upgrade mode
-			m.log.Info().Msg("Upgrading agent")
-			m.upgradeServerType = ServerTypeAgent
-			m.updateNeeded = true
-			if err := m.upgradeManagerContext.RestartServer(ServerTypeAgent); err != nil {
-				m.log.Error().Err(err).Msg("Failed to restart agent")
-				return
-			}
-
-			// Wait until agency restarted
-			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-				return
-			}
-
-			// Wait until agency happy again
-			if err := m.waitUntil(ctx, m.isAgencyHealth, "Agency is not yet healthy: %v"); err != nil {
-				return
-			}
-		}
-	}
 
 	if mode.IsSingleMode() {
 		// Restart the single server in auto-upgrade mode
@@ -237,78 +560,6 @@ func (m *upgradeManager) runUpgradeProcess(ctx context.Context, myPeer *Peer, mo
 
 		// Wait until all single servers respond
 		if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
-			return
-		}
-	} else if mode.IsActiveFailoverMode() {
-		if myPeer.HasResilientSingle() {
-			// Restart the single server in auto-upgrade mode
-			m.log.Info().Msg("Upgrading single server")
-			m.upgradeServerType = ServerTypeResilientSingle
-			m.updateNeeded = true
-			if err := m.upgradeManagerContext.RestartServer(ServerTypeResilientSingle); err != nil {
-				m.log.Error().Err(err).Msg("Failed to restart resilient single server")
-				return
-			}
-
-			// Wait until single server restarted
-			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-				return
-			}
-
-			// Wait until all single servers respond
-			if err := m.waitUntil(ctx, m.areSingleServersResponding, "Resilient single server is not yet responding: %v"); err != nil {
-				return
-			}
-		}
-	} else if mode.IsClusterMode() {
-		if myPeer.HasDBServer() {
-			// Restart the dbserver in auto-upgrade mode
-			m.log.Info().Msg("Upgrading dbserver")
-			m.upgradeServerType = ServerTypeDBServer
-			m.updateNeeded = true
-			if err := m.upgradeManagerContext.RestartServer(ServerTypeDBServer); err != nil {
-				m.log.Error().Err(err).Msg("Failed to restart dbserver")
-				return
-			}
-
-			// Wait until dbserver restarted
-			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-				return
-			}
-
-			// Wait until all dbservers respond
-			if err := m.waitUntil(ctx, m.areDBServersResponding, "DBServers are not yet all responding: %v"); err != nil {
-				return
-			}
-		}
-
-		if myPeer.HasCoordinator() {
-			// Restart the coordinator in auto-upgrade mode
-			m.log.Info().Msg("Upgrading coordinator")
-			m.upgradeServerType = ServerTypeCoordinator
-			m.updateNeeded = true
-			if err := m.upgradeManagerContext.RestartServer(ServerTypeCoordinator); err != nil {
-				m.log.Error().Err(err).Msg("Failed to restart coordinator")
-				return
-			}
-
-			// Wait until coordinator restarted
-			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-				return
-			}
-
-			// Wait until all coordinators respond
-			if err := m.waitUntil(ctx, m.areCoordinatorsResponding, "Coordinator are not yet all responding: %v"); err != nil {
-				return
-			}
-		}
-	}
-
-	// If maintenance mode is supported, re-enable supervision now
-	if maintenanceModeSupported {
-		m.log.Info().Msg("Re-enabling agency supervision")
-		if err := m.enableSupervision(ctx); err != nil {
-			m.log.Error().Err(err).Msg("Failed to enable supervision in the agency")
 			return
 		}
 	}

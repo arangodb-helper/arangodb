@@ -41,6 +41,12 @@ type API interface {
 	// Shutdown will shutdown a starter (and all its started database servers).
 	// With goodbye set, it will remove the peer slot for the starter.
 	Shutdown(ctx context.Context, goodbye bool) error
+
+	// StartDatabaseUpgrade is called to start the upgrade process
+	StartDatabaseUpgrade(ctx context.Context, force bool) error
+
+	// Status returns the status of any upgrade plan
+	UpgradeStatus(context.Context) (UpgradeStatus, error)
 }
 
 // IDInfo contains the ID of the starter
@@ -100,4 +106,30 @@ func (list ProcessList) ServerByType(serverType ServerType) (ServerProcess, bool
 		}
 	}
 	return ServerProcess{}, false
+}
+
+// UpgradeStatus is the JSON structure returns from a `GET /database-auto-upgrade`
+// request.
+type UpgradeStatus struct {
+	// Ready is set to true when the entire upgrade has been finished succesfully.
+	Ready bool `json:"ready"`
+	// Failed is set to true when the upgrade process has yielded an error
+	Failed bool `json:"failed"`
+	// Reasons contains a human readable description of the state
+	Reason string `json:"reason,omitempty"`
+	// ServersUpgraded contains the servers that have been upgraded
+	ServersUpgraded []UpgradeStatusServer `json:"servers_upgraded"`
+	// ServersRemaining contains the servers that have not yet been upgraded
+	ServersRemaining []UpgradeStatusServer `json:"servers_remaining"`
+}
+
+// UpgradeStatusServer is the nested JSON structure returns from a `GET /database-auto-upgrade`
+// request.
+type UpgradeStatusServer struct {
+	// Type of the server
+	Type ServerType `json:"type"`
+	// Port the server is listening on
+	Port int `json:"port"`
+	// Address of the server (IP or hostname)
+	Address string `json:"address"`
 }
