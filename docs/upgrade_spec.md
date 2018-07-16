@@ -31,6 +31,8 @@ If the deployment mode is `activefailover` or `cluster` the Starters will:
   followed by upgrade entries for all single servers (in case of `activefailover`),
   followed by upgrade entries for all dbservers (in case of `cluster`),
   followed by upgrade entries for all coordinators (in case of `cluster`),
+  followed by upgrade entries for all sync masters (in case of `cluster` & sync),
+  followed by upgrade entries for all sync workers (in case of `cluster` & sync),
   followed by an entry to re-enable agency supervision.
 
 Every Starter will monitor the agency for an upgrade plan.
@@ -64,10 +66,10 @@ a JSON object with the following fields:
   upgrade failure, or `false` otherwise.
 - `reason` a string that describes the state of the upgrade plan in a
   human readable form.
-- `servers_upgraded` an integer containing the number of servers that have
+- `servers_upgraded` an array containing objects describing the servers that have
   been upgraded.
-- `servers_remaining` an integer containing the number of servers that have
-  not yet been upgraded.
+- `servers_remaining` an array containing objects describing the servers that
+  have not yet been upgraded.
 
 ## Failures
 
