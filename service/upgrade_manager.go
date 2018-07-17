@@ -33,6 +33,7 @@ import (
 	"github.com/arangodb-helper/arangodb/client"
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
+	"github.com/arangodb/go-upgrade-rules"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
@@ -202,6 +203,29 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	if err := m.checkStarterVersions(ctx); err != nil {
 		return maskAny(err)
 	}
+
+	// Fetch (binary) database versions of all starters
+	binaryDBVersions, err := m.fetchBinaryDatabaseVersions(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+
+	// Fetch (running) database versions of all starters
+	runningDBVersions, err := m.fetchRunningDatabaseVersions(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+
+	// Check if we can upgrade from running to binary versions
+	for _, from := range runningDBVersions {
+		for _, to := range binaryDBVersions {
+			if err := upgraderules.CheckUpgradeRules(from, to); err != nil {
+				return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
+			}
+		}
+	}
+
+	// Check upgrade rules
 
 	// Fetch mode
 	config, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
@@ -405,6 +429,84 @@ func (m *upgradeManager) checkStarterVersions(ctx context.Context) error {
 		return maskAny(fmt.Errorf("Found multiple Starter versions: %s", strings.Join(list, ", ")))
 	}
 	return nil
+}
+
+// fetchBinaryDatabaseVersions asks all starters for the version of the arangod binary.
+// It returns all distinct versions.
+func (m *upgradeManager) fetchBinaryDatabaseVersions(ctx context.Context) ([]driver.Version, error) {
+	config, _, _ := m.upgradeManagerContext.ClusterConfig()
+	endpoints, err := config.GetPeerEndpoints()
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	versionMap := make(map[driver.Version]struct{})
+	var versionList []driver.Version
+	for _, ep := range endpoints {
+		m.log.Debug().Str("endpoint", ep).Msg("Checking Database version")
+		epURL, err := url.Parse(ep)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		c, err := client.NewArangoStarterClient(*epURL)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		version, err := c.DatabaseVersion(ctx)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		if _, found := versionMap[version]; !found {
+			versionMap[version] = struct{}{}
+			versionList = append(versionList, version)
+		}
+	}
+	return versionList, nil
+}
+
+// fetchRunningDatabaseVersions asks all arangod servers in the deployment for their version.
+// It returns all distinct versions.
+func (m *upgradeManager) fetchRunningDatabaseVersions(ctx context.Context) ([]driver.Version, error) {
+	config, _, _ := m.upgradeManagerContext.ClusterConfig()
+	versionMap := make(map[driver.Version]struct{})
+	var versionList []driver.Version
+
+	collect := func(endpointsGetter func() ([]string, error), connectionType ConnectionType) error {
+		endpoints, err := endpointsGetter()
+		if err != nil {
+			return maskAny(err)
+		}
+		for _, ep := range endpoints {
+			m.log.Debug().Str("endpoint", ep).Msg("Checking Running Database version")
+			c, err := m.upgradeManagerContext.CreateClient([]string{ep}, connectionType)
+			if err != nil {
+				return maskAny(err)
+			}
+			v, err := c.Version(ctx)
+			if err != nil {
+				return maskAny(err)
+			}
+			if _, found := versionMap[v.Version]; !found {
+				versionMap[v.Version] = struct{}{}
+				versionList = append(versionList, v.Version)
+			}
+		}
+		return nil
+	}
+
+	if err := collect(config.GetAgentEndpoints, ConnectionTypeAgency); err != nil {
+		return nil, maskAny(err)
+	}
+	if err := collect(config.GetCoordinatorEndpoints, ConnectionTypeDatabase); err != nil {
+		return nil, maskAny(err)
+	}
+	if err := collect(config.GetDBServerEndpoints, ConnectionTypeDatabase); err != nil {
+		return nil, maskAny(err)
+	}
+	if err := collect(config.GetAllSingleEndpoints, ConnectionTypeDatabase); err != nil {
+		return nil, maskAny(err)
+	}
+
+	return versionList, nil
 }
 
 // Errorf is a wrapper for log.Error()... used by the agency lock

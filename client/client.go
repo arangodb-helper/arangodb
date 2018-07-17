@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"net/url"
 
+	driver "github.com/arangodb/go-driver"
 	"github.com/pkg/errors"
 )
 
@@ -99,6 +100,30 @@ func (c *client) Version(ctx context.Context) (VersionInfo, error) {
 	}
 
 	return result, nil
+}
+
+// DatabaseVersion returns the version of the `arangod` binary that is being
+// used by this starter.
+func (c *client) DatabaseVersion(ctx context.Context) (driver.Version, error) {
+	url := c.createURL("/database-version", nil)
+
+	var result DatabaseVersionResponse
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", maskAny(err)
+	}
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return "", maskAny(err)
+	}
+
+	return result.Version, nil
 }
 
 // Processes loads information of all the server processes launched by a specific arangodb.

@@ -25,6 +25,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"os"
@@ -91,6 +92,7 @@ type dockerRunner struct {
 type dockerContainer struct {
 	client    *docker.Client
 	container *docker.Container
+	output    io.Writer
 }
 
 func (r *dockerRunner) GetContainerDir(hostDir, defaultContainerDir string) string {
@@ -133,7 +135,7 @@ func (r *dockerRunner) GetRunningServer(serverDir string) (Process, error) {
 	}, nil
 }
 
-func (r *dockerRunner) Start(ctx context.Context, processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
+func (r *dockerRunner) Start(ctx context.Context, processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
 	// Start gc (once)
 	r.startGC()
 
@@ -184,7 +186,7 @@ func (r *dockerRunner) Start(ctx context.Context, processType ProcessType, comma
 			r.log.Error().Err(err).Msgf("Failed to remove container '%s'", containerName)
 		}
 		// Try starting it now
-		p, err := r.start(image, command, args, volumes, ports, containerName, serverDir)
+		p, err := r.start(image, command, args, volumes, ports, containerName, serverDir, output)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -205,7 +207,7 @@ func (r *dockerRunner) startGC() {
 }
 
 // Try to start a command with given arguments
-func (r *dockerRunner) start(image string, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string) (Process, error) {
+func (r *dockerRunner) start(image string, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
 		Config: &docker.Config{
@@ -276,6 +278,7 @@ func (r *dockerRunner) start(image string, command string, args []string, volume
 	return &dockerContainer{
 		client:    r.client,
 		container: c,
+		output:    output,
 	}, nil
 }
 
@@ -484,6 +487,16 @@ func (p *dockerContainer) HostPort(containerPort int) (int, error) {
 
 func (p *dockerContainer) Wait() {
 	p.client.WaitContainer(p.container.ID)
+	if p.output != nil {
+		// Fetch logs
+		if err := p.client.Logs(docker.LogsOptions{
+			Container:    p.container.ID,
+			OutputStream: p.output,
+			Stdout:       true,
+		}); err != nil {
+			p.output.Write([]byte(err.Error()))
+		}
+	}
 }
 
 func (p *dockerContainer) Terminate() error {

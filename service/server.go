@@ -23,6 +23,7 @@
 package service
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 	"strconv"
 
 	"github.com/arangodb-helper/arangodb/client"
+	driver "github.com/arangodb/go-driver"
 	"github.com/rs/zerolog"
 )
 
@@ -108,6 +110,10 @@ type httpServerContext interface {
 
 	// Called by an agency callback
 	MasterChangedCallback()
+
+	// DatabaseVersion returns the version of the `arangod` binary that is being
+	// used by this starter.
+	DatabaseVersion(context.Context) (driver.Version, error)
 }
 
 // newHTTPServer initializes and an HTTP server.
@@ -160,6 +166,7 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/logs/syncmaster", s.syncMasterLogsHandler)
 		mux.HandleFunc("/logs/syncworker", s.syncWorkerLogsHandler)
 		mux.HandleFunc("/version", s.versionHandler)
+		mux.HandleFunc("/database-version", s.databaseVersionHandler)
 		mux.HandleFunc("/shutdown", s.shutdownHandler)
 		mux.HandleFunc("/database-auto-upgrade", s.databaseAutoUpgradeHandler)
 		// Agency callback
@@ -528,6 +535,31 @@ func (s *httpServer) versionHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.WriteHeader(http.StatusOK)
 		w.Write(data)
+	}
+}
+
+// databaseVersionHandler returns a JSON object containing the current arangod version.
+func (s *httpServer) databaseVersionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	version, err := s.context.DatabaseVersion(r.Context())
+	if err != nil {
+		handleError(w, err)
+	} else {
+		data, err := json.Marshal(client.DatabaseVersionResponse{
+			Version: version,
+		})
+		if err != nil {
+			s.log.Error().Err(err).Msg("Failed to marshal datbase-version response")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+		} else {
+			w.WriteHeader(http.StatusOK)
+			w.Write(data)
+		}
 	}
 }
 

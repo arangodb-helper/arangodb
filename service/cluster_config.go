@@ -247,6 +247,15 @@ func (p ClusterConfig) GetCoordinatorEndpoints() ([]string, error) {
 	return endpoints, nil
 }
 
+// GetAllSingleEndpoints creates a list of URL's for all single servers.
+func (p ClusterConfig) GetAllSingleEndpoints() ([]string, error) {
+	result, err := p.GetSingleEndpoints(true)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return result, nil
+}
+
 // GetSingleEndpoints creates a list of URL's for all single servers.
 func (p ClusterConfig) GetSingleEndpoints(all bool) ([]string, error) {
 	// Build endpoint list

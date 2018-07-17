@@ -22,7 +22,11 @@
 
 package client
 
-import "context"
+import (
+	"context"
+
+	driver "github.com/arangodb/go-driver"
+)
 
 // API is the interface implemented by the starter's HTTP API's.
 type API interface {
@@ -31,6 +35,10 @@ type API interface {
 
 	// Version requests the starter version.
 	Version(ctx context.Context) (VersionInfo, error)
+
+	// DatabaseVersion returns the version of the `arangod` binary that is being
+	// used by this starter.
+	DatabaseVersion(ctx context.Context) (driver.Version, error)
 
 	// Processes loads information of all the database server processes launched by the starter.
 	Processes(ctx context.Context) (ProcessList, error)
@@ -58,6 +66,11 @@ type IDInfo struct {
 type VersionInfo struct {
 	Version string `json:"version"`
 	Build   string `json:"build"`
+}
+
+// DatabaseVersionResponse is the JSON response of a `/database-version` request.
+type DatabaseVersionResponse struct {
+	Version driver.Version `json:"version"`
 }
 
 // EndpointList is the JSON response of a `/endpoints` request.
