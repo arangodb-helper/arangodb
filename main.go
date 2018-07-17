@@ -35,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	driver "github.com/arangodb/go-driver"
 	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
@@ -148,6 +149,9 @@ var (
 )
 
 func init() {
+	driver.WithStack = errors.WithStack
+	driver.Cause = errors.Cause
+
 	log, _ = logging.NewRootLogger(logging.LoggerOutputOptions{
 		Stderr: true,
 	})

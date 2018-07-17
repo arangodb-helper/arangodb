@@ -1106,6 +1106,13 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 		s.runtimeClusterManager.Run(s.stopPeer.ctx, s.log, s)
 	}()
 
+	// Start the upgrade manager
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.upgradeManager.RunWatchUpgradePlan(s.stopPeer.ctx)
+	}()
+
 	// Wait until managers have terminated
 	wg.Wait()
 }
