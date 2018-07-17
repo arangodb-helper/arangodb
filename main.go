@@ -149,9 +149,11 @@ var (
 )
 
 func init() {
+	// Setup error functions in go-driver
 	driver.WithStack = errors.WithStack
 	driver.Cause = errors.Cause
 
+	// Prepare initial logger
 	log, _ = logging.NewRootLogger(logging.LoggerOutputOptions{
 		Stderr: true,
 	})
@@ -162,6 +164,7 @@ func init() {
 		defaultLogColor = false
 	}
 
+	// Prepare commandline parser
 	cmdMain.AddCommand(cmdVersion)
 
 	pf := cmdMain.PersistentFlags()
