@@ -69,6 +69,9 @@ type UpgradeManagerContext interface {
 	RestartServer(serverType ServerType) error
 	// IsRunningMaster returns if the starter is the running master.
 	IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string)
+	// TestInstance checks the `up` status of an arangod server instance.
+	TestInstance(ctx context.Context, serverType ServerType, address string, port int,
+		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, isLeader bool, statusTrail []int, cancelled bool)
 }
 
 // NewUpgradeManager creates a new upgrade manager.
@@ -82,6 +85,7 @@ func NewUpgradeManager(log zerolog.Logger, upgradeManagerContext UpgradeManagerC
 var (
 	upgradeManagerLockKey     = []string{"arangodb-helper", "arangodb", "upgrade-manager"}
 	upgradePlanKey            = []string{"arangodb-helper", "arangodb", "upgrade-plan"}
+	upgradePlanRevisionKey    = append(upgradePlanKey, "revision")
 	superVisionMaintenanceKey = []string{"arango", "Supervision", "Maintenance"}
 	superVisionStateKey       = []string{"arango", "Supervision", "State"}
 )
@@ -96,6 +100,7 @@ const (
 // UpgradePlan is the JSON structure that describes a plan to upgrade
 // a deployment to a new version.
 type UpgradePlan struct {
+	Revision        int                `json:"revision"` // Must match with upgradePlanRevisionKey
 	CreatedAt       time.Time          `json:"created_at"`
 	LastModifiedAt  time.Time          `json:"last_modified_at"`
 	Entries         []UpgradePlanEntry `json:"entries"`
@@ -321,7 +326,8 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 
 	// Save plan
 	m.log.Debug().Msg("Writing upgrade plan")
-	if err := m.writeUpgradePlan(ctx, plan); err != nil {
+	overwrite := true
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
 	}
 
@@ -449,15 +455,24 @@ func (m *upgradeManager) readUpgradePlan(ctx context.Context) (UpgradePlan, erro
 }
 
 // writeUpgradePlan writes the given upgrade plan to the agency.
-func (m *upgradeManager) writeUpgradePlan(ctx context.Context, plan UpgradePlan) error {
+// Unless overwrite is true, the revision currently in the agency must match
+// the revision in the given plan. The revision is increased just before writing.
+func (m *upgradeManager) writeUpgradePlan(ctx context.Context, plan UpgradePlan, overwrite bool) (UpgradePlan, error) {
 	api, err := m.createAgencyAPI()
 	if err != nil {
-		return maskAny(err)
+		return UpgradePlan{}, maskAny(err)
 	}
-	if err := api.WriteKey(ctx, upgradePlanKey, plan, 0); err != nil {
-		return maskAny(err)
+	oldRevision := plan.Revision
+	plan.Revision++
+	plan.LastModifiedAt = time.Now()
+	var condition agency.WriteCondition
+	if !overwrite {
+		condition = condition.IfEqualTo(upgradePlanRevisionKey, oldRevision)
 	}
-	return nil
+	if err := api.WriteKey(ctx, upgradePlanKey, plan, 0, condition); err != nil {
+		return UpgradePlan{}, maskAny(err)
+	}
+	return plan, nil
 }
 
 // RunWatchUpgradePlan keeps watching the upgrade plan in the agency.
@@ -509,8 +524,8 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 			Msg("Upgrade plan entry failed")
 		plan.Entries[0].Failures++
 		plan.Entries[0].Reason = err.Error()
-		plan.LastModifiedAt = time.Now()
-		if err := m.writeUpgradePlan(ctx, plan); err != nil {
+		overwrite := false
+		if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
 			m.log.Error().Err(err).Msg("Failed to write updated plan (recording failure)")
 		}
 		return maskAny(err)
@@ -631,6 +646,13 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
 				return recordFailure(errors.Wrap(err, "Syncmaster restart in upgrade mode did not succeed"))
 			}
+
+			// Wait until syncmaster 'up'
+			address := myPeer.Address
+			port := myPeer.Port + myPeer.PortOffset + ServerType(ServerTypeSyncMaster).PortOffset()
+			if up, _, _, _, _, _, _, _ := m.upgradeManagerContext.TestInstance(ctx, ServerTypeSyncMaster, address, port, nil); !up {
+				return recordFailure(fmt.Errorf("Syncmaster is not up in time"))
+			}
 		case UpgradeEntryTypeSyncWorker:
 			// Restart the syncworker
 			m.log.Info().Msg("Restarting syncworker")
@@ -644,6 +666,13 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
 				return recordFailure(errors.Wrap(err, "Syncworker restart in upgrade mode did not succeed"))
 			}
+
+			// Wait until syncworker 'up'
+			address := myPeer.Address
+			port := myPeer.Port + myPeer.PortOffset + ServerType(ServerTypeSyncWorker).PortOffset()
+			if up, _, _, _, _, _, _, _ := m.upgradeManagerContext.TestInstance(ctx, ServerTypeSyncWorker, address, port, nil); !up {
+				return recordFailure(fmt.Errorf("Syncworker is not up in time"))
+			}
 		default:
 			return maskAny(fmt.Errorf("Unsupported upgrade plan entry type '%s'", firstEntry.Type))
 		}
@@ -652,10 +681,10 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	// Move first entry to finished entries
 	plan.Entries = plan.Entries[1:]
 	plan.FinishedEntries = append(plan.FinishedEntries, firstEntry)
-	plan.LastModifiedAt = time.Now()
 
 	// Save plan
-	if err := m.writeUpgradePlan(ctx, plan); err != nil {
+	overwrite := false
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
 		return maskAny(err)
 	}
 	return nil
