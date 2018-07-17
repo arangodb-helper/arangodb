@@ -462,7 +462,8 @@ func cmdShowVersionRun(cmd *cobra.Command, args []string) {
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
 	// Setup log level
-	configureLogging()
+	consoleOnly := false
+	configureLogging(consoleOnly)
 
 	log.Info().Msgf("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
 
@@ -495,12 +496,12 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 }
 
 // configureLogging configures the log object according to command line arguments.
-func configureLogging() {
+func configureLogging(consoleOnly bool) {
 	logOpts := logging.LoggerOutputOptions{
 		Stderr: logOutput.Console,
 		Color:  logOutput.Color,
 	}
-	if logOutput.File {
+	if logOutput.File && !consoleOnly {
 		if logDir != "" {
 			logOpts.LogFile = filepath.Join(logDir, logFileName)
 		} else {
