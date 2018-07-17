@@ -25,7 +25,6 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -225,6 +224,29 @@ func (c *client) StartDatabaseUpgrade(ctx context.Context, force bool) error {
 	return nil
 }
 
+// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
+// such that the starters will retry the upgrade once more.
+func (c *client) RetryDatabaseUpgrade(ctx context.Context) error {
+	url := c.createURL("/database-auto-upgrade", nil)
+
+	req, err := http.NewRequest("PUT", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := c.handleResponse(resp, "PUT", url, nil); err != nil {
+		return maskAny(err)
+	}
+
+	return nil
+}
+
 // Status returns the status of any upgrade plan
 func (c *client) UpgradeStatus(ctx context.Context) (UpgradeStatus, error) {
 	url := c.createURL("/database-auto-upgrade", nil)
@@ -258,11 +280,16 @@ func (c *client) handleResponse(resp *http.Response, method, url string, result 
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		/*var er ErrorResponse
+		var er ErrorResponse
 		if err := json.Unmarshal(body, &er); err == nil {
-			return &er
-		}*/
-		return maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+			return maskAny(StatusError{
+				StatusCode: resp.StatusCode,
+				message:    er.Error,
+			})
+		}
+		return maskAny(StatusError{
+			StatusCode: resp.StatusCode,
+		})
 	}
 
 	// Got a success status

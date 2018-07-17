@@ -53,6 +53,10 @@ type API interface {
 	// StartDatabaseUpgrade is called to start the upgrade process
 	StartDatabaseUpgrade(ctx context.Context, force bool) error
 
+	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
+	// such that the starters will retry the upgrade once more.
+	RetryDatabaseUpgrade(ctx context.Context) error
+
 	// Status returns the status of any upgrade plan
 	UpgradeStatus(context.Context) (UpgradeStatus, error)
 }

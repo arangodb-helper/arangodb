@@ -640,6 +640,31 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 				w.Write([]byte("OK"))
 			}
 		}
+	case "PUT":
+		// Retry the upgrade process
+		if !isRunningMaster {
+			// We're not the starter leader.
+			// Forward the request to the leader.
+			c, err := createMasterClient()
+			if err != nil {
+				handleError(w, err)
+			} else {
+				if err := c.RetryDatabaseUpgrade(ctx); err != nil {
+					handleError(w, err)
+				} else {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte("OK"))
+				}
+			}
+		} else {
+			// We're the starter leader, process the request
+			if err := s.context.UpgradeManager().RetryDatabaseUpgrade(ctx); err != nil {
+				handleError(w, err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			}
+		}
 	case "GET":
 		if status, err := s.context.UpgradeManager().Status(ctx); err != nil {
 			handleError(w, err)

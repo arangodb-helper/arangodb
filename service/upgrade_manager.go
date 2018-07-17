@@ -44,6 +44,10 @@ type UpgradeManager interface {
 	// StartDatabaseUpgrade is called to start the upgrade process
 	StartDatabaseUpgrade(ctx context.Context, force bool) error
 
+	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
+	// such that the starters will retry the upgrade once more.
+	RetryDatabaseUpgrade(ctx context.Context) error
+
 	// Status returns the status of any upgrade plan
 	Status(context.Context) (client.UpgradeStatus, error)
 
@@ -122,6 +126,14 @@ func (p UpgradePlan) IsFailed() bool {
 		}
 	}
 	return false
+}
+
+// ResetFailures resets all Failures field to 0.
+func (p *UpgradePlan) ResetFailures() {
+	for _, e := range p.Entries {
+		e.Failures = 0
+		e.Reason = ""
+	}
 }
 
 // UpgradeEntryType is a strongly typed upgrade plan item
@@ -349,6 +361,49 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	m.log.Info().Msgf("Created plan to upgrade from %v to %v", runningDBVersions, binaryDBVersions)
 
 	// We're done
+	return nil
+}
+
+// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
+// such that the starters will retry the upgrade once more.
+func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Fetch mode
+	_, _, mode := m.upgradeManagerContext.ClusterConfig()
+
+	if !mode.HasAgency() {
+		// Without an agency there is not upgrade plan to retry
+		return errors.Wrap(client.BadRequestError, "Retry needs an agency")
+	}
+
+	// Retry upgrade with agency.
+	plan, err := m.readUpgradePlan(ctx)
+	if agency.IsKeyNotFound(err) {
+		// There is no upgrade plan
+		return errors.Wrap(client.BadRequestError, "There is no upgrade plan")
+	}
+	if err != nil {
+		// Failed to read upgrade plan
+		return errors.Wrap(err, "Failed to read upgrade plan")
+	}
+
+	// Check failure status
+	if !plan.IsFailed() {
+		return errors.Wrap(client.BadRequestError, "The upgrade plan has not failed")
+	}
+
+	// Reset failures and write plan
+	plan.ResetFailures()
+	overwrite := false
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
+		return errors.Wrap(err, "Failed to write upgrade plan")
+	}
+
+	// Inform user
+	m.log.Info().Msg("Reset failures in upgrade plan so it can be retried")
+
 	return nil
 }
 

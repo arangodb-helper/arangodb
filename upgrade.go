@@ -38,10 +38,23 @@ import (
 var (
 	cmdUpgrade = &cobra.Command{
 		Use:   "upgrade",
-		Short: "Start the ArangoDB starter in the background",
+		Short: "Upgrade an ArangoDB deployment to a new version",
 		Run:   cmdUpgradeRun,
 	}
+	cmdRetry = &cobra.Command{
+		Use:   "retry",
+		Short: "Retry an operation",
+		Run:   cmdShowUsage,
+	}
+	cmdRetryUpgrade = &cobra.Command{
+		Use:   "upgrade",
+		Short: "Retry a failed upgrade of an ArangoDB deployment to a new version",
+		Run:   cmdRetryUpgradeRun,
+	}
 	upgradeOptions struct {
+		starterEndpoint string
+	}
+	retryUpgradeOptions struct {
 		starterEndpoint string
 	}
 )
@@ -50,19 +63,32 @@ func init() {
 	f := cmdUpgrade.Flags()
 	f.StringVar(&upgradeOptions.starterEndpoint, "starter.endpoint", "", "The endpoint of the starter to connect to. E.g. http://localhost:8528")
 
+	f = cmdRetryUpgrade.Flags()
+	f.StringVar(&retryUpgradeOptions.starterEndpoint, "starter.endpoint", "", "The endpoint of the starter to connect to. E.g. http://localhost:8528")
+
 	cmdMain.AddCommand(cmdUpgrade)
+	cmdMain.AddCommand(cmdRetry)
+	cmdRetry.AddCommand(cmdRetryUpgrade)
 }
 
 func cmdUpgradeRun(cmd *cobra.Command, args []string) {
+	runUpgrade(upgradeOptions.starterEndpoint, false, false)
+}
+
+func cmdRetryUpgradeRun(cmd *cobra.Command, args []string) {
+	runUpgrade(retryUpgradeOptions.starterEndpoint, false, true)
+}
+
+func runUpgrade(starterEndpoint string, force, retry bool) {
 	// Setup logging
 	consoleOnly := true
 	configureLogging(consoleOnly)
 
 	// Check options
-	if upgradeOptions.starterEndpoint == "" {
+	if starterEndpoint == "" {
 		log.Fatal().Msg("--starter.endpoint must be set")
 	}
-	ep, err := url.Parse(upgradeOptions.starterEndpoint)
+	ep, err := url.Parse(starterEndpoint)
 	if err != nil {
 		log.Fatal().Err(err).Msg("--starter.endpoint is invalid")
 	}
@@ -73,11 +99,17 @@ func cmdUpgradeRun(cmd *cobra.Command, args []string) {
 		log.Fatal().Err(err).Msg("Failed to create Starter client")
 	}
 	ctx := context.Background()
-	force := false
-	if err := c.StartDatabaseUpgrade(ctx, force); err != nil {
-		log.Fatal().Err(err).Msg("Failed to starter database automatic upgrade")
+	if retry {
+		if err := c.RetryDatabaseUpgrade(ctx); err != nil {
+			log.Fatal().Err(err).Msg("Failed to retry database automatic upgrade")
+		}
+		log.Info().Msg("Database automatic upgrade has been restarted")
+	} else {
+		if err := c.StartDatabaseUpgrade(ctx, force); err != nil {
+			log.Fatal().Err(err).Msg("Failed to start database automatic upgrade")
+		}
+		log.Info().Msg("Database automatic upgrade has been started")
 	}
-	log.Info().Msg("Database automatic upgrade has been started")
 
 	// Wait for the upgrade to finish
 	remaining := ""
