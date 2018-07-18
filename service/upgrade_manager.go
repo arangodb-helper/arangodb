@@ -256,6 +256,13 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 		return nil
 	}
 
+	// Check cluster health
+	if mode.IsClusterMode() {
+		if err := m.isClusterHealthy(ctx); err != nil {
+			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
+		}
+	}
+
 	// Run upgrade with agency.
 	// Create an agency lock, so we know we're the only one to create a plan.
 	m.log.Debug().Msg("Creating agency API")
@@ -394,6 +401,17 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 		// Without an agency there is not upgrade plan to retry
 		return maskAny(client.NewBadRequestError("Retry needs an agency"))
 	}
+
+	// Check cluster health
+	if mode.IsClusterMode() {
+		if err := m.isClusterHealthy(ctx); err != nil {
+			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
+		}
+	}
+
+	// Note that in contrast to StartDatabaseUpgrade we do not use an agency lock
+	// here. The reason for that is that we expect to have a plan and use
+	// the revision condition to ensure a "safe" update.
 
 	// Retry upgrade with agency.
 	plan, err := m.readUpgradePlan(ctx)
@@ -777,7 +795,7 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 // processUpgradePlan inspects the first entry of the given plan and acts upon
 // it when needed.
 func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePlan) error {
-	_, myPeer, _ := m.upgradeManagerContext.ClusterConfig()
+	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
 	_, isRunning, _ := m.upgradeManagerContext.IsRunningMaster()
 	if !isRunning {
 		return maskAny(fmt.Errorf("Not in running phase"))
@@ -829,6 +847,13 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if err := m.waitUntil(ctx, m.isAgencyHealth, "Agency is not yet healthy: %v"); err != nil {
 			return recordFailure(errors.Wrap(err, "Agency is not healthy in time"))
 		}
+
+		// Wait until cluster healthy
+		if mode.IsClusterMode() {
+			if err := m.waitUntil(ctx, m.isClusterHealthy, "Cluster is not yet healthy: %v"); err != nil {
+				return recordFailure(errors.Wrap(err, "Cluster is not healthy in time"))
+			}
+		}
 	case UpgradeEntryTypeDBServer:
 		// Restart the dbserver in auto-upgrade mode
 		m.log.Info().Msg("Upgrading dbserver")
@@ -858,6 +883,12 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 			if err := m.waitUntil(ctx, m.areDBServersResponding, "DBServers are not yet all responding: %v"); err != nil {
 				return recordFailure(errors.Wrap(err, "Not all DBServers are responding in time"))
 			}
+
+			// Wait until cluster healthy
+			if err := m.waitUntil(ctx, m.isClusterHealthy, "Cluster is not yet healthy: %v"); err != nil {
+				return recordFailure(errors.Wrap(err, "Cluster is not healthy in time"))
+			}
+
 			return nil
 		}
 		if err := upgrade(); err != nil {
@@ -880,6 +911,11 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		// Wait until all coordinators respond
 		if err := m.waitUntil(ctx, m.areCoordinatorsResponding, "Coordinator are not yet all responding: %v"); err != nil {
 			return recordFailure(errors.Wrap(err, "Not all Coordinators are responding in time"))
+		}
+
+		// Wait until cluster healthy
+		if err := m.waitUntil(ctx, m.isClusterHealthy, "Cluster is not yet healthy: %v"); err != nil {
+			return recordFailure(errors.Wrap(err, "Cluster is not healthy in time"))
 		}
 	case UpgradeEntryTypeSingle:
 		// Restart the activefailover single server in auto-upgrade mode
@@ -1095,6 +1131,41 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 	// Check health
 	if err := agency.AreAgentsHealthy(ctx, clients); err != nil {
 		return maskAny(err)
+	}
+	return nil
+}
+
+// isClusterHealthy performs a check on the cluster health status.
+// If any of the servers is reported as not GOOD, an error is returned.
+func (m *upgradeManager) isClusterHealthy(ctx context.Context) error {
+	// Get cluster config
+	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
+	// Build endpoint list
+	endpoints, err := clusterConfig.GetCoordinatorEndpoints()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Build client
+	c, err := m.upgradeManagerContext.CreateClient(endpoints, ConnectionTypeDatabase)
+	if err != nil {
+		return maskAny(err)
+	}
+	// Check health
+	cl, err := c.Cluster(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	h, err := cl.Health(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	for id, sh := range h.Health {
+		if sh.Role == driver.ServerRoleAgent && sh.Status == "" {
+			continue
+		}
+		if sh.Status != driver.ServerStatusGood {
+			return maskAny(fmt.Errorf("Server '%s' has a '%s' status", id, sh.Status))
+		}
 	}
 	return nil
 }
