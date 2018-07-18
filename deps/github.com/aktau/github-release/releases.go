@@ -93,7 +93,7 @@ func LatestRelease(user, repo, token string) (*Release, error) {
 		return latestRelease, nil
 	}
 
-	// The Enterprise Edition API doesn't support the latest release endpoint. Get
+	// The enterprise api doesnt support the latest release endpoint. Get
 	// all releases and compare the published date to get the latest.
 	releases, err := Releases(user, repo, token)
 	if err != nil {
