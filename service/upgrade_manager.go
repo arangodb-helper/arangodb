@@ -117,6 +117,8 @@ type UpgradePlan struct {
 	Entries         []UpgradePlanEntry `json:"entries"`
 	FinishedEntries []UpgradePlanEntry `json:"finished_entries"`
 	Finished        bool               `json:"finished"`
+	FromVersions    []driver.Version   `json:"from_versions"`
+	ToVersion       driver.Version     `json:"to_version"`
 }
 
 // IsReady returns true when all entries have finished.
@@ -224,6 +226,13 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	if err != nil {
 		return maskAny(err)
 	}
+	if len(binaryDBVersions) > 1 {
+		return maskAny(client.NewBadRequestError(fmt.Sprintf("Found multiple database versions (%v). Make sure all machines have the same version", binaryDBVersions)))
+	}
+	if len(binaryDBVersions) == 0 {
+		return maskAny(client.NewBadRequestError("Found no database versions. This is likely a bug"))
+	}
+	toVersion := binaryDBVersions[0]
 
 	// Fetch (running) database versions of all starters
 	runningDBVersions, err := m.fetchRunningDatabaseVersions(ctx)
@@ -233,10 +242,8 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 
 	// Check if we can upgrade from running to binary versions
 	for _, from := range runningDBVersions {
-		for _, to := range binaryDBVersions {
-			if err := upgraderules.CheckUpgradeRules(from, to); err != nil {
-				return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
-			}
+		if err := upgraderules.CheckUpgradeRules(from, toVersion); err != nil {
+			return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
 		}
 	}
 
@@ -292,6 +299,8 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	plan = UpgradePlan{
 		CreatedAt:      time.Now(),
 		LastModifiedAt: time.Now(),
+		FromVersions:   runningDBVersions,
+		ToVersion:      toVersion,
 	}
 	// First add all agents
 	for _, p := range config.AllPeers {
@@ -488,8 +497,10 @@ func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, erro
 		return client.UpgradeStatus{}, maskAny(err)
 	}
 	result := client.UpgradeStatus{
-		Ready:  plan.IsReady(),
-		Failed: plan.IsFailed(),
+		Ready:        plan.IsReady(),
+		Failed:       plan.IsFailed(),
+		FromVersions: plan.FromVersions,
+		ToVersion:    plan.ToVersion,
 	}
 	for _, entry := range plan.Entries {
 		if entry.Failures > 0 && result.Reason == "" {

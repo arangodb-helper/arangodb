@@ -140,6 +140,10 @@ type UpgradeStatus struct {
 	Failed bool `json:"failed"`
 	// Reasons contains a human readable description of the state
 	Reason string `json:"reason,omitempty"`
+	// FromVersions contains all database versions found that will be upgraded.
+	FromVersions []driver.Version `json:"from_versions"`
+	// ToVersion contains the database version that will be upgraded to.
+	ToVersion driver.Version `json:"to_version"`
 	// ServersUpgraded contains the servers that have been upgraded
 	ServersUpgraded []UpgradeStatusServer `json:"servers_upgraded"`
 	// ServersRemaining contains the servers that have not yet been upgraded

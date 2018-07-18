@@ -122,16 +122,31 @@ func runUpgrade(starterEndpoint string, force, retry bool) {
 	// Create starter client
 	c := mustCreateStarterClient(starterEndpoint)
 	ctx := context.Background()
+	var action string
 	if retry {
 		if err := c.RetryDatabaseUpgrade(ctx); err != nil {
 			log.Fatal().Err(err).Msg("Failed to retry database automatic upgrade")
 		}
-		log.Info().Msg("Database automatic upgrade has been restarted")
+		action = "restarted"
 	} else {
 		if err := c.StartDatabaseUpgrade(ctx, force); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start database automatic upgrade")
 		}
-		log.Info().Msg("Database automatic upgrade has been started")
+		action = "started"
+	}
+	status, err := c.UpgradeStatus(ctx)
+	if err != nil {
+		log.Info().Msgf("Database automatic upgrade has been %s", action)
+	} else {
+		fromVersions := make([]string, 0, len(status.FromVersions))
+		for _, v := range status.FromVersions {
+			fromVersions = append(fromVersions, string(v))
+		}
+		fromVersionPrefix := "version"
+		if len(status.FromVersions) > 1 {
+			fromVersionPrefix = "versions"
+		}
+		log.Info().Msgf("Database automatic upgrade from %s %s to version %s has been %s", fromVersionPrefix, strings.Join(fromVersions, ", "), status.ToVersion, action)
 	}
 
 	// Wait for the upgrade to finish
