@@ -43,6 +43,7 @@ var (
 	InternalServerError = StatusError{StatusCode: http.StatusInternalServerError, message: "internal server error"}
 )
 
+// StatusError is an error with a given HTTP status code.
 type StatusError struct {
 	StatusCode int
 	message    string
@@ -75,6 +76,7 @@ func IsStatusErrorWithCode(err error, code int) bool {
 	return false
 }
 
+// ErrorResponse is the JSON structure returned in an API error.
 type ErrorResponse struct {
 	Error string
 }
@@ -97,6 +99,26 @@ func IsPreconditionFailed(err error) bool {
 // IsInternalServer returns true if the given error is caused by a InternalServerError.
 func IsInternalServer(err error) bool {
 	return IsStatusErrorWithCode(err, http.StatusInternalServerError)
+}
+
+// NewServiceUnavailableError creates a service unavailable error with given message.
+func NewServiceUnavailableError(msg string) error {
+	return StatusError{StatusCode: http.StatusServiceUnavailable, message: msg}
+}
+
+// NewBadRequestError creates a bad request error with given message.
+func NewBadRequestError(msg string) error {
+	return StatusError{StatusCode: http.StatusBadRequest, message: msg}
+}
+
+// NewPreconditionFailedError creates a precondition failed error with given message.
+func NewPreconditionFailedError(msg string) error {
+	return StatusError{StatusCode: http.StatusPreconditionFailed, message: msg}
+}
+
+// NewInternalServerError creates a internal server error with given message.
+func NewInternalServerError(msg string) error {
+	return StatusError{StatusCode: http.StatusInternalServerError, message: msg}
 }
 
 // ParseResponseError returns an error from given response.

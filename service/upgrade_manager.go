@@ -273,12 +273,12 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	plan, err := m.readUpgradePlan(ctx)
 	if err != nil && !agency.IsKeyNotFound(err) {
 		// Failed to read upgrade plan
-		return errors.Wrapf(err, "Failed to read upgrade plan")
+		return errors.Wrap(err, "Failed to read upgrade plan")
 	}
 
 	// Check plan status
 	if !plan.IsReady() && !force {
-		return errors.Wrap(client.BadRequestError, "Current upgrade plan has not finished yet")
+		return maskAny(client.NewBadRequestError("Current upgrade plan has not finished yet"))
 	}
 
 	// Create upgrade plan
@@ -375,14 +375,14 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 
 	if !mode.HasAgency() {
 		// Without an agency there is not upgrade plan to retry
-		return errors.Wrap(client.BadRequestError, "Retry needs an agency")
+		return maskAny(client.NewBadRequestError("Retry needs an agency"))
 	}
 
 	// Retry upgrade with agency.
 	plan, err := m.readUpgradePlan(ctx)
 	if agency.IsKeyNotFound(err) {
 		// There is no upgrade plan
-		return errors.Wrap(client.BadRequestError, "There is no upgrade plan")
+		return maskAny(client.NewBadRequestError("There is no upgrade plan"))
 	}
 	if err != nil {
 		// Failed to read upgrade plan
@@ -391,7 +391,7 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 
 	// Check failure status
 	if !plan.IsFailed() {
-		return errors.Wrap(client.BadRequestError, "The upgrade plan has not failed")
+		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
 	}
 
 	// Reset failures and write plan

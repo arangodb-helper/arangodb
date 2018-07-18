@@ -592,6 +592,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 
 	if !isRunning {
 		// We must have reached the running state before we can handle this kind of request
+		s.log.Debug().Msg("Received /database-auto-upgrade request while not in running phase")
 		writeError(w, http.StatusBadRequest, "Must be in running state to do upgrades")
 		return
 	}
@@ -625,6 +626,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 				handleError(w, err)
 			} else {
 				if err := c.StartDatabaseUpgrade(ctx, force); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding StartDatabaseUpgrade failed")
 					handleError(w, err)
 				} else {
 					w.WriteHeader(http.StatusOK)
@@ -650,6 +652,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 				handleError(w, err)
 			} else {
 				if err := c.RetryDatabaseUpgrade(ctx); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding RetryDatabaseUpgrade failed")
 					handleError(w, err)
 				} else {
 					w.WriteHeader(http.StatusOK)
