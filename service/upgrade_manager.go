@@ -30,13 +30,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/client"
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	"github.com/arangodb/go-upgrade-rules"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
+
+	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/trigger"
 )
 
 // UpgradeManager is the API of a service used to control the upgrade process from 1 database version to the next.
@@ -68,6 +70,9 @@ type UpgradeManager interface {
 
 	// RunWatchUpgradePlan keeps watching the upgrade plan until the given context is canceled.
 	RunWatchUpgradePlan(context.Context)
+
+	// UpgradePlanChangedCallback is an agency callback to notify about changes in the upgrade plan
+	UpgradePlanChangedCallback()
 }
 
 // UpgradeManagerContext holds methods used by the upgrade manager to control its context.
@@ -209,6 +214,7 @@ type upgradeManager struct {
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     ServerType
 	updateNeeded          bool
+	cbTrigger             trigger.Trigger
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
@@ -751,13 +757,28 @@ func (m *upgradeManager) removeUpgradePlan(ctx context.Context) error {
 // RunWatchUpgradePlan keeps watching the upgrade plan in the agency.
 // Once it detects that this starter has to act, it does.
 func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
-	_, _, mode := m.upgradeManagerContext.ClusterConfig()
+	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
+	ownURL := myPeer.CreateStarterURL("/")
 	if !mode.HasAgency() {
 		// Nothing to do here without an agency
 		return
 	}
+	registeredCallback := false
+	defer func() {
+		if registeredCallback {
+			m.unregisterUpgradePlanChangedCallback(ctx, ownURL)
+		}
+	}()
 	for {
-		delay := time.Second * 10
+		delay := time.Minute
+		if !registeredCallback {
+			m.log.Debug().Msg("Registering upgrade plan changed callback...")
+			if err := m.registerUpgradePlanChangedCallback(ctx, ownURL); err != nil {
+				m.log.Info().Err(err).Msg("Failed to register upgrade plan changed callback")
+			} else {
+				registeredCallback = true
+			}
+		}
 		plan, err := m.readUpgradePlan(ctx)
 		if agency.IsKeyNotFound(err) {
 			// Just try later
@@ -785,11 +806,58 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 		select {
 		case <-time.After(delay):
 			// Continue
+		case <-m.cbTrigger.Done():
+			// Continue
 		case <-ctx.Done():
 			// Context canceled
 			return
 		}
 	}
+}
+
+// UpgradePlanChangedCallback is an agency callback to notify about changes in the upgrade plan
+func (m *upgradeManager) UpgradePlanChangedCallback() {
+	m.cbTrigger.Trigger()
+}
+
+// registerUpgradePlanChangedCallback registers our callback URL with the agency
+func (m *upgradeManager) registerUpgradePlanChangedCallback(ctx context.Context, ownURL string) error {
+	// Get api client
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Register callback
+	cbURL, err := getURLWithPath(ownURL, "/cb/upgradePlanChanged")
+	if err != nil {
+		return maskAny(err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	if err := api.RegisterChangeCallback(ctx, upgradePlanKey, cbURL); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// unregisterUpgradePlanChangedCallback removes our callback URL from the agency
+func (m *upgradeManager) unregisterUpgradePlanChangedCallback(ctx context.Context, ownURL string) error {
+	// Get api client
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Register callback
+	cbURL, err := getURLWithPath(ownURL, "/cb/upgradePlanChanged")
+	if err != nil {
+		return maskAny(err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	if err := api.UnregisterChangeCallback(ctx, upgradePlanKey, cbURL); err != nil {
+		return maskAny(err)
+	}
+	return nil
 }
 
 // processUpgradePlan inspects the first entry of the given plan and acts upon
@@ -854,6 +922,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 				return recordFailure(errors.Wrap(err, "Cluster is not healthy in time"))
 			}
 		}
+		m.log.Info().Msg("Finished upgrading agent")
 	case UpgradeEntryTypeDBServer:
 		// Restart the dbserver in auto-upgrade mode
 		m.log.Info().Msg("Upgrading dbserver")
@@ -894,6 +963,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if err := upgrade(); err != nil {
 			return maskAny(err)
 		}
+		m.log.Info().Msg("Finished upgrading dbserver")
 	case UpgradeEntryTypeCoordinator:
 		// Restart the coordinator in auto-upgrade mode
 		m.log.Info().Msg("Upgrading coordinator")
@@ -917,6 +987,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if err := m.waitUntil(ctx, m.isClusterHealthy, "Cluster is not yet healthy: %v"); err != nil {
 			return recordFailure(errors.Wrap(err, "Cluster is not healthy in time"))
 		}
+		m.log.Info().Msg("Finished upgrading coordinator")
 	case UpgradeEntryTypeSingle:
 		// Restart the activefailover single server in auto-upgrade mode
 		m.log.Info().Msg("Upgrading single server")
@@ -951,6 +1022,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if err := upgrade(); err != nil {
 			return maskAny(err)
 		}
+		m.log.Info().Msg("Finished upgrading single server")
 	case UpgradeEntryTypeSyncMaster:
 		// Restart the syncmaster
 		m.log.Info().Msg("Restarting syncmaster")
@@ -971,6 +1043,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if up, _, _, _, _, _, _, _ := m.upgradeManagerContext.TestInstance(ctx, ServerTypeSyncMaster, address, port, nil); !up {
 			return recordFailure(fmt.Errorf("Syncmaster is not up in time"))
 		}
+		m.log.Info().Msg("Finished restarting syncmaster")
 	case UpgradeEntryTypeSyncWorker:
 		// Restart the syncworker
 		m.log.Info().Msg("Restarting syncworker")
@@ -991,6 +1064,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if up, _, _, _, _, _, _, _ := m.upgradeManagerContext.TestInstance(ctx, ServerTypeSyncWorker, address, port, nil); !up {
 			return recordFailure(fmt.Errorf("Syncworker is not up in time"))
 		}
+		m.log.Info().Msg("Finished restarting syncworker")
 	default:
 		return maskAny(fmt.Errorf("Unsupported upgrade plan entry type '%s'", firstEntry.Type))
 	}

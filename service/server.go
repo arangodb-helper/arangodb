@@ -171,6 +171,7 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/database-auto-upgrade", s.databaseAutoUpgradeHandler)
 		// Agency callback
 		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
+		mux.HandleFunc("/cb/upgradePlanChanged", s.cbUpgradePlanChanged)
 	}
 
 	s.server.Addr = containerAddr
@@ -719,6 +720,20 @@ func (s *httpServer) cbMasterChanged(w http.ResponseWriter, r *http.Request) {
 
 	// Interrupt runtime cluster manager
 	s.context.MasterChangedCallback()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// cbUpgradePlanChanged is a callback called by the agency when the upgrade plan is modified.
+func (s *httpServer) cbUpgradePlanChanged(w http.ResponseWriter, r *http.Request) {
+	s.log.Debug().Msgf("Upgrade plan changed callback from %s", r.RemoteAddr)
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Interrupt upgrade manager
+	s.context.UpgradeManager().UpgradePlanChangedCallback()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
