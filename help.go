@@ -133,7 +133,7 @@ func showArangoSyncExecutableNotFoundHelp(arangosyncPath string) {
 		"",
 		"How to solve this:",
 		"1 - Install ArangoSync locally or run the ArangoDB starter in docker. (see README for details).",
-		"    Make sure to use an Enterprise version of ArangoDB.",
+		"    Make sure to use an Enterprise Edition of ArangoDB.",
 		"",
 	)
 }
