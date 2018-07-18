@@ -1355,6 +1355,14 @@ func (m *upgradeManager) isSuperVisionMaintenanceSupported(ctx context.Context) 
 
 // disableSupervision blocks supervision of the agency and waits for the agency to acknowledge.
 func (m *upgradeManager) disableSupervision(ctx context.Context) error {
+	supported, err := m.isSuperVisionMaintenanceSupported(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	if !supported {
+		m.log.Info().Msg("Supervision maintenance is not supported on this version")
+		return nil
+	}
 	api, err := m.createAgencyAPI()
 	if err != nil {
 		return maskAny(err)
@@ -1401,6 +1409,15 @@ func getMaintenanceMode(value interface{}) (string, bool) {
 
 // enableSupervision enabled supervision of the agency.
 func (m *upgradeManager) enableSupervision(ctx context.Context) error {
+	supported, err := m.isSuperVisionMaintenanceSupported(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	if !supported {
+		m.log.Info().Msg("Supervision maintenance is not supported on this version")
+		return nil
+	}
+
 	api, err := m.createAgencyAPI()
 	if err != nil {
 		return maskAny(err)
