@@ -489,6 +489,11 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 
 // Status returns the current status of the upgrade process.
 func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, error) {
+	_, _, mode := m.upgradeManagerContext.ClusterConfig()
+	if !mode.HasAgency() {
+		return client.UpgradeStatus{}, maskAny(client.NewPreconditionFailedError("Mode does not support agency based upgrades"))
+	}
+
 	plan, err := m.readUpgradePlan(ctx)
 	if agency.IsKeyNotFound(err) {
 		// No plan, return not found error
@@ -596,7 +601,7 @@ func (m *upgradeManager) fetchBinaryDatabaseVersions(ctx context.Context) ([]dri
 // fetchRunningDatabaseVersions asks all arangod servers in the deployment for their version.
 // It returns all distinct versions.
 func (m *upgradeManager) fetchRunningDatabaseVersions(ctx context.Context) ([]driver.Version, error) {
-	config, _, _ := m.upgradeManagerContext.ClusterConfig()
+	config, _, mode := m.upgradeManagerContext.ClusterConfig()
 	versionMap := make(map[driver.Version]struct{})
 	var versionList []driver.Version
 
@@ -623,17 +628,23 @@ func (m *upgradeManager) fetchRunningDatabaseVersions(ctx context.Context) ([]dr
 		return nil
 	}
 
-	if err := collect(config.GetAgentEndpoints, ConnectionTypeAgency); err != nil {
-		return nil, maskAny(err)
+	if mode.HasAgency() {
+		if err := collect(config.GetAgentEndpoints, ConnectionTypeAgency); err != nil {
+			return nil, maskAny(err)
+		}
 	}
-	if err := collect(config.GetCoordinatorEndpoints, ConnectionTypeDatabase); err != nil {
-		return nil, maskAny(err)
+	if mode.IsClusterMode() {
+		if err := collect(config.GetCoordinatorEndpoints, ConnectionTypeDatabase); err != nil {
+			return nil, maskAny(err)
+		}
+		if err := collect(config.GetDBServerEndpoints, ConnectionTypeDatabase); err != nil {
+			return nil, maskAny(err)
+		}
 	}
-	if err := collect(config.GetDBServerEndpoints, ConnectionTypeDatabase); err != nil {
-		return nil, maskAny(err)
-	}
-	if err := collect(config.GetAllSingleEndpoints, ConnectionTypeDatabase); err != nil {
-		return nil, maskAny(err)
+	if mode.IsSingleMode() || mode.IsActiveFailoverMode() {
+		if err := collect(config.GetAllSingleEndpoints, ConnectionTypeDatabase); err != nil {
+			return nil, maskAny(err)
+		}
 	}
 
 	return versionList, nil
@@ -722,6 +733,11 @@ func (m *upgradeManager) removeUpgradePlan(ctx context.Context) error {
 // RunWatchUpgradePlan keeps watching the upgrade plan in the agency.
 // Once it detects that this starter has to act, it does.
 func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
+	_, _, mode := m.upgradeManagerContext.ClusterConfig()
+	if !mode.HasAgency() {
+		// Nothing to do here without an agency
+		return
+	}
 	for {
 		delay := time.Second * 10
 		plan, err := m.readUpgradePlan(ctx)

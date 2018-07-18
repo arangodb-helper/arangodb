@@ -137,6 +137,10 @@ func runUpgrade(starterEndpoint string, force, retry bool) {
 	status, err := c.UpgradeStatus(ctx)
 	if err != nil {
 		log.Info().Msgf("Database automatic upgrade has been %s", action)
+		if client.IsPreconditionFailed(err) {
+			log.Info().Msgf("Look at the Starter log to know when the upgrade has finished")
+			return
+		}
 	} else {
 		fromVersions := make([]string, 0, len(status.FromVersions))
 		for _, v := range status.FromVersions {

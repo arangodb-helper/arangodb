@@ -589,6 +589,7 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.Request) {
 	// IsRunningMaster returns if the starter is the running master.
 	isRunningMaster, isRunning, masterURL := s.context.IsRunningMaster()
+	_, _, mode := s.context.ClusterConfig()
 
 	if !isRunning {
 		// We must have reached the running state before we can handle this kind of request
@@ -618,7 +619,15 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		// Start the upgrade process
 		force, _ := strconv.ParseBool(r.FormValue("force"))
 
-		if !isRunningMaster {
+		if isRunningMaster || mode.IsSingleMode() {
+			// We're the starter leader, process the request
+			if err := s.context.UpgradeManager().StartDatabaseUpgrade(ctx, force); err != nil {
+				handleError(w, err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			}
+		} else {
 			// We're not the starter leader.
 			// Forward the request to the leader.
 			c, err := createMasterClient()
@@ -632,14 +641,6 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte("OK"))
 				}
-			}
-		} else {
-			// We're the starter leader, process the request
-			if err := s.context.UpgradeManager().StartDatabaseUpgrade(ctx, force); err != nil {
-				handleError(w, err)
-			} else {
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("OK"))
 			}
 		}
 	case "PUT":
