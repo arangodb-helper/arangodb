@@ -247,6 +247,31 @@ func (c *client) RetryDatabaseUpgrade(ctx context.Context) error {
 	return nil
 }
 
+// AbortDatabaseUpgrade removes the existing upgrade plan.
+// Note that Starters working on an entry of the upgrade
+// will finish that entry.
+// If there is no plan, a NotFoundError will be returned.
+func (c *client) AbortDatabaseUpgrade(ctx context.Context) error {
+	url := c.createURL("/database-auto-upgrade", nil)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := c.handleResponse(resp, "DELETE", url, nil); err != nil {
+		return maskAny(err)
+	}
+
+	return nil
+}
+
 // Status returns the status of any upgrade plan
 func (c *client) UpgradeStatus(ctx context.Context) (UpgradeStatus, error) {
 	url := c.createURL("/database-auto-upgrade", nil)

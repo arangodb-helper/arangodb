@@ -81,6 +81,11 @@ type ErrorResponse struct {
 	Error string
 }
 
+// IsNotFound returns true if the given error is caused by a NotFoundError.
+func IsNotFound(err error) bool {
+	return IsStatusErrorWithCode(err, http.StatusNotFound)
+}
+
 // IsServiceUnavailable returns true if the given error is caused by a ServiceUnavailableError.
 func IsServiceUnavailable(err error) bool {
 	return IsStatusErrorWithCode(err, http.StatusServiceUnavailable)
@@ -99,6 +104,11 @@ func IsPreconditionFailed(err error) bool {
 // IsInternalServer returns true if the given error is caused by a InternalServerError.
 func IsInternalServer(err error) bool {
 	return IsStatusErrorWithCode(err, http.StatusInternalServerError)
+}
+
+// NewNotFoundError creates a not found error with given message.
+func NewNotFoundError(msg string) error {
+	return StatusError{StatusCode: http.StatusNotFound, message: msg}
 }
 
 // NewServiceUnavailableError creates a service unavailable error with given message.

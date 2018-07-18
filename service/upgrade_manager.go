@@ -48,6 +48,12 @@ type UpgradeManager interface {
 	// such that the starters will retry the upgrade once more.
 	RetryDatabaseUpgrade(ctx context.Context) error
 
+	// AbortDatabaseUpgrade removes the existing upgrade plan.
+	// Note that Starters working on an entry of the upgrade
+	// will finish that entry.
+	// If there is no plan, a NotFoundError will be returned.
+	AbortDatabaseUpgrade(ctx context.Context) error
+
 	// Status returns the status of any upgrade plan
 	Status(context.Context) (client.UpgradeStatus, error)
 
@@ -353,7 +359,9 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	// Save plan
 	m.log.Debug().Msg("Writing upgrade plan")
 	overwrite := true
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
+	} else if err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
 	}
 
@@ -397,7 +405,9 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	// Reset failures and write plan
 	plan.ResetFailures()
 	overwrite := false
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
+	} else if err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
 	}
 
@@ -407,12 +417,73 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	return nil
 }
 
+// AbortDatabaseUpgrade removes the existing upgrade plan.
+// Note that Starters working on an entry of the upgrade
+// will finish that entry.
+// If there is no plan, a NotFoundError will be returned.
+func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Fetch mode
+	_, _, mode := m.upgradeManagerContext.ClusterConfig()
+
+	if !mode.HasAgency() {
+		// Without an agency there is not upgrade plan to abort
+		return maskAny(client.NewBadRequestError("Abort needs an agency"))
+	}
+
+	// Run upgrade with agency.
+	// Create an agency lock, so we know we're the only one to create a plan.
+	m.log.Debug().Msg("Creating agency API")
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	m.log.Debug().Msg("Creating lock")
+	lock, err := agency.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	if err != nil {
+		return maskAny(err)
+	}
+
+	// Claim the upgrade lock
+	m.log.Debug().Msg("Locking lock")
+	if err := lock.Lock(ctx); err != nil {
+		m.log.Debug().Err(err).Msg("Lock failed")
+		return maskAny(err)
+	}
+
+	// Close agency lock when we're done
+	defer func() {
+		m.log.Debug().Msg("Unlocking lock")
+		lock.Unlock(context.Background())
+	}()
+
+	// Check plan
+	if _, err := m.readUpgradePlan(ctx); agency.IsKeyNotFound(err) {
+		// There is no plan
+		return maskAny(client.NewNotFoundError("There is no upgrade plan"))
+	}
+
+	// Remove plan
+	m.log.Debug().Msg("Removing upgrade plan")
+	if err := m.removeUpgradePlan(ctx); err != nil {
+		return errors.Wrap(err, "Failed to remove upgrade plan")
+	}
+
+	// Inform user
+	m.log.Info().Msgf("Removed upgrade plan")
+
+	// We're done
+	return nil
+}
+
 // Status returns the current status of the upgrade process.
 func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, error) {
 	plan, err := m.readUpgradePlan(ctx)
 	if agency.IsKeyNotFound(err) {
-		// No plan, return empty status
-		return client.UpgradeStatus{}, nil
+		// No plan, return not found error
+		return client.UpgradeStatus{}, maskAny(client.NewNotFoundError("There is no upgrade plan"))
 	} else if err != nil {
 		return client.UpgradeStatus{}, maskAny(err)
 	}
@@ -623,6 +694,18 @@ func (m *upgradeManager) writeUpgradePlan(ctx context.Context, plan UpgradePlan,
 		return UpgradePlan{}, maskAny(err)
 	}
 	return plan, nil
+}
+
+// removeUpgradePlan removes the current upgrade plan from the agency.
+func (m *upgradeManager) removeUpgradePlan(ctx context.Context) error {
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := api.RemoveKey(ctx, upgradePlanKey); err != nil {
+		return maskAny(err)
+	}
+	return nil
 }
 
 // RunWatchUpgradePlan keeps watching the upgrade plan in the agency.

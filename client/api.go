@@ -57,6 +57,12 @@ type API interface {
 	// such that the starters will retry the upgrade once more.
 	RetryDatabaseUpgrade(ctx context.Context) error
 
+	// AbortDatabaseUpgrade removes the existing upgrade plan.
+	// Note that Starters working on an entry of the upgrade
+	// will finish that entry.
+	// If there is no plan, a NotFoundError will be returned.
+	AbortDatabaseUpgrade(ctx context.Context) error
+
 	// Status returns the status of any upgrade plan
 	UpgradeStatus(context.Context) (UpgradeStatus, error)
 }
