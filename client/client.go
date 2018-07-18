@@ -199,12 +199,8 @@ func (c *client) Shutdown(ctx context.Context, goodbye bool) error {
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
-func (c *client) StartDatabaseUpgrade(ctx context.Context, force bool) error {
-	q := url.Values{}
-	if force {
-		q.Set("force", "true")
-	}
-	url := c.createURL("/database-auto-upgrade", q)
+func (c *client) StartDatabaseUpgrade(ctx context.Context) error {
+	url := c.createURL("/database-auto-upgrade", nil)
 
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {

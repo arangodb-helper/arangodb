@@ -90,11 +90,11 @@ func init() {
 }
 
 func cmdUpgradeRun(cmd *cobra.Command, args []string) {
-	runUpgrade(upgradeOptions.starterEndpoint, false, false)
+	runUpgrade(upgradeOptions.starterEndpoint, false)
 }
 
 func cmdRetryUpgradeRun(cmd *cobra.Command, args []string) {
-	runUpgrade(retryUpgradeOptions.starterEndpoint, false, true)
+	runUpgrade(retryUpgradeOptions.starterEndpoint, true)
 }
 
 func cmdAbortUpgradeRun(cmd *cobra.Command, args []string) {
@@ -114,7 +114,7 @@ func cmdAbortUpgradeRun(cmd *cobra.Command, args []string) {
 	}
 }
 
-func runUpgrade(starterEndpoint string, force, retry bool) {
+func runUpgrade(starterEndpoint string, retry bool) {
 	// Setup logging
 	consoleOnly := true
 	configureLogging(consoleOnly)
@@ -129,7 +129,7 @@ func runUpgrade(starterEndpoint string, force, retry bool) {
 		}
 		action = "restarted"
 	} else {
-		if err := c.StartDatabaseUpgrade(ctx, force); err != nil {
+		if err := c.StartDatabaseUpgrade(ctx); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start database automatic upgrade")
 		}
 		action = "started"

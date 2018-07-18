@@ -617,11 +617,9 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 	switch r.Method {
 	case "POST":
 		// Start the upgrade process
-		force, _ := strconv.ParseBool(r.FormValue("force"))
-
 		if isRunningMaster || mode.IsSingleMode() {
 			// We're the starter leader, process the request
-			if err := s.context.UpgradeManager().StartDatabaseUpgrade(ctx, force); err != nil {
+			if err := s.context.UpgradeManager().StartDatabaseUpgrade(ctx); err != nil {
 				handleError(w, err)
 			} else {
 				w.WriteHeader(http.StatusOK)
@@ -634,7 +632,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 			if err != nil {
 				handleError(w, err)
 			} else {
-				if err := c.StartDatabaseUpgrade(ctx, force); err != nil {
+				if err := c.StartDatabaseUpgrade(ctx); err != nil {
 					s.log.Debug().Err(err).Msg("Forwarding StartDatabaseUpgrade failed")
 					handleError(w, err)
 				} else {

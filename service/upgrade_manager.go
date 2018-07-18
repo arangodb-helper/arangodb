@@ -42,7 +42,7 @@ import (
 // UpgradeManager is the API of a service used to control the upgrade process from 1 database version to the next.
 type UpgradeManager interface {
 	// StartDatabaseUpgrade is called to start the upgrade process
-	StartDatabaseUpgrade(ctx context.Context, force bool) error
+	StartDatabaseUpgrade(ctx context.Context) error
 
 	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
 	// such that the starters will retry the upgrade once more.
@@ -212,7 +212,7 @@ type upgradeManager struct {
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
-func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) error {
+func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -297,7 +297,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	}
 
 	// Check plan status
-	if !plan.IsReady() && !force {
+	if !plan.IsReady() {
 		return maskAny(client.NewBadRequestError("Current upgrade plan has not finished yet"))
 	}
 

@@ -51,7 +51,7 @@ type API interface {
 	Shutdown(ctx context.Context, goodbye bool) error
 
 	// StartDatabaseUpgrade is called to start the upgrade process
-	StartDatabaseUpgrade(ctx context.Context, force bool) error
+	StartDatabaseUpgrade(ctx context.Context) error
 
 	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
 	// such that the starters will retry the upgrade once more.
