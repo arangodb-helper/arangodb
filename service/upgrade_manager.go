@@ -126,6 +126,11 @@ type UpgradePlan struct {
 	ToVersion       driver.Version     `json:"to_version"`
 }
 
+// IsEmpty returns true when the given plan has not been initialized.
+func (p UpgradePlan) IsEmpty() bool {
+	return p.CreatedAt.IsZero()
+}
+
 // IsReady returns true when all entries have finished.
 func (p UpgradePlan) IsReady() bool {
 	return len(p.Entries) == 0
@@ -780,7 +785,7 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 			}
 		}
 		plan, err := m.readUpgradePlan(ctx)
-		if agency.IsKeyNotFound(err) {
+		if agency.IsKeyNotFound(err) || plan.IsEmpty() {
 			// Just try later
 		} else if err != nil {
 			// Failed to read plan
