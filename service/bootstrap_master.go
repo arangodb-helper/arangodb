@@ -43,6 +43,14 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 		s.log.Fatal().Msgf("Port %d is already in use", containerHTTPPort)
 	}
 
+	// Select storage engine
+	storageEngine := bsCfg.ServerStorageEngine
+	if storageEngine == "" {
+		storageEngine = s.DatabaseFeatures().DefaultStorageEngine()
+		bsCfg.ServerStorageEngine = storageEngine
+	}
+	s.log.Info().Msgf("Using storage engine '%s'", bsCfg.ServerStorageEngine)
+
 	// Create initial cluster configuration
 	hasAgent := boolFromRef(bsCfg.StartAgent, !s.mode.IsSingleMode())
 	hasDBServer := boolFromRef(bsCfg.StartDBserver, true)
@@ -55,7 +63,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 			hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
 			hasSyncMaster, hasSyncWorker,
 			s.IsSecure()),
-		bsCfg.AgencySize)
+		bsCfg.AgencySize, storageEngine)
 	s.learnOwnAddress = config.OwnAddress == ""
 
 	// Start HTTP listener

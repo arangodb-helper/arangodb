@@ -204,7 +204,7 @@ func init() {
 	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
 	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
-	f.StringVar(&serverStorageEngine, "server.storage-engine", "mmfiles", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")
+	f.StringVar(&serverStorageEngine, "server.storage-engine", "", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")
 	f.StringVar(&rocksDBEncryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
 
 	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
