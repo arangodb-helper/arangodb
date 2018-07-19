@@ -1,3 +1,9 @@
+# Changed from version 0.12.0 to master
+
+- Database upgrade procedure has changed.
+  It is now much more automated and can be triggered using
+  an `arangodb upgrade --starter.endpoint=...` command.
+
 # Changes from version 0.11.3 to 0.12.0
 
 - Starter now writes it log output to file, unless you set the `--log.file` option to `false`.
