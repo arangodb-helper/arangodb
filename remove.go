@@ -29,32 +29,38 @@ import (
 )
 
 var (
-	cmdLeave = &cobra.Command{
-		Use:   "leave",
-		Short: "Remove an ArangoDB starter from the cluster",
-		Run:   cmdLeaveRun,
+	cmdRemove = &cobra.Command{
+		Use:   "remove",
+		Short: "Remove something",
+		Run:   cmdShowUsage,
 	}
-	leaveOptions struct {
+	cmdRemoveStarter = &cobra.Command{
+		Use:   "starter",
+		Short: "Remove a starter from the cluster",
+		Run:   cmdRemoveStarterRun,
+	}
+	removeStarterOptions struct {
 		starterEndpoint string
 		starterID       string
 	}
 )
 
 func init() {
-	f := cmdLeave.Flags()
-	f.StringVar(&leaveOptions.starterEndpoint, "starter.endpoint", "", "The endpoint of the starter to connect to. E.g. http://localhost:8528")
-	f.StringVar(&leaveOptions.starterID, "starter.id", "", "The ID of the starter to remove")
+	f := cmdRemoveStarter.Flags()
+	f.StringVar(&removeStarterOptions.starterEndpoint, "starter.endpoint", "", "The endpoint of the starter to connect to. E.g. http://localhost:8528")
+	f.StringVar(&removeStarterOptions.starterID, "starter.id", "", "The ID of the starter to remove")
 
-	cmdMain.AddCommand(cmdLeave)
+	cmdMain.AddCommand(cmdRemove)
+	cmdRemove.AddCommand(cmdRemoveStarter)
 }
 
-func cmdLeaveRun(cmd *cobra.Command, args []string) {
+func cmdRemoveStarterRun(cmd *cobra.Command, args []string) {
 	// Setup logging
 	consoleOnly := true
 	configureLogging(consoleOnly)
 
 	// Create starter client
-	c := mustCreateStarterClient(leaveOptions.starterEndpoint)
+	c := mustCreateStarterClient(removeStarterOptions.starterEndpoint)
 
 	// Fetch the ID of the starter for which the endpoint is given
 	ctx := context.Background()
@@ -64,7 +70,7 @@ func cmdLeaveRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Compare ID with requested.
-	if leaveOptions.starterID == "" || leaveOptions.starterID == info.ID {
+	if removeStarterOptions.starterID == "" || removeStarterOptions.starterID == info.ID {
 		// Shutdown (with goodbye) the starter at given endpoint
 		goodbye := true
 		if err := c.Shutdown(ctx, goodbye); err != nil {
@@ -74,7 +80,7 @@ func cmdLeaveRun(cmd *cobra.Command, args []string) {
 		}
 	} else {
 		// Remove another starter from the cluster
-		if err := c.RemovePeer(ctx, leaveOptions.starterID); err != nil {
+		if err := c.RemovePeer(ctx, removeStarterOptions.starterID); err != nil {
 			log.Fatal().Err(err).Msg("Removing starter from cluster failed")
 		} else {
 			log.Info().Msg("Starter has been removed from cluster")
