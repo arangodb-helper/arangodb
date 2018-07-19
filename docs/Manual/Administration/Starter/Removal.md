@@ -7,6 +7,8 @@ It is possible to run this procedure while the machine is still running
 or when it has already been removed.
 
 It is not possible to remove machines that have an agent on it!
+Use the [recovery procedure](./Recovery.md) if you have a failed machine
+with an agent on it.
 
 Note that it is highly recommended to remove a machine while it is still running.
 
@@ -48,7 +50,7 @@ If the machine you want to remove has address `10.21.56.123` and was listening
 on port `8528`, use ID `21e42415`.
 
 The `remove starter` command will attempt the cleanout all data from the servers
-on the machine that you want to remove.
+of the machine that you want to remove.
 This can take a long of time.
 If the cleanout fails, the `remove starter` command will fail.
 
