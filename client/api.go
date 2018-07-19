@@ -51,7 +51,10 @@ type API interface {
 	Shutdown(ctx context.Context, goodbye bool) error
 
 	// RemovePeer removes a peer with given ID from the starter cluster.
-	RemovePeer(ctx context.Context, id string) error
+	// The removal tries to cleanout & properly shutdown servers first.
+	// If that does not succeed, the operation returns an error,
+	// unless force is set to true.
+	RemovePeer(ctx context.Context, id string, force bool) error
 
 	// StartDatabaseUpgrade is called to start the upgrade process
 	StartDatabaseUpgrade(ctx context.Context) error

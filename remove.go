@@ -42,6 +42,7 @@ var (
 	removeStarterOptions struct {
 		starterEndpoint string
 		starterID       string
+		force           bool
 	}
 )
 
@@ -49,6 +50,7 @@ func init() {
 	f := cmdRemoveStarter.Flags()
 	f.StringVar(&removeStarterOptions.starterEndpoint, "starter.endpoint", "", "The endpoint of the starter to connect to. E.g. http://localhost:8528")
 	f.StringVar(&removeStarterOptions.starterID, "starter.id", "", "The ID of the starter to remove")
+	f.BoolVar(&removeStarterOptions.force, "force", false, "If set to true, the starter will be removed even if the servers cannot be properly shutdown")
 
 	cmdMain.AddCommand(cmdRemove)
 	cmdRemove.AddCommand(cmdRemoveStarter)
@@ -80,7 +82,7 @@ func cmdRemoveStarterRun(cmd *cobra.Command, args []string) {
 		}
 	} else {
 		// Remove another starter from the cluster
-		if err := c.RemovePeer(ctx, removeStarterOptions.starterID); err != nil {
+		if err := c.RemovePeer(ctx, removeStarterOptions.starterID, removeStarterOptions.force); err != nil {
 			log.Fatal().Err(err).Msg("Removing starter from cluster failed")
 		} else {
 			log.Info().Msg("Starter has been removed from cluster")

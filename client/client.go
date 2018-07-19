@@ -205,8 +205,15 @@ type GoodbyeRequest struct {
 }
 
 // RemovePeer removes a peer with given ID from the starter cluster.
-func (c *client) RemovePeer(ctx context.Context, id string) error {
-	url := c.createURL("/goodbye", nil)
+// The removal tries to cleanout & properly shutdown servers first.
+// If that does not succeed, the operation returns an error,
+// unless force is set to true.
+func (c *client) RemovePeer(ctx context.Context, id string, force bool) error {
+	q := url.Values{}
+	if force {
+		q.Set("force", "true")
+	}
+	url := c.createURL("/goodbye", q)
 
 	input := GoodbyeRequest{
 		SlaveID: id,
