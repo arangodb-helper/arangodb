@@ -63,10 +63,6 @@ type HelloRequest struct {
 	SyncWorker      *bool  `json:",omitempty"` // If not nil, sets if server gets an sync master or not. If nil, default handling applies
 }
 
-type GoodbyeRequest struct {
-	SlaveID string // Unique ID of the slave that should be removed.
-}
-
 type httpServer struct {
 	//config Config
 	log                  zerolog.Logger
@@ -106,7 +102,7 @@ type httpServerContext interface {
 
 	// HandleGoodbye removes the database servers started by the peer with given id
 	// from the cluster and alters the cluster configuration, removing the peer.
-	HandleGoodbye(id string) (peerRemoved bool, err error)
+	HandleGoodbye(id string, force bool) (peerRemoved bool, err error)
 
 	// Called by an agency callback
 	MasterChangedCallback()
@@ -262,7 +258,9 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req GoodbyeRequest
+	// Parse request
+	force, _ := strconv.ParseBool(r.FormValue("force"))
+	var req client.GoodbyeRequest
 	defer r.Body.Close()
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -280,18 +278,45 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove the peer
-	s.log.Info().Msgf("Goodbye requested for peer %s", req.SlaveID)
-	if removed, err := s.context.HandleGoodbye(req.SlaveID); err != nil {
-		// Failure
-		handleError(w, err)
-	} else if !removed {
-		// ID not found
-		writeError(w, http.StatusNotFound, "Unknown ID")
+	// Check state
+	ctx := r.Context()
+	isRunningMaster, isRunning, masterURL := s.context.IsRunningMaster()
+	if !isRunning {
+		// Must be running first
+		writeError(w, http.StatusServiceUnavailable, "Starter is not in running phase")
+	} else if !isRunningMaster {
+		// Redirect to master
+		if masterURL != "" {
+			// Forward the request to the leader.
+			c, err := createMasterClient(masterURL)
+			if err != nil {
+				handleError(w, err)
+			} else {
+				if err := c.RemovePeer(ctx, req.SlaveID, force); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding RemovePeer failed")
+					handleError(w, err)
+				} else {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte("OK"))
+				}
+			}
+		} else {
+			writeError(w, http.StatusServiceUnavailable, "No runtime master known")
+		}
 	} else {
-		// Peer removed
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("BYE"))
+		// Remove the peer
+		s.log.Info().Bool("force", force).Msgf("Goodbye requested for peer %s", req.SlaveID)
+		if removed, err := s.context.HandleGoodbye(req.SlaveID, force); err != nil {
+			// Failure
+			handleError(w, err)
+		} else if !removed {
+			// ID not found
+			writeError(w, http.StatusNotFound, "Unknown ID")
+		} else {
+			// Peer removed
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("BYE"))
+		}
 	}
 }
 
@@ -599,21 +624,6 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	createMasterClient := func() (client.API, error) {
-		if masterURL == "" {
-			return nil, maskAny(fmt.Errorf("Starter master is not known"))
-		}
-		ep, err := url.Parse(masterURL)
-		if err != nil {
-			return nil, maskAny(err)
-		}
-		c, err := client.NewArangoStarterClient(*ep)
-		if err != nil {
-			return nil, maskAny(err)
-		}
-		return c, nil
-	}
-
 	ctx := r.Context()
 	switch r.Method {
 	case "POST":
@@ -629,7 +639,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		} else {
 			// We're not the starter leader.
 			// Forward the request to the leader.
-			c, err := createMasterClient()
+			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)
 			} else {
@@ -647,7 +657,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		if !isRunningMaster {
 			// We're not the starter leader.
 			// Forward the request to the leader.
-			c, err := createMasterClient()
+			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)
 			} else {
@@ -673,7 +683,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		if !isRunningMaster {
 			// We're not the starter leader.
 			// Forward the request to the leader.
-			c, err := createMasterClient()
+			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)
 			} else {
@@ -765,4 +775,19 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", contentTypeJSON)
 	w.WriteHeader(status)
 	w.Write(b)
+}
+
+func createMasterClient(masterURL string) (client.API, error) {
+	if masterURL == "" {
+		return nil, maskAny(fmt.Errorf("Starter master is not known"))
+	}
+	ep, err := url.Parse(masterURL)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	c, err := client.NewArangoStarterClient(*ep)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return c, nil
 }

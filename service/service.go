@@ -308,7 +308,7 @@ func (s *Service) IsRunningMaster() (isRunningMaster, isRunning bool, masterURL 
 
 // HandleGoodbye removes the database servers started by the peer with given id
 // from the cluster and alters the cluster configuration, removing the peer.
-func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
+func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err error) {
 	// Find peer
 	s.mutex.Lock()
 	peer, peerFound := s.myPeers.PeerByID(id)
@@ -337,59 +337,79 @@ func (s *Service) HandleGoodbye(id string) (peerRemoved bool, err error) {
 
 	// Remove dbserver from cluster (if any)
 	if peer.HasDBServer() {
-		// Find id of dbserver
-		s.log.Info().Msg("Finding server ID of dbserver")
-		sc, err := peer.CreateDBServerAPI(s.CreateClient)
-		if err != nil {
-			return false, maskAny(err)
-		}
-		sid, err := sc.ServerID(ctx)
-		if err != nil {
-			return false, maskAny(err)
-		}
-		// Clean out DB server
-		s.log.Info().Msgf("Starting cleanout of dbserver %s", sid)
-		if err := c.CleanOutServer(ctx, sid); err != nil {
-			s.log.Warn().Err(err).Msgf("Cleanout requested of dbserver %s failed", sid)
-			return false, maskAny(err)
-		}
-		// Wait until server is cleaned out
-		s.log.Info().Msgf("Waiting for cleanout of dbserver %s to finish", sid)
-		for {
-			if cleanedOut, err := c.IsCleanedOut(ctx, sid); err != nil {
-				s.log.Warn().Err(err).Msgf("IsCleanedOut request of dbserver %s failed", sid)
-				return false, maskAny(err)
-			} else if cleanedOut {
-				break
+		shutdownServer := func() error {
+			// Find id of dbserver
+			s.log.Info().Msg("Finding server ID of dbserver")
+			sc, err := peer.CreateDBServerAPI(s.CreateClient)
+			if err != nil {
+				return maskAny(err)
 			}
-			// Wait a bit
-			time.Sleep(time.Millisecond * 250)
+			sid, err := sc.ServerID(ctx)
+			if err != nil {
+				return maskAny(err)
+			}
+			// Clean out DB server
+			s.log.Info().Msgf("Starting cleanout of dbserver %s", sid)
+			if err := c.CleanOutServer(ctx, sid); err != nil {
+				s.log.Warn().Err(err).Msgf("Cleanout requested of dbserver %s failed", sid)
+				return maskAny(err)
+			}
+			// Wait until server is cleaned out
+			s.log.Info().Msgf("Waiting for cleanout of dbserver %s to finish", sid)
+			for {
+				if cleanedOut, err := c.IsCleanedOut(ctx, sid); err != nil {
+					s.log.Warn().Err(err).Msgf("IsCleanedOut request of dbserver %s failed", sid)
+					return maskAny(err)
+				} else if cleanedOut {
+					break
+				}
+				// Wait a bit
+				time.Sleep(time.Millisecond * 250)
+			}
+			// Remove dbserver from cluster
+			s.log.Info().Msgf("Removing dbserver %s from cluster", sid)
+			if err := sc.Shutdown(ctx, true); err != nil {
+				s.log.Warn().Err(err).Msgf("Shutdown request of dbserver %s failed", sid)
+				return maskAny(err)
+			}
+			return nil
 		}
-		// Remove dbserver from cluster
-		s.log.Info().Msgf("Removing dbserver %s from cluster", sid)
-		if err := sc.Shutdown(ctx, true); err != nil {
-			s.log.Warn().Err(err).Msgf("Shutdown request of dbserver %s failed", sid)
-			return false, maskAny(err)
+		if err := shutdownServer(); err != nil {
+			if force {
+				s.log.Warn().Err(err).Msg("Failed to properly shutdown dbserver, removing peer anyway")
+			} else {
+				return false, maskAny(err)
+			}
 		}
 	}
 
 	// Remove coordinator from cluster (if any)
 	if peer.HasCoordinator() {
-		// Find id of coordinator
-		s.log.Info().Msg("Finding server ID of coordinator")
-		sc, err := peer.CreateCoordinatorAPI(s.CreateClient)
-		if err != nil {
-			return false, maskAny(err)
+		shutdownServer := func() error {
+			// Find id of coordinator
+			s.log.Info().Msg("Finding server ID of coordinator")
+			sc, err := peer.CreateCoordinatorAPI(s.CreateClient)
+			if err != nil {
+				return maskAny(err)
+			}
+			sid, err := sc.ServerID(ctx)
+			if err != nil {
+				return maskAny(err)
+			}
+			// Remove coordinator from cluster
+			s.log.Info().Msgf("Removing coordinator %s from cluster", sid)
+			if err := sc.Shutdown(ctx, true); err != nil {
+				s.log.Warn().Err(err).Msgf("Shutdown request of coordinator %s failed", sid)
+				return maskAny(err)
+			}
+			return nil
 		}
-		sid, err := sc.ServerID(ctx)
-		if err != nil {
-			return false, maskAny(err)
-		}
-		// Remove coordinator from cluster
-		s.log.Info().Msgf("Removing coordinator %s from cluster", sid)
-		if err := sc.Shutdown(ctx, true); err != nil {
-			s.log.Warn().Err(err).Msgf("Shutdown request of coordinator %s failed", sid)
-			return false, maskAny(err)
+		if err := shutdownServer(); err != nil {
+			if force {
+				s.log.Warn().Err(err).Msg("Failed to properly shutdown coordinator, removing peer anyway")
+			} else {
+				return false, maskAny(err)
+			}
 		}
 	}
 
@@ -435,7 +455,7 @@ func (s *Service) sendMasterLeaveCluster() error {
 		return maskAny(err)
 	}
 	s.log.Info().Msgf("Saying goodbye to master at %s", u)
-	req := GoodbyeRequest{SlaveID: s.id}
+	req := client.GoodbyeRequest{SlaveID: s.id}
 	data, err := json.Marshal(req)
 	if err != nil {
 		return maskAny(err)
