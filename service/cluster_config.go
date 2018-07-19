@@ -44,6 +44,7 @@ type ClusterConfig struct {
 	AgencySize          int        // Number of agents
 	LastModified        *time.Time `json:"LastModified,omitempty"`        // Time of last modification
 	PortOffsetIncrement int        `json:"PortOffsetIncrement,omitempty"` // Increment of port offsets for peers on same address
+	ServerStorageEngine string     `json:ServerStorageEngine,omitempty"`  // Storage engine being used
 }
 
 // PeerByID returns a peer with given id & true, or false if not found.
@@ -79,10 +80,11 @@ func (p ClusterConfig) AllAgents() []Peer {
 }
 
 // Initialize a new cluster configuration
-func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int) {
+func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int, storageEngine string) {
 	p.AllPeers = []Peer{initialPeer}
 	p.AgencySize = agencySize
 	p.PortOffsetIncrement = portOffsetIncrementNew
+	p.ServerStorageEngine = storageEngine
 	p.updateLastModified()
 }
 

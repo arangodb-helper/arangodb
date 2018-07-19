@@ -47,7 +47,7 @@ import (
 
 // createArangodConf creates an arangod.conf file in the given host directory if it does not yet exists.
 // The arangod.conf file contains all settings that are considered static for the lifetime of the server.
-func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType ServerType) ([]Volume, configFile, error) {
+func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType ServerType, features DatabaseFeatures) ([]Volume, configFile, error) {
 	hostConfFileName := filepath.Join(myHostDir, arangodConfFileName)
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 	volumes := addVolume(nil, hostConfFileName, containerConfFileName, true)
@@ -80,8 +80,8 @@ func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myC
 		serverSection.Settings["authentication"] = "true"
 		serverSection.Settings["jwt-secret"] = bsCfg.JwtSecret
 	}
-	if bsCfg.ServerStorageEngine == "rocksdb" {
-		serverSection.Settings["storage-engine"] = "rocksdb"
+	if features.HasStorageEngineOption() {
+		serverSection.Settings["storage-engine"] = bsCfg.ServerStorageEngine
 	}
 	config := configFile{
 		serverSection,
