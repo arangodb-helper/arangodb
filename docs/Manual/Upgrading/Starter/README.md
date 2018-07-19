@@ -8,7 +8,7 @@ The upgrade procedure of the _Starter_ described in this _Section_ can be used t
 upgrade to a new hotfix, or to perform an upgrade to a new minor version of ArangoDB.
 
 **Important:** rolling upgrades of Cluster setups from 3.2 to 3.3 are only supported
-from versions 3.2.15 and 3.3.9.
+from versions 3.2.16 and 3.3.12.
 
 ## Upgrade Procedure
 
@@ -25,17 +25,17 @@ The first step is to install the new ArangoDB package.
 
 **Note:** you do not have to stop the _Starter_ processes before upgrading it.
 
-For example, if you want to upgrade to `3.3.8-1` on Debian or Ubuntu, either call
+For example, if you want to upgrade to `3.3.12-1` on Debian or Ubuntu, either call
 
 ```bash
-apt install arangodb=3.3.8
+apt install arangodb=3.3.12
 ```
 
 (`apt-get` on older versions) if you have added the ArangoDB repository. Or
 install a specific package using
 
 ```bash
-dpkg -i arangodb3-3.3.8-1_amd64.deb
+dpkg -i arangodb3-3.3.12-1_amd64.deb
 ```
 
 after you have downloaded the corresponding file from https://download.arangodb.com/.

@@ -369,7 +369,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 		}
 		// Add all syncworkers
 		for _, p := range config.AllPeers {
-			if p.HasSyncMaster() {
+			if p.HasSyncWorker() {
 				plan.Entries = append(plan.Entries, UpgradePlanEntry{
 					Type:   UpgradeEntryTypeSyncWorker,
 					PeerID: p.ID,
