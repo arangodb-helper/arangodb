@@ -3,8 +3,12 @@
 - Database upgrade procedure has changed.
   It is now much more automated and can be triggered using
   an `arangodb upgrade --starter.endpoint=...` command.
+  See [Upgrading _Starter_ Deployments](./docs/Manual/Upgrading/Starter/README.md)
+  for details.
 - Added `arangodb remove starter` command to remove a machine
   from a cluster in a controlled manor.
+  See [ArangoDB Starter Removal Procedure](./docs/Manual/Administration/Starter/Removal.md)
+  for details.
 - Changed default value of `--server.storage-engine` from `mmfiles`
   to an empty string. For deployments using ArangoDB 3.3 or earlier
   the effective default is still `mmfiles`. For deployments using ArangoDB 3.4
