@@ -63,10 +63,6 @@ type HelloRequest struct {
 	SyncWorker      *bool  `json:",omitempty"` // If not nil, sets if server gets an sync master or not. If nil, default handling applies
 }
 
-type GoodbyeRequest struct {
-	SlaveID string // Unique ID of the slave that should be removed.
-}
-
 type httpServer struct {
 	//config Config
 	log                  zerolog.Logger
@@ -262,7 +258,7 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req GoodbyeRequest
+	var req client.GoodbyeRequest
 	defer r.Body.Close()
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {

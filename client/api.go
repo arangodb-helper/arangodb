@@ -50,6 +50,9 @@ type API interface {
 	// With goodbye set, it will remove the peer slot for the starter.
 	Shutdown(ctx context.Context, goodbye bool) error
 
+	// RemovePeer removes a peer with given ID from the starter cluster.
+	RemovePeer(ctx context.Context, id string) error
+
 	// StartDatabaseUpgrade is called to start the upgrade process
 	StartDatabaseUpgrade(ctx context.Context) error
 

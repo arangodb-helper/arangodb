@@ -418,7 +418,7 @@ func (s *Service) sendMasterLeaveCluster() error {
 		return maskAny(err)
 	}
 	s.log.Info().Msgf("Saying goodbye to master at %s", u)
-	req := GoodbyeRequest{SlaveID: s.id}
+	req := client.GoodbyeRequest{SlaveID: s.id}
 	data, err := json.Marshal(req)
 	if err != nil {
 		return maskAny(err)

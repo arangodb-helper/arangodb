@@ -23,6 +23,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io/ioutil"
@@ -181,6 +182,41 @@ func (c *client) Shutdown(ctx context.Context, goodbye bool) error {
 	url := c.createURL("/shutdown", q)
 
 	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := c.handleResponse(resp, "POST", url, nil); err != nil {
+		return maskAny(err)
+	}
+
+	return nil
+}
+
+// GoodbyeRequest is the JSON structure send in the request to /goodbye.
+type GoodbyeRequest struct {
+	SlaveID string // Unique ID of the slave that should be removed.
+}
+
+// RemovePeer removes a peer with given ID from the starter cluster.
+func (c *client) RemovePeer(ctx context.Context, id string) error {
+	url := c.createURL("/goodbye", nil)
+
+	input := GoodbyeRequest{
+		SlaveID: id,
+	}
+	inputJSON, err := json.Marshal(input)
+	if err != nil {
+		return maskAny(err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(inputJSON))
 	if err != nil {
 		return maskAny(err)
 	}
