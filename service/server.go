@@ -23,6 +23,7 @@
 package service
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 	"strconv"
 
 	"github.com/arangodb-helper/arangodb/client"
+	driver "github.com/arangodb/go-driver"
 	"github.com/rs/zerolog"
 )
 
@@ -108,6 +110,10 @@ type httpServerContext interface {
 
 	// Called by an agency callback
 	MasterChangedCallback()
+
+	// DatabaseVersion returns the version of the `arangod` binary that is being
+	// used by this starter.
+	DatabaseVersion(context.Context) (driver.Version, error)
 }
 
 // newHTTPServer initializes and an HTTP server.
@@ -160,10 +166,12 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/logs/syncmaster", s.syncMasterLogsHandler)
 		mux.HandleFunc("/logs/syncworker", s.syncWorkerLogsHandler)
 		mux.HandleFunc("/version", s.versionHandler)
+		mux.HandleFunc("/database-version", s.databaseVersionHandler)
 		mux.HandleFunc("/shutdown", s.shutdownHandler)
 		mux.HandleFunc("/database-auto-upgrade", s.databaseAutoUpgradeHandler)
 		// Agency callback
 		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
+		mux.HandleFunc("/cb/upgradePlanChanged", s.cbUpgradePlanChanged)
 	}
 
 	s.server.Addr = containerAddr
@@ -531,6 +539,31 @@ func (s *httpServer) versionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// databaseVersionHandler returns a JSON object containing the current arangod version.
+func (s *httpServer) databaseVersionHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	version, err := s.context.DatabaseVersion(r.Context())
+	if err != nil {
+		handleError(w, err)
+	} else {
+		data, err := json.Marshal(client.DatabaseVersionResponse{
+			Version: version,
+		})
+		if err != nil {
+			s.log.Error().Err(err).Msg("Failed to marshal datbase-version response")
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+		} else {
+			w.WriteHeader(http.StatusOK)
+			w.Write(data)
+		}
+	}
+}
+
 // shutdownHandler initiates a shutdown of this process and all servers started by it.
 func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -555,17 +588,125 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 
 // databaseAutoUpgradeHandler initiates an upgrade of the database version.
 func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+	// IsRunningMaster returns if the starter is the running master.
+	isRunningMaster, isRunning, masterURL := s.context.IsRunningMaster()
+	_, _, mode := s.context.ClusterConfig()
+
+	if !isRunning {
+		// We must have reached the running state before we can handle this kind of request
+		s.log.Debug().Msg("Received /database-auto-upgrade request while not in running phase")
+		writeError(w, http.StatusBadRequest, "Must be in running state to do upgrades")
 		return
 	}
 
-	// Start the upgrade process
-	if err := s.context.UpgradeManager().StartDatabaseUpgrade(); err != nil {
-		handleError(w, err)
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+	createMasterClient := func() (client.API, error) {
+		if masterURL == "" {
+			return nil, maskAny(fmt.Errorf("Starter master is not known"))
+		}
+		ep, err := url.Parse(masterURL)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		c, err := client.NewArangoStarterClient(*ep)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		return c, nil
+	}
+
+	ctx := r.Context()
+	switch r.Method {
+	case "POST":
+		// Start the upgrade process
+		if isRunningMaster || mode.IsSingleMode() {
+			// We're the starter leader, process the request
+			if err := s.context.UpgradeManager().StartDatabaseUpgrade(ctx); err != nil {
+				handleError(w, err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			}
+		} else {
+			// We're not the starter leader.
+			// Forward the request to the leader.
+			c, err := createMasterClient()
+			if err != nil {
+				handleError(w, err)
+			} else {
+				if err := c.StartDatabaseUpgrade(ctx); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding StartDatabaseUpgrade failed")
+					handleError(w, err)
+				} else {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte("OK"))
+				}
+			}
+		}
+	case "PUT":
+		// Retry the upgrade process
+		if !isRunningMaster {
+			// We're not the starter leader.
+			// Forward the request to the leader.
+			c, err := createMasterClient()
+			if err != nil {
+				handleError(w, err)
+			} else {
+				if err := c.RetryDatabaseUpgrade(ctx); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding RetryDatabaseUpgrade failed")
+					handleError(w, err)
+				} else {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte("OK"))
+				}
+			}
+		} else {
+			// We're the starter leader, process the request
+			if err := s.context.UpgradeManager().RetryDatabaseUpgrade(ctx); err != nil {
+				handleError(w, err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			}
+		}
+	case "DELETE":
+		// Abort the upgrade process
+		if !isRunningMaster {
+			// We're not the starter leader.
+			// Forward the request to the leader.
+			c, err := createMasterClient()
+			if err != nil {
+				handleError(w, err)
+			} else {
+				if err := c.AbortDatabaseUpgrade(ctx); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding AbortDatabaseUpgrade failed")
+					handleError(w, err)
+				} else {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte("OK"))
+				}
+			}
+		} else {
+			// We're the starter leader, process the request
+			if err := s.context.UpgradeManager().AbortDatabaseUpgrade(ctx); err != nil {
+				handleError(w, err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			}
+		}
+	case "GET":
+		if status, err := s.context.UpgradeManager().Status(ctx); err != nil {
+			handleError(w, err)
+		} else {
+			b, err := json.Marshal(status)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+			} else {
+				w.Write(b)
+			}
+		}
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 
@@ -579,6 +720,20 @@ func (s *httpServer) cbMasterChanged(w http.ResponseWriter, r *http.Request) {
 
 	// Interrupt runtime cluster manager
 	s.context.MasterChangedCallback()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// cbUpgradePlanChanged is a callback called by the agency when the upgrade plan is modified.
+func (s *httpServer) cbUpgradePlanChanged(w http.ResponseWriter, r *http.Request) {
+	s.log.Debug().Msgf("Upgrade plan changed callback from %s", r.RemoteAddr)
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Interrupt upgrade manager
+	s.context.UpgradeManager().UpgradePlanChangedCallback()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }

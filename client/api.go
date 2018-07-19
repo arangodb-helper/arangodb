@@ -22,7 +22,11 @@
 
 package client
 
-import "context"
+import (
+	"context"
+
+	driver "github.com/arangodb/go-driver"
+)
 
 // API is the interface implemented by the starter's HTTP API's.
 type API interface {
@@ -31,6 +35,10 @@ type API interface {
 
 	// Version requests the starter version.
 	Version(ctx context.Context) (VersionInfo, error)
+
+	// DatabaseVersion returns the version of the `arangod` binary that is being
+	// used by this starter.
+	DatabaseVersion(ctx context.Context) (driver.Version, error)
 
 	// Processes loads information of all the database server processes launched by the starter.
 	Processes(ctx context.Context) (ProcessList, error)
@@ -41,6 +49,22 @@ type API interface {
 	// Shutdown will shutdown a starter (and all its started database servers).
 	// With goodbye set, it will remove the peer slot for the starter.
 	Shutdown(ctx context.Context, goodbye bool) error
+
+	// StartDatabaseUpgrade is called to start the upgrade process
+	StartDatabaseUpgrade(ctx context.Context) error
+
+	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
+	// such that the starters will retry the upgrade once more.
+	RetryDatabaseUpgrade(ctx context.Context) error
+
+	// AbortDatabaseUpgrade removes the existing upgrade plan.
+	// Note that Starters working on an entry of the upgrade
+	// will finish that entry.
+	// If there is no plan, a NotFoundError will be returned.
+	AbortDatabaseUpgrade(ctx context.Context) error
+
+	// Status returns the status of any upgrade plan
+	UpgradeStatus(context.Context) (UpgradeStatus, error)
 }
 
 // IDInfo contains the ID of the starter
@@ -52,6 +76,11 @@ type IDInfo struct {
 type VersionInfo struct {
 	Version string `json:"version"`
 	Build   string `json:"build"`
+}
+
+// DatabaseVersionResponse is the JSON response of a `/database-version` request.
+type DatabaseVersionResponse struct {
+	Version driver.Version `json:"version"`
 }
 
 // EndpointList is the JSON response of a `/endpoints` request.
@@ -100,4 +129,34 @@ func (list ProcessList) ServerByType(serverType ServerType) (ServerProcess, bool
 		}
 	}
 	return ServerProcess{}, false
+}
+
+// UpgradeStatus is the JSON structure returns from a `GET /database-auto-upgrade`
+// request.
+type UpgradeStatus struct {
+	// Ready is set to true when the entire upgrade has been finished succesfully.
+	Ready bool `json:"ready"`
+	// Failed is set to true when the upgrade process has yielded an error
+	Failed bool `json:"failed"`
+	// Reasons contains a human readable description of the state
+	Reason string `json:"reason,omitempty"`
+	// FromVersions contains all database versions found that will be upgraded.
+	FromVersions []driver.Version `json:"from_versions"`
+	// ToVersion contains the database version that will be upgraded to.
+	ToVersion driver.Version `json:"to_version"`
+	// ServersUpgraded contains the servers that have been upgraded
+	ServersUpgraded []UpgradeStatusServer `json:"servers_upgraded"`
+	// ServersRemaining contains the servers that have not yet been upgraded
+	ServersRemaining []UpgradeStatusServer `json:"servers_remaining"`
+}
+
+// UpgradeStatusServer is the nested JSON structure returns from a `GET /database-auto-upgrade`
+// request.
+type UpgradeStatusServer struct {
+	// Type of the server
+	Type ServerType `json:"type"`
+	// Port the server is listening on
+	Port int `json:"port"`
+	// Address of the server (IP or hostname)
+	Address string `json:"address"`
 }

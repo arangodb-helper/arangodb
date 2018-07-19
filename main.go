@@ -35,6 +35,7 @@ import (
 	"syscall"
 	"time"
 
+	driver "github.com/arangodb/go-driver"
 	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
@@ -148,6 +149,11 @@ var (
 )
 
 func init() {
+	// Setup error functions in go-driver
+	driver.WithStack = errors.WithStack
+	driver.Cause = errors.Cause
+
+	// Prepare initial logger
 	log, _ = logging.NewRootLogger(logging.LoggerOutputOptions{
 		Stderr: true,
 	})
@@ -158,6 +164,7 @@ func init() {
 		defaultLogColor = false
 	}
 
+	// Prepare commandline parser
 	cmdMain.AddCommand(cmdVersion)
 
 	pf := cmdMain.PersistentFlags()
@@ -455,7 +462,8 @@ func cmdShowVersionRun(cmd *cobra.Command, args []string) {
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
 	// Setup log level
-	configureLogging()
+	consoleOnly := false
+	configureLogging(consoleOnly)
 
 	log.Info().Msgf("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
 
@@ -488,12 +496,12 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 }
 
 // configureLogging configures the log object according to command line arguments.
-func configureLogging() {
+func configureLogging(consoleOnly bool) {
 	logOpts := logging.LoggerOutputOptions{
 		Stderr: logOutput.Console,
 		Color:  logOutput.Color,
 	}
-	if logOutput.File {
+	if logOutput.File && !consoleOnly {
 		if logDir != "" {
 			logOpts.LogFile = filepath.Join(logDir, logFileName)
 		} else {

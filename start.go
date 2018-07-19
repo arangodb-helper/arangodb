@@ -56,7 +56,8 @@ func init() {
 
 func cmdStartRun(cmd *cobra.Command, args []string) {
 	// Setup logging
-	configureLogging()
+	consoleOnly := true
+	configureLogging(consoleOnly)
 
 	log.Info().Msgf("Starting %s version %s, build %s in the background", projectName, projectVersion, projectBuild)
 

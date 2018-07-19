@@ -46,7 +46,8 @@ func init() {
 
 func cmdStopRun(cmd *cobra.Command, args []string) {
 	// Setup logging
-	configureLogging()
+	consoleOnly := true
+	configureLogging(consoleOnly)
 
 	// Create starter client
 	scheme := "http"

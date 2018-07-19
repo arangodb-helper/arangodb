@@ -788,7 +788,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			location := master.CreateStarterURL("/hello")
 			return ClusterConfig{}, maskAny(RedirectError{location})
 		} else {
-			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "No master known"))
+			return ClusterConfig{}, maskAny(client.NewBadRequestError("No master known"))
 		}
 	}
 
@@ -830,7 +830,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		if slaveAddr == "" {
 			host, _, err := net.SplitHostPort(remoteAddress)
 			if err != nil {
-				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "SlaveAddress must be set."))
+				return ClusterConfig{}, maskAny(client.NewBadRequestError("SlaveAddress must be set."))
 			}
 			slaveAddr = normalizeHostName(host)
 		} else {
@@ -840,21 +840,21 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 
 		// Check request
 		if req.SlaveID == "" {
-			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "SlaveID must be set."))
+			return ClusterConfig{}, maskAny(client.NewBadRequestError("SlaveID must be set."))
 		}
 
 		// Check datadir
 		if !s.allowSameDataDir {
 			for _, p := range s.myPeers.AllPeers {
 				if p.Address == slaveAddr && p.DataDir == req.DataDir && p.ID != req.SlaveID {
-					return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot use same directory as peer."))
+					return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot use same directory as peer."))
 				}
 			}
 		}
 
 		// Check IsSecure, cannot mix secure / non-secure
 		if req.IsSecure != s.IsSecure() {
-			return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot mix secure / non-secure peers."))
+			return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot mix secure / non-secure peers."))
 		}
 
 		// If slaveID already known, then return data right away.
@@ -869,7 +869,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 					} else {
 						// Slave address may not change
 						if p.Address != slaveAddr {
-							return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "Cannot change slave address while using an existing ID."))
+							return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot change slave address while using an existing ID."))
 						}
 					}
 					s.myPeers.AllPeers[i].DataDir = req.DataDir
@@ -878,7 +878,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 		} else {
 			// In single server mode, do not accept new slaves
 			if s.mode.IsSingleMode() {
-				return ClusterConfig{}, maskAny(errors.Wrap(client.BadRequestError, "In single server mode, slaves cannot be added."))
+				return ClusterConfig{}, maskAny(client.NewBadRequestError("In single server mode, slaves cannot be added."))
 			}
 			// Ok. We're now in cluster or resilient single mode.
 			// ID not yet found, add it
@@ -1104,6 +1104,13 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 	go func() {
 		defer wg.Done()
 		s.runtimeClusterManager.Run(s.stopPeer.ctx, s.log, s)
+	}()
+
+	// Start the upgrade manager
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.upgradeManager.RunWatchUpgradePlan(s.stopPeer.ctx)
 	}()
 
 	// Wait until managers have terminated

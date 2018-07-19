@@ -58,7 +58,7 @@ ifdef TRAVIS
 	echo Using IP=$(IP)
 endif
 
-TEST_TIMEOUT := 20m
+TEST_TIMEOUT := 25m
 
 BINNAME := arangodb$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
@@ -125,6 +125,7 @@ $(GOBUILDDIR):
 	@rm -f $(GOBUILDDIR)/src/github.com/ryanuber && ln -s ../../../deps/github.com/ryanuber $(GOBUILDDIR)/src/github.com/ryanuber
 	@rm -f $(GOBUILDDIR)/src/github.com/voxelbrain && ln -s ../../../deps/github.com/voxelbrain $(GOBUILDDIR)/src/github.com/voxelbrain
 	@rm -f $(GOBUILDDIR)/src/golang.org/x && ln -s ../../../deps/golang.org/x $(GOBUILDDIR)/src/golang.org/x
+	@GOPATH=$(GOBUILDDIR) go get github.com/arangodb/go-upgrade-rules
 
 .PHONY: $(CACHEVOL)
 $(CACHEVOL):
