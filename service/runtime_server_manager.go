@@ -82,13 +82,16 @@ type runtimeServerManagerContext interface {
 	// IsLocalSlave returns true if this peer is running as a local slave
 	IsLocalSlave() bool
 
+	// DatabaseFeatures returns the detected database features.
+	DatabaseFeatures() DatabaseFeatures
+
 	// Stop the peer
 	Stop()
 }
 
 // startServer starts a single Arangod/Arangosync server of the given type.
 func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
-	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, restart int) (Process, bool, error) {
+	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, features DatabaseFeatures, restart int) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -145,7 +148,7 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	var containerSecretFileName string
 	if processType == ProcessTypeArangod {
 		var err error
-		confVolumes, arangodConfig, err = createArangodConf(log, bsCfg, myHostDir, myContainerDir, strconv.Itoa(myPort), serverType)
+		confVolumes, arangodConfig, err = createArangodConf(log, bsCfg, myHostDir, myContainerDir, strconv.Itoa(myPort), serverType, features)
 		if err != nil {
 			return nil, false, maskAny(err)
 		}
@@ -237,7 +240,8 @@ func (s *runtimeServerManager) runServer(ctx context.Context, log zerolog.Logger
 	for {
 		myHostAddress := myPeer.Address
 		startTime := time.Now()
-		p, portInUse, err := startServer(ctx, log, runtimeContext, runner, config, bsCfg, myHostAddress, serverType, restart)
+		features := runtimeContext.DatabaseFeatures()
+		p, portInUse, err := startServer(ctx, log, runtimeContext, runner, config, bsCfg, myHostAddress, serverType, features, restart)
 		if err != nil {
 			log.Error().Err(err).Msgf("Error while starting %s", serverType)
 			if !portInUse {

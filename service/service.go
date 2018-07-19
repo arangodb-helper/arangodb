@@ -214,6 +214,7 @@ type Service struct {
 	runtimeServerManager  runtimeServerManager
 	runtimeClusterManager runtimeClusterManager
 	upgradeManager        UpgradeManager
+	databaseFeatures      DatabaseFeatures
 }
 
 // NewService creates a new Service instance from the given config.
@@ -256,6 +257,22 @@ const (
 	arangodConfFileName      = "arangod.conf"
 	arangodJWTSecretFileName = "arangod.jwtsecret"
 )
+
+// detectDatabaseFeatures queries the database version and sets the
+// databaseFeatures field.
+func (s *Service) detectDatabaseFeatures(ctx context.Context) error {
+	v, err := s.DatabaseVersion(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	s.databaseFeatures = NewDatabaseFeatures(v)
+	return nil
+}
+
+// DatabaseFeatures returns the detected database features.
+func (s *Service) DatabaseFeatures() DatabaseFeatures {
+	return s.databaseFeatures
+}
 
 // IsSecure returns true when the cluster is using SSL for connections, false otherwise.
 func (s *Service) IsSecure() bool {
@@ -1157,6 +1174,17 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	runner, s.cfg, s.allowSameDataDir = s.cfg.CreateRunner(s.log)
 	s.runner = runner
 
+	// Detect database version
+	ctx := context.Background()
+	if err := s.detectDatabaseFeatures(ctx); err != nil {
+		return errors.Wrap(err, "Failed to detect database features")
+	}
+
+	// Check storage engine
+	if err := s.validateStorageEngine(bsCfg.ServerStorageEngine, s.DatabaseFeatures()); err != nil {
+		return maskAny(err)
+	}
+
 	// Start a rotate log file time
 	if s.cfg.LogRotateInterval > 0 {
 		go s.runRotateLogFiles(rootCtx)
@@ -1166,6 +1194,13 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	if shouldRelaunch {
 		s.myPeers = myPeers
 		s.log.Info().Msgf("Relaunching service with id '%s' on %s:%d...", s.id, s.cfg.OwnAddress, s.announcePort)
+		storageEngine, err := s.readActualStorageEngine()
+		if err != nil {
+			return maskAny(err)
+		}
+		s.myPeers.ServerStorageEngine = storageEngine
+		bsCfg.ServerStorageEngine = storageEngine
+		s.log.Info().Msgf("Using storage engine '%s'", bsCfg.ServerStorageEngine)
 		s.startHTTPServer(s.cfg)
 		wg := &sync.WaitGroup{}
 		if bsCfg.StartLocalSlaves {

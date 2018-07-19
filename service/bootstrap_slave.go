@@ -103,8 +103,13 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			s.log.Fatal().Msg("Master responsed with cluster config that does not contain my ID, please check master")
 			return
 		}
+		if result.ServerStorageEngine == "" {
+			s.log.Fatal().Msg("Master responsed with cluster config that does not contain a ServerStorageEngine, please update master first")
+			return
+		}
 		// Save cluster config
 		s.myPeers = result
+		bsCfg.ServerStorageEngine = result.ServerStorageEngine
 		break
 	}
 
@@ -149,6 +154,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 	}
 
 	s.log.Info().Msgf("Serving as slave with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
+	s.log.Info().Msgf("Using storage engine '%s'", bsCfg.ServerStorageEngine)
 	s.saveSetup()
 	s.startRunning(runner, config, bsCfg)
 }
