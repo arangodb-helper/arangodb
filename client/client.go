@@ -199,12 +199,8 @@ func (c *client) Shutdown(ctx context.Context, goodbye bool) error {
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
-func (c *client) StartDatabaseUpgrade(ctx context.Context, force bool) error {
-	q := url.Values{}
-	if force {
-		q.Set("force", "true")
-	}
-	url := c.createURL("/database-auto-upgrade", q)
+func (c *client) StartDatabaseUpgrade(ctx context.Context) error {
+	url := c.createURL("/database-auto-upgrade", nil)
 
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
@@ -241,6 +237,31 @@ func (c *client) RetryDatabaseUpgrade(ctx context.Context) error {
 		return maskAny(err)
 	}
 	if err := c.handleResponse(resp, "PUT", url, nil); err != nil {
+		return maskAny(err)
+	}
+
+	return nil
+}
+
+// AbortDatabaseUpgrade removes the existing upgrade plan.
+// Note that Starters working on an entry of the upgrade
+// will finish that entry.
+// If there is no plan, a NotFoundError will be returned.
+func (c *client) AbortDatabaseUpgrade(ctx context.Context) error {
+	url := c.createURL("/database-auto-upgrade", nil)
+
+	req, err := http.NewRequest("DELETE", url, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := c.handleResponse(resp, "DELETE", url, nil); err != nil {
 		return maskAny(err)
 	}
 

@@ -171,6 +171,7 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/database-auto-upgrade", s.databaseAutoUpgradeHandler)
 		// Agency callback
 		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
+		mux.HandleFunc("/cb/upgradePlanChanged", s.cbUpgradePlanChanged)
 	}
 
 	s.server.Addr = containerAddr
@@ -589,6 +590,7 @@ func (s *httpServer) shutdownHandler(w http.ResponseWriter, r *http.Request) {
 func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.Request) {
 	// IsRunningMaster returns if the starter is the running master.
 	isRunningMaster, isRunning, masterURL := s.context.IsRunningMaster()
+	_, _, mode := s.context.ClusterConfig()
 
 	if !isRunning {
 		// We must have reached the running state before we can handle this kind of request
@@ -616,30 +618,28 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 	switch r.Method {
 	case "POST":
 		// Start the upgrade process
-		force, _ := strconv.ParseBool(r.FormValue("force"))
-
-		if !isRunningMaster {
+		if isRunningMaster || mode.IsSingleMode() {
+			// We're the starter leader, process the request
+			if err := s.context.UpgradeManager().StartDatabaseUpgrade(ctx); err != nil {
+				handleError(w, err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			}
+		} else {
 			// We're not the starter leader.
 			// Forward the request to the leader.
 			c, err := createMasterClient()
 			if err != nil {
 				handleError(w, err)
 			} else {
-				if err := c.StartDatabaseUpgrade(ctx, force); err != nil {
+				if err := c.StartDatabaseUpgrade(ctx); err != nil {
 					s.log.Debug().Err(err).Msg("Forwarding StartDatabaseUpgrade failed")
 					handleError(w, err)
 				} else {
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte("OK"))
 				}
-			}
-		} else {
-			// We're the starter leader, process the request
-			if err := s.context.UpgradeManager().StartDatabaseUpgrade(ctx, force); err != nil {
-				handleError(w, err)
-			} else {
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("OK"))
 			}
 		}
 	case "PUT":
@@ -662,6 +662,32 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		} else {
 			// We're the starter leader, process the request
 			if err := s.context.UpgradeManager().RetryDatabaseUpgrade(ctx); err != nil {
+				handleError(w, err)
+			} else {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			}
+		}
+	case "DELETE":
+		// Abort the upgrade process
+		if !isRunningMaster {
+			// We're not the starter leader.
+			// Forward the request to the leader.
+			c, err := createMasterClient()
+			if err != nil {
+				handleError(w, err)
+			} else {
+				if err := c.AbortDatabaseUpgrade(ctx); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding AbortDatabaseUpgrade failed")
+					handleError(w, err)
+				} else {
+					w.WriteHeader(http.StatusOK)
+					w.Write([]byte("OK"))
+				}
+			}
+		} else {
+			// We're the starter leader, process the request
+			if err := s.context.UpgradeManager().AbortDatabaseUpgrade(ctx); err != nil {
 				handleError(w, err)
 			} else {
 				w.WriteHeader(http.StatusOK)
@@ -694,6 +720,20 @@ func (s *httpServer) cbMasterChanged(w http.ResponseWriter, r *http.Request) {
 
 	// Interrupt runtime cluster manager
 	s.context.MasterChangedCallback()
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// cbUpgradePlanChanged is a callback called by the agency when the upgrade plan is modified.
+func (s *httpServer) cbUpgradePlanChanged(w http.ResponseWriter, r *http.Request) {
+	s.log.Debug().Msgf("Upgrade plan changed callback from %s", r.RemoteAddr)
+	if r.Method != "POST" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Interrupt upgrade manager
+	s.context.UpgradeManager().UpgradePlanChangedCallback()
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }

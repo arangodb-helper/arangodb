@@ -30,23 +30,31 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/client"
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	"github.com/arangodb/go-upgrade-rules"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
+
+	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/trigger"
 )
 
 // UpgradeManager is the API of a service used to control the upgrade process from 1 database version to the next.
 type UpgradeManager interface {
 	// StartDatabaseUpgrade is called to start the upgrade process
-	StartDatabaseUpgrade(ctx context.Context, force bool) error
+	StartDatabaseUpgrade(ctx context.Context) error
 
 	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
 	// such that the starters will retry the upgrade once more.
 	RetryDatabaseUpgrade(ctx context.Context) error
+
+	// AbortDatabaseUpgrade removes the existing upgrade plan.
+	// Note that Starters working on an entry of the upgrade
+	// will finish that entry.
+	// If there is no plan, a NotFoundError will be returned.
+	AbortDatabaseUpgrade(ctx context.Context) error
 
 	// Status returns the status of any upgrade plan
 	Status(context.Context) (client.UpgradeStatus, error)
@@ -62,6 +70,9 @@ type UpgradeManager interface {
 
 	// RunWatchUpgradePlan keeps watching the upgrade plan until the given context is canceled.
 	RunWatchUpgradePlan(context.Context)
+
+	// UpgradePlanChangedCallback is an agency callback to notify about changes in the upgrade plan
+	UpgradePlanChangedCallback()
 }
 
 // UpgradeManagerContext holds methods used by the upgrade manager to control its context.
@@ -111,6 +122,8 @@ type UpgradePlan struct {
 	Entries         []UpgradePlanEntry `json:"entries"`
 	FinishedEntries []UpgradePlanEntry `json:"finished_entries"`
 	Finished        bool               `json:"finished"`
+	FromVersions    []driver.Version   `json:"from_versions"`
+	ToVersion       driver.Version     `json:"to_version"`
 }
 
 // IsReady returns true when all entries have finished.
@@ -201,10 +214,11 @@ type upgradeManager struct {
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     ServerType
 	updateNeeded          bool
+	cbTrigger             trigger.Trigger
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
-func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) error {
+func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -218,6 +232,13 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	if err != nil {
 		return maskAny(err)
 	}
+	if len(binaryDBVersions) > 1 {
+		return maskAny(client.NewBadRequestError(fmt.Sprintf("Found multiple database versions (%v). Make sure all machines have the same version", binaryDBVersions)))
+	}
+	if len(binaryDBVersions) == 0 {
+		return maskAny(client.NewBadRequestError("Found no database versions. This is likely a bug"))
+	}
+	toVersion := binaryDBVersions[0]
 
 	// Fetch (running) database versions of all starters
 	runningDBVersions, err := m.fetchRunningDatabaseVersions(ctx)
@@ -227,10 +248,8 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 
 	// Check if we can upgrade from running to binary versions
 	for _, from := range runningDBVersions {
-		for _, to := range binaryDBVersions {
-			if err := upgraderules.CheckUpgradeRules(from, to); err != nil {
-				return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
-			}
+		if err := upgraderules.CheckUpgradeRules(from, toVersion); err != nil {
+			return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
 		}
 	}
 
@@ -241,6 +260,13 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 		// Run upgrade without agency
 		go m.runSingleServerUpgradeProcess(ctx, myPeer, mode)
 		return nil
+	}
+
+	// Check cluster health
+	if mode.IsClusterMode() {
+		if err := m.isClusterHealthy(ctx); err != nil {
+			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
+		}
 	}
 
 	// Run upgrade with agency.
@@ -277,7 +303,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	}
 
 	// Check plan status
-	if !plan.IsReady() && !force {
+	if !plan.IsReady() {
 		return maskAny(client.NewBadRequestError("Current upgrade plan has not finished yet"))
 	}
 
@@ -286,6 +312,8 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	plan = UpgradePlan{
 		CreatedAt:      time.Now(),
 		LastModifiedAt: time.Now(),
+		FromVersions:   runningDBVersions,
+		ToVersion:      toVersion,
 	}
 	// First add all agents
 	for _, p := range config.AllPeers {
@@ -353,7 +381,9 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, force bool) e
 	// Save plan
 	m.log.Debug().Msg("Writing upgrade plan")
 	overwrite := true
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
+	} else if err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
 	}
 
@@ -378,6 +408,17 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 		return maskAny(client.NewBadRequestError("Retry needs an agency"))
 	}
 
+	// Check cluster health
+	if mode.IsClusterMode() {
+		if err := m.isClusterHealthy(ctx); err != nil {
+			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
+		}
+	}
+
+	// Note that in contrast to StartDatabaseUpgrade we do not use an agency lock
+	// here. The reason for that is that we expect to have a plan and use
+	// the revision condition to ensure a "safe" update.
+
 	// Retry upgrade with agency.
 	plan, err := m.readUpgradePlan(ctx)
 	if agency.IsKeyNotFound(err) {
@@ -397,7 +438,9 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	// Reset failures and write plan
 	plan.ResetFailures()
 	overwrite := false
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
+	} else if err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
 	}
 
@@ -407,18 +450,86 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	return nil
 }
 
+// AbortDatabaseUpgrade removes the existing upgrade plan.
+// Note that Starters working on an entry of the upgrade
+// will finish that entry.
+// If there is no plan, a NotFoundError will be returned.
+func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// Fetch mode
+	_, _, mode := m.upgradeManagerContext.ClusterConfig()
+
+	if !mode.HasAgency() {
+		// Without an agency there is not upgrade plan to abort
+		return maskAny(client.NewBadRequestError("Abort needs an agency"))
+	}
+
+	// Run upgrade with agency.
+	// Create an agency lock, so we know we're the only one to create a plan.
+	m.log.Debug().Msg("Creating agency API")
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	m.log.Debug().Msg("Creating lock")
+	lock, err := agency.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	if err != nil {
+		return maskAny(err)
+	}
+
+	// Claim the upgrade lock
+	m.log.Debug().Msg("Locking lock")
+	if err := lock.Lock(ctx); err != nil {
+		m.log.Debug().Err(err).Msg("Lock failed")
+		return maskAny(err)
+	}
+
+	// Close agency lock when we're done
+	defer func() {
+		m.log.Debug().Msg("Unlocking lock")
+		lock.Unlock(context.Background())
+	}()
+
+	// Check plan
+	if _, err := m.readUpgradePlan(ctx); agency.IsKeyNotFound(err) {
+		// There is no plan
+		return maskAny(client.NewNotFoundError("There is no upgrade plan"))
+	}
+
+	// Remove plan
+	m.log.Debug().Msg("Removing upgrade plan")
+	if err := m.removeUpgradePlan(ctx); err != nil {
+		return errors.Wrap(err, "Failed to remove upgrade plan")
+	}
+
+	// Inform user
+	m.log.Info().Msgf("Removed upgrade plan")
+
+	// We're done
+	return nil
+}
+
 // Status returns the current status of the upgrade process.
 func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, error) {
+	_, _, mode := m.upgradeManagerContext.ClusterConfig()
+	if !mode.HasAgency() {
+		return client.UpgradeStatus{}, maskAny(client.NewPreconditionFailedError("Mode does not support agency based upgrades"))
+	}
+
 	plan, err := m.readUpgradePlan(ctx)
 	if agency.IsKeyNotFound(err) {
-		// No plan, return empty status
-		return client.UpgradeStatus{}, nil
+		// No plan, return not found error
+		return client.UpgradeStatus{}, maskAny(client.NewNotFoundError("There is no upgrade plan"))
 	} else if err != nil {
 		return client.UpgradeStatus{}, maskAny(err)
 	}
 	result := client.UpgradeStatus{
-		Ready:  plan.IsReady(),
-		Failed: plan.IsFailed(),
+		Ready:        plan.IsReady(),
+		Failed:       plan.IsFailed(),
+		FromVersions: plan.FromVersions,
+		ToVersion:    plan.ToVersion,
 	}
 	for _, entry := range plan.Entries {
 		if entry.Failures > 0 && result.Reason == "" {
@@ -514,7 +625,7 @@ func (m *upgradeManager) fetchBinaryDatabaseVersions(ctx context.Context) ([]dri
 // fetchRunningDatabaseVersions asks all arangod servers in the deployment for their version.
 // It returns all distinct versions.
 func (m *upgradeManager) fetchRunningDatabaseVersions(ctx context.Context) ([]driver.Version, error) {
-	config, _, _ := m.upgradeManagerContext.ClusterConfig()
+	config, _, mode := m.upgradeManagerContext.ClusterConfig()
 	versionMap := make(map[driver.Version]struct{})
 	var versionList []driver.Version
 
@@ -541,17 +652,23 @@ func (m *upgradeManager) fetchRunningDatabaseVersions(ctx context.Context) ([]dr
 		return nil
 	}
 
-	if err := collect(config.GetAgentEndpoints, ConnectionTypeAgency); err != nil {
-		return nil, maskAny(err)
+	if mode.HasAgency() {
+		if err := collect(config.GetAgentEndpoints, ConnectionTypeAgency); err != nil {
+			return nil, maskAny(err)
+		}
 	}
-	if err := collect(config.GetCoordinatorEndpoints, ConnectionTypeDatabase); err != nil {
-		return nil, maskAny(err)
+	if mode.IsClusterMode() {
+		if err := collect(config.GetCoordinatorEndpoints, ConnectionTypeDatabase); err != nil {
+			return nil, maskAny(err)
+		}
+		if err := collect(config.GetDBServerEndpoints, ConnectionTypeDatabase); err != nil {
+			return nil, maskAny(err)
+		}
 	}
-	if err := collect(config.GetDBServerEndpoints, ConnectionTypeDatabase); err != nil {
-		return nil, maskAny(err)
-	}
-	if err := collect(config.GetAllSingleEndpoints, ConnectionTypeDatabase); err != nil {
-		return nil, maskAny(err)
+	if mode.IsSingleMode() || mode.IsActiveFailoverMode() {
+		if err := collect(config.GetAllSingleEndpoints, ConnectionTypeDatabase); err != nil {
+			return nil, maskAny(err)
+		}
 	}
 
 	return versionList, nil
@@ -625,11 +742,43 @@ func (m *upgradeManager) writeUpgradePlan(ctx context.Context, plan UpgradePlan,
 	return plan, nil
 }
 
+// removeUpgradePlan removes the current upgrade plan from the agency.
+func (m *upgradeManager) removeUpgradePlan(ctx context.Context) error {
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	if err := api.RemoveKey(ctx, upgradePlanKey); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
 // RunWatchUpgradePlan keeps watching the upgrade plan in the agency.
 // Once it detects that this starter has to act, it does.
 func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
+	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
+	ownURL := myPeer.CreateStarterURL("/")
+	if !mode.HasAgency() {
+		// Nothing to do here without an agency
+		return
+	}
+	registeredCallback := false
+	defer func() {
+		if registeredCallback {
+			m.unregisterUpgradePlanChangedCallback(ctx, ownURL)
+		}
+	}()
 	for {
-		delay := time.Second * 10
+		delay := time.Minute
+		if !registeredCallback {
+			m.log.Debug().Msg("Registering upgrade plan changed callback...")
+			if err := m.registerUpgradePlanChangedCallback(ctx, ownURL); err != nil {
+				m.log.Info().Err(err).Msg("Failed to register upgrade plan changed callback")
+			} else {
+				registeredCallback = true
+			}
+		}
 		plan, err := m.readUpgradePlan(ctx)
 		if agency.IsKeyNotFound(err) {
 			// Just try later
@@ -657,6 +806,8 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 		select {
 		case <-time.After(delay):
 			// Continue
+		case <-m.cbTrigger.Done():
+			// Continue
 		case <-ctx.Done():
 			// Context canceled
 			return
@@ -664,10 +815,55 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 	}
 }
 
+// UpgradePlanChangedCallback is an agency callback to notify about changes in the upgrade plan
+func (m *upgradeManager) UpgradePlanChangedCallback() {
+	m.cbTrigger.Trigger()
+}
+
+// registerUpgradePlanChangedCallback registers our callback URL with the agency
+func (m *upgradeManager) registerUpgradePlanChangedCallback(ctx context.Context, ownURL string) error {
+	// Get api client
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Register callback
+	cbURL, err := getURLWithPath(ownURL, "/cb/upgradePlanChanged")
+	if err != nil {
+		return maskAny(err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	if err := api.RegisterChangeCallback(ctx, upgradePlanKey, cbURL); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
+// unregisterUpgradePlanChangedCallback removes our callback URL from the agency
+func (m *upgradeManager) unregisterUpgradePlanChangedCallback(ctx context.Context, ownURL string) error {
+	// Get api client
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Register callback
+	cbURL, err := getURLWithPath(ownURL, "/cb/upgradePlanChanged")
+	if err != nil {
+		return maskAny(err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	if err := api.UnregisterChangeCallback(ctx, upgradePlanKey, cbURL); err != nil {
+		return maskAny(err)
+	}
+	return nil
+}
+
 // processUpgradePlan inspects the first entry of the given plan and acts upon
 // it when needed.
 func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePlan) error {
-	_, myPeer, _ := m.upgradeManagerContext.ClusterConfig()
+	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
 	_, isRunning, _ := m.upgradeManagerContext.IsRunningMaster()
 	if !isRunning {
 		return maskAny(fmt.Errorf("Not in running phase"))
@@ -719,6 +915,14 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if err := m.waitUntil(ctx, m.isAgencyHealth, "Agency is not yet healthy: %v"); err != nil {
 			return recordFailure(errors.Wrap(err, "Agency is not healthy in time"))
 		}
+
+		// Wait until cluster healthy
+		if mode.IsClusterMode() {
+			if err := m.waitUntil(ctx, m.isClusterHealthy, "Cluster is not yet healthy: %v"); err != nil {
+				return recordFailure(errors.Wrap(err, "Cluster is not healthy in time"))
+			}
+		}
+		m.log.Info().Msg("Finished upgrading agent")
 	case UpgradeEntryTypeDBServer:
 		// Restart the dbserver in auto-upgrade mode
 		m.log.Info().Msg("Upgrading dbserver")
@@ -748,11 +952,18 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 			if err := m.waitUntil(ctx, m.areDBServersResponding, "DBServers are not yet all responding: %v"); err != nil {
 				return recordFailure(errors.Wrap(err, "Not all DBServers are responding in time"))
 			}
+
+			// Wait until cluster healthy
+			if err := m.waitUntil(ctx, m.isClusterHealthy, "Cluster is not yet healthy: %v"); err != nil {
+				return recordFailure(errors.Wrap(err, "Cluster is not healthy in time"))
+			}
+
 			return nil
 		}
 		if err := upgrade(); err != nil {
 			return maskAny(err)
 		}
+		m.log.Info().Msg("Finished upgrading dbserver")
 	case UpgradeEntryTypeCoordinator:
 		// Restart the coordinator in auto-upgrade mode
 		m.log.Info().Msg("Upgrading coordinator")
@@ -771,6 +982,12 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if err := m.waitUntil(ctx, m.areCoordinatorsResponding, "Coordinator are not yet all responding: %v"); err != nil {
 			return recordFailure(errors.Wrap(err, "Not all Coordinators are responding in time"))
 		}
+
+		// Wait until cluster healthy
+		if err := m.waitUntil(ctx, m.isClusterHealthy, "Cluster is not yet healthy: %v"); err != nil {
+			return recordFailure(errors.Wrap(err, "Cluster is not healthy in time"))
+		}
+		m.log.Info().Msg("Finished upgrading coordinator")
 	case UpgradeEntryTypeSingle:
 		// Restart the activefailover single server in auto-upgrade mode
 		m.log.Info().Msg("Upgrading single server")
@@ -805,6 +1022,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if err := upgrade(); err != nil {
 			return maskAny(err)
 		}
+		m.log.Info().Msg("Finished upgrading single server")
 	case UpgradeEntryTypeSyncMaster:
 		// Restart the syncmaster
 		m.log.Info().Msg("Restarting syncmaster")
@@ -825,6 +1043,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if up, _, _, _, _, _, _, _ := m.upgradeManagerContext.TestInstance(ctx, ServerTypeSyncMaster, address, port, nil); !up {
 			return recordFailure(fmt.Errorf("Syncmaster is not up in time"))
 		}
+		m.log.Info().Msg("Finished restarting syncmaster")
 	case UpgradeEntryTypeSyncWorker:
 		// Restart the syncworker
 		m.log.Info().Msg("Restarting syncworker")
@@ -845,6 +1064,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		if up, _, _, _, _, _, _, _ := m.upgradeManagerContext.TestInstance(ctx, ServerTypeSyncWorker, address, port, nil); !up {
 			return recordFailure(fmt.Errorf("Syncworker is not up in time"))
 		}
+		m.log.Info().Msg("Finished restarting syncworker")
 	default:
 		return maskAny(fmt.Errorf("Unsupported upgrade plan entry type '%s'", firstEntry.Type))
 	}
@@ -989,6 +1209,41 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 	return nil
 }
 
+// isClusterHealthy performs a check on the cluster health status.
+// If any of the servers is reported as not GOOD, an error is returned.
+func (m *upgradeManager) isClusterHealthy(ctx context.Context) error {
+	// Get cluster config
+	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
+	// Build endpoint list
+	endpoints, err := clusterConfig.GetCoordinatorEndpoints()
+	if err != nil {
+		return maskAny(err)
+	}
+	// Build client
+	c, err := m.upgradeManagerContext.CreateClient(endpoints, ConnectionTypeDatabase)
+	if err != nil {
+		return maskAny(err)
+	}
+	// Check health
+	cl, err := c.Cluster(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	h, err := cl.Health(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	for id, sh := range h.Health {
+		if sh.Role == driver.ServerRoleAgent && sh.Status == "" {
+			continue
+		}
+		if sh.Status != driver.ServerStatusGood {
+			return maskAny(fmt.Errorf("Server '%s' has a '%s' status", id, sh.Status))
+		}
+	}
+	return nil
+}
+
 // areDBServersResponding performs a check if all dbservers are responding.
 func (m *upgradeManager) areDBServersResponding(ctx context.Context) error {
 	// Get cluster config
@@ -1100,6 +1355,14 @@ func (m *upgradeManager) isSuperVisionMaintenanceSupported(ctx context.Context) 
 
 // disableSupervision blocks supervision of the agency and waits for the agency to acknowledge.
 func (m *upgradeManager) disableSupervision(ctx context.Context) error {
+	supported, err := m.isSuperVisionMaintenanceSupported(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	if !supported {
+		m.log.Info().Msg("Supervision maintenance is not supported on this version")
+		return nil
+	}
 	api, err := m.createAgencyAPI()
 	if err != nil {
 		return maskAny(err)
@@ -1146,6 +1409,15 @@ func getMaintenanceMode(value interface{}) (string, bool) {
 
 // enableSupervision enabled supervision of the agency.
 func (m *upgradeManager) enableSupervision(ctx context.Context) error {
+	supported, err := m.isSuperVisionMaintenanceSupported(ctx)
+	if err != nil {
+		return maskAny(err)
+	}
+	if !supported {
+		m.log.Info().Msg("Supervision maintenance is not supported on this version")
+		return nil
+	}
+
 	api, err := m.createAgencyAPI()
 	if err != nil {
 		return maskAny(err)

@@ -58,7 +58,7 @@ ifdef TRAVIS
 	echo Using IP=$(IP)
 endif
 
-TEST_TIMEOUT := 20m
+TEST_TIMEOUT := 25m
 
 BINNAME := arangodb$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)

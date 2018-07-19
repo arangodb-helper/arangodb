@@ -51,11 +51,17 @@ type API interface {
 	Shutdown(ctx context.Context, goodbye bool) error
 
 	// StartDatabaseUpgrade is called to start the upgrade process
-	StartDatabaseUpgrade(ctx context.Context, force bool) error
+	StartDatabaseUpgrade(ctx context.Context) error
 
 	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
 	// such that the starters will retry the upgrade once more.
 	RetryDatabaseUpgrade(ctx context.Context) error
+
+	// AbortDatabaseUpgrade removes the existing upgrade plan.
+	// Note that Starters working on an entry of the upgrade
+	// will finish that entry.
+	// If there is no plan, a NotFoundError will be returned.
+	AbortDatabaseUpgrade(ctx context.Context) error
 
 	// Status returns the status of any upgrade plan
 	UpgradeStatus(context.Context) (UpgradeStatus, error)
@@ -134,6 +140,10 @@ type UpgradeStatus struct {
 	Failed bool `json:"failed"`
 	// Reasons contains a human readable description of the state
 	Reason string `json:"reason,omitempty"`
+	// FromVersions contains all database versions found that will be upgraded.
+	FromVersions []driver.Version `json:"from_versions"`
+	// ToVersion contains the database version that will be upgraded to.
+	ToVersion driver.Version `json:"to_version"`
 	// ServersUpgraded contains the servers that have been upgraded
 	ServersUpgraded []UpgradeStatusServer `json:"servers_upgraded"`
 	// ServersRemaining contains the servers that have not yet been upgraded
