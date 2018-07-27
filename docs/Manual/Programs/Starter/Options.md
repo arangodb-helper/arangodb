@@ -1,6 +1,6 @@
 # Option reference
 
-The ArangoDB Starter provides a lot of options to control various aspects
+The _ArangoDB Starter_ provides a lot of options to control various aspects
 of the cluster or database you want to run.
 
 Below you'll find a list of all options and their semantics.
@@ -66,9 +66,9 @@ under which address it can be reached from the outside. If you specify
 `addr` is the address to which this server binds. (default "0.0.0.0")
 
 Usually there is no need to specify this option.
-Only when you want to bind the starter to specific network device,
+Only when you want to bind the _Starter_ to specific network device,
 would you set this.
-Note that setting this option to `127.0.0.1` will make this starter
+Note that setting this option to `127.0.0.1` will make this _Starter_
 unreachable for other starters, which is only allowed for
 `single` server deployments or when using `--starter.local`.
 
@@ -81,12 +81,12 @@ Usually one would use the Docker image `arangodb/arangodb`.
 - `--docker.container=containerName`
 
 `containerName` is the name of a Docker container that is used to run the
-executable. If you do not provide this argument but run the starter inside
-a docker container, the starter will auto-detect its container name.
+executable. If you do not provide this argument but run the _Starter_ inside
+a docker container, the _Starter_ will auto-detect its container name.
 
 ## Authentication options
 
-The arango starter by default creates a cluster that uses no authentication.
+The _Arango Starter_ by default creates a cluster that uses no authentication.
 
 To create a cluster that uses authentication, create a file containing a random JWT secret (single line)
 and pass it through the `--auth.jwt-secret-path` option.
@@ -105,10 +105,10 @@ See [Using authentication tokens](./Security.md#using-authentication-tokens) for
 
 ## SSL options
 
-The arango starter by default creates a cluster that uses no unencrypted connections (no SSL).
+The arango _Starter_ by default creates a cluster that uses no unencrypted connections (no SSL).
 
 To create a cluster that uses encrypted connections, you can use an existing server key file (.pem format)
-or let the starter create one for you.
+or let the _Starter_ create one for you.
 
 To use an existing server key file use the `--ssl.keyfile` option like this:
 
@@ -118,16 +118,16 @@ arangodb --ssl.keyfile=myServer.pem
 
 Use [`arangodb create tls keyfile`](./Security.md) to create a server key file.
 
-To let the starter created a self-signed server key file, use the `--ssl.auto-key` option like this:
+To let the _Starter_ created a self-signed server key file, use the `--ssl.auto-key` option like this:
 
 ```bash
 arangodb --ssl.auto-key
 ```
 
 All starters used to make a cluster must be using SSL or not.
-You cannot have one starter using SSL and another not using SSL.
+You cannot have one _Starter_ using SSL and another not using SSL.
 
-If you start a starter using SSL, it's own HTTP server (see API) will also
+If you start a _Starter_ using SSL, it's own HTTP server (see API) will also
 use SSL.
 
 Note that all starters can use different server key files.
@@ -148,17 +148,17 @@ name of the server that will be used in the self-signed certificate created by t
 
 ## Other database options
 
-Options for `arangod` that are not supported by the starter can still be passed to
+Options for `arangod` that are not supported by the _Starter_ can still be passed to
 the database servers using a pass through option.
 Every option that start with a pass through prefix is passed through to the commandline
 of one or more server instances.
 
-- `--all.<section>.<key>=<value>` is pass as `--<section>.<key>=<value>` to all servers started by this starter.
-- `--coordinators.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all coordinators started by this starter.
-- `--dbservers.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all dbservers started by this starter.
-- `--agents.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all agents started by this starter.
+- `--all.<section>.<key>=<value>` is pass as `--<section>.<key>=<value>` to all servers started by this _Starter_.
+- `--coordinators.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all coordinators started by this _Starter_.
+- `--dbservers.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all dbservers started by this _Starter_.
+- `--agents.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all agents started by this _Starter_.
 
-Some options are essential to the function of the starter. Therefore these options cannot be passed through like this.
+Some options are essential to the function of the _Starter_. Therefore these options cannot be passed through like this.
 
 Example:
 
@@ -172,11 +172,11 @@ arangodb --coordinators.log.level=requests=debug
 
 - `--sync.start-master=bool`
 
-Should an ArangoSync master instance be started (only relevant when starter.sync is enabled, defaults to `true`)
+Should an ArangoSync master instance be started (only relevant when _Starter_.sync is enabled, defaults to `true`)
 
 - `--sync.start-worker=bool`
 
-Should an ArangoSync worker instance be started (only relevant when starter.sync is enabled, defaults to `true`)
+Should an ArangoSync worker instance be started (only relevant when _Starter_.sync is enabled, defaults to `true`)
 
 - `--sync.monitoring.token=<token>`
 
@@ -200,16 +200,16 @@ CA Certificate used for client certificate verification.
 
 ## Other `arangosync` options
 
-Options for `arangosync` that are not supported by the starter can still be passed to
+Options for `arangosync` that are not supported by the _Starter_ can still be passed to
 the syncmasters & syncworkers using a pass through option.
 Every option that start with a pass through prefix is passed through to the commandline
 of one or more `arangosync` instances.
 
-- `--sync.<section>.<key>=<value>` is pass as `--<section>.<key>=<value>` to all arangosync instances started by this starter.
-- `--syncmasters.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all syncmasters started by this starter.
-- `--syncworkers.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all syncworkers started by this starter.
+- `--sync.<section>.<key>=<value>` is pass as `--<section>.<key>=<value>` to all arangosync instances started by this _Starter_.
+- `--syncmasters.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all syncmasters started by this _Starter_.
+- `--syncworkers.<section>.<key>=<value>` is passed as `--<section>.<key>=<value>` to all syncworkers started by this _Starter_.
 
-Some options are essential to the function of the starter. Therefore these options cannot be passed through like this.
+Some options are essential to the function of the _Starter_. Therefore these options cannot be passed through like this.
 
 Example:
 
@@ -223,7 +223,9 @@ arangodb --syncmasters.mq.direct-token-ttl=12h ...
 
 - `--version`
 
-show the version of the starter.
+show the version of the _Starter_.
+
+### _Starter_ options
 
 - `--starter.port=int`
 
@@ -236,11 +238,23 @@ amongst each other.
 
 - `--starter.disable-ipv6=bool`
 
-if disabled, the starter will configure the `arangod` servers
+if disabled, the _Starter_ will configure the `arangod` servers
 to bind to address `0.0.0.0` (all IPv4 interfaces)
 instead of binding to `[::]` (all IPv4 and all IPv6 interfaces).
 
 This is useful when IPv6 has actively been disabled on your machine.
+
+- `--starter.unique-port-offsets=bool`
+
+If set to true, all port offsets (of slaves) will be made globally unique.
+By default (value is false), port offsets will be unique per slave address.
+
+- `--starter.debug-cluster=bool`
+
+IF `Starter.debug-cluster` is set, the start will record the status codes it receives
+upon "server ready" requests to the log. This option is mainly intended for internal testing.
+
+### Server options
 
 - `--server.arangod=path`
 
@@ -264,6 +278,13 @@ The value `rocksdb` is only allowed on `arangod` version 3.2 and up.
 On `arangod` version 3.3 and earlier, the default value is `mmfiles`.
 On `arangod` version 3.4 and later, the default value is `rocksdb`.
 
+- `--server.rr=path`
+
+path to rr executable to use if non-empty (default ""). Expert and
+debugging only.
+
+### Cluster options
+
 - `--cluster.start-coordinator=bool`
 
 This indicates whether or not a coordinator instance should be started
@@ -274,10 +295,45 @@ This indicates whether or not a coordinator instance should be started
 This indicates whether or not a DB server instance should be started
 (default true).
 
-- `--server.rr=path`
+### Docker options
 
-path to rr executable to use if non-empty (default ""). Expert and
-debugging only.
+- `--docker.user=user`
+
+`user` is an expression to be used for `docker run` with the `--user`
+option. One can give a user id or a user id and a group id, separated
+by a colon. The purpose of this option is to limit the access rights
+of the process in the Docker container.
+
+- `--docker.endpoint=endpoint`
+
+`endpoint` is the URL used to reach the docker host. This is needed to run
+the executable in docker. The default value is "unix:///var/run/docker.sock".
+
+- `--docker.imagePullPolicy=Always|IfNotPresent|Never`
+
+`docker.imagePullPolicy` determines if the docker image is being pull from the docker hub.
+If set to `Always`, the image is always pulled and an error causes the _Starter_ to fail.
+If set to `IfNotPresent`, the image is not pull if it is always available locally.
+If set to `Never`, the image is never pulled (when it is not available locally an error occurs).
+The default value is `Always` is the `docker.image` has the `:latest` tag or `IfNotPresent` otherwise.
+
+- `--docker.net-mode=mode`
+
+If `docker.net-mode` is set, all docker container will be started
+with the `--net=<mode>` option.
+
+- `--docker.privileged=bool`
+
+If `docker.privileged` is set, all docker containers will be started
+with the `--privileged` option turned on.
+
+- `--docker.tty=bool`
+
+If `docker.tty` is set, all docker containers will be started with a TTY.
+If the _Starter_ itself is running in a docker container without a TTY
+this option is overwritten to `false`.
+
+## Log options
 
 - `--log.color=bool`
 
@@ -303,11 +359,11 @@ show more information (default `false`).
 - `--log.dir=path`
 
 set a custom directory to which all log files will be written to.
-When using the Starter in docker, make sure that this directory is
-mounted as a volume for the Starter.
+When using the _Starter_ in docker, make sure that this directory is
+mounted as a volume for the _Starter_.
 
 Note: When using a custom log directory, all database server files will be named as `arangod-<role>-<port>.log`.
-The log for the starter itself is still called `arangodb.log`.
+The log for the _Starter_ itself is still called `arangodb.log`.
 
 - `--log.rotate-files-to-keep=int`
 
@@ -315,60 +371,20 @@ set the number of old log files to keep when rotating log files of server compon
 
 - `--log.rotate-interval=duration`
 
-set the interval between rotations of log files of server components (default `24h`).
-Use a value of `0` to disable automatic log rotation.
+set the interval between rotations of log files of server components (default `1 day`)
 
-Note: The starter will always perform log rotation when it receives a `HUP` signal.
+Please note duration has to be passed in minutes and you have to specify the unit `m` along with the value
 
-- `--starter.unique-port-offsets=bool`
+e.g.
+`--log.rotate-interval=4320m` 
 
-If set to true, all port offsets (of slaves) will be made globally unique.
-By default (value is false), port offsets will be unique per slave address.
+This will rotate the logs each 3 days. Use a value of `0m` to disable automatic log rotation.
 
-- `--docker.user=user`
-
-`user` is an expression to be used for `docker run` with the `--user`
-option. One can give a user id or a user id and a group id, separated
-by a colon. The purpose of this option is to limit the access rights
-of the process in the Docker container.
-
-- `--docker.endpoint=endpoint`
-
-`endpoint` is the URL used to reach the docker host. This is needed to run
-the executable in docker. The default value is "unix:///var/run/docker.sock".
-
-- `--docker.imagePullPolicy=Always|IfNotPresent|Never`
-
-`docker.imagePullPolicy` determines if the docker image is being pull from the docker hub.
-If set to `Always`, the image is always pulled and an error causes the starter to fail.
-If set to `IfNotPresent`, the image is not pull if it is always available locally.
-If set to `Never`, the image is never pulled (when it is not available locally an error occurs).
-The default value is `Always` is the `docker.image` has the `:latest` tag or `IfNotPresent` otherwise.
-
-- `--docker.net-mode=mode`
-
-If `docker.net-mode` is set, all docker container will be started
-with the `--net=<mode>` option.
-
-- `--docker.privileged=bool`
-
-If `docker.privileged` is set, all docker containers will be started
-with the `--privileged` option turned on.
-
-- `--docker.tty=bool`
-
-If `docker.tty` is set, all docker containers will be started with a TTY.
-If the starter itself is running in a docker container without a TTY
-this option is overwritten to `false`.
-
-- `--starter.debug-cluster=bool`
-
-IF `starter.debug-cluster` is set, the start will record the status codes it receives
-upon "server ready" requests to the log. This option is mainly intended for internal testing.
+Note: The _Starter_ will always perform log rotation when it receives a `HUP` signal.
 
 ## Environment variables
 
-It is possibe to replace all commandline arguments for the starter with environment variables.
+It is possibe to replace all commandline arguments for the _Starter_ with environment variables.
 To do so, set an environment variable named `ARANGODB_` + `<name of command line option in uppercase>`,
 where all dashes, underscores and dots are replased with underscores.
 

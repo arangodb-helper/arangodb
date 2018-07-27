@@ -3,12 +3,12 @@
 Securing an ArangoDB deployment involves encrypting its connections and
 authenticated access control.
 
-The ArangoDB starter provides several command to create the certificates
+The _ArangoDB Starter_ provides several command to create the certificates
 and tokens needed to do so.
 
 ## Creating certificates
 
-The starter provides commands to create all certificates needed for an ArangoDB
+The _Starter_ provides commands to create all certificates needed for an ArangoDB
 deployment with optional datacenter to datacenter replication.
 
 ### TLS server certificates

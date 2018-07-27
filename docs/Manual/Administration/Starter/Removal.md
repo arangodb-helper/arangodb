@@ -18,7 +18,7 @@ To remove a machine from a cluster, run the following command:
 arangodb remove starter --starter.endpoint=<endpoint> [--starter.id=<id>] [--force]
 ```
 
-Where `<endpoint>` is the endpoint of the starter that you want to remove,
+Where `<endpoint>` is the endpoint of the _Starter_ that you want to remove,
 or the endpoint of one of the remaining starters. E.g. `http://localhost:8528`.
 
 If you want to remove a machine that is no longer running, use the `--starter.id`
