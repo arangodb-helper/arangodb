@@ -46,7 +46,7 @@ The _Starter_ supports 3 different modes of ArangoDB deployments:
 
 Note: Datacenter replication is an option for the `cluster` deployment mode.
 
-You select one of these modes using the `--_Starter_.mode` command line option.
+You select one of these modes using the `--starter.mode` command line option.
 
 Depending on the mode you've selected, the _Starter_ launches one or more
 (`arangod` / `arangosync`) server processes.
@@ -74,7 +74,7 @@ The _Starter_ uses a single directory with a well known structure to store
 all data for its own configuration & logs, as well as the configuration,
 data & logs of all servers it starts.
 
-This data directory is set using the `--_Starter_.data-dir` command line option.
+This data directory is set using the `--starter.data-dir` command line option.
 It contains the following files & sub-directories.
 
 - `setup.json` The configuration of the "cluster of _Starters_".
@@ -137,7 +137,7 @@ from scratch.
    If that file exists and is valid, this bootstrap-from-scratch process
    is aborted and all _Starters_ go directly to the `running` phase described below.
 1. All _Starters_ create a unique ID
-1. The list of `--_Starter_.join` arguments is sorted
+1. The list of `--starter.join` arguments is sorted
 1. All _Starters_ request the unique ID from the first server in the sorted `--starter.join` list,
    and compares the result with its own unique ID.
 1. The _Starter_ that finds its own unique ID, is continuing as `bootstrap master`

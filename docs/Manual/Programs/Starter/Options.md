@@ -172,11 +172,11 @@ arangodb --coordinators.log.level=requests=debug
 
 - `--sync.start-master=bool`
 
-Should an ArangoSync master instance be started (only relevant when _Starter_.sync is enabled, defaults to `true`)
+Should an ArangoSync master instance be started (only relevant when starter.sync is enabled, defaults to `true`)
 
 - `--sync.start-worker=bool`
 
-Should an ArangoSync worker instance be started (only relevant when _Starter_.sync is enabled, defaults to `true`)
+Should an ArangoSync worker instance be started (only relevant when starter.sync is enabled, defaults to `true`)
 
 - `--sync.monitoring.token=<token>`
 
