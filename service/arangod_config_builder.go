@@ -202,6 +202,11 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 		)
+		if config.AdvertisedEndpoint != "" {
+			options = append(options,
+				optionPair{"--cluster.my-advertised-endpoint", config.AdvertisedEndpoint},
+			)
+		}
 	case ServerTypeSingle:
 		options = append(options,
 			optionPair{"--foxx.queues", "true"},
@@ -209,12 +214,18 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		)
 	case ServerTypeResilientSingle:
 		options = append(options,
+			optionPair{"--cluster.my-advertised-endpoint", config.AdvertisedEndpoint},
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 			optionPair{"--replication.automatic-failover", "true"},
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "SINGLE"},
 		)
+		if config.AdvertisedEndpoint != "" {
+			options = append(options,
+				optionPair{"--cluster.my-advertised-endpoint", config.AdvertisedEndpoint},
+			)
+		}
 	}
 	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
 		for _, p := range clusterConfig.AllAgents() {

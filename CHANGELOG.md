@@ -1,5 +1,7 @@
 # Changed from version 0.12.0 to master
 
+- Added advertised endpoint to coordinators and active fo
+
 - Database upgrade procedure has changed.
   It is now much more automated and can be triggered using
   an `arangodb upgrade --starter.endpoint=...` command.
