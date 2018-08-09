@@ -10,6 +10,13 @@ To run the entire test set, run:
 make run-tests
 ```
 
+## Preparing a release
+
+To prepare for a release, do the following:
+
+- Update CHANGELOG.md. Update the first title (master -> new version). Commit it.
+- Make sure all tests are OK.
+
 ## Building a release
 
 To make a release you must have:
@@ -44,3 +51,10 @@ If the release process fails, it may leave:
   To resolve remove it using `git tag -d ...`.
 - A git tag named `<major>.<minor>.<patch>` in this repository in github.
   To resolve remove it manually.
+
+## Completing after a release
+
+After the release has been build (which includes publication) the following
+has to be done:
+
+- Update CHANGELOG.md. Add a new first title (released version -> master). Commit it.
