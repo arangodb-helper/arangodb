@@ -214,7 +214,6 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		)
 	case ServerTypeResilientSingle:
 		options = append(options,
-			optionPair{"--cluster.my-advertised-endpoint", config.AdvertisedEndpoint},
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 			optionPair{"--replication.automatic-failover", "true"},
