@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.0 to master
+## Changes from version 0.13.1 to master
+
+## Changes from version 0.13.0 to 0.13.1
 
 - Fixed dangling container used to check database version when running
   _Starter_ on docker.
