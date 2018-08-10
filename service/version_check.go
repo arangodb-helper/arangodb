@@ -40,7 +40,7 @@ func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, error) {
 	if err != nil {
 		return "", maskAny(err)
 	}
-	//defer p.Cleanup()
+	defer p.Cleanup()
 	p.Wait()
 
 	// Parse output

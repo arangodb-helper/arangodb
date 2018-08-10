@@ -2,6 +2,9 @@
 
 ## Changes from version 0.13.0 to master
 
+- Fixed dangling container used to check database version when running
+  _Starter_ on docker.
+
 ## Changes from version 0.12.0 to 0.13.0
 
 - Database upgrade procedure has changed.
