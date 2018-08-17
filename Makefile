@@ -34,6 +34,7 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
 GOVERSION := 1.10.3-alpine
+GOHOSTOS := $(shell go env GOHOSTOS)
 
 ifndef GOOS
 	GOOS := linux
@@ -103,6 +104,15 @@ ifndef DOCKERNAMESPACE
 endif
 	@echo "Using docker namespace: $(DOCKERNAMESPACE)"
 
+.PHONY: check-manifest-vars
+check-manifest-vars:
+ifndef MANIFESTAUTH
+ifeq ("$(GOHOSTOS)", "darwin")
+		@echo "MANIFESTAUTH must be set on macOS"
+		@exit 1
+endif
+endif
+
 build-local: build 
 	@ln -sf $(BIN) $(ROOTDIR)/arangodb
 
@@ -167,7 +177,7 @@ $(BIN): $(GOBUILDDIR) $(SOURCES) $(CACHEVOL)
 		golang:$(GOVERSION) \
 		go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME) $(REPOPATH)
 
-docker: $(MANIFESTTOOL)
+docker: check-manifest-vars $(MANIFESTTOOL)
 	for arch in $(ARCHS); do \
 		$(MAKE) -f $(MAKEFILE) -B GOOS=linux GOARCH=$$arch build ;\
 		docker build --build-arg=GOARCH=$$arch -t $(DOCKERIMAGE)-$$arch . ;\
