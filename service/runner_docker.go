@@ -262,7 +262,7 @@ func (r *dockerRunner) start(image string, command string, args []string, volume
 		r.log.Error().Err(err).Interface("options", opts).Msg("Creating container failed")
 		return nil, maskAny(err)
 	}
-	//r.recordContainerID(c.ID) // Record ID so we can clean it up later
+	r.recordContainerID(c.ID) // Record ID so we can clean it up later
 
 	var waiter docker.CloseWaiter
 	if output != nil {
