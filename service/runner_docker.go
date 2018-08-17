@@ -90,9 +90,10 @@ type dockerRunner struct {
 }
 
 type dockerContainer struct {
+	log       zerolog.Logger
 	client    *docker.Client
 	container *docker.Container
-	output    io.Writer
+	waiter    docker.CloseWaiter
 }
 
 func (r *dockerRunner) GetContainerDir(hostDir, defaultContainerDir string) string {
@@ -215,6 +216,8 @@ func (r *dockerRunner) start(image string, command string, args []string, volume
 			Entrypoint:   []string{command},
 			Cmd:          args,
 			Tty:          r.tty,
+			AttachStdout: output != nil,
+			AttachStderr: output != nil,
 			User:         r.user,
 			ExposedPorts: make(map[docker.Port]struct{}),
 			Labels: map[string]string{
@@ -259,7 +262,30 @@ func (r *dockerRunner) start(image string, command string, args []string, volume
 		r.log.Error().Err(err).Interface("options", opts).Msg("Creating container failed")
 		return nil, maskAny(err)
 	}
-	r.recordContainerID(c.ID) // Record ID so we can clean it up later
+	//r.recordContainerID(c.ID) // Record ID so we can clean it up later
+
+	var waiter docker.CloseWaiter
+	if output != nil {
+		// Attach output to container
+		r.log.Debug().Msgf("Attaching to output of container %s", containerName)
+		success := make(chan struct{})
+		defer close(success)
+		waiter, err = r.client.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
+			Container:    c.ID,
+			OutputStream: output,
+			Logs:         true,
+			Stdout:       true,
+			Stderr:       true,
+			Success:      success,
+			Stream:       true,
+			RawTerminal:  true,
+		})
+		if err != nil {
+			r.log.Error().Err(err).Msgf("Failed to attach to output of container %s", c.ID)
+			return nil, maskAny(err)
+		}
+		<-success
+	}
 	r.log.Debug().Msgf("Starting container %s", containerName)
 	if err := r.client.StartContainer(c.ID, opts.HostConfig); err != nil {
 		return nil, maskAny(err)
@@ -276,9 +302,10 @@ func (r *dockerRunner) start(image string, command string, args []string, volume
 		return nil, maskAny(err)
 	}
 	return &dockerContainer{
+		log:       r.log.With().Str("container", c.ID).Logger(),
 		client:    r.client,
 		container: c,
-		output:    output,
+		waiter:    waiter,
 	}, nil
 }
 
@@ -486,16 +513,14 @@ func (p *dockerContainer) HostPort(containerPort int) (int, error) {
 }
 
 func (p *dockerContainer) Wait() {
-	p.client.WaitContainer(p.container.ID)
-	if p.output != nil {
-		// Fetch logs
-		if err := p.client.Logs(docker.LogsOptions{
-			Container:    p.container.ID,
-			OutputStream: p.output,
-			Stdout:       true,
-		}); err != nil {
-			p.output.Write([]byte(err.Error()))
-		}
+	if p.waiter != nil {
+		p.waiter.Wait()
+	}
+	exitCode, err := p.client.WaitContainer(p.container.ID)
+	if err != nil {
+		p.log.Error().Err(err).Msg("WaitContainer failed")
+	} else if exitCode != 0 {
+		p.log.Debug().Int("exitcode", exitCode).Msg("Container terminated with non-zero exit code")
 	}
 }
 
