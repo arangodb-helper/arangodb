@@ -49,9 +49,11 @@ ifndef ARANGODB
 	ARANGODB := arangodb/arangodb:latest
 endif
 
-ifndef DOCKERNAMESPACE
-	DOCKERNAMESPACE := arangodb
+ifndef DOCKERTAG 
+	DOCKERTAG := dev
 endif
+DOCKERIMAGENAME := $(DOCKERNAMESPACE)/arangodb-starter
+DOCKERIMAGE := $(DOCKERIMAGENAME):$(DOCKERTAG)
 
 ifdef TRAVIS
 	IP := $(shell hostname -I | cut -d ' ' -f 1)
@@ -64,6 +66,15 @@ BINNAME := arangodb$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
 RELEASE := $(GOBUILDDIR)/bin/release 
 GHRELEASE := $(GOBUILDDIR)/bin/github-release 
+MANIFESTTOOL := $(GOBUILDDIR)/bin/manifest-tool$(shell go env GOEXE)
+
+# Magical rubbish to teach make what commas and spaces are.
+EMPTY :=
+SPACE := $(EMPTY) $(EMPTY)
+COMMA := $(EMPTY),$(EMPTY)
+
+ARCHS:=amd64 arm64
+PLATFORMS:=$(subst $(SPACE),$(COMMA),$(foreach arch,$(ARCHS),linux/$(arch)))
 
 SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 
@@ -82,7 +93,15 @@ else
 	GOPATH=$(GOBUILDDIR) go build -o $(BUILDDIR)/arangodb $(REPOPATH)
 endif
 
-build: $(BIN)
+build: check-vars $(BIN)
+
+.PHONY: check-vars
+check-vars:
+ifndef DOCKERNAMESPACE
+	@echo "DOCKERNAMESPACE must be set"
+	@exit 1
+endif
+	@echo "Using docker namespace: $(DOCKERNAMESPACE)"
 
 build-local: build 
 	@ln -sf $(BIN) $(ROOTDIR)/arangodb
@@ -111,6 +130,7 @@ $(GOBUILDDIR):
 	@rm -f $(GOBUILDDIR)/src/github.com/dgrijalva && ln -s ../../../deps/github.com/dgrijalva $(GOBUILDDIR)/src/github.com/dgrijalva
 	@rm -f $(GOBUILDDIR)/src/github.com/docker && ln -s ../../../deps/github.com/docker $(GOBUILDDIR)/src/github.com/docker
 	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../deps/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
+	@rm -f $(GOBUILDDIR)/src/github.com/estesp && ln -s ../../../deps/github.com/estesp $(GOBUILDDIR)/src/github.com/estesp
 	@rm -f $(GOBUILDDIR)/src/github.com/fatih && ln -s ../../../deps/github.com/fatih $(GOBUILDDIR)/src/github.com/fatih
 	@rm -f $(GOBUILDDIR)/src/github.com/fsouza && ln -s ../../../deps/github.com/fsouza $(GOBUILDDIR)/src/github.com/fsouza
 	@rm -f $(GOBUILDDIR)/src/github.com/hashicorp && ln -s ../../../deps/github.com/hashicorp $(GOBUILDDIR)/src/github.com/hashicorp
@@ -147,30 +167,38 @@ $(BIN): $(GOBUILDDIR) $(SOURCES) $(CACHEVOL)
 		golang:$(GOVERSION) \
 		go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME) $(REPOPATH)
 
-docker: build
-	docker build -t arangodb/arangodb-starter .
+docker: $(MANIFESTTOOL)
+	for arch in $(ARCHS); do \
+		$(MAKE) -f $(MAKEFILE) -B GOOS=linux GOARCH=$$arch build ;\
+		docker build --build-arg=GOARCH=$$arch -t $(DOCKERIMAGE)-$$arch . ;\
+		docker push $(DOCKERIMAGE)-$$arch ;\
+	done
+	$(MANIFESTTOOL) $(MANIFESTAUTH) push from-args \
+    	--platforms $(PLATFORMS) \
+    	--template $(DOCKERIMAGE)-ARCH \
+    	--target $(DOCKERIMAGE)
 
 docker-push: docker
-ifneq ($(DOCKERNAMESPACE), arangodb)
-	docker tag arangodb/arangodb-starter $(DOCKERNAMESPACE)/arangodb-starter
-endif
-	docker push $(DOCKERNAMESPACE)/arangodb-starter
+	docker push $(DOCKERIMAGE)
 
 docker-push-version: docker
-	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
-	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
-	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR)
-	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:latest
-	docker push arangodb/arangodb-starter:$(VERSION)
-	docker push arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
-	docker push arangodb/arangodb-starter:$(VERSION_MAJOR)
-	docker push arangodb/arangodb-starter:latest
+	docker tag $(DOCKERIMAGE) $(DOCKERIMAGENAME):$(VERSION)
+	docker tag $(DOCKERIMAGE) $(DOCKERIMAGENAME):$(VERSION_MAJOR_MINOR)
+	docker tag $(DOCKERIMAGE) $(DOCKERIMAGENAME):$(VERSION_MAJOR)
+	docker tag $(DOCKERIMAGE) $(DOCKERIMAGENAME):latest
+	docker push $(DOCKERIMAGENAME):$(VERSION)
+	docker push $(DOCKERIMAGENAME):$(VERSION_MAJOR_MINOR)
+	docker push $(DOCKERIMAGENAME):$(VERSION_MAJOR)
+	docker push $(DOCKERIMAGE)
 
 $(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
 	GOPATH=$(GOBUILDDIR) go build -o $(RELEASE) $(REPOPATH)/tools/release
 
 $(GHRELEASE): $(GOBUILDDIR) 
 	GOPATH=$(GOBUILDDIR) go build -o $(GHRELEASE) github.com/aktau/github-release
+
+$(MANIFESTTOOL): $(GOBUILDDIR)
+	GOPATH=$(GOBUILDDIR) go build -o $(MANIFESTTOOL) github.com/estesp/manifest-tool
 
 release-patch: $(RELEASE)
 	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=patch 
