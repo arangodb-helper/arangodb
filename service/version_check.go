@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	driver "github.com/arangodb/go-driver"
+	"github.com/dchest/uniuri"
 )
 
 // DatabaseVersion returns the version of the `arangod` binary that is being
@@ -36,7 +37,8 @@ import (
 func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, error) {
 	// Start process to print version info
 	output := &bytes.Buffer{}
-	p, err := s.runner.Start(ctx, ProcessTypeArangod, s.cfg.ArangodPath, []string{"--version"}, nil, nil, "", ".", output)
+	containerName := "arangodb-versioncheck-" + strings.ToLower(uniuri.NewLen(6))
+	p, err := s.runner.Start(ctx, ProcessTypeArangod, s.cfg.ArangodPath, []string{"--version"}, nil, nil, containerName, ".", output)
 	if err != nil {
 		return "", maskAny(err)
 	}
@@ -44,7 +46,8 @@ func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, error) {
 	p.Wait()
 
 	// Parse output
-	lines := strings.Split(output.String(), "\n")
+	stdout := output.String()
+	lines := strings.Split(stdout, "\n")
 	for _, l := range lines {
 		parts := strings.Split(l, ":")
 		if len(parts) != 2 {
@@ -53,7 +56,9 @@ func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, error) {
 		if strings.TrimSpace(parts[0]) != "server-version" {
 			continue
 		}
-		return driver.Version(strings.TrimSpace(parts[1])), nil
+		v := driver.Version(strings.TrimSpace(parts[1]))
+		s.log.Debug().Msgf("Found server version '%s'", v)
+		return v, nil
 	}
-	return "", fmt.Errorf("No server-version found")
+	return "", fmt.Errorf("No server-version found in '%s'", stdout)
 }
