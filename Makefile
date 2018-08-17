@@ -89,6 +89,7 @@ build-local: build
 
 binaries: $(GHRELEASE)
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
 
