@@ -1,6 +1,11 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.1 to master
+## Changes from version 0.13.2 to master
+
+## Changes from version 0.13.1 to 0.13.2
+
+- Fixed potential error in database version check when running
+  _Starter_ on docker.
 
 ## Changes from version 0.13.0 to 0.13.1
 
