@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+  "net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -567,6 +568,11 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerArangodImage)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("Unsupport image pull policy '%s'", dockerImagePullPolicy)
+	}
+
+	// Sanity checking URL scheme on advertised endpoints
+	if _, err := url.Parse(advertisedEndpoint); err != nil {
+		log.Fatal().Err(err).Msgf("Advertised cluster endpoint %s does not meet URL standards", advertisedEndpoint)
 	}
 
 	// Expand home-dis (~) in paths
