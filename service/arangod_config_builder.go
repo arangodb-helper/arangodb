@@ -52,7 +52,7 @@ var (
 	)
 )
 
-// FixupEndpointURLScheme changes endpoint URL schemes used by arangod to ones used by go.
+// FixupEndpointURLScheme changes endpoint URL schemes used by arangod to ones used by arangodb.
 // E.g. "http://localhost:8529" -> "tcp://localhost:8529"
 func FixupEndpointURLScheme(u string) string {
 	return urlFixer.Replace(u)
