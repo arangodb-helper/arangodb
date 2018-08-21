@@ -45,6 +45,19 @@ import (
 	"github.com/rs/zerolog"
 )
 
+var (
+	urlFixer = strings.NewReplacer(
+		"http://", "tcp://",
+		"https://", "ssl://",
+	)
+)
+
+// FixupEndpointURLScheme changes endpoint URL schemes used by arangod to ones used by go.
+// E.g. "http://localhost:8529" -> "tcp://localhost:8529"
+func FixupEndpointURLScheme(u string) string {
+	return urlFixer.Replace(u)
+}
+
 // createArangodConf creates an arangod.conf file in the given host directory if it does not yet exists.
 // The arangod.conf file contains all settings that are considered static for the lifetime of the server.
 func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType ServerType, features DatabaseFeatures) ([]Volume, configFile, error) {
@@ -204,7 +217,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		)
 		if config.AdvertisedEndpoint != "" {
 			options = append(options,
-				optionPair{"--cluster.my-advertised-endpoint", config.AdvertisedEndpoint},
+				optionPair{"--cluster.my-advertised-endpoint", FixupEndpointURLScheme(config.AdvertisedEndpoint)},
 			)
 		}
 	case ServerTypeSingle:
@@ -222,7 +235,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		)
 		if config.AdvertisedEndpoint != "" {
 			options = append(options,
-				optionPair{"--cluster.my-advertised-endpoint", config.AdvertisedEndpoint},
+				optionPair{"--cluster.my-advertised-endpoint", FixupEndpointURLScheme(config.AdvertisedEndpoint)},
 			)
 		}
 	}
