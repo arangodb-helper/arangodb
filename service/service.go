@@ -905,15 +905,15 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 					} else {
 						// Need to check if this particular address does appear in
 						// another peer, if so, we forbid to change the address:
-						addrFound := false
-						for j, pp := range s.myPeers.AllPeers {
-							if j != i && pp.Address == slaveAddr {
-								addrFound = true
+						addrFoundInOtherPeer := false
+						for _, pp := range s.myPeers.AllPeers {
+							if pp.ID != req.SlaveID && pp.Address == slaveAddr {
+								addrFoundInOtherPeer = true
 								break
 							}
 						}
 						// Slave address may not change in this case
-						if addrFound && p.Address != slaveAddr {
+						if addrFoundInOtherPeer && p.Address != slaveAddr {
 							return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot change slave address while using an existing ID."))
 						}
 						// We accept the new address (it might be the old one):
