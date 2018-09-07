@@ -900,15 +900,30 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			// ID already found, update peer data
 			for i, p := range s.myPeers.AllPeers {
 				if p.ID == req.SlaveID {
-					s.myPeers.AllPeers[i].Port = req.SlavePort
 					if s.cfg.AllPortOffsetsUnique {
 						s.myPeers.AllPeers[i].Address = slaveAddr
 					} else {
-						// Slave address may not change
-						if p.Address != slaveAddr {
+						// Need to check if this particular address does appear in
+						// another peer, if so, we forbid to change the address:
+						addrFoundInOtherPeer := false
+						for _, pp := range s.myPeers.AllPeers {
+							if pp.ID != req.SlaveID && pp.Address == slaveAddr {
+								addrFoundInOtherPeer = true
+								break
+							}
+						}
+						// Slave address may not change in this case
+						if addrFoundInOtherPeer && p.Address != slaveAddr {
 							return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot change slave address while using an existing ID."))
 						}
+						// We accept the new address (it might be the old one):
+						s.myPeers.AllPeers[i].Address = slaveAddr
+						// However, since we also accept the port, we must set the
+						// port ofset of that replaced peer to 0 such that the AllPeers
+						// information actually contains the right port.
+						s.myPeers.AllPeers[i].PortOffset = 0
 					}
+					s.myPeers.AllPeers[i].Port = req.SlavePort
 					s.myPeers.AllPeers[i].DataDir = req.DataDir
 				}
 			}
