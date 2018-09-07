@@ -76,34 +76,34 @@ func secureStarterEndpoint(portOffset int) string {
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, false, 0)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, false, 0, 0)
 	return c
 }
 
 // testClusterWithSync runs a series of tests to verify a good cluster with synchronization enabled.
 func testClusterWithSync(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, time.Minute*2)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, 0, time.Minute*2)
 	return c
 }
 
 // testSingle runs a series of tests to verify a good single server.
 func testSingle(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "single", starterEndpoint, isSecure, false, false, 0)
+	testProcesses(t, c, "single", starterEndpoint, isSecure, false, false, 0, 0)
 	return c
 }
 
 // testResilientSingle runs a series of tests to verify good resilientsingle servers.
 func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, expectAgencyOnly bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, false, time.Second*30)
+	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, false, time.Second*30, time.Second*30)
 	return c
 }
 
 // testProcesses runs a series of tests to verify a good series of database servers.
 func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool,
-	expectAgencyOnly bool, syncEnabled bool, reachableTimeout time.Duration) {
+	expectAgencyOnly bool, syncEnabled bool, singleTimeout, reachableTimeout time.Duration) {
 	ctx := context.Background()
 
 	// Fetch version
@@ -171,20 +171,32 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 	}
 
 	// Check single
-	if sp, ok := processes.ServerByType(client.ServerTypeSingle); ok {
-		if sp.IsSecure != isSecure {
-			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
-		}
-		if mode == "cluster" || expectAgencyOnly {
-			t.Errorf("Found single, not allowed in cluster mode")
-		} else {
-			if isVerbose {
-				t.Logf("Found single at %s:%d", sp.IP, sp.Port)
+	{
+		deadline := time.Now().Add(singleTimeout)
+		for {
+			if sp, ok := processes.ServerByType(client.ServerTypeSingle); ok {
+				if sp.IsSecure != isSecure {
+					t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
+				}
+				if mode == "cluster" || expectAgencyOnly {
+					t.Errorf("Found single, not allowed in cluster mode")
+				} else {
+					if isVerbose {
+						t.Logf("Found single at %s:%d", sp.IP, sp.Port)
+					}
+					testArangodReachable(t, sp, reachableTimeout)
+				}
+			} else if (mode == "single" || mode == "resilientsingle") && !expectAgencyOnly {
+				if time.Now().Before(deadline) {
+					// For activefailover not all starters have to be ready when we're called,
+					// so we allow for some time to pass until we call it a failure.
+					time.Sleep(time.Second)
+					continue
+				}
+				t.Errorf("No single found in %s", starterEndpoint)
 			}
-			testArangodReachable(t, sp, reachableTimeout)
+			break
 		}
-	} else if (mode == "single" || mode == "resilientsingle") && !expectAgencyOnly {
-		t.Errorf("No single found in %s", starterEndpoint)
 	}
 
 	// Check syncmaster
