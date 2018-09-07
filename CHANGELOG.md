@@ -1,6 +1,13 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.2 to master
+## Changes from version 0.13.3 to master
+
+## Changes from version 0.13.2 to 0.13.3
+
+- Fixed a bug in the RECOVERY procedure which was declined if a new
+  address was used for the replacement starter.
+- Add retries to make active/failover tests more stable.
+- Updated go-drivers and go-certificates libraries.
 
 ## Changes from version 0.13.1 to 0.13.2
 
