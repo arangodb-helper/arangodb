@@ -194,7 +194,7 @@ func init() {
 	pf.StringVar(&logDir, "log.dir", getEnvVar("LOG_DIR", ""), "Custom log file directory.")
 	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
 	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
-	f.StringVar(&advertisedEndpoint, "cluster.advertised-endpoint", "", "An external endpoint for this cluster")
+	f.StringVar(&advertisedEndpoint, "cluster.advertised-endpoint", "", "An external endpoint for the servers started by this Starter")
 	f.IntVar(&agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
 	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
 	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
