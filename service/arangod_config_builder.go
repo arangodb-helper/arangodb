@@ -215,11 +215,6 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 		)
-		if config.AdvertisedEndpoint != "" {
-			options = append(options,
-				optionPair{"--cluster.my-advertised-endpoint", FixupEndpointURLScheme(config.AdvertisedEndpoint)},
-			)
-		}
 	case ServerTypeSingle:
 		options = append(options,
 			optionPair{"--foxx.queues", "true"},
@@ -233,6 +228,8 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "SINGLE"},
 		)
+	}
+	if serverType == ServerTypeCoordinator || serverType == ServerTypeResilientSingle {
 		if config.AdvertisedEndpoint != "" {
 			options = append(options,
 				optionPair{"--cluster.my-advertised-endpoint", FixupEndpointURLScheme(config.AdvertisedEndpoint)},
