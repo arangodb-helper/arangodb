@@ -33,6 +33,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -1043,9 +1044,14 @@ func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
 		return
 	}
 
-	// TODO only update when changed
-	s.myPeers = newConfig
-	s.saveSetup()
+	// Only update when changed
+	if !reflect.DeepEqual(s.myPeers, newConfig) {
+		s.myPeers = newConfig
+		s.saveSetup()
+		s.log.Debug().Msg("Updated cluster config")
+	} else {
+		s.log.Debug().Msg("Updating cluster config is not needed")
+	}
 }
 
 // MasterChangedCallback interrupts the runtime cluster manager
