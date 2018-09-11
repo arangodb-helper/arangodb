@@ -52,9 +52,9 @@ var (
 	)
 )
 
-// FixupEndpointURLScheme changes endpoint URL schemes used by Starter to ones used by arangodb.
+// fixupEndpointURLSchemeForArangod changes endpoint URL schemes used by Starter to ones used by arangodb.
 // E.g. "http://localhost:8529" -> "tcp://localhost:8529"
-func FixupEndpointURLScheme(u string) string {
+func fixupEndpointURLSchemeForArangod(u string) string {
 	return urlFixer.Replace(u)
 }
 
@@ -232,7 +232,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 	if serverType == ServerTypeCoordinator || serverType == ServerTypeResilientSingle {
 		if config.AdvertisedEndpoint != "" {
 			options = append(options,
-				optionPair{"--cluster.my-advertised-endpoint", FixupEndpointURLScheme(config.AdvertisedEndpoint)},
+				optionPair{"--cluster.my-advertised-endpoint", fixupEndpointURLSchemeForArangod(config.AdvertisedEndpoint)},
 			)
 		}
 	}
