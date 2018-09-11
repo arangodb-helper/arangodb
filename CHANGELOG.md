@@ -2,6 +2,9 @@
 
 ## Changes from version 0.13.3 to master
 
+- Starter cluster configuration no longer written to `setup.json` when
+  it has not changed.
+
 ## Changes from version 0.13.2 to 0.13.3
 
 - Fixed a bug in the RECOVERY procedure which was declined if a new
