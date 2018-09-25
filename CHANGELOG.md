@@ -24,6 +24,8 @@
 
 ## Changes from version 0.12.0 to 0.13.0
 
+- Added advertised endpoint to coordinators and active failover servers.
+
 - Database upgrade procedure has changed.
   It is now much more automated and can be triggered using
   an `arangodb upgrade --starter.endpoint=...` command.

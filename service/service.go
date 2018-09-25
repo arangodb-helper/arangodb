@@ -59,6 +59,7 @@ type Config struct {
 	ArangodPath          string
 	ArangodJSPath        string
 	ArangoSyncPath       string
+	AdvertisedEndpoint   string
 	MasterPort           int
 	RrPath               string
 	DataDir              string

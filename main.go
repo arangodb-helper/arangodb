@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -86,6 +87,7 @@ var (
 	logService          logging.Service
 	showVersion         bool
 	id                  string
+	advertisedEndpoint  string
 	agencySize          int
 	arangodPath         string
 	arangodJSPath       string
@@ -192,7 +194,7 @@ func init() {
 	pf.StringVar(&logDir, "log.dir", getEnvVar("LOG_DIR", ""), "Custom log file directory.")
 	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
 	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
-
+	f.StringVar(&advertisedEndpoint, "cluster.advertised-endpoint", "", "An external endpoint for the servers started by this Starter")
 	f.IntVar(&agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
 	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
 	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
@@ -568,6 +570,11 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		log.Fatal().Err(err).Msgf("Unsupport image pull policy '%s'", dockerImagePullPolicy)
 	}
 
+	// Sanity checking URL scheme on advertised endpoints
+	if _, err := url.Parse(advertisedEndpoint); err != nil {
+		log.Fatal().Err(err).Msgf("Advertised cluster endpoint %s does not meet URL standards", advertisedEndpoint)
+	}
+
 	// Expand home-dis (~) in paths
 	arangodPath = mustExpand(arangodPath)
 	arangodJSPath = mustExpand(arangodJSPath)
@@ -707,6 +714,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		ArangodPath:             arangodPath,
 		ArangoSyncPath:          arangoSyncPath,
 		ArangodJSPath:           arangodJSPath,
+		AdvertisedEndpoint:      advertisedEndpoint,
 		MasterPort:              masterPort,
 		RrPath:                  rrPath,
 		DataDir:                 dataDir,
