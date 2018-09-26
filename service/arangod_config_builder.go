@@ -162,6 +162,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
 		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
 		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
+		optionPair{"--javascript.copy-installation", "true")},
 		optionPair{"--log.file", slasher(myContainerLogFile)},
 		optionPair{"--log.force-direct", "false"},
 	)
