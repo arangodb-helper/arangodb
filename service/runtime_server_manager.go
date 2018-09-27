@@ -167,7 +167,8 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
 	upgradeManager := runtimeContext.UpgradeManager()
 	databaseAutoUpgrade := upgradeManager.ServerDatabaseAutoUpgrade(serverType)
-	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig, containerSecretFileName, bsCfg.RecoveryAgentID, databaseAutoUpgrade)
+	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig,
+		containerSecretFileName, bsCfg.RecoveryAgentID, databaseAutoUpgrade, features)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}

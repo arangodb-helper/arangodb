@@ -143,7 +143,8 @@ func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myC
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
 func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
-	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool) []string {
+	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool,
+	features DatabaseFeatures) []string {
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 
 	args := make([]string, 0, 40)
@@ -162,10 +163,14 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
 		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
 		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
-		optionPair{"--javascript.copy-installation", "true"},
 		optionPair{"--log.file", slasher(myContainerLogFile)},
 		optionPair{"--log.force-direct", "false"},
 	)
+
+	if !config.RunningInDocker && features.CopyInstallationFiles() {
+		options = append(options, optionPair{"--javascript.copy-installation", "true"})
+	}
+
 	if databaseAutoUpgrade {
 		options = append(options,
 			optionPair{"--database.auto-upgrade", "true"})
