@@ -54,8 +54,8 @@ func (v DatabaseFeatures) DefaultStorageEngine() string {
 	return "mmfiles"
 }
 
-// does this support copying installation files
-func (v DatabaseFeatures) CopyInstallationFiles() bool {
+// HasCopyInstallationFiles does server support copying installation files
+func (v DatabaseFeatures) HasCopyInstallationFiles() bool {
 	if driver.Version(v).CompareTo(v34) >= 0 {
 		return true
 	}

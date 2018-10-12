@@ -167,7 +167,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		optionPair{"--log.force-direct", "false"},
 	)
 
-	if !config.RunningInDocker && features.CopyInstallationFiles() {
+	if !config.RunningInDocker && features.HasCopyInstallationFiles() {
 		options = append(options, optionPair{"--javascript.copy-installation", "true"})
 	}
 
