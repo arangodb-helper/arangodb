@@ -736,6 +736,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		AllPortOffsetsUnique:    allPortOffsetsUnique,
 		LogRotateFilesToKeep:    logRotateFilesToKeep,
 		LogRotateInterval:       logRotateInterval,
+		InstanceUpTimeout:       instanceUpTimeout,
 		RunningInDocker:         isRunningInDocker(),
 		DockerContainerName:     dockerContainerName,
 		DockerEndpoint:          dockerEndpoint,
