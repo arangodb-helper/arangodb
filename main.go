@@ -54,20 +54,23 @@ import (
 // Configuration data with defaults:
 
 const (
-	projectName                 = "arangodb"
-	logFileName                 = projectName + ".log"
-	defaultDockerGCDelay        = time.Minute * 10
-	defaultDockerStarterImage   = "arangodb/arangodb-starter"
-	defaultArangodPath          = "/usr/sbin/arangod"
-	defaultArangoSyncPath       = "/usr/sbin/arangosync"
-	defaultLogRotateFilesToKeep = 5
-	defaultLogRotateInterval    = time.Minute * 60 * 24
+	projectName                     = "arangodb"
+	logFileName                     = projectName + ".log"
+	defaultDockerGCDelay            = time.Minute * 10
+	defaultDockerStarterImage       = "arangodb/arangodb-starter"
+	defaultArangodPath              = "/usr/sbin/arangod"
+	defaultArangoSyncPath           = "/usr/sbin/arangosync"
+	defaultLogRotateFilesToKeep     = 5
+	defaultLogRotateInterval        = time.Minute * 60 * 24
+	defaultInstanceUpTimeoutLinux   = time.Second * 300
+	defaultInstanceUpTimeoutWindows = time.Second * 900
 )
 
 var (
-	projectVersion = "dev"
-	projectBuild   = "dev"
-	cmdMain        = &cobra.Command{
+	defaultInstanceUpTimeout = defaultInstanceUpTimeoutLinux
+	projectVersion           = "dev"
+	projectBuild             = "dev"
+	cmdMain                  = &cobra.Command{
 		Use:   projectName,
 		Short: "Start ArangoDB clusters & single servers with ease",
 		Run:   cmdMainRun,
@@ -141,6 +144,7 @@ var (
 	passthroughOptions       = make(map[string]*service.PassthroughOption)
 	debugCluster             bool
 	enableSync               bool
+	instanceUpTimeout        time.Duration
 	syncMonitoringToken      string
 	syncMasterKeyFile        string // TLS keyfile of local sync master
 	syncMasterClientCAFile   string // CA Certificate used for client certificate verification
@@ -166,6 +170,10 @@ func init() {
 		defaultLogColor = false
 	}
 
+	if runtime.GOOS == "windows" {
+		defaultInstanceUpTimeout = defaultInstanceUpTimeoutWindows
+	}
+
 	// Prepare commandline parser
 	cmdMain.AddCommand(cmdVersion)
 
@@ -186,6 +194,7 @@ func init() {
 	f.BoolVar(&debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
+	f.DurationVar(&instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
 
 	pf.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 	pf.BoolVar(&logOutput.Console, "log.console", true, "Send log output to console")
@@ -727,6 +736,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		AllPortOffsetsUnique:    allPortOffsetsUnique,
 		LogRotateFilesToKeep:    logRotateFilesToKeep,
 		LogRotateInterval:       logRotateInterval,
+		InstanceUpTimeout:       instanceUpTimeout,
 		RunningInDocker:         isRunningInDocker(),
 		DockerContainerName:     dockerContainerName,
 		DockerEndpoint:          dockerEndpoint,

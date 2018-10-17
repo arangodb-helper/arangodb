@@ -74,6 +74,7 @@ type Config struct {
 	DebugCluster         bool
 	LogRotateFilesToKeep int
 	LogRotateInterval    time.Duration
+	InstanceUpTimeout    time.Duration
 
 	DockerContainerName   string // Name of the container running this process
 	DockerEndpoint        string // Where to reach the docker daemon
@@ -763,7 +764,9 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 			return false
 		}
 
-		for i := 0; i < 300; i++ {
+		var maxNumberOfRounds int
+		maxNumberOfRounds = int(s.cfg.InstanceUpTimeout * 2 / time.Second)
+		for i := 0; i < maxNumberOfRounds; i++ {
 			if checkInstanceOnce() {
 				return
 			}
