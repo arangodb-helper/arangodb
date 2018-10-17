@@ -1,9 +1,18 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.3 to master
+## Changes from version 0.13.6 to master
+
+## Changes from version 0.13.5 to 0.13.6
+
+- Do not use --javascript.copy-installation for 3.3.18 any more.
+
+## Changes from version 0.13.3 to 0.13.5
 
 - Starter cluster configuration no longer written to `setup.json` when
   it has not changed.
+- Added advertised endpoint to coordinators and active failover servers.
+- Give option --javascript.copy-installation to versions of ArangoDB
+  which have it.
 
 ## Changes from version 0.13.2 to 0.13.3
 
@@ -23,8 +32,6 @@
   _Starter_ on docker.
 
 ## Changes from version 0.12.0 to 0.13.0
-
-- Added advertised endpoint to coordinators and active failover servers.
 
 - Database upgrade procedure has changed.
   It is now much more automated and can be triggered using
