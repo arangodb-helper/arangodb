@@ -5,6 +5,8 @@
 ## Changes from version 0.13.5 to 0.13.6
 
 - Do not use --javascript.copy-installation for 3.3.18 any more.
+- Increase timeout when checking instances for readiness and make it
+  configurable.
 
 ## Changes from version 0.13.3 to 0.13.5
 
