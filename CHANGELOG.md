@@ -1,6 +1,10 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.7 to master
+## Changes from version 0.13.8 to master
+
+## Changes from version 0.13.7 to 0.13.8
+
+- Redo previous release because github was offline. No other changes.
 
 ## Changes from version 0.13.6 to 0.13.7
 

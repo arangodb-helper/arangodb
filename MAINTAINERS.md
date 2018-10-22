@@ -19,6 +19,10 @@ To prepare for a release, do the following:
 
 ## Building a release
 
+On Linux, make sure that neither `.gobuild/tmp` nor `bin` contains any
+files which are owned by `root`. For example, a `chmod -R` with your
+user account is enough. This does not seem to be necessary on OSX.
+
 To make a release you must have:
 
 - A github access token in `~/.arangodb/github-token` that has read/write access
