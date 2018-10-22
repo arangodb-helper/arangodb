@@ -1,6 +1,10 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.6 to master
+## Changes from version 0.13.7 to master
+
+## Changes from version 0.13.6 to 0.13.7
+
+- Do not use --javascript.copy-installation for 3.3.19.
 
 ## Changes from version 0.13.5 to 0.13.6
 
