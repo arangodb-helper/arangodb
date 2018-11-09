@@ -2,6 +2,8 @@
 
 ## Changes from version 0.13.8 to master
 
+- Fix finding the storage engine if the master does not run a dbserver.
+
 ## Changes from version 0.13.7 to 0.13.8
 
 - Redo previous release because github was offline. No other changes.
