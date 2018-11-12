@@ -93,11 +93,14 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 				t.Fatalf("Upgrade failed: %s", status.Reason)
 			}
 			if status.Ready {
+				if isVerbose {
+					t.Logf("UpgradeStatus good: %v", status)
+				}
 				break
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("Upgrade failed to finished in time")
+			t.Fatal("Upgrade failed to finish in time")
 		}
 		time.Sleep(time.Second)
 	}

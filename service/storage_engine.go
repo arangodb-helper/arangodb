@@ -58,11 +58,17 @@ func (s *Service) readActualStorageEngine() (string, error) {
 		return features.DefaultStorageEngine(), nil
 	}
 
-	_, _, mode := s.ClusterConfig()
+	_, peer, mode := s.ClusterConfig()
 	var serverType ServerType
 	if mode.IsClusterMode() {
 		// Read engine from dbserver data directory
-		serverType = ServerTypeDBServer
+		if peer.HasDBServer() {
+			serverType = ServerTypeDBServer
+		} else if peer.HasAgent() {
+			serverType = ServerTypeAgent
+		} else {
+			serverType = ServerTypeCoordinator
+		}
 	} else if mode.IsActiveFailoverMode() {
 		// Read engine from agent data directory
 		serverType = ServerTypeAgent
