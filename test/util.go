@@ -205,7 +205,7 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			if err := starter.WaitTimeout(time.Second * 30); err != nil {
+			if err := starter.WaitTimeout(time.Second * 300); err != nil {
 				result = false
 				t.Errorf("Starter is not stopped in time: %s", describe(err))
 			}
