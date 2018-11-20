@@ -72,11 +72,11 @@ var (
 func (o *PassthroughOption) valueForServerType(serverType ServerType) []string {
 	var result []string
 	switch serverType {
-	case ServerTypeSingle, ServerTypeResilientSingle:
+	case ServerTypeSingle:
 		result = o.Values.All
 	case ServerTypeCoordinator:
 		result = o.Values.Coordinators
-	case ServerTypeDBServer:
+	case ServerTypeDBServer, ServerTypeResilientSingle:
 		result = o.Values.DBServers
 	case ServerTypeAgent:
 		result = o.Values.Agents
