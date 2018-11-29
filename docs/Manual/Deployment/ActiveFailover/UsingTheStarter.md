@@ -1,8 +1,11 @@
 Using the ArangoDB Starter
 ==========================
 
-This section describes how to start an Active Failover setup the tool [_Starter_](../../Programs/Starter/README.md)
+This section describes how to start an _Active Failover_ setup using the tool [_Starter_](../../Programs/Starter/README.md)
 (the _arangodb_ binary program).
+
+**Note:** it is **strongly suggested** to not run the _ArangoDB Starter_ process (_arangodb_) from a system _user_ with full privileges, e.g. _root_ under Linux. We suggest creating a dedicated, limited-privileges _user_ for this purpose. Please refer to [this](../ArangoDBStarter/README.md#linux-user-used-to-run-arangodb) section for further details.
+
 
 Local Tests
 -----------
