@@ -17,12 +17,9 @@ The _ArangoDB Starter_ (`arangodb`) comes with all current distributions of Aran
 If you want a specific version, download the precompiled binary via the
 [GitHub releases page](https://github.com/arangodb-helper/arangodb/releases).
 
-
 ## Starting the _Starter_: best practices
 
 It is **strongly suggested** to not run the _ArangoDB Starter_ process (_arangodb_) from a system _user_ with full privileges, e.g. _root_ under Linux. We suggest creating a dedicated, limited-privileges _user_ for this purpose. Please refer to [this](../../Deployment/ArangoDBStarter/README.md#linux-user-used-to-run-arangodb) section for further details.
-
-
 
 ## Starting a cluster
 
