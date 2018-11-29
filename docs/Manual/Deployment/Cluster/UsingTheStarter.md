@@ -17,6 +17,11 @@ arangodb --starter.local --starter.data-dir=./localdata
 **Note:** a local Cluster is intended only for test purposes since a failure of 
 a single PC will bring down the entire Cluster.
 
+**Note:** it is **strongly suggested** to not run ArangoDB processes as _root_.
+We suggest creating a dedicated user for this purpose.
+
+You can find steps [here]()
+
 Multiple Machines
 -----------------
 
