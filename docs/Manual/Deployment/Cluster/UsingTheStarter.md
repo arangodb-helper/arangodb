@@ -4,6 +4,8 @@ Using the ArangoDB Starter
 This section describes how to start a Cluster using the tool [_Starter_](../../Programs/Starter/README.md)
 (the _arangodb_ binary program).
 
+**Note:** it is **strongly suggested** to not run the _ArangoDB Starter_ process (_arangodb_) from a system _user_ with full privileges, e.g. _root_ under Linux. We suggest creating a dedicated, limited-privileges _user_ for this purpose. Please refer to [this](../ArangoDBStarter/README.md#linux-user-used-to-run-arangodb) section for further details.
+
 Local Tests
 -----------
 
@@ -16,11 +18,6 @@ arangodb --starter.local --starter.data-dir=./localdata
 
 **Note:** a local Cluster is intended only for test purposes since a failure of 
 a single PC will bring down the entire Cluster.
-
-**Note:** it is **strongly suggested** to not run ArangoDB processes as _root_.
-We suggest creating a dedicated user for this purpose.
-
-You can find steps [here]()
 
 Multiple Machines
 -----------------
