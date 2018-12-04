@@ -1,7 +1,12 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.9 to master
+## Changes from 0.13.10 to master
 
+
+## Changes from version 0.13.9 to 0.13.10
+
+- Implement that in Docker mode the ArangoDB license key is passed on
+  to sub-containers.
 
 ## Changes from version 0.13.8 to 0.13.9
 
