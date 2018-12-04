@@ -209,7 +209,7 @@ func (r *dockerRunner) startGC() {
 
 // Try to start a command with given arguments
 func (r *dockerRunner) start(image string, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
-	env := make([]string, 1)
+	env := make([]string, 0, 1)
 	licenseKey := os.Getenv("ARANGO_LICENSE_KEY")
 	if licenseKey != "" {
 		env = append(env, "ARANGO_LICENSE_KEY="+licenseKey)
