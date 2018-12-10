@@ -1,10 +1,18 @@
+12345678901234567890123456789012345678901234567890123456789012345678901234567890
 Using the ArangoDB Starter
 ==========================
 
-This section describes how to start an _Active Failover_ setup using the tool [_Starter_](../../Programs/Starter/README.md)
-(the _arangodb_ binary program).
+This section describes how to start an _Active Failover_ setup using the tool
+[_Starter_](../../Programs/Starter/README.md) (the _arangodb_ executable).
 
-**Note:** it is **strongly suggested** to not run the _ArangoDB Starter_ process (_arangodb_) from a system _user_ with full privileges, e.g. _root_ under Linux. We suggest creating a dedicated, limited-privileges _user_ for this purpose. Please refer to [this](../ArangoDBStarter/README.md#linux-user-used-to-run-arangodb) section for further details.
+{% hint 'warning' %}
+It is **strongly suggested** to **not** run the _ArangoDB Starter_ process
+(_arangodb_) from a system _user_ with full privileges, e.g. _root_ under Linux.
+
+We suggest to create a dedicated _user_ with limited privileges for this purpose.
+Please refer to the [Linux user used to run ArangoDB](../ArangoDBStarter/README.md#linux-user-used-to-run-arangodb)
+section of the ArangoDB Starter Deployment page for further details.
+{% endhint %}
 
 Local Tests
 -----------
@@ -41,8 +49,8 @@ Once all the processes started by the _Starter_ are up and running, and joined t
 Active Failover setup (this may take a while depending on your system), the _Starter_ will inform
 you where to connect the Active Failover from a Browser, shell or your program.
 
-For a full list of options of the _Starter_ please refer to [this](../../Programs/Starter/Options.md)
-section.
+For a full list of options of the _Starter_ please refer to the
+[Starter Options](../../Programs/Starter/Options.md) page.
 
 Using the ArangoDB Starter in Docker
 ------------------------------------
