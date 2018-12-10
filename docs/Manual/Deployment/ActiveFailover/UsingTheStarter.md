@@ -9,8 +9,8 @@ It is **strongly suggested** to **not** run the _ArangoDB Starter_ process
 (_arangodb_) from a system _user_ with full privileges, e.g. _root_ under Linux.
 
 We suggest to create a dedicated _user_ with limited privileges for this purpose.
-Please refer to the [Linux user used to run ArangoDB](../ArangoDBStarter/README.md#linux-user-used-to-run-arangodb)
-section of the ArangoDB Starter Deployment page for further details.
+Please refer to the [Linux user used to run _arangodb_](../ArangoDBStarter/README.md#linux-user-used-to-run-arangodb)
+section of the Starter Deployment page for further details.
 {% endhint %}
 
 Local Tests
