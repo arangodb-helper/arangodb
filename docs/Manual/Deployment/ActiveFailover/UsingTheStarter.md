@@ -39,10 +39,10 @@ arangodb --starter.mode=activefailover --server.storage-engine=rocksdb --starter
 
 Run the above command on machine A, B & C.
 
-The _Starter_ will decide on which 2 machines to run a single server instance.
-To override this decision (only valid while bootstrapping), add a
-`--cluster.start-single=false` to the machine where the single server
-instance should _not_ be started.
+An Agent and a Single Instance will be started on each machine. One of the Single Instance will 
+have the _leader_ role, the others two the _follower_ role.  
+If you want to have only one follower, add (only valid while bootstrapping),  
+a --cluster.start-single=false to the machine where the single server instance should not be started.
 
 Once all the processes started by the _Starter_ are up and running, and joined the
 Active Failover setup (this may take a while depending on your system), the _Starter_ will inform
