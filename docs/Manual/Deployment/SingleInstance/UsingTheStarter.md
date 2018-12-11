@@ -1,6 +1,6 @@
 Using the ArangoDB Starter
 ==========================
-12345678901234567890123456789012345678901234567890123456789012345678901234567890
+
 This section describes how to start an ArangoDB _Single Instance_ using the tool
 [_Starter_](../../Programs/Starter/README.md) (the _arangodb_ executable).
 
