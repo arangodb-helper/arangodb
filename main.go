@@ -26,6 +26,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -53,20 +54,23 @@ import (
 // Configuration data with defaults:
 
 const (
-	projectName                 = "arangodb"
-	logFileName                 = projectName + ".log"
-	defaultDockerGCDelay        = time.Minute * 10
-	defaultDockerStarterImage   = "arangodb/arangodb-starter"
-	defaultArangodPath          = "/usr/sbin/arangod"
-	defaultArangoSyncPath       = "/usr/sbin/arangosync"
-	defaultLogRotateFilesToKeep = 5
-	defaultLogRotateInterval    = time.Minute * 60 * 24
+	projectName                     = "arangodb"
+	logFileName                     = projectName + ".log"
+	defaultDockerGCDelay            = time.Minute * 10
+	defaultDockerStarterImage       = "arangodb/arangodb-starter"
+	defaultArangodPath              = "/usr/sbin/arangod"
+	defaultArangoSyncPath           = "/usr/sbin/arangosync"
+	defaultLogRotateFilesToKeep     = 5
+	defaultLogRotateInterval        = time.Minute * 60 * 24
+	defaultInstanceUpTimeoutLinux   = time.Second * 300
+	defaultInstanceUpTimeoutWindows = time.Second * 900
 )
 
 var (
-	projectVersion = "dev"
-	projectBuild   = "dev"
-	cmdMain        = &cobra.Command{
+	defaultInstanceUpTimeout = defaultInstanceUpTimeoutLinux
+	projectVersion           = "dev"
+	projectBuild             = "dev"
+	cmdMain                  = &cobra.Command{
 		Use:   projectName,
 		Short: "Start ArangoDB clusters & single servers with ease",
 		Run:   cmdMainRun,
@@ -86,6 +90,7 @@ var (
 	logService          logging.Service
 	showVersion         bool
 	id                  string
+	advertisedEndpoint  string
 	agencySize          int
 	arangodPath         string
 	arangodJSPath       string
@@ -139,6 +144,7 @@ var (
 	passthroughOptions       = make(map[string]*service.PassthroughOption)
 	debugCluster             bool
 	enableSync               bool
+	instanceUpTimeout        time.Duration
 	syncMonitoringToken      string
 	syncMasterKeyFile        string // TLS keyfile of local sync master
 	syncMasterClientCAFile   string // CA Certificate used for client certificate verification
@@ -164,6 +170,10 @@ func init() {
 		defaultLogColor = false
 	}
 
+	if runtime.GOOS == "windows" {
+		defaultInstanceUpTimeout = defaultInstanceUpTimeoutWindows
+	}
+
 	// Prepare commandline parser
 	cmdMain.AddCommand(cmdVersion)
 
@@ -184,6 +194,7 @@ func init() {
 	f.BoolVar(&debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
+	f.DurationVar(&instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
 
 	pf.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 	pf.BoolVar(&logOutput.Console, "log.console", true, "Send log output to console")
@@ -192,7 +203,7 @@ func init() {
 	pf.StringVar(&logDir, "log.dir", getEnvVar("LOG_DIR", ""), "Custom log file directory.")
 	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
 	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
-
+	f.StringVar(&advertisedEndpoint, "cluster.advertised-endpoint", "", "An external endpoint for the servers started by this Starter")
 	f.IntVar(&agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
 	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
 	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
@@ -568,6 +579,11 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		log.Fatal().Err(err).Msgf("Unsupport image pull policy '%s'", dockerImagePullPolicy)
 	}
 
+	// Sanity checking URL scheme on advertised endpoints
+	if _, err := url.Parse(advertisedEndpoint); err != nil {
+		log.Fatal().Err(err).Msgf("Advertised cluster endpoint %s does not meet URL standards", advertisedEndpoint)
+	}
+
 	// Expand home-dis (~) in paths
 	arangodPath = mustExpand(arangodPath)
 	arangodJSPath = mustExpand(arangodJSPath)
@@ -707,6 +723,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		ArangodPath:             arangodPath,
 		ArangoSyncPath:          arangoSyncPath,
 		ArangodJSPath:           arangodJSPath,
+		AdvertisedEndpoint:      advertisedEndpoint,
 		MasterPort:              masterPort,
 		RrPath:                  rrPath,
 		DataDir:                 dataDir,
@@ -719,6 +736,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		AllPortOffsetsUnique:    allPortOffsetsUnique,
 		LogRotateFilesToKeep:    logRotateFilesToKeep,
 		LogRotateInterval:       logRotateInterval,
+		InstanceUpTimeout:       instanceUpTimeout,
 		RunningInDocker:         isRunningInDocker(),
 		DockerContainerName:     dockerContainerName,
 		DockerEndpoint:          dockerEndpoint,

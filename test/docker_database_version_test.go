@@ -65,6 +65,7 @@ func TestDockerDatabaseVersion(t *testing.T) {
 		"--label starter-test=true",
 		"--name=" + cID,
 		"--rm",
+		createLicenseKeyOption(),
 		fmt.Sprintf("-p %d:%d", basePort, basePort),
 		fmt.Sprintf("-v %s:/data", volID),
 		"-v /var/run/docker.sock:/var/run/docker.sock",

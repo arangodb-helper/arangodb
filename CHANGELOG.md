@@ -1,6 +1,48 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.2 to master
+## Changes from 0.13.10 to master
+
+
+## Changes from version 0.13.9 to 0.13.10
+
+- Implement that in Docker mode the ArangoDB license key is passed on
+  to sub-containers.
+
+## Changes from version 0.13.8 to 0.13.9
+
+- Fix finding the storage engine if the master does not run a dbserver.
+- Fix --dbservers.* passthrough option for active-failover setup.
+- Polish documentation.
+- Fix tests by increasing a timeout.
+
+## Changes from version 0.13.7 to 0.13.8
+
+- Redo previous release because github was offline. No other changes.
+
+## Changes from version 0.13.6 to 0.13.7
+
+- Do not use --javascript.copy-installation for 3.3.19.
+
+## Changes from version 0.13.5 to 0.13.6
+
+- Do not use --javascript.copy-installation for 3.3.18 any more.
+- Increase timeout when checking instances for readiness and make it
+  configurable.
+
+## Changes from version 0.13.3 to 0.13.5
+
+- Starter cluster configuration no longer written to `setup.json` when
+  it has not changed.
+- Added advertised endpoint to coordinators and active failover servers.
+- Give option --javascript.copy-installation to versions of ArangoDB
+  which have it.
+
+## Changes from version 0.13.2 to 0.13.3
+
+- Fixed a bug in the RECOVERY procedure which was declined if a new
+  address was used for the replacement starter.
+- Add retries to make active/failover tests more stable.
+- Updated go-drivers and go-certificates libraries.
 
 ## Changes from version 0.13.1 to 0.13.2
 

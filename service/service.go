@@ -33,6 +33,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,6 +59,7 @@ type Config struct {
 	ArangodPath          string
 	ArangodJSPath        string
 	ArangoSyncPath       string
+	AdvertisedEndpoint   string
 	MasterPort           int
 	RrPath               string
 	DataDir              string
@@ -72,6 +74,7 @@ type Config struct {
 	DebugCluster         bool
 	LogRotateFilesToKeep int
 	LogRotateInterval    time.Duration
+	InstanceUpTimeout    time.Duration
 
 	DockerContainerName   string // Name of the container running this process
 	DockerEndpoint        string // Where to reach the docker daemon
@@ -761,7 +764,9 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 			return false
 		}
 
-		for i := 0; i < 300; i++ {
+		var maxNumberOfRounds int
+		maxNumberOfRounds = int(s.cfg.InstanceUpTimeout * 2 / time.Second)
+		for i := 0; i < maxNumberOfRounds; i++ {
 			if checkInstanceOnce() {
 				return
 			}
@@ -900,15 +905,30 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			// ID already found, update peer data
 			for i, p := range s.myPeers.AllPeers {
 				if p.ID == req.SlaveID {
-					s.myPeers.AllPeers[i].Port = req.SlavePort
 					if s.cfg.AllPortOffsetsUnique {
 						s.myPeers.AllPeers[i].Address = slaveAddr
 					} else {
-						// Slave address may not change
-						if p.Address != slaveAddr {
+						// Need to check if this particular address does appear in
+						// another peer, if so, we forbid to change the address:
+						addrFoundInOtherPeer := false
+						for _, pp := range s.myPeers.AllPeers {
+							if pp.ID != req.SlaveID && pp.Address == slaveAddr {
+								addrFoundInOtherPeer = true
+								break
+							}
+						}
+						// Slave address may not change in this case
+						if addrFoundInOtherPeer && p.Address != slaveAddr {
 							return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot change slave address while using an existing ID."))
 						}
+						// We accept the new address (it might be the old one):
+						s.myPeers.AllPeers[i].Address = slaveAddr
+						// However, since we also accept the port, we must set the
+						// port ofset of that replaced peer to 0 such that the AllPeers
+						// information actually contains the right port.
+						s.myPeers.AllPeers[i].PortOffset = 0
 					}
+					s.myPeers.AllPeers[i].Port = req.SlavePort
 					s.myPeers.AllPeers[i].DataDir = req.DataDir
 				}
 			}
@@ -1028,9 +1048,14 @@ func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
 		return
 	}
 
-	// TODO only update when changed
-	s.myPeers = newConfig
-	s.saveSetup()
+	// Only update when changed
+	if !reflect.DeepEqual(s.myPeers, newConfig) {
+		s.myPeers = newConfig
+		s.saveSetup()
+		s.log.Debug().Msg("Updated cluster config")
+	} else {
+		s.log.Debug().Msg("Updating cluster config is not needed")
+	}
 }
 
 // MasterChangedCallback interrupts the runtime cluster manager

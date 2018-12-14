@@ -29,8 +29,9 @@ import driver "github.com/arangodb/go-driver"
 type DatabaseFeatures driver.Version
 
 const (
-	v32 driver.Version = "3.2.0"
-	v34 driver.Version = "3.4.0"
+	v32    driver.Version = "3.2.0"
+	v33_20 driver.Version = "3.3.20"
+	v34    driver.Version = "3.4.0"
 )
 
 // NewDatabaseFeatures returns a new DatabaseFeatures based on
@@ -51,4 +52,15 @@ func (v DatabaseFeatures) DefaultStorageEngine() string {
 		return "rocksdb"
 	}
 	return "mmfiles"
+}
+
+// HasCopyInstallationFiles does server support copying installation files
+func (v DatabaseFeatures) HasCopyInstallationFiles() bool {
+	if driver.Version(v).CompareTo(v34) >= 0 {
+		return true
+	}
+	if driver.Version(v).CompareTo(v33_20) >= 0 {
+		return true
+	}
+	return false
 }

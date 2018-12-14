@@ -45,6 +45,19 @@ import (
 	"github.com/rs/zerolog"
 )
 
+var (
+	urlFixer = strings.NewReplacer(
+		"http://", "tcp://",
+		"https://", "ssl://",
+	)
+)
+
+// fixupEndpointURLSchemeForArangod changes endpoint URL schemes used by Starter to ones used by arangodb.
+// E.g. "http://localhost:8529" -> "tcp://localhost:8529"
+func fixupEndpointURLSchemeForArangod(u string) string {
+	return urlFixer.Replace(u)
+}
+
 // createArangodConf creates an arangod.conf file in the given host directory if it does not yet exists.
 // The arangod.conf file contains all settings that are considered static for the lifetime of the server.
 func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType ServerType, features DatabaseFeatures) ([]Volume, configFile, error) {
@@ -130,7 +143,8 @@ func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myC
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
 func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
-	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool) []string {
+	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool,
+	features DatabaseFeatures) []string {
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 
 	args := make([]string, 0, 40)
@@ -152,6 +166,11 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		optionPair{"--log.file", slasher(myContainerLogFile)},
 		optionPair{"--log.force-direct", "false"},
 	)
+
+	if !config.RunningInDocker && features.HasCopyInstallationFiles() {
+		options = append(options, optionPair{"--javascript.copy-installation", "true"})
+	}
+
 	if databaseAutoUpgrade {
 		options = append(options,
 			optionPair{"--database.auto-upgrade", "true"})
@@ -215,6 +234,13 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "SINGLE"},
 		)
+	}
+	if serverType == ServerTypeCoordinator || serverType == ServerTypeResilientSingle {
+		if config.AdvertisedEndpoint != "" {
+			options = append(options,
+				optionPair{"--cluster.my-advertised-endpoint", fixupEndpointURLSchemeForArangod(config.AdvertisedEndpoint)},
+			)
+		}
 	}
 	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
 		for _, p := range clusterConfig.AllAgents() {

@@ -205,7 +205,7 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			if err := starter.WaitTimeout(time.Second * 30); err != nil {
+			if err := starter.WaitTimeout(time.Second * 300); err != nil {
 				result = false
 				t.Errorf("Starter is not stopped in time: %s", describe(err))
 			}
@@ -284,4 +284,11 @@ func createEnvironmentStarterOptions(skipDockerImage ...bool) string {
 		}
 	}
 	return strings.Join(result, " ")
+}
+
+func createLicenseKeyOption() string {
+	if license := os.Getenv("ARANGO_LICENSE_KEY"); license != "" {
+		return "-e ARANGO_LICENSE_KEY=" + license
+	}
+	return ""
 }
