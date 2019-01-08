@@ -135,11 +135,13 @@ var (
 	dockerImagePullPolicy    string
 	dockerStarterImage       = defaultDockerStarterImage
 	dockerUser               string
+	dockerCertPath           string
 	dockerContainerName      string
 	dockerGCDelay            time.Duration
 	dockerNetHost            bool // Deprecated
 	dockerNetworkMode        string
 	dockerPrivileged         bool
+	dockerClientCertPath     string
 	dockerTTY                bool
 	passthroughOptions       = make(map[string]*service.PassthroughOption)
 	debugCluster             bool
@@ -188,6 +190,7 @@ func init() {
 	f.StringVar(&ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
 	f.StringVar(&bindAddress, "starter.host", "0.0.0.0", "address used to bind the starter to")
 	f.StringVar(&id, "starter.id", "", "Unique identifier of this peer")
+	f.StringVar(&dockerCertPath, "starter.docker-cert-path", "", "use client certificates for tls verified access to the docker services")
 	f.IntVar(&masterPort, "starter.port", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
 	f.BoolVar(&allPortOffsetsUnique, "starter.unique-port-offsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
 	f.StringVar(&dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
@@ -613,6 +616,12 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		log.Fatal().Err(err).Msgf("Cannot create data directory %s, giving up.", dataDir)
 	}
 
+	// Docker certificate directory
+	if dockerCertPath != "" {
+		log.Info().Msgf("docker-cert-path: %s", dockerCertPath)
+		dockerCertPath = mustExpand(dockerCertPath)
+	}
+
 	// Make custom log directory absolute
 	if logDir != "" {
 		logDir, _ = filepath.Abs(logDir)
@@ -748,6 +757,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		DockerGCDelay:           dockerGCDelay,
 		DockerNetworkMode:       dockerNetworkMode,
 		DockerPrivileged:        dockerPrivileged,
+		DockerCertPath:          dockerCertPath,
 		DockerTTY:               dockerTTY,
 		ProjectVersion:          projectVersion,
 		ProjectBuild:            projectBuild,

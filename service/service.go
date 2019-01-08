@@ -87,6 +87,7 @@ type Config struct {
 	DockerNetworkMode     string
 	DockerPrivileged      bool
 	DockerTTY             bool
+	DockerCertPath        string
 	RunningInDocker       bool
 
 	SyncEnabled             bool   // If set, arangosync servers are activated
@@ -157,8 +158,8 @@ func (c Config) CreateRunner(log zerolog.Logger) (Runner, Config, bool) {
 	var runner Runner
 	if c.UseDockerRunner() {
 		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerArangodImage, c.DockerArangoSyncImage,
-			c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
-			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
+			c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName, c.DockerGCDelay, c.DockerNetworkMode,
+			c.DockerCertPath, c.DockerPrivileged, c.DockerTTY)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to create docker runner")
 		}
