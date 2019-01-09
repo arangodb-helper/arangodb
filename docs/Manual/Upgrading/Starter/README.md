@@ -42,6 +42,12 @@ dpkg -i arangodb3-3.3.14-1_amd64.deb
 
 after you have downloaded the corresponding file from https://download.arangodb.com/.
 
+If you are on a version newer than 3.4 and use the `.tar.gz`
+distribution, you can simply extract the new archive in a different
+location and keep the old installation where it is. Note that
+this does not launch a standalone instance, so the following section can
+be skipped in this case.
+
 #### Stop the Standalone Instance
 
 As the package will automatically start the standalone instance, you might want to
@@ -103,6 +109,15 @@ max      29513  3898  0 11:46 pts/4    00:00:00 arangodb --starter.data-dir=./db
 When using a supervisor like _SystemD_, this will happens automatically. In case
 the _Starter_ was initiated manually, the _arangodb_ processes have to be restarted
 manually with the same command that has been used before.
+
+If you are on a version newer than 3.4 and are using the `.tar.gz`
+distribution, your new version of the executable might be located in a
+different directory. Make sure that you now start the new starter
+executable (`bin/arangodb` in the new installation place). If you are
+using a supervisor like _SystemD_, you might have to adjust the path to
+the executable in the service description to the new location. Do this
+before you `kill -9` the starter or else the old version will be
+restarted in this case. If you forgot, simply do the `kill -9` again.
 
 After you have restarted the _Starter_ you will find yourself in the following
 situation:
