@@ -35,21 +35,12 @@ import (
 // port is mapped onto for the given container.
 func findDockerExposedAddress(dockerEndpoint, containerName string, port int) (hostPort int, isNetHost bool, networkMode string, hasTTY bool, err error) {
 
-	path := os.Getenv("DOCKER_CERT_PATH")
-
-	var client *docker.Client
-	if len(path) > 0 {
-		ca := fmt.Sprintf("%s/ca.pem", path)
-		cert := fmt.Sprintf("%s/cert.pem", path)
-		key := fmt.Sprintf("%s/key.pem", path)
-		client, err = docker.NewTLSClient(dockerEndpoint, cert, key, ca)
-	} else {
-		client, err = docker.NewClient(dockerEndpoint)
-	}
-
+	os.Setenv("DOCKER_HOST", dockerEndpoint)
+	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		return 0, false, "", false, maskAny(err)
 	}
+
 	container, err := client.InspectContainer(containerName)
 	if err != nil {
 		return 0, false, "", false, maskAny(err)

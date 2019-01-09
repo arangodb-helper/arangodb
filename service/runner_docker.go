@@ -49,22 +49,11 @@ const (
 )
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
-func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage string,
-	imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
-	networkMode string, dockerCertPath string, privileged, tty bool) (Runner, error) {
+func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
+	networkMode string, privileged, tty bool) (Runner, error) {
 
-	var err error
-	var client *docker.Client
-
-	if len(dockerCertPath) > 0 {
-		ca := fmt.Sprintf("%s/ca.pem", dockerCertPath)
-		cert := fmt.Sprintf("%s/cert.pem", dockerCertPath)
-		key := fmt.Sprintf("%s/key.pem", dockerCertPath)
-		client, err = docker.NewTLSClient(endpoint, cert, key, ca)
-	} else {
-		client, err = docker.NewClient(endpoint)
-	}
-
+	os.Setenv("DOCKER_HOST", endpoint)
+	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		return nil, maskAny(err)
 	}
