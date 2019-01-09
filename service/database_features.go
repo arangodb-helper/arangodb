@@ -31,7 +31,9 @@ type DatabaseFeatures driver.Version
 const (
 	v32    driver.Version = "3.2.0"
 	v33_20 driver.Version = "3.3.20"
+	v33_22 driver.Version = "3.3.22"
 	v34    driver.Version = "3.4.0"
+	v34_2  driver.Version = "3.4.2"
 )
 
 // NewDatabaseFeatures returns a new DatabaseFeatures based on
@@ -60,6 +62,17 @@ func (v DatabaseFeatures) HasCopyInstallationFiles() bool {
 		return true
 	}
 	if driver.Version(v).CompareTo(v33_20) >= 0 {
+		return true
+	}
+	return false
+}
+
+// HasJWTSecretFileOption does the server support passing jwt secret by file
+func (v DatabaseFeatures) HasJWTSecretFileOption() bool {
+	if driver.Version(v).CompareTo(v33_22) >= 0 && driver.Version(v).CompareTo(v34) < 0 {
+		return true
+	}
+	if driver.Version(v).CompareTo(v34_2) >= 0 {
 		return true
 	}
 	return false
