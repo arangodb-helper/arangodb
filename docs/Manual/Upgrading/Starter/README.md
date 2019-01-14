@@ -130,13 +130,13 @@ When using a supervisor like _SystemD_, this will happens automatically. In case
 the _Starter_ was initiated manually, the _arangodb_ processes have to be restarted
 manually with the same command that has been used before.
 
-If you are on a version newer than 3.4 and are using the `.tar.gz`
-distribution, your new version of the executable might be located in a
-different directory. Make sure that you now start the new starter
-executable (`bin/arangodb` in the new installation place). If you are
+If you are using the `.tar.gz` distribution (only available from v3.4.0),
+your new version of the executable might be located in a
+different directory. Make sure that you now start the new _Starter_
+executable (`bin/arangodb`) in the new installation place. If you are
 using a supervisor like _SystemD_, you might have to adjust the path to
 the executable in the service description to the new location. Do this
-before you `kill -9` the starter or else the old version will be
+before you `kill -9` the _Starter_ or else the old version will be
 restarted in this case. If you forgot, simply do the `kill -9` again.
 
 After you have restarted the _Starter_ you will find yourself in the following
