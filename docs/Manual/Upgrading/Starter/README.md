@@ -16,6 +16,20 @@ for detailed information.
 - Rolling upgrades of Cluster setups from 3.3 to 3.4 are only supported
   from versions 3.3.20 and 3.4.0.
 
+The following four cases are possible:
+
+1. You have installed via an installation package (e.g. a `.deb` or `.rpm` package)
+   and you will upgrade this installation using again an installation package
+   (e.g. a `.deb` or `.rpm`).
+2. You have installed via the `.tar.gz` distribution and you will upgrade this
+   installation using again a `.tar.gz` distribution.
+3. You have installed via an installation package (e.g. a `.deb` or `.rpm` package)
+   and you will upgrade this installation using a `.tar.gz` distribution.
+4. You have installed via the `.tar.gz` distribution and you will upgrade this
+   installation using an installation package (e.g. a `.deb` or `.rpm` package).
+
+Cases 1. and 2. are more common, though cases 3. and 4. are also possible.
+
 ## Upgrade Procedure
 
 The following procedure has to be executed on every ArangoDB _Starter_ instance.
