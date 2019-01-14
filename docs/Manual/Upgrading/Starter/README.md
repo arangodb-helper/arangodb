@@ -16,6 +16,8 @@ for detailed information.
 - Rolling upgrades of Cluster setups from 3.3 to 3.4 are only supported
   from versions 3.3.20 and 3.4.0.
 
+## Upgrade Scenarios
+
 The following four cases are possible:
 
 1. You have installed via an installation package (e.g. a `.deb` or `.rpm` package)
@@ -193,9 +195,8 @@ with an error.
 ### Uninstall old package
 
 {% hint 'info' %}
-This step is required only if you are in the cases 2., 3. and 4. and it is
-not required if you are in case 1. (the four cases are described at the
-beginning of this page).
+This step is required in the cases 2., 3. and 4. only. It is not required
+in case 1., see [Upgrade Scenarios](#upgrade-scenarios) above.
 {% endhint %}
 
 After verifying your upgraded ArangoDB system is working, you can remove
