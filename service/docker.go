@@ -40,7 +40,6 @@ func findDockerExposedAddress(dockerEndpoint, containerName string, port int) (h
 	if err != nil {
 		return 0, false, "", false, maskAny(err)
 	}
-
 	container, err := client.InspectContainer(containerName)
 	if err != nil {
 		return 0, false, "", false, maskAny(err)
