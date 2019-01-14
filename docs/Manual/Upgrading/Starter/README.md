@@ -176,7 +176,7 @@ The `arangodb upgrade` command will show the progress of the upgrade
 and stop when the upgrade has either finished successfully or finished
 with an error.
 
-### Retrying a failed upgrade
+## Retrying a failed upgrade
 
 Starting with 3.3.14 and 3.2.17, when an upgrade _plan_ (in deployment
 mode `activefailover` or `cluster`) has failed, it can be retried.
@@ -190,7 +190,7 @@ arangodb retry upgrade --starter.endpoint=<endpoint-of-a-starter>
 The `--starter.endpoint` option can be set to the endpoint of any
 of the starters. E.g. `http://localhost:8528`.
 
-### Aborting an upgrade
+## Aborting an upgrade
 
 Starting with 3.3.14 and 3.2.17, when an upgrade _plan_ (in deployment
 mode `activefailover` or `cluster`) is in progress or has failed, it can
