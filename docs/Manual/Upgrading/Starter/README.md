@@ -46,8 +46,8 @@ dpkg -i arangodb3-3.3.14-1_amd64.deb
 
 after you have downloaded the corresponding file from https://download.arangodb.com/.
 
-If you are on a version newer than 3.4 and use the `.tar.gz`
-distribution, you can simply extract the new archive in a different
+If you are using the `.tar.gz` distribution (only available from v3.4.0),
+you can simply extract the new archive in a different
 location and keep the old installation where it is. Note that
 this does not launch a standalone instance, so the following section can
 be skipped in this case.
