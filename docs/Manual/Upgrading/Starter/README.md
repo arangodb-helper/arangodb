@@ -190,6 +190,27 @@ The `arangodb upgrade` command will show the progress of the upgrade
 and stop when the upgrade has either finished successfully or finished
 with an error.
 
+### Uninstall old package
+
+{% hint 'info' %}
+This step is required only if you are in the cases 2., 3. and 4. and it is
+not required if you are in case 1. (the four cases are described at the
+beginning of this page).
+{% endhint %}
+
+After verifying your upgraded ArangoDB system is working, you can remove
+the old package. This can be done in different ways, depending on the case
+you are:
+
+- Cases 2. and 4.: just remove the old directory created by the `.tar.gz`
+  (assumes your `--starter.data-dir` is located outside of this 
+  directory - which is a recommended approach).
+- Case 3.: just remove the old package by running the corresponding
+  uninstallation command (the exact command depends on whether you are
+  using a `.deb` or `.rmp` package and it is assumed that your 
+  `--starter.data-dir` is located outside of the standard directories
+  created by the installation package - which is a recommended approach).
+
 ## Retrying a failed upgrade
 
 Starting with 3.3.14 and 3.2.17, when an upgrade _plan_ (in deployment
