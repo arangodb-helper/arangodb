@@ -78,7 +78,7 @@ func createServerArgs(log zerolog.Logger, config Config, clusterConfig ClusterCo
 	clusterJWTSecretFile, agentRecoveryID string, databaseAutoUpgrade bool, features DatabaseFeatures) ([]string, error) {
 	switch serverType.ProcessType() {
 	case ProcessTypeArangod:
-		return createArangodArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, arangodConfig, agentRecoveryID, databaseAutoUpgrade, features), nil
+		return createArangodArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, arangodConfig, agentRecoveryID, databaseAutoUpgrade, clusterJWTSecretFile, features), nil
 	case ProcessTypeArangoSync:
 		return createArangoSyncArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, clusterJWTSecretFile)
 	default:

@@ -152,13 +152,17 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 		if err != nil {
 			return nil, false, maskAny(err)
 		}
-	} else if processType == ProcessTypeArangoSync {
+	}
+	if processType == ProcessTypeArangoSync || features.HasJWTSecretFileOption() {
 		var err error
-		confVolumes, containerSecretFileName, err = createArangoSyncClusterSecretFile(log, bsCfg, myHostDir, myContainerDir, serverType)
+		var secretFileVolumes []Volume
+		secretFileVolumes, containerSecretFileName, err = createArangoClusterSecretFile(log, bsCfg, myHostDir, myContainerDir, serverType)
 		if err != nil {
 			return nil, false, maskAny(err)
 		}
+		confVolumes = append(confVolumes, secretFileVolumes...)
 	}
+
 	// Collect volumes
 	v := collectServerConfigVolumes(serverType, arangodConfig)
 	confVolumes = append(confVolumes, v...)
