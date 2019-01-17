@@ -105,13 +105,14 @@ the above command is modified as follows:
 
 ```bash
 export IP=<IP of docker host>
-export DOCKER_TLS_VERIFY=1
 export DOCKER_CERT_PATH=/path/to/certificate
 docker volume create arangodb
 docker run -it --name=adb --rm -p 8528:8528 \
     -v arangodb:/data \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    -v /path/to/certificate:/path/to/certificate
+    -v $DOCKER_CERT_PATH:$DOCKER_CERT_PATH
+    -e DOCKER_TLS_VERIFY=1
+    -e DOCKER_CERT_PATH=$DOCKER_CERT_PATH
     arangodb/arangodb-starter \
     --starter.address=$IP \
     --starter.join=A,B,C
@@ -120,7 +121,22 @@ docker run -it --name=adb --rm -p 8528:8528 \
 Note that the enviroment variables `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` 
 as well as the additional mountpoint containing the certificate have been added above. 
 directory. The assignment of `DOCKER_CERT_PATH` is optional, in which case it 
-is mandatory that the certificates are stored in `$HOME/.docker`.
+is mandatory that the certificates are stored in `$HOME/.docker`. So
+the command would then be as follows
+
+```bash
+export IP=<IP of docker host>
+docker volume create arangodb
+docker run -it --name=adb --rm -p 8528:8528 \
+    -v arangodb:/data \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v /path/to/cert:/root/.docker \
+    -e DOCKER_TLS_VERIFY=1 \
+    arangodb/arangodb-starter \
+    --starter.address=$IP \
+    --starter.join=A,B,C
+```
+
 
 The TLS verification above applies equally to all below deployment modes.
 
