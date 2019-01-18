@@ -1,7 +1,13 @@
 # ArangoDB Starter Changelog
 
-## Changes from 0.13.10 to master
+## Changes from 0.13.10 to 0.14.0
 
+- Operation with TLS verified docker containers implemented
+- JWT secret is handed to arangod containers using
+  server.jwt-secret-keyfile 
+- Amend starter upgrade procedure for .tar.gz distributions
+- Building of ARM64 executables
+- Polish documentation
 
 ## Changes from version 0.13.9 to 0.13.10
 
