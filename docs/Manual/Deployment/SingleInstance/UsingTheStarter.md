@@ -47,7 +47,7 @@ Then replace `<thekey>` above with the actual license key. The start
 will then hand on the license key to the Docker container it launches
 for ArangoDB.
 
-**TLS verified Docker services**
+### TLS verified Docker services
 
 Oftentimes, one needs to harden Docker services using client certificate 
 and TLS verification. The Docker API allows subsequently only certified access.
@@ -66,7 +66,7 @@ docker run -it --name=adb --rm -p 8528:8528 \
     -v /path/to/certificate:/path/to/certificate
     arangodb/arangodb-starter \
     --starter.address=$IP \
-    --starter.join=A,B,C
+    --starter.mode=single
 ```
 
 Note that the enviroment variables `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` 
@@ -85,6 +85,6 @@ docker run -it --name=adb --rm -p 8528:8528 \
     -e DOCKER_TLS_VERIFY=1 \
     arangodb/arangodb-starter \
     --starter.address=$IP \
-    --starter.join=A,B,C
+    --starter.mode=single
 ```
 
