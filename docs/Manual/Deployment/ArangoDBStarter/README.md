@@ -24,4 +24,9 @@ Best Practices
 It is strongly suggested to not run the _ArangoDB Starter_ process (_arangodb_)
 as _root_. We suggest creating a dedicated linux _user_ for this purpose.
 
-<!-- TODO: Add steps here -->
+Assuming the user you want to use is called _arangodb_, to run the _Starter_,
+on Linux systems, you might use a command similar to the following:
+
+```
+sudo su arangodb -s /bin/bash -c "arangodb --all.server.uid=$(id -u arangodb) ... AnyStarterOptionHere"
+```
