@@ -285,3 +285,10 @@ func createEnvironmentStarterOptions(skipDockerImage ...bool) string {
 	}
 	return strings.Join(result, " ")
 }
+
+func createLicenseKeyOption() string {
+	if license := os.Getenv("ARANGO_LICENSE_KEY"); license != "" {
+		return "-e ARANGO_LICENSE_KEY=" + license
+	}
+	return ""
+}

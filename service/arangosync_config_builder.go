@@ -45,9 +45,9 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// createArangoSyncClusterSecretFile creates an arangod.jwtsecret file in the given host directory if it does not yet exists.
+// createArangoClusterSecretFile creates an arangod.jwtsecret file in the given host directory if it does not yet exists.
 // The arangod.jwtsecret file contains the JWT secret used to authenticate with the local cluster.
-func createArangoSyncClusterSecretFile(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir string, serverType ServerType) ([]Volume, string, error) {
+func createArangoClusterSecretFile(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir string, serverType ServerType) ([]Volume, string, error) {
 	// Is there a secret set?
 	if bsCfg.JwtSecret == "" {
 		return nil, "", nil

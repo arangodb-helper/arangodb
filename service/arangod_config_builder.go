@@ -91,7 +91,10 @@ func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myC
 	}
 	if bsCfg.JwtSecret != "" {
 		serverSection.Settings["authentication"] = "true"
-		serverSection.Settings["jwt-secret"] = bsCfg.JwtSecret
+		// otherwise pass the file name by argument
+		if !features.HasJWTSecretFileOption() {
+			serverSection.Settings["jwt-secret"] = bsCfg.JwtSecret
+		}
 	}
 	if features.HasStorageEngineOption() {
 		serverSection.Settings["storage-engine"] = bsCfg.ServerStorageEngine
@@ -143,7 +146,7 @@ func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myC
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
 func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
-	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool,
+	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool, clusterJWTSecretFile string,
 	features DatabaseFeatures) []string {
 	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
 
@@ -166,7 +169,11 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		optionPair{"--log.file", slasher(myContainerLogFile)},
 		optionPair{"--log.force-direct", "false"},
 	)
-
+	if clusterJWTSecretFile != "" {
+		options = append(options,
+			optionPair{"--server.jwt-secret-keyfile", clusterJWTSecretFile},
+		)
+	}
 	if !config.RunningInDocker && features.HasCopyInstallationFiles() {
 		options = append(options, optionPair{"--javascript.copy-installation", "true"})
 	}

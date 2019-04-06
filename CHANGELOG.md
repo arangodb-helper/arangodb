@@ -1,8 +1,25 @@
 # ArangoDB Starter Changelog
 
-## Changes from version 0.13.8 to master
+## Changes from 0.13.10 to 0.14.0
+
+- Operation with TLS verified docker containers implemented
+- JWT secret is handed to arangod containers using
+  server.jwt-secret-keyfile 
+- Amend starter upgrade procedure for .tar.gz distributions
+- Building of ARM64 executables
+- Polish documentation
+
+## Changes from version 0.13.9 to 0.13.10
+
+- Implement that in Docker mode the ArangoDB license key is passed on
+  to sub-containers.
+
+## Changes from version 0.13.8 to 0.13.9
 
 - Fix finding the storage engine if the master does not run a dbserver.
+- Fix --dbservers.* passthrough option for active-failover setup.
+- Polish documentation.
+- Fix tests by increasing a timeout.
 
 ## Changes from version 0.13.7 to 0.13.8
 

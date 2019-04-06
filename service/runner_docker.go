@@ -51,7 +51,9 @@ const (
 // NewDockerRunner creates a runner that starts processes in a docker container.
 func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
 	networkMode string, privileged, tty bool) (Runner, error) {
-	client, err := docker.NewClient(endpoint)
+
+	os.Setenv("DOCKER_HOST", endpoint)
+	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		return nil, maskAny(err)
 	}
@@ -209,12 +211,18 @@ func (r *dockerRunner) startGC() {
 
 // Try to start a command with given arguments
 func (r *dockerRunner) start(image string, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
+	env := make([]string, 0, 1)
+	licenseKey := os.Getenv("ARANGO_LICENSE_KEY")
+	if licenseKey != "" {
+		env = append(env, "ARANGO_LICENSE_KEY="+licenseKey)
+	}
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
 		Config: &docker.Config{
 			Image:        image,
 			Entrypoint:   []string{command},
 			Cmd:          args,
+			Env:          env,
 			Tty:          r.tty,
 			AttachStdout: output != nil,
 			AttachStderr: output != nil,

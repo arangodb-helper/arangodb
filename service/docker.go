@@ -24,6 +24,7 @@ package service
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -33,7 +34,9 @@ import (
 // findDockerExposedAddress looks up the external port number to which the given
 // port is mapped onto for the given container.
 func findDockerExposedAddress(dockerEndpoint, containerName string, port int) (hostPort int, isNetHost bool, networkMode string, hasTTY bool, err error) {
-	client, err := docker.NewClient(dockerEndpoint)
+
+	os.Setenv("DOCKER_HOST", dockerEndpoint)
+	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		return 0, false, "", false, maskAny(err)
 	}
