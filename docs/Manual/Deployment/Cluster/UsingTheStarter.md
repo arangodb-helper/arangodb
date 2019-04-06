@@ -26,6 +26,10 @@ If you want to start a Cluster using the _Starter_, you can use the following co
 arangodb --server.storage-engine=rocksdb --starter.data-dir=./data --starter.join A,B,C
 ```
 
+
+WIP ALL STARTER COMMANDS FOR ALL DEPLOYMENT MODES SHOULD BE SECURE, MAKING USE OF A JWT - OR A WARNING SHOULD BE ADDED
+
+
 Run the above command on machine A, B & C.
 
 Once all the processes started by the _Starter_ are up and running, and joined the
