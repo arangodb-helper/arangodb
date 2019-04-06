@@ -15,3 +15,6 @@ Also see:
 
 - [Administration](../../Administration/Starter/README.md):
   How to administrate _ArangoDB Starter_ deployments
+
+- [Securing Starter Deployments](../../Security/Starter/README.md):
+  How to secure _ArangoDB Starter_ deployments
