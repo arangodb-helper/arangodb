@@ -6,9 +6,9 @@ This section describes how to start a Cluster using the tool
 
 {% hint 'warning' %}
 It is **strongly suggested** to **not** run the _ArangoDB Starter_ process
-(_arangodb_) from a system _user_ with full privileges, e.g. _root_ under Linux.
+(_arangodb_) as system user with full privileges, e.g. _root_ under Linux.
 
-We suggest creating a dedicated, limited-privileges _user_ for this purpose.
+We suggest to create a dedicated system user with limited privileges for this purpose.
 Please refer to the [Linux user used to run _arangodb_](../ArangoDBStarter/README.md#linux-user-used-to-run-arangodb)
 section of the Starter Deployment page for further details.
 {% endhint %}
