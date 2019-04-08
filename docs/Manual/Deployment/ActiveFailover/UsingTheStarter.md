@@ -6,7 +6,7 @@ This section describes how to start an _Active Failover_ setup using the tool
 
 {% hint 'warning' %}
 It is **strongly suggested** to **not** run the _ArangoDB Starter_ process
-(_arangodb_) from a system _user_ with full privileges, e.g. _root_ under Linux.
+(_arangodb_) as system user with full privileges, e.g. _root_ under Linux.
 
 We suggest to create a dedicated _user_ with limited privileges for this purpose.
 Please refer to the [Linux user used to run _arangodb_](../ArangoDBStarter/README.md#linux-user-used-to-run-arangodb)
