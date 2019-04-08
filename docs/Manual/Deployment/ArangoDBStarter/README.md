@@ -22,7 +22,7 @@ Best Practices
 ### Linux user used to run _arangodb_
 
 It is strongly suggested to not run the _ArangoDB Starter_ process (_arangodb_)
-as _root_. We suggest creating a dedicated linux _user_ for this purpose.
+as _root_. We suggest creating a dedicated Linux user for this purpose.
 
 Assuming the user you want to use is called _arangodb_, to run the _Starter_,
 on Linux systems, you might use a command similar to the following:
