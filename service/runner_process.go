@@ -154,8 +154,8 @@ func (p *process) Wait() {
 	if proc := p.p; proc != nil {
 		p.log.Debug().Msgf("Waiting on %d", proc.Pid)
 		if p.isChild {
-			_, err := proc.Wait()
-			p.log.Debug().Err(err).Msgf("Wait on %d result", proc.Pid)
+			ps, err := proc.Wait()
+			p.log.Debug().Err(err).Int("exitcode", ps.ExitCode()).Msgf("Wait on %d result", proc.Pid)
 		} else {
 			// Cannot wait on non-child process, so let's do it the hard way
 			for {

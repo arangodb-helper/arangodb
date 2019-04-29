@@ -33,7 +33,7 @@ REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.10.3-alpine
+GOVERSION := 1.12.4-alpine
 
 ifndef GOOS
 	GOOS := linux
