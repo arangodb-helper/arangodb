@@ -73,7 +73,8 @@ else
 		esac; \
 		\
 		wget -O go.tgz "https://golang.org/dl/go$GOLANG_VERSION.src.tar.gz"; \
-		echo '589449ff6c3ccbff1d391d4e7ab5bb5d5643a5a41a04c99315e55c16bbf73ddc *go.tgz' | sha256sum -c -; \
+		sha256sum *go.tgz ; \
+		echo '4affc3e610cd8182c47abbc5b0c0e4e3c6a2b945b55aaa2ba952964ad9df1467 *go.tgz' | sha256sum -c -; \
 		tar -C /usr/local -xzf go.tgz; \
 		rm go.tgz; \
 		\
