@@ -528,7 +528,7 @@ func (p *dockerContainer) Wait() {
 	if err != nil {
 		p.log.Error().Err(err).Msg("WaitContainer failed")
 	} else if exitCode != 0 {
-		p.log.Debug().Int("exitcode", exitCode).Msg("Container terminated with non-zero exit code")
+		p.log.Info().Int("exitcode", exitCode).Msg("Container terminated with non-zero exit code")
 	}
 }
 
