@@ -197,7 +197,6 @@ run-tests-local-process: build test-images
 		--name=$(TESTCONTAINER) \
 		-v $(ROOTDIR):/usr/code \
 		-e CGO_ENABLED=0 \
-		-e GOCACHE=off \
 		-e GOPATH=/usr/code/.gobuild \
 		-e DATA_DIR=/tmp \
 		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
