@@ -172,6 +172,14 @@ func (p *process) Wait() {
 						l = l.Str("signal", ws.Signal().String())
 					}
 
+					if ws.Continued() {
+						l = l.Bool("continued", true)
+					}
+
+					if ws.CoreDump() {
+						l = l.Bool("core-dump", true)
+					}
+
 					l.Int("trap-cause", ws.TrapCause()).Msgf("Wait on %d returned", proc.Pid)
 				} else {
 					p.log.Info().Int("exitcode", ps.ExitCode()).Msgf("Wait on %d returned", proc.Pid)
