@@ -23,7 +23,6 @@ ifndef BUILDDIR
 endif
 GOBUILDDIR := $(BUILDDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
-CACHEVOL := $(PROJECT)-gocache
 BINDIR := $(BUILDDIR)/bin
 
 ORGPATH := github.com/arangodb-helper
@@ -63,7 +62,7 @@ TEST_TIMEOUT := 25m
 BINNAME := arangodb$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
 RELEASE := $(GOBUILDDIR)/bin/release 
-GHRELEASE := $(GOBUILDDIR)/bin/github-release 
+GHRELEASE := bin/github-release 
 
 SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 
@@ -72,14 +71,13 @@ SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 all: build
 
 clean:
-	rm -Rf $(BIN) $(BINDIR) $(GOBUILDDIR) $(ROOTDIR)/arangodb
+	rm -Rf $(BIN) $(BINDIR) $(ROOTDIR)/arangodb
 
 local:
 ifneq ("$(DOCKERCLI)", "")
 	@${MAKE} -f $(MAKEFILE) -B GOOS=$(shell go env GOHOSTOS) GOARCH=$(shell go env GOHOSTARCH) build-local
 else
-	@${MAKE} -f $(MAKEFILE) deps
-	GOPATH=$(GOBUILDDIR) go build -o $(BUILDDIR)/arangodb $(REPOPATH)
+	go build -o $(BUILDDIR)/arangodb $(REPOPATH)
 endif
 
 build: $(BIN)
@@ -93,59 +91,10 @@ binaries: $(GHRELEASE)
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
 
-deps:
-	@${MAKE} -f $(MAKEFILE) -B SCRIPTDIR=$(SCRIPTDIR) BUILDDIR=$(BUILDDIR) -s $(GOBUILDDIR)
 
-$(GOBUILDDIR):
-	@mkdir -p $(ORGDIR)
-	@mkdir -p $(GOBUILDDIR)/src/golang.org
-	@mkdir -p $(GOBUILDDIR)/src/github.com/arangodb
-	@rm -f $(REPODIR) && ln -s $(GOBUILDLINKTARGET) $(REPODIR)
-	@rm -f $(GOBUILDDIR)/src/github.com/aktau && ln -s ../../../deps/github.com/aktau $(GOBUILDDIR)/src/github.com/aktau
-	@rm -f $(GOBUILDDIR)/src/github.com/arangodb/go-driver && ln -s ../../../../deps/github.com/arangodb/go-driver $(GOBUILDDIR)/src/github.com/arangodb/go-driver
-	@rm -f $(GOBUILDDIR)/src/github.com/arangodb/go-velocypack && ln -s ../../../../deps/github.com/arangodb/go-velocypack $(GOBUILDDIR)/src/github.com/arangodb/go-velocypack
-	@rm -f $(GOBUILDDIR)/src/github.com/arangodb-helper/go-certificates && ln -s ../../../../deps/github.com/arangodb-helper/go-certificates $(GOBUILDDIR)/src/github.com/arangodb-helper/go-certificates
-	@rm -f $(GOBUILDDIR)/src/github.com/cenkalti && ln -s ../../../deps/github.com/cenkalti $(GOBUILDDIR)/src/github.com/cenkalti
-	@rm -f $(GOBUILDDIR)/src/github.com/coreos && ln -s ../../../deps/github.com/coreos $(GOBUILDDIR)/src/github.com/coreos
-	@rm -f $(GOBUILDDIR)/src/github.com/dchest && ln -s ../../../deps/github.com/dchest $(GOBUILDDIR)/src/github.com/dchest
-	@rm -f $(GOBUILDDIR)/src/github.com/dgrijalva && ln -s ../../../deps/github.com/dgrijalva $(GOBUILDDIR)/src/github.com/dgrijalva
-	@rm -f $(GOBUILDDIR)/src/github.com/docker && ln -s ../../../deps/github.com/docker $(GOBUILDDIR)/src/github.com/docker
-	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../deps/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
-	@rm -f $(GOBUILDDIR)/src/github.com/fatih && ln -s ../../../deps/github.com/fatih $(GOBUILDDIR)/src/github.com/fatih
-	@rm -f $(GOBUILDDIR)/src/github.com/fsouza && ln -s ../../../deps/github.com/fsouza $(GOBUILDDIR)/src/github.com/fsouza
-	@rm -f $(GOBUILDDIR)/src/github.com/hashicorp && ln -s ../../../deps/github.com/hashicorp $(GOBUILDDIR)/src/github.com/hashicorp
-	@rm -f $(GOBUILDDIR)/src/github.com/inconshreveable && ln -s ../../../deps/github.com/inconshreveable $(GOBUILDDIR)/src/github.com/inconshreveable
-	@rm -f $(GOBUILDDIR)/src/github.com/mitchellh && ln -s ../../../deps/github.com/mitchellh $(GOBUILDDIR)/src/github.com/mitchellh
-	@rm -f $(GOBUILDDIR)/src/github.com/Microsoft && ln -s ../../../deps/github.com/Microsoft $(GOBUILDDIR)/src/github.com/Microsoft
-	@rm -f $(GOBUILDDIR)/src/github.com/kballard && ln -s ../../../deps/github.com/kballard $(GOBUILDDIR)/src/github.com/kballard
-	@rm -f $(GOBUILDDIR)/src/github.com/pavel-v-chernykh && ln -s ../../../deps/github.com/pavel-v-chernykh $(GOBUILDDIR)/src/github.com/pavel-v-chernykh
-	@rm -f $(GOBUILDDIR)/src/github.com/pkg && ln -s ../../../deps/github.com/pkg $(GOBUILDDIR)/src/github.com/pkg
-	@rm -f $(GOBUILDDIR)/src/github.com/rs && ln -s ../../../deps/github.com/rs $(GOBUILDDIR)/src/github.com/rs
-	@rm -f $(GOBUILDDIR)/src/github.com/shavac && ln -s ../../../deps/github.com/shavac $(GOBUILDDIR)/src/github.com/shavac
-	@rm -f $(GOBUILDDIR)/src/github.com/spf13 && ln -s ../../../deps/github.com/spf13 $(GOBUILDDIR)/src/github.com/spf13
-	@rm -f $(GOBUILDDIR)/src/github.com/ryanuber && ln -s ../../../deps/github.com/ryanuber $(GOBUILDDIR)/src/github.com/ryanuber
-	@rm -f $(GOBUILDDIR)/src/github.com/voxelbrain && ln -s ../../../deps/github.com/voxelbrain $(GOBUILDDIR)/src/github.com/voxelbrain
-	@rm -f $(GOBUILDDIR)/src/golang.org/x && ln -s ../../../deps/golang.org/x $(GOBUILDDIR)/src/golang.org/x
-	@GOPATH=$(GOBUILDDIR) go get github.com/arangodb/go-upgrade-rules
-
-.PHONY: $(CACHEVOL)
-$(CACHEVOL):
-	@docker volume create $(CACHEVOL)
-
-$(BIN): $(GOBUILDDIR) $(SOURCES) $(CACHEVOL)
+$(BIN): $(SOURCES)
 	@mkdir -p $(BINDIR)
-	docker run \
-		--rm \
-		-v $(SRCDIR):/usr/code \
-		-v $(CACHEVOL):/usr/gocache \
-		-e GOCACHE=/usr/gocache \
-		-e GOPATH=/usr/code/.gobuild \
-		-e GOOS=$(GOOS) \
-		-e GOARCH=$(GOARCH) \
-		-e CGO_ENABLED=0 \
-		-w /usr/code/ \
-		golang:$(GOVERSION) \
-		go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME) $(REPOPATH)
+	CGO_ENABLED=0 go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o $(BIN) $(REPOPATH)
 
 docker: build
 	docker build -t arangodb/arangodb-starter .
@@ -166,11 +115,11 @@ docker-push-version: docker
 	docker push arangodb/arangodb-starter:$(VERSION_MAJOR)
 	docker push arangodb/arangodb-starter:latest
 
-$(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
-	GOPATH=$(GOBUILDDIR) go build -o $(RELEASE) $(REPOPATH)/tools/release
+$(RELEASE): $(SOURCES) $(GHRELEASE)
+	go build -o $(RELEASE) $(REPOPATH)/tools/release
 
-$(GHRELEASE): $(GOBUILDDIR) 
-	GOPATH=$(GOBUILDDIR) go build -o $(GHRELEASE) github.com/aktau/github-release
+$(GHRELEASE): 
+	go build -o $(GHRELEASE) github.com/aktau/github-release
 
 release-patch: $(RELEASE)
 	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=patch 
