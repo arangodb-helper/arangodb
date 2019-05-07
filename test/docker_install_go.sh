@@ -44,7 +44,8 @@ if [ ! -z "$(which apt-get)" ]; then
 		fi; \
 		\
 		export PATH="/usr/local/go/bin:$PATH"; \
-		go version
+		go version; \
+		apt-get install -y git 
 else
 # Install for alpine
 	set -eux; \
@@ -90,5 +91,6 @@ else
 		apk del .build-deps; \
 		\
 		export PATH="/usr/local/go/bin:$PATH"; \
-		go version
+		go version ; \
+	apk add git
 fi
