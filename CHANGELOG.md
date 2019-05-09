@@ -1,10 +1,19 @@
 # ArangoDB Starter Changelog
 
+## Changes from 0.14.0 to 0.14.3
+
+- Get system dependant information
+- Gochache enabled
+- Updated travis go to 1.12
+- Process termination is either Info or Error
+- implemented info for starter.address
+- TLS documentation fixes
+
 ## Changes from 0.13.10 to 0.14.0
 
 - Operation with TLS verified docker containers implemented
 - JWT secret is handed to arangod containers using
-  server.jwt-secret-keyfile 
+  server.jwt-secret-keyfile
 - Amend starter upgrade procedure for .tar.gz distributions
 - Building of ARM64 executables
 - Polish documentation
