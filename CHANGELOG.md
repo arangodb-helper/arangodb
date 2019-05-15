@@ -1,5 +1,9 @@
 # ArangoDB Starter Changelog
 
+## Changes from 0.14.3 to 0.14.4
+
+- Move to alpine 3.9 for Docker image
+
 ## Changes from 0.14.0 to 0.14.3
 
 - Get system dependant information
