@@ -29,7 +29,7 @@ if [ ! -z "$(which apt-get)" ]; then
 		esac; \
 		\
 		url="https://golang.org/dl/go${GOLANG_VERSION}.${goRelArch}.tar.gz"; \
-		wget -O go.tgz "$url"; \
+		wget -q -O go.tgz "$url"; \
 		sha256sum *go.tgz ; \
 		echo "${goRelSha256} *go.tgz" | sha256sum -c -; \
 		tar -C /usr/local -xzf go.tgz; \
