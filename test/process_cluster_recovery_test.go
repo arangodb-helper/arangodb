@@ -109,7 +109,7 @@ func TestProcessClusterRecovery(t *testing.T) {
 	defer slave1.Close()
 
 	// Wait until recovered
-	if ok := WaitUntilStarterReady(t, whatCluster, 1, slave1); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, slave1); ok {
 		t.Logf("Cluster start (with recovery) took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0), false)
 		testCluster(t, insecureStarterEndpoint(100), false)
