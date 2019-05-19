@@ -52,7 +52,7 @@ func TestProcessActiveFailoverDefault(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=activefailover --cluster.start-single=false --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatResilientSingle, 3, master, slave1 /* not slave2 */); ok {
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, 2, master, slave1 /* not slave2 */); ok {
 		t.Logf("ActiveFailover start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
