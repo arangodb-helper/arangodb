@@ -52,7 +52,7 @@ func TestProcessResilientSingleDefault(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=resilientsingle --cluster.start-single=false --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatResilientSingle, 1, master, slave1 /* not slave2 */); ok {
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, 3, master, slave1 /* not slave2 */); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
@@ -89,7 +89,7 @@ func TestProcessResilientSingleDefaultShutdownViaAPI(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --starter.port=8548 --starter.mode=resilientsingle --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatResilientSingle, 1, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatResilientSingle, 3, master, slave1, slave2); ok {
 		t.Logf("ResilientSingle start took %s", time.Since(start))
 		testResilientSingle(t, insecureStarterEndpoint(0*portIncrement), false, false)
 		testResilientSingle(t, insecureStarterEndpoint(1*portIncrement), false, false)
