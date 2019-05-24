@@ -116,9 +116,17 @@ func TestProcessClusterRecovery(t *testing.T) {
 		testCluster(t, insecureStarterEndpoint(200), false)
 	}
 
-	// RECOVERY file must now be gone
-	if _, err := os.Stat(filepath.Join(dataDirSlave1, "RECOVERY")); !os.IsNotExist(err) {
-		t.Errorf("Expected RECOVERY file to not-exist, got: %s", describe(err))
+	// RECOVERY file must now be gone within 30s:
+	startWait := time.Now()
+	for {
+		if _, err := os.Stat(filepath.Join(dataDirSlave1, "RECOVERY")); os.IsNotExist(err) {
+			t.Log("RECOVERY file has vanished, good.")
+			break
+		}
+		time.Sleep(time.Second)
+		if time.Now().Sub(startWait) > 30*time.Second {
+			t.Errorf("Expected RECOVERY file to not-exist, got: %s", describe(err))
+		}
 	}
 
 	if isVerbose {
