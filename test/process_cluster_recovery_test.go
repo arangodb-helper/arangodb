@@ -124,7 +124,7 @@ func TestProcessClusterRecovery(t *testing.T) {
 			break
 		}
 		time.Sleep(time.Second)
-		if time.Now()-startWait > 30*time.Second {
+		if time.Now().Sub(startWait) > 30*time.Second {
 			t.Errorf("Expected RECOVERY file to not-exist, got: %s", describe(err))
 		}
 	}
