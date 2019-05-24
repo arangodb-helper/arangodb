@@ -104,6 +104,8 @@ func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, ex
 // testProcesses runs a series of tests to verify a good series of database servers.
 func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool,
 	expectAgencyOnly bool, syncEnabled bool, singleTimeout, reachableTimeout time.Duration) {
+	// Give the deployment a little bit of time:
+	time.Sleep(3 * time.Second)
 	ctx := context.Background()
 
 	// Fetch version
