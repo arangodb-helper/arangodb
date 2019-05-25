@@ -151,7 +151,7 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		id := fmt.Sprintf("starter-%d", index+1)
 		go func() {
 			started := time.Now()
-			if err := starter.ExpectTimeout(ctx, time.Minute*2, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
+			if err := starter.ExpectTimeout(ctx, time.Minute*3, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
 				timeSpan := time.Since(started)
 				results <- waitUntilReadyResult{
 					Ready:    false,

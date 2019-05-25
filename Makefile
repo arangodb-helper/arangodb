@@ -202,6 +202,7 @@ run-tests-local-process: build test-images
 		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
 		-e TEST_MODES=localprocess \
 		-e STARTER_MODES=$(STARTER_MODES) \
+		-e VERBOSE=$(VERBOSE) \
 		-e ENTERPRISE=$(ENTERPRISE) \
 		-e TESTOPTIONS=$(TESTOPTIONS) \
 		-e DEBUG_CLUSTER=$(DEBUG_CLUSTER) \

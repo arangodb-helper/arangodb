@@ -104,6 +104,8 @@ func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, ex
 // testProcesses runs a series of tests to verify a good series of database servers.
 func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool,
 	expectAgencyOnly bool, syncEnabled bool, singleTimeout, reachableTimeout time.Duration) {
+	// Give the deployment a little bit of time:
+	time.Sleep(3 * time.Second)
 	ctx := context.Background()
 
 	// Fetch version
@@ -249,7 +251,7 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess, timeout time.Du
 			return
 		}
 		if timeout == 0 || time.Since(start) > timeout {
-			t.Errorf("Failed to reach arangod at %s:%d (%#v)", sp.IP, sp.Port, err)
+			t.Errorf("Failed to reach arangod at %s:%d %s", sp.IP, sp.Port, describe(err))
 			return
 		}
 		time.Sleep(time.Second)
@@ -272,7 +274,7 @@ func testArangoSyncReachable(t *testing.T, sp client.ServerProcess, timeout time
 			return
 		}
 		if timeout == 0 || time.Since(start) > timeout {
-			t.Errorf("Failed to reach arangosync at %s:%d (%#v)", sp.IP, sp.Port, describe(err))
+			t.Errorf("Failed to reach arangosync at %s:%d %s", sp.IP, sp.Port, describe(err))
 			return
 		}
 		time.Sleep(time.Second)

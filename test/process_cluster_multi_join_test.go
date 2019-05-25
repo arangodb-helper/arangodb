@@ -55,7 +55,7 @@ func TestProcessClusterMultipleJoins(t *testing.T) {
 	slave2 := Spawn(t, "${STARTER} --starter.port=8000 "+joins3+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, 1, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, "http://localhost:6000", false)
 		testCluster(t, "http://localhost:7000", false)
