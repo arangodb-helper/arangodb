@@ -1,4 +1,4 @@
-FROM alpine:3.4
+FROM alpine:3.9
 MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
 COPY bin/linux/amd64/arangodb /app/
