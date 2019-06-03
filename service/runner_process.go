@@ -156,7 +156,7 @@ func (p *process) Wait() {
 		if p.isChild {
 			ps, err := proc.Wait()
 			if err != nil {
-				if err.Error() != "wait: no child processes" {
+				if err.Error() != "wait: no child processes" && err.Error() != "waitid: no child processes" {
 					// on terminate Wait might be called twice
 					p.log.Error().Err(err).Msgf("Wait on %d failed", proc.Pid)
 				}
