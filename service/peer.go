@@ -126,6 +126,21 @@ func (p Peer) CreateCoordinatorAPI(clientBuilder ClientBuilder) (driver.Client, 
 	return nil, maskAny(fmt.Errorf("Peer has no coordinator"))
 }
 
+// CreateAgentAPI creates a client for the agent of the peer
+func (p Peer) CreateAgentAPI(clientBuilder ClientBuilder) (driver.Client, error) {
+	if p.HasAgent() {
+		port := p.Port + p.PortOffset + ServerType(ServerTypeAgent).PortOffset()
+		scheme := NewURLSchemes(p.IsSecure).Browser
+		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		return c, nil
+	}
+	return nil, maskAny(fmt.Errorf("Peer has no agent"))
+}
+
 // PortRangeOverlaps returns true if the port range of this peer overlaps with a port
 // range starting at given port.
 func (p Peer) PortRangeOverlaps(otherPort int, clusterConfig ClusterConfig) bool {
