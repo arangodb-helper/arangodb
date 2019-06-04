@@ -252,9 +252,13 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 	}
 
 	// Check if we can upgrade from running to binary versions
+	specialUpgradeFrom346 := false
 	for _, from := range runningDBVersions {
 		if err := upgraderules.CheckUpgradeRules(from, toVersion); err != nil {
 			return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
+		}
+		if from.CompareTo("3.4.6") == 0 {
+			specialUpgradeFrom346 = true
 		}
 	}
 
@@ -312,39 +316,37 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 		return maskAny(client.NewBadRequestError("Current upgrade plan has not finished yet"))
 	}
 
-	// Plan:
-	// 1. Write 1000 dummy entries into agency (leader)
-	// 2. Run through peers with agent, run this query on them:
-	//    FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact
-
-	// Write 1000 dummy values into agency to advance the log:
-	for i := 0; i < 1000; i += 1 {
-		err := api.WriteKey(nil, []string{"/arangodb-helper/dummy"}, 17, 0)
-		if err != nil {
-			m.log.Error().Msg("Could not append log entries to agency.")
-			return maskAny(err)
+	// Special measure for upgrades from 3.4.6:
+	if specialUpgradeFrom346 {
+		// Write 1000 dummy values into agency to advance the log:
+		for i := 0; i < 1000; i += 1 {
+			err := api.WriteKey(nil, []string{"/arangodb-helper/dummy"}, 17, 0)
+			if err != nil {
+				m.log.Error().Msg("Could not append log entries to agency.")
+				return maskAny(err)
+			}
 		}
-	}
-	m.log.Debug().Msg("Have written 1000 log entries into agency.")
+		m.log.Debug().Msg("Have written 1000 log entries into agency.")
 
-	// Repair each agent's persistent snapshots:
-	for _, p := range config.AllPeers {
-		if p.HasAgent() {
-			cli, err := p.CreateAgentAPI(m.upgradeManagerContext.CreateClient)
-			if err != nil {
-				m.log.Error().Msgf("Could not create client for agent of peer %s", p.ID)
-				return maskAny(err)
+		// Repair each agent's persistent snapshots:
+		for _, p := range config.AllPeers {
+			if p.HasAgent() {
+				cli, err := p.CreateAgentAPI(m.upgradeManagerContext.CreateClient)
+				if err != nil {
+					m.log.Error().Msgf("Could not create client for agent of peer %s", p.ID)
+					return maskAny(err)
+				}
+				db, err := cli.Database(nil, "_system")
+				if err != nil {
+					m.log.Error().Msgf("Could not find _system database for agent of peer %s", p.ID)
+					return maskAny(err)
+				}
+				_, err = db.Query(nil, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", make(map[string]interface{}))
+				if err != nil {
+					m.log.Error().Msgf("Could not repair agent log compaction for agent of peer %s", p.ID)
+				}
+				m.log.Debug().Msgf("Finished repair of log compaction for agent of peer %s", p.ID)
 			}
-			db, err := cli.Database(nil, "_system")
-			if err != nil {
-				m.log.Error().Msgf("Could not find _system database for agent of peer %s", p.ID)
-				return maskAny(err)
-			}
-			_, err = db.Query(nil, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", make(map[string]interface{}))
-			if err != nil {
-				m.log.Error().Msgf("Could not repair agent log compaction for agent of peer %s", p.ID)
-			}
-			m.log.Debug().Msgf("Finished repair of log compaction for agent of peer %s", p.ID)
 		}
 	}
 
