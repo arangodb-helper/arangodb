@@ -3,6 +3,7 @@
 ## Changes from 0.14.4 to 0.14.5
 
 - Implement special upgrade procedure for upgrading from 3.4.6
+- Move to alpine 3.9 for Docker image
 
 ## Changes from 0.14.3 to 0.14.4
 
