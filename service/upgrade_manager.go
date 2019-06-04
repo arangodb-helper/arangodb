@@ -32,7 +32,7 @@ import (
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
-	"github.com/arangodb/go-upgrade-rules"
+	upgraderules "github.com/arangodb/go-upgrade-rules"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
@@ -341,13 +341,15 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 					m.log.Error().Msgf("Could not find _system database for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				_, err = db.Query(nil, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", make(map[string]interface{}))
+				_, err = db.Query(nil, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not repair agent log compaction for agent of peer %s", p.ID)
 				}
 				m.log.Debug().Msgf("Finished repair of log compaction for agent of peer %s", p.ID)
 			}
 		}
+
+		m.log.Info().Msg("Applied special update procedure for 3.4.6")
 	}
 
 	// Create upgrade plan
