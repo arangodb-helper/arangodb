@@ -319,7 +319,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 	// Special measure for upgrades from 3.4.6:
 	if specialUpgradeFrom346 {
 		// Write 1000 dummy values into agency to advance the log:
-		for i := 0; i < 1000; i += 1 {
+		for i := 0; i < 1000; i++ {
 			err := api.WriteKey(nil, []string{"/arangodb-helper/dummy"}, 17, 0)
 			if err != nil {
 				m.log.Error().Msg("Could not append log entries to agency.")
@@ -327,6 +327,9 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 			}
 		}
 		m.log.Debug().Msg("Have written 1000 log entries into agency.")
+
+		// wait for the compaction to be created
+		time.Sleep(3 * time.Second)
 
 		// Repair each agent's persistent snapshots:
 		for _, p := range config.AllPeers {
