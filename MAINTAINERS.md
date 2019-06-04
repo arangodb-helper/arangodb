@@ -4,7 +4,15 @@
 
 A subset of all tests are frequently run in Travis.
 
-To run the entire test set, run:
+To run the entire test set, set the following environment variables,
+
+  - `ARANGODB`: name of Docker image for ArangoDB to use
+  - `VERBOSE` (optional): set to `1` for more output
+  - `IP` (for Docker tests): set to a valid IP address on the local machine
+  - `TESTOPTIONS`` (optional): set to `-test.run=REGEXPTOMATCHTESTS` to
+    run only some tests
+
+Then run:
 
 ```bash
 make run-tests
