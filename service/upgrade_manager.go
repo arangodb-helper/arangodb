@@ -304,15 +304,19 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 		lock.Unlock(context.Background())
 	}()
 
+	m.log.Debug().Msg("Reading upgrade plan...")
 	// Check existing plan
 	plan, err := m.readUpgradePlan(ctx)
 	if err != nil && !agency.IsKeyNotFound(err) {
 		// Failed to read upgrade plan
+		m.log.Error().Msg("Failed to read upgrade plan")
 		return errors.Wrap(err, "Failed to read upgrade plan")
 	}
 
+	m.log.Debug().Msg("Checking if plan is ready...")
 	// Check plan status
 	if !plan.IsReady() {
+		m.log.Debug().Msg("Current upgrade plan has not finished yet.")
 		return maskAny(client.NewBadRequestError("Current upgrade plan has not finished yet"))
 	}
 
@@ -430,8 +434,10 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 	m.log.Debug().Msg("Writing upgrade plan")
 	overwrite := true
 	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+		m.log.Error().Msg("Failed to write upgrade plan because it was outdated or removed.")
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
+		m.log.Error().Msgf("Failed to write upgrade plan %v.", err)
 		return errors.Wrap(err, "Failed to write upgrade plan")
 	}
 

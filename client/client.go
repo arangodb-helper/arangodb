@@ -29,6 +29,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"time"
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/pkg/errors"
@@ -245,6 +246,7 @@ func (c *client) RemovePeer(ctx context.Context, id string, force bool) error {
 func (c *client) StartDatabaseUpgrade(ctx context.Context) error {
 	url := c.createURL("/database-auto-upgrade", nil)
 
+	c.client.Timeout = time.Minute * 5
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		return maskAny(err)
