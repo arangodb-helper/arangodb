@@ -219,6 +219,7 @@ type upgradeManager struct {
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     ServerType
 	updateNeeded          bool
+	updateSingleDone      bool
 	cbTrigger             trigger.Trigger
 }
 
@@ -735,6 +736,19 @@ func (m *upgradeManager) Errorf(msg string, args ...interface{}) {
 
 // IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
 func (m *upgradeManager) IsServerUpgradeInProgress(serverType ServerType) bool {
+	if (m.upgradeServerType == ServerTypeSingle) {
+                if (m.updateSingleDone) {
+			if (m.updateNeeded) {
+				m.upgradeServerType = ""
+				m.updateNeeded = false
+				return true
+			}
+		} else {
+			m.updateSingleDone = true
+			return true
+		}
+	}
+
 	return m.upgradeServerType == serverType
 }
 
@@ -1163,32 +1177,47 @@ func (m *upgradeManager) finishUpgradePlan(ctx context.Context, plan UpgradePlan
 
 // runSingleServerUpgradeProcess runs the entire upgrade process of a single server until it is finished.
 func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode) {
-	// Unlock when we're done
-	defer func() {
-		m.upgradeServerType = ""
-		m.updateNeeded = false
-	}()
-
 	if mode.IsSingleMode() {
+		// WARNING the context will be canceled inbetween therefore we cannot wait
+		//         on the context, we will wait for 5 minutes instead!
+
 		// Restart the single server in auto-upgrade mode
 		m.log.Info().Msg("Upgrading single server")
 		m.upgradeServerType = ServerTypeSingle
 		m.updateNeeded = true
+		m.updateSingleDone = false
 		if err := m.upgradeManagerContext.RestartServer(ServerTypeSingle); err != nil {
 			m.log.Error().Err(err).Msg("Failed to restart single server")
 			return
 		}
 
-		// Wait until single server restarted
-		if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-			return
+		timeout, cancel := context.WithTimeout(context.Background(), time.Second*10)
+		defer cancel()
+
+		for {
+			if !m.updateNeeded {
+				break
+			}
+			select {
+			case <-timeout.Done():
+				m.log.Error().Msg("Failed to run upgrade procedure")
+				return
+			case <-time.After(time.Millisecond * 100):
+			// Try again
+			}
 		}
 
 		// Wait until all single servers respond
 		if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
 			return
 		}
-	}
+	} else {
+		// Unlock when we're done
+		defer func() {
+			m.upgradeServerType = ""
+			m.updateNeeded = false
+		}()
+        }
 
 	// We're done
 	allSameVersion, err := m.ShowArangodServerVersions(ctx)
