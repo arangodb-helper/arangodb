@@ -219,7 +219,6 @@ type upgradeManager struct {
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     ServerType
 	updateNeeded          bool
-	updateSingleStopped   bool
 	cbTrigger             trigger.Trigger
 }
 
@@ -741,19 +740,6 @@ func (m *upgradeManager) Errorf(msg string, args ...interface{}) {
 
 // IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
 func (m *upgradeManager) IsServerUpgradeInProgress(serverType ServerType) bool {
-	if (m.upgradeServerType == ServerTypeSingle) {
-                if (m.updateSingleStopped) {
-			if (m.updateNeeded) {
-				m.upgradeServerType = ""
-				m.updateNeeded = false
-				return true
-			}
-		} else {
-			m.updateSingleStopped = true
-			return true
-		}
-	}
-
 	return m.upgradeServerType == serverType
 }
 
@@ -1193,7 +1179,6 @@ func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPe
 		m.log.Info().Msg("Upgrading single server")
 		m.upgradeServerType = ServerTypeSingle
 		m.updateNeeded = true
-		m.updateSingleStopped = false
 		if err := m.upgradeManagerContext.RestartServer(ServerTypeSingle); err != nil {
 			m.log.Error().Err(err).Msg("Failed to restart single server")
 			return
