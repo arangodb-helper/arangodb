@@ -265,16 +265,19 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 	// Fetch mode
 	config, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
 
-	if !mode.HasAgency() {
-		// Run upgrade without agency
-		go m.runSingleServerUpgradeProcess(ctx, myPeer, mode)
+	if mode.IsSingleMode() {
+		// Run upgrade without agency (i.e., SingleServer)
+
+		// Create a new context to be independent of ctx
+		timeoutContext, _ := context.WithTimeout(context.Background(), time.Minute*5)
+		go m.runSingleServerUpgradeProcess(timeoutContext, myPeer, mode)
 		return nil
 	}
 
 	// Check cluster health
 	if mode.IsClusterMode() {
 		if err := m.isClusterHealthy(ctx); err != nil {
-			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
+			return maskAny(errors.Wrap(err, "Cannot upgrade unhealthy cluster"))
 		}
 	}
 
@@ -356,7 +359,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 			}
 		}
 
-		m.log.Info().Msg("Applied special update procedure for 3.4.6")
+		m.log.Info().Msg("Applied special upgrade procedure for 3.4.6")
 	}
 
 	// Create upgrade plan
@@ -1163,31 +1166,33 @@ func (m *upgradeManager) finishUpgradePlan(ctx context.Context, plan UpgradePlan
 
 // runSingleServerUpgradeProcess runs the entire upgrade process of a single server until it is finished.
 func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode) {
-	// Unlock when we're done
+	// Cleanup when we're done
 	defer func() {
 		m.upgradeServerType = ""
 		m.updateNeeded = false
 	}()
 
-	if mode.IsSingleMode() {
-		// Restart the single server in auto-upgrade mode
-		m.log.Info().Msg("Upgrading single server")
-		m.upgradeServerType = ServerTypeSingle
-		m.updateNeeded = true
-		if err := m.upgradeManagerContext.RestartServer(ServerTypeSingle); err != nil {
-			m.log.Error().Err(err).Msg("Failed to restart single server")
-			return
-		}
+	if !mode.IsSingleMode() {
+		m.log.Info().Msg("Not in Single Server Mode, aborting.")
+		return
+	}
+	// Restart the single server in auto-upgrade mode
+	m.log.Info().Msg("Upgrading single server")
+	m.upgradeServerType = ServerTypeSingle
+	m.updateNeeded = true
+	if err := m.upgradeManagerContext.RestartServer(ServerTypeSingle); err != nil {
+		m.log.Error().Err(err).Msg("Failed to restart single server")
+		return
+	}
 
-		// Wait until single server restarted
-		if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-			return
-		}
+	// Wait until single server restarted
+	if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
+		return
+	}
 
-		// Wait until all single servers respond
-		if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
-			return
-		}
+	// Wait until all single servers respond
+	if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
+		return
 	}
 
 	// We're done

@@ -1,5 +1,9 @@
 # ArangoDB Starter Changelog
 
+## Changes from 0.14.5 to 0.14.6
+
+- Fixed race condition in Single Server upgrade
+
 ## Changes from 0.14.4 to 0.14.5
 
 - Implement special upgrade procedure for upgrading from 3.4.6
