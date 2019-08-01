@@ -1184,7 +1184,7 @@ func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPe
 			return
 		}
 
-                // Wait until single server restarted
+		// Wait until single server restarted
 		if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
 			return
 		}
@@ -1193,7 +1193,7 @@ func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPe
 		if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
 			return
 		}
-        }
+	}
 
 	// We're done
 	allSameVersion, err := m.ShowArangodServerVersions(ctx)
