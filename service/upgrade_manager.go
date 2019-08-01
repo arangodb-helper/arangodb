@@ -267,8 +267,13 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 	config, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
 
 	if !mode.HasAgency() {
+		// WARNING the context will be canceled inbetween therefore we cannot wait
+		//         on the context, but use a new one with a 5 minutes timeout!
+
 		// Run upgrade without agency
-		go m.runSingleServerUpgradeProcess(ctx, myPeer, mode)
+		timeout, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+		go m.runSingleServerUpgradeProcess(timeout, myPeer, mode)
+		cancel()
 		return nil
 	}
 
@@ -1177,10 +1182,13 @@ func (m *upgradeManager) finishUpgradePlan(ctx context.Context, plan UpgradePlan
 
 // runSingleServerUpgradeProcess runs the entire upgrade process of a single server until it is finished.
 func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode) {
-	if mode.IsSingleMode() {
-		// WARNING the context will be canceled inbetween therefore we cannot wait
-		//         on the context, we will wait for 5 minutes instead!
+	// Unlock when we're done
+	defer func() {
+		m.upgradeServerType = ""
+		m.updateNeeded = false
+	}()
 
+	if mode.IsSingleMode() {
 		// Restart the single server in auto-upgrade mode
 		m.log.Info().Msg("Upgrading single server")
 		m.upgradeServerType = ServerTypeSingle
@@ -1191,32 +1199,15 @@ func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPe
 			return
 		}
 
-		timeout, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		defer cancel()
-
-		for {
-			if !m.updateNeeded {
-				break
-			}
-			select {
-			case <-timeout.Done():
-				m.log.Error().Msg("Failed to run upgrade procedure")
-				return
-			case <-time.After(time.Millisecond * 100):
-			// Try again
-			}
+                // Wait until single server restarted
+		if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
+			return
 		}
 
 		// Wait until all single servers respond
 		if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
 			return
 		}
-	} else {
-		// Unlock when we're done
-		defer func() {
-			m.upgradeServerType = ""
-			m.updateNeeded = false
-		}()
         }
 
 	// We're done
