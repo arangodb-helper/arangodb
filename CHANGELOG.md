@@ -1,5 +1,9 @@
 # ArangoDB Starter Changelog
 
+## Changes from 0.14.11 to 0.14.12
+
+- Fixed wrong error message.
+
 ## Changes from 0.14.5 to 0.14.11
 
 - Fixed race condition in Single Server upgrade
