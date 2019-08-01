@@ -63,7 +63,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 		}
 		r, err := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
 		if err != nil {
-			s.log.Info().Err(err).Msg("Cannot start because of error from master")
+			s.log.Info().Err(err).Msg("Initial handshake with master failed")
 			time.Sleep(time.Second)
 			continue
 		}
