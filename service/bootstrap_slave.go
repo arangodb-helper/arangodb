@@ -61,16 +61,16 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 		if err != nil {
 			s.log.Fatal().Err(err).Msg("Failed to create Hello URL")
 		}
-		r, e := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
-		if e != nil {
-			s.log.Info().Err(err).Msg("Cannot start because of error from master")
+		r, err := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
+		if err != nil {
+			s.log.Info().Err(err).Msg("Initial handshake with master failed")
 			time.Sleep(time.Second)
 			continue
 		}
 
-		body, e := ioutil.ReadAll(r.Body)
+		body, err := ioutil.ReadAll(r.Body)
 		r.Body.Close()
-		if e != nil {
+		if err != nil {
 			s.log.Info().Err(err).Msg("Cannot start because HTTP response from master was bad")
 			time.Sleep(time.Second)
 			continue
@@ -94,7 +94,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			return
 		}
 		var result ClusterConfig
-		if e := json.Unmarshal(body, &result); e != nil {
+		if err := json.Unmarshal(body, &result); err != nil {
 			s.log.Warn().Err(err).Msg("Cannot parse body from master")
 			return
 		}
