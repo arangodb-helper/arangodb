@@ -270,9 +270,8 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 		//         on the context, but use a new one with a 5 minutes timeout!
 
 		// Run upgrade without agency
-		timeout, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+		timeout, _ := context.WithTimeout(context.Background(), time.Minute*5)
 		go m.runSingleServerUpgradeProcess(timeout, myPeer, mode)
-		cancel()
 		return nil
 	}
 
