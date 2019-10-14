@@ -1,5 +1,9 @@
 # ArangoDB Starter Changelog
 
+## Changes from 0.14.12 to 0.14.13
+
+- Fixed upgrade for active failover when there are nodes without single server.
+
 ## Changes from 0.14.11 to 0.14.12
 
 - Fixed wrong error message.
