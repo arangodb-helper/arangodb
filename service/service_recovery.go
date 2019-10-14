@@ -80,6 +80,9 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 	// Notify user
 	s.log.Info().Msgf("Trying to recover as starter %s:%d", starterHost, port)
 
+	// Prepare ssl-keyfile here, so that we use https to connect to other starters
+	s.sslKeyFile = bsCfg.SslKeyFile
+
 	// Get cluster config info from one of the remaining starters.
 	clusterConfig, err := s.getRecoveryClusterConfig(ctx, s.cfg.MasterAddresses, net.JoinHostPort(starterHost, starterPort))
 	if err != nil {
