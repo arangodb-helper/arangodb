@@ -723,7 +723,7 @@ func (m *upgradeManager) fetchRunningDatabaseVersions(ctx context.Context) ([]dr
 		}
 	}
 	if mode.IsSingleMode() || mode.IsActiveFailoverMode() {
-		if err := collect(config.GetAllSingleEndpoints, ConnectionTypeDatabase); err != nil {
+		if err := collect(config.GetResilientSingleEndpoints, ConnectionTypeDatabase); err != nil {
 			return nil, maskAny(err)
 		}
 	}

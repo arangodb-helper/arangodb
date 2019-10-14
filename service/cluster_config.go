@@ -258,6 +258,11 @@ func (p ClusterConfig) GetAllSingleEndpoints() ([]string, error) {
 	return result, nil
 }
 
+// GetResilientSingleEndpoints creates a list of URL's for all resilient single servers.
+func (p ClusterConfig) GetResilientSingleEndpoints() ([]string, error) {
+	return p.GetSingleEndpoints(false)
+}
+
 // GetSingleEndpoints creates a list of URL's for all single servers.
 func (p ClusterConfig) GetSingleEndpoints(all bool) ([]string, error) {
 	// Build endpoint list
