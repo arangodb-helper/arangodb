@@ -55,7 +55,6 @@ endif
 
 ifdef TRAVIS
 	IP := $(shell hostname -I | cut -d ' ' -f 1)
-	echo Using IP=$(IP)
 endif
 
 TEST_TIMEOUT := 25m
