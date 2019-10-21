@@ -127,7 +127,7 @@ max      29513  3898  0 11:46 pts/4    00:00:00 arangodb --starter.data-dir=./db
 
 ### Restart the _Starter_
 
-When using a supervisor like _SystemD_, this will happens automatically. In case
+When using a supervisor like _SystemD_, this will happen automatically. In case
 the _Starter_ was initiated manually, the _arangodb_ processes have to be restarted
 manually with the same command that has been used before.
 
@@ -149,14 +149,15 @@ situation:
 
 ### Start the upgrade process of all _arangod_ & _arangosync_ servers
 
-Run the following command:
+Run the following command for any of the starter endpoints
+(e.g. `http://localhost:8528`) to upgrade the entire cluster:
 
 ```bash
 arangodb upgrade --starter.endpoint=<endpoint-of-a-starter>
 ```
 
-The `--starter.endpoint` option can be set to the endpoint of any
-of the starters. E.g. `http://localhost:8528`.
+**Note:** if you have connected clusters across multiple datacenter,
+you need to update each of the clusters.
 
 **Important:**
 
