@@ -1,6 +1,7 @@
 # ArangoDB Starter Administration
 
-This chapter documents administering the _ArangoDB Starter_.
+In this chapter you find administration procedures for the
+[ArangoDB Starter](programs-starter.html).
 
-- [Remove a machine from the cluster](./Removal.md)
-- [Recover from a failed machine](./Recovery.md)
+- [Remove a machine from the cluster](administration-starter-removal.html)
+- [Recover from a failed machine](administration-starter-recovery.html)
