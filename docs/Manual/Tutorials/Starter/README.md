@@ -123,7 +123,7 @@ docker run -it --name=adb --rm -p 8528:8528 \
     --starter.join=A,B,C
 ```
 
-Note that the enviroment variables `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` 
+Note that the environment variables `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` 
 as well as the additional mountpoint containing the certificate have been added above. 
 directory. The assignment of `DOCKER_CERT_PATH` is optional, in which case it 
 is mandatory that the certificates are stored in `$HOME/.docker`. So
@@ -201,8 +201,9 @@ Note: When you restart the starter, it remembers the original `--starter.local` 
 ## Starting a cluster with datacenter to datacenter synchronization
 
 {% hint 'info' %}
-This feature is only available in the
-[**Enterprise Edition**](https://www.arangodb.com/why-arangodb/arangodb-enterprise/)
+Datacenter to datacenter replication is only available in the
+[**Enterprise Edition**](https://www.arangodb.com/why-arangodb/arangodb-enterprise/),
+also available as [**managed service**](https://www.arangodb.com/managed-service/).
 {% endhint %}
 
 Datacenter to datacenter replication (DC2DC) requires a normal ArangoDB cluster in both data centers
