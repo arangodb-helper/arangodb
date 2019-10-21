@@ -1,14 +1,19 @@
 # ArangoDB Starter Removal Procedure
 
+{% hint 'danger' %}
+**Do not** apply this procedure to machines that have an **agent** on it.
+{% endhint %}
+
 This procedure is intended to remove a machine from a cluster
-(that was started with the ArangoDB _Starter_).
+that was started with the ArangoDB _Starter_.
 
 It is possible to run this procedure while the machine is still running
 or when it has already been removed.
 
 It is not possible to remove machines that have an agent on it!
-Use the [recovery procedure](./Recovery.md) if you have a failed machine
-with an agent on it.
+The _Agency_ needs to remain functional for the cluster to operate.
+Use the [recovery procedure](Recovery.md) if you have
+a failed machine with an agent on it.
 
 Note that it is highly recommended to remove a machine while it is still running.
 
@@ -50,10 +55,8 @@ If the machine you want to remove has address `10.21.56.123` and was listening
 on port `8528`, use ID `21e42415`.
 
 The `remove starter` command will attempt the cleanout all data from the servers
-of the machine that you want to remove.
-This can take a long of time.
+of the machine that you want to remove. This can take a long of time.
 If the cleanout fails, the `remove starter` command will fail.
 
 If you want to remove the machine even when the cleanout has failed, use
-the `--force` option.
-Note that this may lead to data loss!
+the `--force` option. Note that this may lead to data loss!
