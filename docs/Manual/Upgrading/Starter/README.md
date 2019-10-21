@@ -60,7 +60,8 @@ install a specific package using
 dpkg -i arangodb3-3.3.14-1_amd64.deb
 ```
 
-after you have downloaded the corresponding file from https://www.arangodb.com/download/.
+after you have downloaded the corresponding file from
+[www.arangodb.com/download/](https://www.arangodb.com/download/).
 
 If you are using the `.tar.gz` distribution (only available from v3.4.0),
 you can simply extract the new archive in a different
