@@ -1,7 +1,7 @@
 # Starting an ArangoDB cluster or database the easy way
 
 Starting an ArangoDB cluster involves starting various servers with
-different roles (agents, dbservers & coordinators).
+different roles (Agents, DBServers & Coordinators).
 
 The ArangoDB Starter is designed to make it easy to start and
 maintain an ArangoDB cluster or single server database.
@@ -252,7 +252,7 @@ docker run -it --name=adb --rm -p 8528:8528 \
 ## Starting a resilient single server pair
 
 If you want to start a resilient single database server, use `--starter.mode=activefailover`.
-In this mode a 3 machine agency is started and 2 single servers that perform
+In this mode a 3 machine _Agency_ is started as well as 3 single servers that perform
 asynchronous replication an failover if needed.
 
 ```bash
@@ -260,11 +260,6 @@ arangodb --starter.mode=activefailover --starter.join A,B,C
 ```
 
 Run this on machine A, B & C.
-
-The starter will decide on which 2 machines to run a single server instance.
-To override this decision (only valid while bootstrapping), add a
-`--cluster.start-single=false` to the machine where the single server
-instance should NOT be scheduled.
 
 ## Starting a resilient single server pair in Docker
 
