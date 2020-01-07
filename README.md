@@ -69,11 +69,11 @@ arangodb --starter.join A
 
 This will contact A on port 8528 and register.
 
-From the moment on when 3 have joined, each will fire up an agent, a
-coordinator and a dbserver and the cluster is up. Ports are shown on
+From the moment on when 3 have joined, each will fire up an Agent, a
+Coordinator and a DB-Server and the cluster is up. Ports are shown on
 the console, the starter uses the next few ports above the starter
-port. That is, if one uses port 8528 for the starter, the coordinator
-will use 8529 (=8528+1), the dbserver 8530 (=8528+2), and the agent 8531
+port. That is, if one uses port 8528 for the starter, the Coordinator
+will use 8529 (=8528+1), the DB-Server 8530 (=8528+2), and the Agent 8531
 (=8528+3). See below under `--starter.port` for how to change the
 starter default port.
 
@@ -81,7 +81,7 @@ Additional servers can be added in the same way.
 
 ## More usage info
 
-See the [ArangoDB Starter Tutorial](https://docs.arangodb.com/devel/Manual/Tutorials/Starter/).
+See the [ArangoDB Starter Tutorial](https://www.arangodb.com/docs/stable/tutorials-starter.html).
 
 ## HTTP API
 
@@ -89,7 +89,7 @@ See [HTTP API](./docs/http_api.md).
 
 ## Future plans
 
-- Allow starter with agent to be removed from cluster
+- Allow starter with Agent to be removed from cluster
 - Enable cluster to be updated in a controlled manner.
 
 ## Technical explanation as to what happens
@@ -97,8 +97,8 @@ See [HTTP API](./docs/http_api.md).
 The procedure is essentially that the first instance of `arangodb` (aka
 the "master") offers an HTTP service on port 8528 for peers to register.
 Every instance that registers becomes a slave. As soon as there are
-`cluster-agency-size` peers, every instance of `arangodb` starts up an agent (if
-it is one of the first 3), a DBserver, and a coordinator. The necessary
+`cluster-agency-size` peers, every instance of `arangodb` starts up an Agent (if
+it is one of the first 3), a DB-Server, and a Coordinator. The necessary
 command line options to link the `arangod` instances up are generated
 automatically. The cluster bootstraps and can be used.
 
@@ -109,8 +109,8 @@ its data directory, starts up its `arangod` instances again (with their
 data) and they join the cluster.
 
 All network addresses are discovered from the HTTP communication between
-the `arangodb` instances. The ports used 8529(/8539/8549) for the coordinator,
-8530(/8540/8550) for the DBserver, 8531(/8541/8551) for the agent)
+the `arangodb` instances. The ports used 8529(/8539/8549) for the Coordinator,
+8530(/8540/8550) for the DB-Server, 8531(/8541/8551) for the Agent)
 need to be free. If more than one instance of an `arangodb` are started
 on the same machine, the second will increase all these port numbers by 10 and so on.
 
