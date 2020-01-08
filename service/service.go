@@ -467,7 +467,7 @@ func (s *Service) sendMasterLeaveCluster() error {
 	if err != nil {
 		return maskAny(err)
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 		return maskAny(client.ParseResponseError(resp, nil))
 	}
 
