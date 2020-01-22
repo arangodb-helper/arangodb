@@ -10,17 +10,12 @@ VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
 MAKEFILE := $(ROOTDIR)/Makefile
 
-ifndef NODOCKER
-	DOCKERCLI := $(shell which docker)
-	GOBUILDLINKTARGET := ../../../..
-else
-	DOCKERCLI := 
-	GOBUILDLINKTARGET := $(ROOTDIR)
-endif
 
-ifndef BUILDDIR
-	BUILDDIR := $(ROOTDIR)
-endif
+DOCKERCLI ?= $(shell which docker)
+GOBUILDLINKTARGET := ../../../..
+
+BUILDDIR ?= $(ROOTDIR)
+
 GOBUILDDIR := $(BUILDDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
 CACHEVOL := $(PROJECT)-gocache
@@ -33,25 +28,18 @@ REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.12.4-alpine
+GOVERSION := 1.13.6
+GOIMAGE := golang:$(GOVERSION)
 
-ifndef GOOS
-	GOOS := linux
-endif
-ifndef GOARCH
-	GOARCH := amd64
-endif
+GOOS ?= linux
+GOARCH ?= amd64
+
 ifeq ("$(GOOS)", "windows")
 	GOEXE := .exe
 endif
 
-ifndef ARANGODB
-	ARANGODB := arangodb/arangodb:latest
-endif
-
-ifndef DOCKERNAMESPACE
-	DOCKERNAMESPACE := arangodb
-endif
+ARANGODB ?= arangodb/arangodb:latest
+DOCKERNAMESPACE ?= arangodb
 
 ifdef TRAVIS
 	IP := $(shell hostname -I | cut -d ' ' -f 1)
@@ -60,11 +48,28 @@ endif
 TEST_TIMEOUT := 25m
 
 BINNAME := arangodb$(GOEXE)
+TESTNAME := test$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
+TESTBIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(TESTNAME)
 RELEASE := $(GOBUILDDIR)/bin/release 
 GHRELEASE := $(GOBUILDDIR)/bin/github-release 
 
 SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
+TEST_SOURCES := $(shell find $(SRCDIR)/test -name '*.go')
+
+DOCKER_IMAGE := $(GOIMAGE)
+DOCKER_CMD = $(DOCKERCLI) run \
+                --rm \
+                -v $(SRCDIR):/usr/code \
+                -u "$(shell id -u)" \
+                -e GOCACHE=/usr/code/.gobuild/.cache \
+                -e GOPATH=/usr/code/.gobuild \
+                -e GOOS=$(GOOS) \
+                -e GOARCH=$(GOARCH) \
+                -e CGO_ENABLED=0 \
+                $(DOCKER_PARAMS) \
+                -w /usr/code/ \
+                $(DOCKER_IMAGE)
 
 .PHONY: all clean deps docker build build-local
 
@@ -83,14 +88,19 @@ endif
 
 build: $(BIN)
 
-build-local: build 
-	@ln -sf $(BIN) $(ROOTDIR)/arangodb
+build-test: $(TESTBIN)
 
 binaries: $(GHRELEASE)
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
+
+binaries-test: $(GHRELEASE)
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build-test
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
+	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
 
 deps:
 	@${MAKE} -f $(MAKEFILE) -B SCRIPTDIR=$(SCRIPTDIR) BUILDDIR=$(BUILDDIR) -s $(GOBUILDDIR)
@@ -125,29 +135,18 @@ $(GOBUILDDIR):
 	@rm -f $(GOBUILDDIR)/src/github.com/ryanuber && ln -s ../../../deps/github.com/ryanuber $(GOBUILDDIR)/src/github.com/ryanuber
 	@rm -f $(GOBUILDDIR)/src/github.com/voxelbrain && ln -s ../../../deps/github.com/voxelbrain $(GOBUILDDIR)/src/github.com/voxelbrain
 	@rm -f $(GOBUILDDIR)/src/golang.org/x && ln -s ../../../deps/golang.org/x $(GOBUILDDIR)/src/golang.org/x
-	@GOPATH=$(GOBUILDDIR) go get github.com/arangodb/go-upgrade-rules
+	$(DOCKER_CMD) go get github.com/arangodb/go-upgrade-rules
 
-.PHONY: $(CACHEVOL)
-$(CACHEVOL):
-	@docker volume create $(CACHEVOL)
-
-$(BIN): $(GOBUILDDIR) $(SOURCES) $(CACHEVOL)
+$(BIN): $(GOBUILDDIR) $(SOURCES)
 	@mkdir -p $(BINDIR)
-	docker run \
-		--rm \
-		-v $(SRCDIR):/usr/code \
-		-v $(CACHEVOL):/usr/gocache \
-		-e GOCACHE=/usr/gocache \
-		-e GOPATH=/usr/code/.gobuild \
-		-e GOOS=$(GOOS) \
-		-e GOARCH=$(GOARCH) \
-		-e CGO_ENABLED=0 \
-		-w /usr/code/ \
-		golang:$(GOVERSION) \
-		go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME) $(REPOPATH)
+	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME) $(REPOPATH)
+
+$(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
+	@mkdir -p $(BINDIR)
+	$(DOCKER_CMD) go test -c -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(TESTNAME) $(REPOPATH)/test
 
 docker: build
-	docker build -t arangodb/arangodb-starter .
+	$(DOCKERCLI) build -t arangodb/arangodb-starter .
 
 docker-push: docker
 ifneq ($(DOCKERNAMESPACE), arangodb)
@@ -166,10 +165,10 @@ docker-push-version: docker
 	docker push arangodb/arangodb-starter:latest
 
 $(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
-	GOPATH=$(GOBUILDDIR) go build -o $(RELEASE) $(REPOPATH)/tools/release
+	GOPATH=$(GOBUILDDIR) go build init -o $(RELEASE) $(REPOPATH)/tools/release
 
 $(GHRELEASE): $(GOBUILDDIR) 
-	GOPATH=$(GOBUILDDIR) go build -o $(GHRELEASE) github.com/aktau/github-release
+	$(DOCKER_CMD) go build -o "/usr/code/.gobuild/bin/github-release" github.com/aktau/github-release
 
 release-patch: $(RELEASE)
 	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=patch 
@@ -182,40 +181,31 @@ release-major: $(RELEASE)
 
 TESTCONTAINER := arangodb-starter-test
 
-test-images:
-	docker pull $(ARANGODB)
-	docker build --build-arg "from=$(ARANGODB)" -t arangodb-golang -f test/Dockerfile-arangodb-golang .
-
 # Run all integration tests
 run-tests: run-tests-local-process run-tests-docker
 
-run-tests-local-process: build test-images
-	@-docker rm -f -v $(TESTCONTAINER) &> /dev/null
-	docker run \
-		--rm \
-		--name=$(TESTCONTAINER) \
-		-v $(ROOTDIR):/usr/code \
-		-e CGO_ENABLED=0 \
-		-e GOPATH=/usr/code/.gobuild \
-		-e DATA_DIR=/tmp \
-		-e STARTER=/usr/code/bin/linux/amd64/arangodb \
-		-e TEST_MODES=localprocess \
-		-e STARTER_MODES=$(STARTER_MODES) \
-		-e VERBOSE=$(VERBOSE) \
-		-e ENTERPRISE=$(ENTERPRISE) \
-		-e TESTOPTIONS=$(TESTOPTIONS) \
-		-e DEBUG_CLUSTER=$(DEBUG_CLUSTER) \
-		-w /usr/code/ \
-		arangodb-golang \
-		go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
+run-tests-local-process: build-test build run-tests-local-process-run
+run-tests-local-process-run: export TEST_MODES=localprocess
+run-tests-local-process-run: export DOCKER_IMAGE=$(ARANGODB)
+run-tests-local-process-run: export DOCKER_PARAMS:=-e "TEST_MODES=$(TEST_MODES)" -e "STARTER_MODES=$(STARTER_MODES)" -e "STARTER=/usr/code/bin/linux/amd64/arangodb" -e "ENTERPRISE=$(ENTERPRISE)"
+run-tests-local-process-run:
+	@-$(DOCKERCLI) rm -f -v $(TESTCONTAINER) &> /dev/null
+	$(DOCKER_CMD) /usr/code/bin/linux/amd64/test -test.timeout $(TEST_TIMEOUT) -test.v $(TESTOPTIONS)
 
-run-tests-docker: docker
+_run-tests: build-test build
+	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.v $(TESTOPTIONS)
+
 ifdef TRAVIS
-	docker pull $(ARANGODB)
+run-tests-docker-pre: docker
+	@$(DOCKERCLI) pull $(ARANGODB)
+
+run-tests-docker: run-tests-docker-pre
 endif
-	mkdir -p $(GOBUILDDIR)/tmp
-	GOPATH=$(GOBUILDDIR) TMPDIR=$(GOBUILDDIR)/tmp TEST_MODES=docker STARTER_MODES=$(STARTER_MODES) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
+
+run-tests-docker: TEST_MODES=docker
+run-tests-docker: docker _run-tests
 
 # Run all integration tests on the local system
-run-tests-local: local
-	GOPATH=$(GOBUILDDIR) TEST_MODES="localprocess,docker" STARTER_MODES=$(STARTER_MODES) STARTER=$(ROOTDIR)/arangodb go test -timeout $(TEST_TIMEOUT) $(TESTOPTIONS) -v $(REPOPATH)/test
+run-tests-local: export TEST_MODES=localprocess
+run-tests-local: _run-tests
+
