@@ -6,7 +6,7 @@ services:
 language: go
 
 go:
-  - "1.12.x"
+  - "1.13.x"
 
 env:
   - VERBOSE=1 TEST_SUITE=run-tests-local-process ARANGODB=arangodb:3.3 STARTER_MODES="single,cluster,activefailover"
