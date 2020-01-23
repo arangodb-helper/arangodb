@@ -3,6 +3,7 @@
 ## Changes from 0.14.12 to 0.14.13
 
 - Fixed upgrade for active failover when there are nodes without single server.
+- Upgrade Go version to 1.13 for TLS 1.3 support
 
 ## Changes from 0.14.11 to 0.14.12
 

@@ -466,7 +466,7 @@ func cmdShowUsage(cmd *cobra.Command, args []string) {
 
 func cmdShowVersionRun(cmd *cobra.Command, args []string) {
 	if cmd.Use == "version" || showVersion {
-		fmt.Printf("Version %s, build %s\n", projectVersion, projectBuild)
+		fmt.Printf("Version %s, build %s, Go %s\n", projectVersion, projectBuild, runtime.Version())
 		os.Exit(0)
 	}
 }

@@ -22,10 +22,12 @@
 
 package test
 
-import "testing"
+import (
+	"testing"
+)
 
 func removeArangodProcesses(t *testing.T) {
-	c := Spawn(t, "pkill -9 arangod")
+	c := SpawnWithExpand(t, "sh -c 'PIDS=$(pidof -x arangod); if [ ! -z \"${PIDS}\" ]; then kill -9 ${PIDS}; fi'", false)
 	defer c.Close()
 	c.Wait()
 }

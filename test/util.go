@@ -104,10 +104,19 @@ func needEnterprise(t *testing.T) {
 	t.Skip("Enterprise is not available")
 }
 
-// Spawn a command an return its process.
+// Spawn a command an return its process and expand envs.
 func Spawn(t *testing.T, command string) *SubProcess {
+	return SpawnWithExpand(t, command, true)
+}
+
+// Spawn a command an return its process with optionally expanded envs.
+func SpawnWithExpand(t *testing.T, command string, expand bool) *SubProcess {
 	command = strings.TrimSpace(command)
-	args, err := shell.Split(os.ExpandEnv(command))
+	if expand {
+		command = os.ExpandEnv(command)
+	}
+	t.Logf("Executing command: %s", command)
+	args, err := shell.Split(command)
 	if err != nil {
 		t.Fatal(describe(err))
 	}
