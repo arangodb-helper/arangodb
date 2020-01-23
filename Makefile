@@ -86,6 +86,9 @@ else
 	GOPATH=$(GOBUILDDIR) go build -o $(BUILDDIR)/arangodb $(REPOPATH)
 endif
 
+build-local: build
+	@ln -sf "$(BIN)" "$(ROOTDIR)/arangodb"
+
 build: $(BIN)
 
 build-test: $(TESTBIN)
@@ -165,19 +168,19 @@ docker-push-version: docker
 	docker push arangodb/arangodb-starter:latest
 
 $(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
-	GOPATH=$(GOBUILDDIR) go build init -o $(RELEASE) $(REPOPATH)/tools/release
+	$(DOCKER_CMD) go build -o "/usr/code/.gobuild/bin/release" $(REPOPATH)/tools/release
 
 $(GHRELEASE): $(GOBUILDDIR) 
 	$(DOCKER_CMD) go build -o "/usr/code/.gobuild/bin/github-release" github.com/aktau/github-release
 
 release-patch: $(RELEASE)
-	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=patch 
+	$(RELEASE) -type=patch
 
 release-minor: $(RELEASE)
-	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=minor
+	$(RELEASE) -type=minor
 
 release-major: $(RELEASE)
-	GOPATH=$(GOBUILDDIR) $(RELEASE) -type=major 
+	$(RELEASE) -type=major
 
 TESTCONTAINER := arangodb-starter-test
 

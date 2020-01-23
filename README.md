@@ -25,7 +25,7 @@ For more advanced build options, clone this repository and do:
 make local
 ```
 
-and the executable is in `./bin` named after the current OS & architecture (e.g. `arangodb-linux-amd64`).
+and the executable is in `./bin` named after the current OS & architecture (e.g. `linux/amd64/arangodb`).
 You can copy the binary anywhere in your PATH.
 A link to the binary for the local OS & architecture is made to `./arangodb`.
 This program will run on Linux, OSX or Windows.
