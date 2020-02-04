@@ -10,7 +10,6 @@ VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
 MAKEFILE := $(ROOTDIR)/Makefile
 
-
 DOCKERCLI ?= $(shell which docker)
 GOBUILDLINKTARGET := ../../../..
 
@@ -58,6 +57,31 @@ SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 TEST_SOURCES := $(shell find $(SRCDIR)/test -name '*.go')
 
 DOCKER_IMAGE := $(GOIMAGE)
+
+ifeq ($(DOCKERCLI),)
+BUILD_BIN := $(BIN)
+TEST_BIN := $(TESTBIN)
+
+DOCKER_CMD :=
+
+pre:
+	@if ! go version | grep -q "go1.13"; then echo "GO in Version 1.13 required"; exit 1; fi
+
+deps: pre
+
+build: pre
+
+%: export CGO_ENABLED := 0
+%: export GOARCH := $(GOARCH)
+%: export GOOS := $(GOOS)
+%: export GOPATH := $(GOPATH)
+%: export GOCACHE := $(GOPATH)/.cache
+%: export GO111MODULE := off
+
+else
+BUILD_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME)
+TEST_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(TESTNAME)
+
 DOCKER_CMD = $(DOCKERCLI) run \
                 --rm \
                 -v $(SRCDIR):/usr/code \
@@ -70,6 +94,7 @@ DOCKER_CMD = $(DOCKERCLI) run \
                 $(DOCKER_PARAMS) \
                 -w /usr/code/ \
                 $(DOCKER_IMAGE)
+endif
 
 .PHONY: all clean deps docker build build-local
 
@@ -142,11 +167,11 @@ $(GOBUILDDIR):
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	@mkdir -p $(BINDIR)
-	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME) $(REPOPATH)
+	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" $(REPOPATH)
 
 $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	@mkdir -p $(BINDIR)
-	$(DOCKER_CMD) go test -c -o /usr/code/bin/$(GOOS)/$(GOARCH)/$(TESTNAME) $(REPOPATH)/test
+	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" $(REPOPATH)/test
 
 docker: build
 	$(DOCKERCLI) build -t arangodb/arangodb-starter .
