@@ -50,8 +50,8 @@ BINNAME := arangodb$(GOEXE)
 TESTNAME := test$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
 TESTBIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(TESTNAME)
-RELEASE := $(GOBUILDDIR)/bin/release 
-GHRELEASE := $(GOBUILDDIR)/bin/github-release 
+RELEASE := $(GOBUILDDIR)/bin/release
+GHRELEASE := $(GOBUILDDIR)/bin/github-release
 
 SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 TEST_SOURCES := $(shell find $(SRCDIR)/test -name '*.go')
@@ -61,6 +61,8 @@ DOCKER_IMAGE := $(GOIMAGE)
 ifeq ($(DOCKERCLI),)
 BUILD_BIN := $(BIN)
 TEST_BIN := $(TESTBIN)
+RELEASE_BIN := $(RELEASE)
+GHRELEASE_BIN := $(GHRELEASE)
 
 DOCKER_CMD :=
 
@@ -81,6 +83,8 @@ build: pre
 else
 BUILD_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME)
 TEST_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(TESTNAME)
+RELEASE_BIN := /usr/code/bin/release
+GHRELEASE_BIN := /usr/code/bin/github-release
 
 DOCKER_CMD = $(DOCKERCLI) run \
                 --rm \
@@ -193,10 +197,10 @@ docker-push-version: docker
 	docker push arangodb/arangodb-starter:latest
 
 $(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
-	$(DOCKER_CMD) go build -o "/usr/code/.gobuild/bin/release" $(REPOPATH)/tools/release
+	$(DOCKER_CMD) go build -o "$(RELEASE_BIN)" $(REPOPATH)/tools/release
 
 $(GHRELEASE): $(GOBUILDDIR) 
-	$(DOCKER_CMD) go build -o "/usr/code/.gobuild/bin/github-release" github.com/aktau/github-release
+	$(DOCKER_CMD) go build -o "$(GHRELEASE_BIN)" github.com/aktau/github-release
 
 release-patch: $(RELEASE)
 	$(RELEASE) -type=patch
