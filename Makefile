@@ -83,8 +83,8 @@ build: pre
 else
 BUILD_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME)
 TEST_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(TESTNAME)
-RELEASE_BIN := /usr/code/bin/release
-GHRELEASE_BIN := /usr/code/bin/github-release
+RELEASE_BIN := /usr/code/.gobuild/bin/release
+GHRELEASE_BIN := /usr/code/.gobuild/bin/github-release
 
 DOCKER_CMD = $(DOCKERCLI) run \
                 --rm \
