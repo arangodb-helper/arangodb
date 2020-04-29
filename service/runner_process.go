@@ -202,19 +202,6 @@ func (p *process) Wait() {
 	}
 }
 
-func (p *process) Terminate() error {
-	if proc := p.p; proc != nil {
-		if err := proc.Signal(syscall.SIGTERM); err != nil {
-			if err.Error() == "os: process already finished" {
-				// Race condition on OSX
-				return nil
-			}
-			return maskAny(err)
-		}
-	}
-	return nil
-}
-
 func (p *process) Kill() error {
 	if proc := p.p; proc != nil {
 		if err := proc.Kill(); err != nil {
