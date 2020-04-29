@@ -25,9 +25,10 @@
 package service
 
 import (
-	"github.com/pkg/errors"
-	"syscall"
 	"fmt"
+	"syscall"
+
+	"github.com/pkg/errors"
 )
 
 var (
