@@ -105,6 +105,18 @@ func (r *dockerRunner) GetContainerDir(hostDir, defaultContainerDir string) stri
 	return defaultContainerDir
 }
 
+func (p *dockerContainer) WaitCh() <-chan struct{} {
+	c := make(chan struct{})
+
+	go func() {
+		defer close(c)
+
+		p.Wait()
+	}()
+
+	return c
+}
+
 // GetRunningServer checks if there is already a server process running in the given server directory.
 // If that is the case, its process is returned.
 // Otherwise nil is returned.
@@ -520,7 +532,7 @@ func (p *dockerContainer) HostPort(containerPort int) (int, error) {
 	return 0, fmt.Errorf("Cannot find port mapping.")
 }
 
-func (p *dockerContainer) Wait() {
+func (p *dockerContainer) Wait() int {
 	if p.waiter != nil {
 		p.waiter.Wait()
 	}
@@ -530,6 +542,8 @@ func (p *dockerContainer) Wait() {
 	} else if exitCode != 0 {
 		p.log.Info().Int("exitcode", exitCode).Msg("Container terminated with non-zero exit code")
 	}
+
+	return exitCode
 }
 
 func (p *dockerContainer) Terminate() error {

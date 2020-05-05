@@ -372,23 +372,35 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 
-		if p := s.runtimeServerManager.agentProc; p != nil {
-			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeAgent, p))
+		if w := s.runtimeServerManager.agentProc; w != nil {
+			if p := w.Process(); p != nil {
+				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeAgent, p))
+			}
 		}
-		if p := s.runtimeServerManager.coordinatorProc; p != nil {
-			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeCoordinator, p))
+		if w := s.runtimeServerManager.coordinatorProc; w != nil {
+			if p := w.Process(); p != nil {
+				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeCoordinator, p))
+			}
 		}
-		if p := s.runtimeServerManager.dbserverProc; p != nil {
-			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeDBServer, p))
+		if w := s.runtimeServerManager.dbserverProc; w != nil {
+			if p := w.Process(); p != nil {
+				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeDBServer, p))
+			}
 		}
-		if p := s.runtimeServerManager.singleProc; p != nil {
-			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
+		if w := s.runtimeServerManager.singleProc; w != nil {
+			if p := w.Process(); p != nil {
+				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
+			}
 		}
-		if p := s.runtimeServerManager.syncMasterProc; p != nil {
-			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSyncMaster, p))
+		if w := s.runtimeServerManager.syncMasterProc; w != nil {
+			if p := w.Process(); p != nil {
+				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSyncMaster, p))
+			}
 		}
-		if p := s.runtimeServerManager.syncWorkerProc; p != nil {
-			resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSyncWorker, p))
+		if w := s.runtimeServerManager.syncWorkerProc; w != nil {
+			if p := w.Process(); p != nil {
+				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSyncWorker, p))
+			}
 		}
 	}
 	if mode.IsSingleMode() {

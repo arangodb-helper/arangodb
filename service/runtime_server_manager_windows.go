@@ -25,32 +25,10 @@
 package service
 
 import (
-	"fmt"
-	"syscall"
-
-	"github.com/pkg/errors"
+	"os"
 )
 
-var (
-	libkernel32              = syscall.MustLoadDLL("kernel32")
-	generateConsoleCtrlEvent = libkernel32.MustFindProc("GenerateConsoleCtrlEvent")
-)
-
-func (p *process) Terminate() error {
-	p.log.Info().Int("process", p.ProcessID()).Msgf("Sending windows CTRL_BREAK_EVENT event")
-	r, _, err := generateConsoleCtrlEvent.Call(syscall.CTRL_BREAK_EVENT, uintptr(p.ProcessID()))
-
-	if r == 0 {
-		return errors.WithMessage(err, fmt.Sprintf("Exited with code %d", r))
-	}
-
-	p.log.Info().Int("process", p.ProcessID()).Msgf("Send windows CTRL_BREAK_EVENT event")
-
-	return nil
-}
-
-func getSysProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{
-		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP,
-	}
+// clean cleans post run action.
+func (s *runtimeServerManager) clean() {
+	os.Exit(0)
 }

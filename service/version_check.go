@@ -34,7 +34,21 @@ import (
 
 // DatabaseVersion returns the version of the `arangod` binary that is being
 // used by this starter.
+
 func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, error) {
+	for i := 0; i < 25; i ++ {
+		d, err := s.databaseVersion(ctx)
+		if err != nil {
+			s.log.Warn().Err(err).Msg("Error while getting version")
+		}
+
+		return d, nil
+	}
+
+	return "", fmt.Errorf("Unable to get version")
+}
+
+func (s *Service) databaseVersion(ctx context.Context) (driver.Version, error) {
 	// Start process to print version info
 	output := &bytes.Buffer{}
 	containerName := "arangodb-versioncheck-" + strings.ToLower(uniuri.NewLen(6))
@@ -43,7 +57,9 @@ func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, error) {
 		return "", maskAny(err)
 	}
 	defer p.Cleanup()
-	p.Wait()
+	if code := p.Wait(); code != 0 {
+		return "", fmt.Errorf("Process exited with exit code %d - %s", code, output.String())
+	}
 
 	// Parse output
 	stdout := output.String()

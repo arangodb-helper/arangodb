@@ -24,23 +24,7 @@
 
 package service
 
-import (
-	"syscall"
-)
+// clean cleans post run action.
+func (s *runtimeServerManager) clean() {
 
-func (p *process) Terminate() error {
-	if proc := p.p; proc != nil {
-		if err := proc.Signal(syscall.SIGTERM); err != nil {
-			if err.Error() == "os: process already finished" {
-				// Race condition on OSX
-				return nil
-			}
-			return maskAny(err)
-		}
-	}
-	return nil
-}
-
-func getSysProcAttr() *syscall.SysProcAttr {
-	return nil
 }
