@@ -36,7 +36,7 @@ import (
 // used by this starter.
 
 func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, error) {
-	for i := 0; i < 25; i ++ {
+	for i := 0; i < 25; i++ {
 		d, err := s.databaseVersion(ctx)
 		if err != nil {
 			s.log.Warn().Err(err).Msg("Error while getting version")

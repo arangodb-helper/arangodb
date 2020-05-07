@@ -24,9 +24,10 @@ package service
 
 import (
 	"context"
-	"github.com/rs/zerolog"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
@@ -63,16 +64,16 @@ type ProcessWrapper interface {
 }
 
 type processWrapper struct {
-	s *runtimeServerManager
-	ctx context.Context
-	log zerolog.Logger
+	s              *runtimeServerManager
+	ctx            context.Context
+	log            zerolog.Logger
 	runtimeContext runtimeServerManagerContext
-	runner Runner
-	config Config
-	bsCfg BootstrapConfig
-	myPeer Peer
-	serverType ServerType
-	gracePeriod time.Duration
+	runner         Runner
+	config         Config
+	bsCfg          BootstrapConfig
+	myPeer         Peer
+	serverType     ServerType
+	gracePeriod    time.Duration
 
 	lock sync.Mutex
 	proc Process
@@ -107,7 +108,7 @@ func (p *processWrapper) stop() {
 	}
 }
 
-func (p *processWrapper) run(startedCh chan <- struct{}) {
+func (p *processWrapper) run(startedCh chan<- struct{}) {
 	defer func() {
 		p.log.Info().Str("type", p.serverType.String()).Msg("Exited")
 		defer close(p.closed)

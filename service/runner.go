@@ -90,7 +90,7 @@ func terminateProcess(log zerolog.Logger, p Process, name string, killTimeout ti
 		if err := p.Terminate(); err != nil {
 			log.Warn().Err(err).Msgf("Failed to terminate %s", name)
 		}
-        p.Wait()
+		p.Wait()
 		log.Info().Msgf("%s terminated", name)
 	}()
 	select {
@@ -100,6 +100,6 @@ func terminateProcess(log zerolog.Logger, p Process, name string, killTimeout ti
 		// Kill the process
 		log.Warn().Msgf("Killing %s...", name)
 		p.Kill()
-        p.Wait()
+		p.Wait()
 	}
 }

@@ -49,7 +49,7 @@ type runtimeServerManager struct {
 	syncMasterProc  ProcessWrapper
 	syncWorkerProc  ProcessWrapper
 
-	stopping        bool
+	stopping bool
 }
 
 // runtimeServerManagerContext provides a context for the runtimeServerManager.
