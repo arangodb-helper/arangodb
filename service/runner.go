@@ -66,7 +66,9 @@ type Process interface {
 	HostPort(containerPort int) (int, error)
 
 	// Wait until the process has terminated
-	Wait()
+	Wait() int
+	// WaitCh returns channel when process is terminated
+	WaitCh() <-chan struct{}
 	// Terminate performs a graceful termination of the process
 	Terminate() error
 	// Kill performs a hard termination of the process
@@ -81,15 +83,15 @@ type Process interface {
 // terminateProcess tries to terminate the given process gracefully.
 // When the process has not terminated after given timeout it is killed.
 func terminateProcess(log zerolog.Logger, p Process, name string, killTimeout time.Duration) {
-	log.Debug().Msgf("Terminating %s...", name)
+	log.Info().Msgf("Terminating %s...", name)
 	terminated := make(chan struct{})
 	go func() {
 		defer close(terminated)
 		if err := p.Terminate(); err != nil {
 			log.Warn().Err(err).Msgf("Failed to terminate %s", name)
 		}
-                p.Wait()
-		log.Debug().Msgf("%s terminated", name)
+		p.Wait()
+		log.Info().Msgf("%s terminated", name)
 	}()
 	select {
 	case <-terminated:
@@ -98,6 +100,6 @@ func terminateProcess(log zerolog.Logger, p Process, name string, killTimeout ti
 		// Kill the process
 		log.Warn().Msgf("Killing %s...", name)
 		p.Kill()
-                p.Wait()
+		p.Wait()
 	}
 }

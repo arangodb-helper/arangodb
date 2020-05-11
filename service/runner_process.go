@@ -57,6 +57,18 @@ type process struct {
 	isChild bool
 }
 
+func (p *process) WaitCh() <-chan struct{} {
+	c := make(chan struct{})
+
+	go func() {
+		defer close(c)
+
+		p.Wait()
+	}()
+
+	return c
+}
+
 func (r *processRunner) GetContainerDir(hostDir, defaultContainerDir string) string {
 	return hostDir
 }
@@ -97,6 +109,9 @@ func (r *processRunner) Start(ctx context.Context, processType ProcessType, comm
 	if output != nil {
 		c.Stdout = output
 	}
+
+	c.SysProcAttr = getSysProcAttr()
+
 	if err := c.Start(); err != nil {
 		return nil, maskAny(err)
 	}
@@ -150,7 +165,7 @@ func (p *process) HostPort(containerPort int) (int, error) {
 	return containerPort, nil
 }
 
-func (p *process) Wait() {
+func (p *process) Wait() int {
 	if proc := p.p; proc != nil {
 		p.log.Debug().Msgf("Waiting on %d", proc.Pid)
 		if p.isChild {
@@ -160,33 +175,37 @@ func (p *process) Wait() {
 					// on terminate Wait might be called twice
 					p.log.Error().Err(err).Msgf("Wait on %d failed", proc.Pid)
 				}
-			} else if ps.ExitCode() != 0 {
-				if ws, ok := ps.Sys().(syscall.WaitStatus); ok {
-					l := p.log.Info()
-					if ws.Exited() {
-						l = l.Int("exit-status", ws.ExitStatus())
-					}
+			} else {
+				if ps.ExitCode() != 0 {
+					if ws, ok := ps.Sys().(syscall.WaitStatus); ok {
+						l := p.log.Info()
+						if ws.Exited() {
+							l = l.Int("exit-status", ws.ExitStatus())
+						}
 
-					if ws.Stopped() {
-						l = l.Str("stop-signal", ws.StopSignal().String())
-					}
+						if ws.Stopped() {
+							l = l.Str("stop-signal", ws.StopSignal().String())
+						}
 
-					if ws.Signaled() {
-						l = l.Str("signal", ws.Signal().String())
-					}
+						if ws.Signaled() {
+							l = l.Str("signal", ws.Signal().String())
+						}
 
-					if ws.Continued() {
-						l = l.Bool("continued", true)
-					}
+						if ws.Continued() {
+							l = l.Bool("continued", true)
+						}
 
-					if ws.CoreDump() {
-						l = l.Bool("core-dump", true)
-					}
+						if ws.CoreDump() {
+							l = l.Bool("core-dump", true)
+						}
 
-					l.Int("trap-cause", ws.TrapCause()).Msgf("Wait on %d returned", proc.Pid)
-				} else {
-					p.log.Info().Int("exitcode", ps.ExitCode()).Msgf("Wait on %d returned", proc.Pid)
+						l.Int("trap-cause", ws.TrapCause()).Msgf("Wait on %d returned", proc.Pid)
+					} else {
+						p.log.Info().Int("exitcode", ps.ExitCode()).Msgf("Wait on %d returned", proc.Pid)
+					}
 				}
+
+				return ps.ExitCode()
 			}
 		} else {
 			// Cannot wait on non-child process, so let's do it the hard way
@@ -200,19 +219,7 @@ func (p *process) Wait() {
 			}
 		}
 	}
-}
-
-func (p *process) Terminate() error {
-	if proc := p.p; proc != nil {
-		if err := proc.Signal(syscall.SIGTERM); err != nil {
-			if err.Error() == "os: process already finished" {
-				// Race condition on OSX
-				return nil
-			}
-			return maskAny(err)
-		}
-	}
-	return nil
+	return -1
 }
 
 func (p *process) Kill() error {
