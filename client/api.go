@@ -57,7 +57,7 @@ type API interface {
 	RemovePeer(ctx context.Context, id string, force bool) error
 
 	// StartDatabaseUpgrade is called to start the upgrade process
-	StartDatabaseUpgrade(ctx context.Context) error
+	StartDatabaseUpgrade(ctx context.Context, forceMinorUpgrade bool) error
 
 	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
 	// such that the starters will retry the upgrade once more.

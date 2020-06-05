@@ -63,6 +63,7 @@ var (
 	}
 	upgradeOptions struct {
 		starterEndpoint string
+		forceMinorUpgrade bool
 	}
 	retryUpgradeOptions struct {
 		starterEndpoint string
@@ -75,6 +76,7 @@ var (
 func init() {
 	f := cmdUpgrade.Flags()
 	f.StringVar(&upgradeOptions.starterEndpoint, "starter.endpoint", "", "The endpoint of the starter to connect to. E.g. http://localhost:8528")
+	f.BoolVar(&upgradeOptions.forceMinorUpgrade, "starter.force-minor-upgrade", false, "Ignore minor version check")
 
 	f = cmdRetryUpgrade.Flags()
 	f.StringVar(&retryUpgradeOptions.starterEndpoint, "starter.endpoint", "", "The endpoint of the starter to connect to. E.g. http://localhost:8528")
@@ -90,11 +92,11 @@ func init() {
 }
 
 func cmdUpgradeRun(cmd *cobra.Command, args []string) {
-	runUpgrade(upgradeOptions.starterEndpoint, false)
+	runUpgrade(upgradeOptions.starterEndpoint, upgradeOptions.forceMinorUpgrade, false)
 }
 
 func cmdRetryUpgradeRun(cmd *cobra.Command, args []string) {
-	runUpgrade(retryUpgradeOptions.starterEndpoint, true)
+	runUpgrade(retryUpgradeOptions.starterEndpoint, false, true)
 }
 
 func cmdAbortUpgradeRun(cmd *cobra.Command, args []string) {
@@ -114,7 +116,7 @@ func cmdAbortUpgradeRun(cmd *cobra.Command, args []string) {
 	}
 }
 
-func runUpgrade(starterEndpoint string, retry bool) {
+func runUpgrade(starterEndpoint string, forceMinorUpgrade, retry bool) {
 	// Setup logging
 	consoleOnly := true
 	configureLogging(consoleOnly)
@@ -129,7 +131,7 @@ func runUpgrade(starterEndpoint string, retry bool) {
 		}
 		action = "restarted"
 	} else {
-		if err := c.StartDatabaseUpgrade(ctx); err != nil {
+		if err := c.StartDatabaseUpgrade(ctx, forceMinorUpgrade); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start database automatic upgrade")
 		}
 		action = "started"
