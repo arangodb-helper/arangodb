@@ -639,10 +639,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 	ctx := r.Context()
 	switch r.Method {
 	case "POST":
-		forceMinorUpgrade := false
-		if r.URL.Query().Get("forceMinorUpgrade") != "" {
-			forceMinorUpgrade = true
-		}
+		forceMinorUpgrade, _ := strconv.ParseBool(r.URL.Query().Get("forceMinorUpgrade"))
 
 		// Start the upgrade process
 		if isRunningMaster || mode.IsSingleMode() {
