@@ -243,8 +243,12 @@ func (c *client) RemovePeer(ctx context.Context, id string, force bool) error {
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
-func (c *client) StartDatabaseUpgrade(ctx context.Context) error {
-	url := c.createURL("/database-auto-upgrade", nil)
+func (c *client) StartDatabaseUpgrade(ctx context.Context, forceMinorUpgrade bool) error {
+	q := url.Values{}
+	if forceMinorUpgrade {
+		q.Set("forceMinorUpgrade", "true")
+	}
+	url := c.createURL("/database-auto-upgrade", q)
 
 	c.client.Timeout = time.Minute * 5
 	req, err := http.NewRequest("POST", url, nil)

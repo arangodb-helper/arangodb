@@ -44,7 +44,7 @@ import (
 // UpgradeManager is the API of a service used to control the upgrade process from 1 database version to the next.
 type UpgradeManager interface {
 	// StartDatabaseUpgrade is called to start the upgrade process
-	StartDatabaseUpgrade(ctx context.Context) error
+	StartDatabaseUpgrade(ctx context.Context, forceMinorUpgrade bool) error
 
 	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
 	// such that the starters will retry the upgrade once more.
@@ -223,7 +223,7 @@ type upgradeManager struct {
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
-func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
+func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpgrade bool) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -253,8 +253,13 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context) error {
 
 	// Check if we can upgrade from running to binary versions
 	specialUpgradeFrom346 := false
+	rules := upgraderules.CheckUpgradeRules
+	if forceMinorUpgrade {
+		rules = upgraderules.CheckSoftUpgradeRules
+	}
+
 	for _, from := range runningDBVersions {
-		if err := upgraderules.CheckUpgradeRules(from, toVersion); err != nil {
+		if err := rules(from, toVersion); err != nil {
 			return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
 		}
 		if from.CompareTo("3.4.6") == 0 {

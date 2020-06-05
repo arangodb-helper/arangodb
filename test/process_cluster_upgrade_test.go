@@ -72,7 +72,7 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 	t.Log("Starting database upgrade")
 	c := NewStarterClient(t, endpoint)
 	ctx := context.Background()
-	if err := c.StartDatabaseUpgrade(ctx); err != nil {
+	if err := c.StartDatabaseUpgrade(ctx, false); err != nil {
 		t.Fatalf("StartDatabaseUpgrade failed: %v", err)
 	}
 	// Wait until upgrade complete
