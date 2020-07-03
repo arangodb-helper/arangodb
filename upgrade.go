@@ -62,7 +62,7 @@ var (
 		Run:   cmdAbortUpgradeRun,
 	}
 	upgradeOptions struct {
-		starterEndpoint string
+		starterEndpoint   string
 		forceMinorUpgrade bool
 	}
 	retryUpgradeOptions struct {
