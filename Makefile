@@ -95,13 +95,12 @@ GHRELEASE_BIN := /usr/code/.gobuild/bin/github-release
 DOCKER_CMD = $(DOCKERCLI) run \
                 --rm \
                 -v $(SRCDIR):/usr/code \
-                -u "$(shell id -u)" \
+                -u "$(shell id -u):$(shell id -g)" \
                 -e GOCACHE=/usr/code/.gobuild/.cache \
                 -e GOPATH=/usr/code/.gobuild \
                 -e GOOS=$(GOOS) \
                 -e GOARCH=$(GOARCH) \
                 -e CGO_ENABLED=0 \
-                -e GO111MODULE=off \
                 $(DOCKER_PARAMS) \
                 -w /usr/code/ \
                 $(DOCKER_IMAGE)
@@ -143,11 +142,11 @@ binaries-test: $(GHRELEASE)
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	@mkdir -p $(BINDIR)
-	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" $(REPOPATH)
+	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
 
 $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	@mkdir -p $(BINDIR)
-	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" $(REPOPATH)/test
+	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" ./test
 
 docker: build
 	$(DOCKERCLI) build -t arangodb/arangodb-starter .
