@@ -5,7 +5,7 @@ go 1.13
 replace golang.org/x/sys => golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a
 
 require (
-	github.com/aktau/github-release v0.8.1 // indirect
+	github.com/aktau/github-release v0.8.1
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
 	github.com/arangodb/go-driver v0.0.0-20200624173407-d1c92a8bd2b8
 	github.com/arangodb/go-upgrade-rules v0.0.0-20200605091205-439fb1ee86e7
