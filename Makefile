@@ -53,6 +53,12 @@ TESTBIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(TESTNAME)
 RELEASE := $(GOBUILDDIR)/bin/release
 GHRELEASE := $(GOBUILDDIR)/bin/github-release
 
+GO_IGNORED:=vendor .gobuild
+
+GO_SOURCES_QUERY := find $(SRCDIR) -name '*.go' -type f $(foreach IGNORED,$(GO_IGNORED),-not -path '$(SRCDIR)/$(IGNORED)/*' )
+GO_SOURCES := $(shell $(GO_SOURCES_QUERY) | sort | uniq)
+GO_SOURCES_PACKAGES := $(shell $(GO_SOURCES_QUERY) -exec dirname {} \; | sort | uniq)
+
 SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 TEST_SOURCES := $(shell find $(SRCDIR)/test -name '*.go')
 
@@ -89,7 +95,7 @@ GHRELEASE_BIN := /usr/code/.gobuild/bin/github-release
 DOCKER_CMD = $(DOCKERCLI) run \
                 --rm \
                 -v $(SRCDIR):/usr/code \
-                -u "$(shell id -u)" \
+                -u "$(shell id -u):$(shell id -g)" \
                 -e GOCACHE=/usr/code/.gobuild/.cache \
                 -e GOPATH=/usr/code/.gobuild \
                 -e GOOS=$(GOOS) \
@@ -118,9 +124,9 @@ endif
 build-local: build
 	@ln -sf "$(BIN)" "$(ROOTDIR)/arangodb"
 
-build: $(BIN)
+build: vendor $(BIN)
 
-build-test: $(TESTBIN)
+build-test: vendor $(TESTBIN)
 
 binaries: $(GHRELEASE)
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
@@ -134,48 +140,13 @@ binaries-test: $(GHRELEASE)
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
 
-deps:
-	@${MAKE} -f $(MAKEFILE) -B SCRIPTDIR=$(SCRIPTDIR) BUILDDIR=$(BUILDDIR) -s $(GOBUILDDIR)
-
-$(GOBUILDDIR):
-	@mkdir -p $(ORGDIR)
-	@mkdir -p $(GOBUILDDIR)/src/golang.org
-	@mkdir -p $(GOBUILDDIR)/src/github.com/arangodb
-	@rm -f $(REPODIR) && ln -s $(GOBUILDLINKTARGET) $(REPODIR)
-	@rm -f $(GOBUILDDIR)/src/github.com/aktau && ln -s ../../../deps/github.com/aktau $(GOBUILDDIR)/src/github.com/aktau
-	@rm -f $(GOBUILDDIR)/src/github.com/arangodb/go-driver && ln -s ../../../../deps/github.com/arangodb/go-driver $(GOBUILDDIR)/src/github.com/arangodb/go-driver
-	@rm -f $(GOBUILDDIR)/src/github.com/arangodb/go-velocypack && ln -s ../../../../deps/github.com/arangodb/go-velocypack $(GOBUILDDIR)/src/github.com/arangodb/go-velocypack
-	@rm -f $(GOBUILDDIR)/src/github.com/arangodb-helper/go-certificates && ln -s ../../../../deps/github.com/arangodb-helper/go-certificates $(GOBUILDDIR)/src/github.com/arangodb-helper/go-certificates
-	@rm -f $(GOBUILDDIR)/src/github.com/cenkalti && ln -s ../../../deps/github.com/cenkalti $(GOBUILDDIR)/src/github.com/cenkalti
-	@rm -f $(GOBUILDDIR)/src/github.com/coreos && ln -s ../../../deps/github.com/coreos $(GOBUILDDIR)/src/github.com/coreos
-	@rm -f $(GOBUILDDIR)/src/github.com/dchest && ln -s ../../../deps/github.com/dchest $(GOBUILDDIR)/src/github.com/dchest
-	@rm -f $(GOBUILDDIR)/src/github.com/dgrijalva && ln -s ../../../deps/github.com/dgrijalva $(GOBUILDDIR)/src/github.com/dgrijalva
-	@rm -f $(GOBUILDDIR)/src/github.com/docker && ln -s ../../../deps/github.com/docker $(GOBUILDDIR)/src/github.com/docker
-	@rm -f $(GOBUILDDIR)/src/github.com/dustin && ln -s ../../../deps/github.com/dustin $(GOBUILDDIR)/src/github.com/dustin
-	@rm -f $(GOBUILDDIR)/src/github.com/fatih && ln -s ../../../deps/github.com/fatih $(GOBUILDDIR)/src/github.com/fatih
-	@rm -f $(GOBUILDDIR)/src/github.com/fsouza && ln -s ../../../deps/github.com/fsouza $(GOBUILDDIR)/src/github.com/fsouza
-	@rm -f $(GOBUILDDIR)/src/github.com/hashicorp && ln -s ../../../deps/github.com/hashicorp $(GOBUILDDIR)/src/github.com/hashicorp
-	@rm -f $(GOBUILDDIR)/src/github.com/inconshreveable && ln -s ../../../deps/github.com/inconshreveable $(GOBUILDDIR)/src/github.com/inconshreveable
-	@rm -f $(GOBUILDDIR)/src/github.com/mitchellh && ln -s ../../../deps/github.com/mitchellh $(GOBUILDDIR)/src/github.com/mitchellh
-	@rm -f $(GOBUILDDIR)/src/github.com/Microsoft && ln -s ../../../deps/github.com/Microsoft $(GOBUILDDIR)/src/github.com/Microsoft
-	@rm -f $(GOBUILDDIR)/src/github.com/kballard && ln -s ../../../deps/github.com/kballard $(GOBUILDDIR)/src/github.com/kballard
-	@rm -f $(GOBUILDDIR)/src/github.com/pavel-v-chernykh && ln -s ../../../deps/github.com/pavel-v-chernykh $(GOBUILDDIR)/src/github.com/pavel-v-chernykh
-	@rm -f $(GOBUILDDIR)/src/github.com/pkg && ln -s ../../../deps/github.com/pkg $(GOBUILDDIR)/src/github.com/pkg
-	@rm -f $(GOBUILDDIR)/src/github.com/rs && ln -s ../../../deps/github.com/rs $(GOBUILDDIR)/src/github.com/rs
-	@rm -f $(GOBUILDDIR)/src/github.com/shavac && ln -s ../../../deps/github.com/shavac $(GOBUILDDIR)/src/github.com/shavac
-	@rm -f $(GOBUILDDIR)/src/github.com/spf13 && ln -s ../../../deps/github.com/spf13 $(GOBUILDDIR)/src/github.com/spf13
-	@rm -f $(GOBUILDDIR)/src/github.com/ryanuber && ln -s ../../../deps/github.com/ryanuber $(GOBUILDDIR)/src/github.com/ryanuber
-	@rm -f $(GOBUILDDIR)/src/github.com/voxelbrain && ln -s ../../../deps/github.com/voxelbrain $(GOBUILDDIR)/src/github.com/voxelbrain
-	@rm -f $(GOBUILDDIR)/src/golang.org/x && ln -s ../../../deps/golang.org/x $(GOBUILDDIR)/src/golang.org/x
-	$(DOCKER_CMD) go get github.com/arangodb/go-upgrade-rules
-
 $(BIN): $(GOBUILDDIR) $(SOURCES)
 	@mkdir -p $(BINDIR)
-	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" $(REPOPATH)
+	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
 
 $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	@mkdir -p $(BINDIR)
-	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" $(REPOPATH)/test
+	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" ./test
 
 docker: build
 	$(DOCKERCLI) build -t arangodb/arangodb-starter .
@@ -241,3 +212,43 @@ run-tests-docker: docker _run-tests
 run-tests-local: export TEST_MODES=localprocess
 run-tests-local: _run-tests
 
+## LINT
+
+GOLANGCI_ENABLED=deadcode gocyclo golint varcheck structcheck maligned errcheck \
+                 ineffassign interfacer unconvert goconst \
+                 megacheck
+
+.PHONY: tools
+tools:
+	@echo ">> Fetching goimports"
+	@go get -u golang.org/x/tools/cmd/goimports
+	@echo ">> Fetching license check"
+	@go get -u github.com/google/addlicense
+	@echo ">> Fetching github release"
+	@go get -u github.com/aktau/github-release
+
+.PHONY: license-verify
+license-verify:
+	@echo ">> Verify license of files"
+	@go run github.com/google/addlicense -f "./LICENSE.BOILERPLATE" -check $(GO_SOURCES)
+
+.PHONY: fmt
+fmt:
+	@echo ">> Ensuring style of files"
+	@go run golang.org/x/tools/cmd/goimports -w $(GO_SOURCES)
+
+.PHONY: fmt-verify
+fmt-verify: license-verify
+	@echo ">> Verify files style"
+	@if [ X"$$(go run golang.org/x/tools/cmd/goimports -l $(GO_SOURCES) | wc -l)" != X"0" ]; then echo ">> Style errors"; go run golang.org/x/tools/cmd/goimports -l $(GO_SOURCES); exit 1; fi
+
+.PHONY: linter
+linter: fmt
+	@golangci-lint run --no-config --issues-exit-code=1 --deadline=30m --disable-all \
+	                  $(foreach MODE,$(GOLANGCI_ENABLED),--enable $(MODE) ) \
+	                  --exclude-use-default=false \
+	                  $(GO_SOURCES_PACKAGES)
+
+.PHONY: vendor
+vendor:
+	@go mod vendor
