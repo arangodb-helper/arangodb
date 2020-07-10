@@ -24,19 +24,26 @@ package service
 
 type ServiceMode string
 
+const (
+	ServiceModeCluster        ServiceMode = "cluster"
+	ServiceModeSingle         ServiceMode = "single"
+	ServiceModeActiveFailover ServiceMode = "activefailover"
+	ServiceModeResilentSingle ServiceMode = "resilientsingle"
+)
+
 // IsClusterMode returns true when the service is running in cluster mode.
 func (m ServiceMode) IsClusterMode() bool {
-	return m == "cluster"
+	return m == ServiceModeCluster
 }
 
 // IsSingleMode returns true when the service is running in single server mode.
 func (m ServiceMode) IsSingleMode() bool {
-	return m == "single"
+	return m == ServiceModeSingle
 }
 
 // IsActiveFailoverMode returns true when the service is running in activefailover server mode.
 func (m ServiceMode) IsActiveFailoverMode() bool {
-	return m == "activefailover" || m == "resilientsingle" /* keep as alias */
+	return m == ServiceModeActiveFailover || m == ServiceModeResilentSingle /* keep as alias */
 }
 
 // SupportsArangoSync returns true when the given mode support running arangosync on it.

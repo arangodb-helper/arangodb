@@ -35,6 +35,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	"github.com/arangodb-helper/arangodb/client"
 	driver "github.com/arangodb/go-driver"
 	"github.com/rs/zerolog"
@@ -83,7 +85,7 @@ type httpServerContext interface {
 	IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string)
 
 	// serverHostLogFile returns the path of the logfile (in host namespace) to which the given server will write its logs.
-	serverHostLogFile(serverType ServerType) (string, error)
+	serverHostLogFile(serverType definitions.ServerType) (string, error)
 
 	// sendMasterLeaveCluster informs the master that we're leaving for good.
 	// The master will remove the database servers from the cluster and update
@@ -109,7 +111,15 @@ type httpServerContext interface {
 
 	// DatabaseVersion returns the version of the `arangod` binary that is being
 	// used by this starter.
-	DatabaseVersion(context.Context) (driver.Version, error)
+	DatabaseVersion(context.Context) (driver.Version, bool, error)
+
+	CreateClient(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)
+
+	GetLocalFolder() string
+
+	DatabaseFeatures() DatabaseFeatures
+
+	serverHostDir(serverType definitions.ServerType) (string, error)
 }
 
 // newHTTPServer initializes and an HTTP server.
@@ -153,6 +163,8 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 	// External API
 	mux.HandleFunc("/id", s.idHandler)
 	if !idOnly {
+		mux.HandleFunc("/local/inventory", s.localInventory)
+		mux.HandleFunc("/cluster/inventory", s.clusterInventory)
 		mux.HandleFunc("/process", s.processListHandler)
 		mux.HandleFunc("/endpoints", s.endpointsHandler)
 		mux.HandleFunc("/logs/agent", s.agentLogsHandler)
@@ -168,6 +180,9 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		// Agency callback
 		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
 		mux.HandleFunc("/cb/upgradePlanChanged", s.cbUpgradePlanChanged)
+
+		// JWT Rotation
+		s.registerJWTFunctions(mux)
 	}
 
 	s.server.Addr = containerAddr
@@ -360,7 +375,7 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 			expectedServers++
 		}
 
-		createServerProcess := func(serverType ServerType, p Process) client.ServerProcess {
+		createServerProcess := func(serverType definitions.ServerType, p Process) client.ServerProcess {
 			return client.ServerProcess{
 				Type:        client.ServerType(serverType),
 				IP:          ip,
@@ -374,32 +389,32 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 
 		if w := s.runtimeServerManager.agentProc; w != nil {
 			if p := w.Process(); p != nil {
-				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeAgent, p))
+				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeAgent, p))
 			}
 		}
 		if w := s.runtimeServerManager.coordinatorProc; w != nil {
 			if p := w.Process(); p != nil {
-				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeCoordinator, p))
+				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeCoordinator, p))
 			}
 		}
 		if w := s.runtimeServerManager.dbserverProc; w != nil {
 			if p := w.Process(); p != nil {
-				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeDBServer, p))
+				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeDBServer, p))
 			}
 		}
 		if w := s.runtimeServerManager.singleProc; w != nil {
 			if p := w.Process(); p != nil {
-				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSingle, p))
+				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeSingle, p))
 			}
 		}
 		if w := s.runtimeServerManager.syncMasterProc; w != nil {
 			if p := w.Process(); p != nil {
-				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSyncMaster, p))
+				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeSyncMaster, p))
 			}
 		}
 		if w := s.runtimeServerManager.syncWorkerProc; w != nil {
 			if p := w.Process(); p != nil {
-				resp.Servers = append(resp.Servers, createServerProcess(ServerTypeSyncWorker, p))
+				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeSyncWorker, p))
 			}
 		}
 	}
@@ -483,7 +498,7 @@ func (s *httpServer) agentLogsHandler(w http.ResponseWriter, r *http.Request) {
 	_, myPeer, _ := s.context.ClusterConfig()
 
 	if myPeer != nil && myPeer.HasAgent() {
-		s.logsHandler(w, r, ServerTypeAgent)
+		s.logsHandler(w, r, definitions.ServerTypeAgent)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -494,7 +509,7 @@ func (s *httpServer) dbserverLogsHandler(w http.ResponseWriter, r *http.Request)
 	_, myPeer, _ := s.context.ClusterConfig()
 
 	if myPeer != nil && myPeer.HasDBServer() {
-		s.logsHandler(w, r, ServerTypeDBServer)
+		s.logsHandler(w, r, definitions.ServerTypeDBServer)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -505,7 +520,7 @@ func (s *httpServer) coordinatorLogsHandler(w http.ResponseWriter, r *http.Reque
 	_, myPeer, _ := s.context.ClusterConfig()
 
 	if myPeer != nil && myPeer.HasCoordinator() {
-		s.logsHandler(w, r, ServerTypeCoordinator)
+		s.logsHandler(w, r, definitions.ServerTypeCoordinator)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -513,7 +528,7 @@ func (s *httpServer) coordinatorLogsHandler(w http.ResponseWriter, r *http.Reque
 
 // singleLogsHandler serves the entire single server log.
 func (s *httpServer) singleLogsHandler(w http.ResponseWriter, r *http.Request) {
-	s.logsHandler(w, r, ServerTypeSingle)
+	s.logsHandler(w, r, definitions.ServerTypeSingle)
 }
 
 // syncMasterLogsHandler serves the entire sync master log.
@@ -521,7 +536,7 @@ func (s *httpServer) syncMasterLogsHandler(w http.ResponseWriter, r *http.Reques
 	_, myPeer, _ := s.context.ClusterConfig()
 
 	if myPeer != nil && myPeer.HasSyncMaster() {
-		s.logsHandler(w, r, ServerTypeSyncMaster)
+		s.logsHandler(w, r, definitions.ServerTypeSyncMaster)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -532,13 +547,13 @@ func (s *httpServer) syncWorkerLogsHandler(w http.ResponseWriter, r *http.Reques
 	_, myPeer, _ := s.context.ClusterConfig()
 
 	if myPeer != nil && myPeer.HasSyncWorker() {
-		s.logsHandler(w, r, ServerTypeSyncWorker)
+		s.logsHandler(w, r, definitions.ServerTypeSyncWorker)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
 
-func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverType ServerType) {
+func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverType definitions.ServerType) {
 	// Find log path
 	logPath, err := s.context.serverHostLogFile(serverType)
 	if err != nil {
@@ -583,7 +598,7 @@ func (s *httpServer) databaseVersionHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	version, err := s.context.DatabaseVersion(r.Context())
+	version, _, err := s.context.DatabaseVersion(r.Context())
 	if err != nil {
 		handleError(w, err)
 	} else {

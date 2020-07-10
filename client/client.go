@@ -31,6 +31,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/api"
+
 	driver "github.com/arangodb/go-driver"
 	"github.com/pkg/errors"
 )
@@ -51,6 +53,98 @@ var (
 type client struct {
 	endpoint url.URL
 	client   *http.Client
+}
+
+func (c *client) AdminJWTActivate(ctx context.Context, token string) (api.Empty, error) {
+	var q = url.Values{}
+
+	q.Add("token", token)
+
+	url := c.createURL("/admin/jwt/activate", q)
+
+	var result api.Empty
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return api.Empty{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return api.Empty{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "POST", url, &result); err != nil {
+		return api.Empty{}, maskAny(err)
+	}
+
+	return result, nil
+}
+
+func (c *client) AdminJWTRefresh(ctx context.Context) (api.Empty, error) {
+	url := c.createURL("/admin/jwt/refresh", nil)
+
+	var result api.Empty
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return api.Empty{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return api.Empty{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "POST", url, &result); err != nil {
+		return api.Empty{}, maskAny(err)
+	}
+
+	return result, nil
+}
+
+func (c *client) ClusterInventory(ctx context.Context) (api.ClusterInventory, error) {
+	url := c.createURL("/cluster/inventory", nil)
+
+	var result api.ClusterInventory
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return api.ClusterInventory{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return api.ClusterInventory{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return api.ClusterInventory{}, maskAny(err)
+	}
+
+	return result, nil
+}
+
+func (c *client) Inventory(ctx context.Context) (api.Inventory, error) {
+	url := c.createURL("/local/inventory", nil)
+
+	var result api.Inventory
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return api.Inventory{}, maskAny(err)
+	}
+	if ctx != nil {
+		req = req.WithContext(ctx)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return api.Inventory{}, maskAny(err)
+	}
+	if err := c.handleResponse(resp, "GET", url, &result); err != nil {
+		return api.Inventory{}, maskAny(err)
+	}
+
+	return result, nil
 }
 
 const (

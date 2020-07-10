@@ -27,6 +27,8 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"strings"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // validateStorageEngine checks if the given storage engine is a valid one.
@@ -59,22 +61,22 @@ func (s *Service) readActualStorageEngine() (string, error) {
 	}
 
 	_, peer, mode := s.ClusterConfig()
-	var serverType ServerType
+	var serverType definitions.ServerType
 	if mode.IsClusterMode() {
 		// Read engine from dbserver data directory
 		if peer.HasDBServer() {
-			serverType = ServerTypeDBServer
+			serverType = definitions.ServerTypeDBServer
 		} else if peer.HasAgent() {
-			serverType = ServerTypeAgent
+			serverType = definitions.ServerTypeAgent
 		} else {
-			serverType = ServerTypeCoordinator
+			serverType = definitions.ServerTypeCoordinator
 		}
 	} else if mode.IsActiveFailoverMode() {
 		// Read engine from agent data directory
-		serverType = ServerTypeAgent
+		serverType = definitions.ServerTypeAgent
 	} else {
 		// Read engine from single server data directory
-		serverType = ServerTypeSingle
+		serverType = definitions.ServerTypeSingle
 	}
 	// Get directory
 	dataDir, err := s.serverHostDir(serverType)

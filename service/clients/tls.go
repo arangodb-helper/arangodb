@@ -17,9 +17,23 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
+// Author Adam Janikowski
+//
 
-package tools
+package client
 
-import (
-	_ "github.com/aktau/github-release"
-)
+type TLSKeyFile struct {
+	*Entry `json:",inline"`
+
+	PrivateKeyHash string   `json:"privateKeySHA256,omitempty"`
+	Certificates   []string `json:"certificates,omitempty"`
+}
+
+type TLSDetailsResult struct {
+	KeyFile TLSKeyFile            `json:"keyfile,omitempty"`
+	SNI     map[string]TLSKeyFile `json:"SNI,omitempty"`
+}
+
+type TLSDetails struct {
+	Result TLSDetailsResult `json:"result,omitempty"`
+}

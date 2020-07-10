@@ -32,12 +32,16 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
@@ -188,6 +192,7 @@ func (c Config) CreateRunner(log zerolog.Logger) (Runner, Config, bool) {
 // Service implements the actual starter behavior of the ArangoDB starter.
 type Service struct {
 	cfg                Config
+	bsCfg              BootstrapConfig
 	id                 string      // Unique identifier of this peer
 	mode               ServiceMode // Service mode cluster|single
 	startedLocalSlaves bool
@@ -220,8 +225,12 @@ type Service struct {
 	databaseFeatures      DatabaseFeatures
 }
 
+func (s *Service) GetLocalFolder() string {
+	return s.bsCfg.JWTFolderDir()
+}
+
 // NewService creates a new Service instance from the given config.
-func NewService(ctx context.Context, log zerolog.Logger, logService logging.Service, config Config, isLocalSlave bool) *Service {
+func NewService(ctx context.Context, log zerolog.Logger, logService logging.Service, config Config, bsCfg BootstrapConfig, isLocalSlave bool) *Service {
 	// Fix up master addresses
 	for i, addr := range config.MasterAddresses {
 		if !strings.Contains(addr, ":") {
@@ -231,6 +240,7 @@ func NewService(ctx context.Context, log zerolog.Logger, logService logging.Serv
 	}
 	s := &Service{
 		cfg:          config,
+		bsCfg:        bsCfg,
 		log:          log,
 		logService:   logService,
 		state:        stateStart,
@@ -241,34 +251,14 @@ func NewService(ctx context.Context, log zerolog.Logger, logService logging.Serv
 	return s
 }
 
-const (
-	_portOffsetCoordinator = 1 // Coordinator/single server
-	_portOffsetDBServer    = 2
-	_portOffsetAgent       = 3
-	_portOffsetSyncMaster  = 4
-	_portOffsetSyncWorker  = 5
-	portOffsetIncrementOld = 5  // {our http server, agent, coordinator, dbserver, reserved}
-	portOffsetIncrementNew = 10 // {our http server, agent, coordinator, dbserver, syncmaster, syncworker, reserved...}
-)
-
-const (
-	minRecentFailuresForLog = 2   // Number of recent failures needed before a log file is shown.
-	maxRecentFailures       = 100 // Maximum number of recent failures before the starter gives up.
-)
-
-const (
-	arangodConfFileName      = "arangod.conf"
-	arangodJWTSecretFileName = "arangod.jwtsecret"
-)
-
 // detectDatabaseFeatures queries the database version and sets the
 // databaseFeatures field.
 func (s *Service) detectDatabaseFeatures(ctx context.Context) error {
-	v, err := s.DatabaseVersion(ctx)
+	v, enterprise, err := s.DatabaseVersion(ctx)
 	if err != nil {
 		return maskAny(err)
 	}
-	s.databaseFeatures = NewDatabaseFeatures(v)
+	s.databaseFeatures = NewDatabaseFeatures(v, enterprise)
 	return nil
 }
 
@@ -480,7 +470,7 @@ func (s *Service) sendMasterLeaveCluster() error {
 }
 
 // serverPort returns the port number on which my server of given type will listen.
-func (s *Service) serverPort(serverType ServerType) (int, error) {
+func (s *Service) serverPort(serverType definitions.ServerType) (int, error) {
 	myPeer, found := s.myPeers.PeerByID(s.id)
 	if !found {
 		// Cannot find my own peer.
@@ -492,7 +482,7 @@ func (s *Service) serverPort(serverType ServerType) (int, error) {
 }
 
 // serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
-func (s *Service) serverHostDir(serverType ServerType) (string, error) {
+func (s *Service) serverHostDir(serverType definitions.ServerType) (string, error) {
 	myPort, err := s.serverPort(serverType)
 	if err != nil {
 		return "", maskAny(err)
@@ -501,7 +491,7 @@ func (s *Service) serverHostDir(serverType ServerType) (string, error) {
 }
 
 // serverContainerDir returns the path of the folder (in container namespace) containing data for the given server.
-func (s *Service) serverContainerDir(serverType ServerType) (string, error) {
+func (s *Service) serverContainerDir(serverType definitions.ServerType) (string, error) {
 	hostDir, err := s.serverHostDir(serverType)
 	if err != nil {
 		return "", maskAny(err)
@@ -513,7 +503,7 @@ func (s *Service) serverContainerDir(serverType ServerType) (string, error) {
 }
 
 // serverLogFileNameSuffix returns the suffix used for the log file of given server type.
-func (s *Service) serverLogFileNameSuffix(serverType ServerType) (string, error) {
+func (s *Service) serverLogFileNameSuffix(serverType definitions.ServerType) (string, error) {
 	if s.cfg.LogDir != "" {
 		// Use custom log dir
 		port, err := s.serverPort(serverType)
@@ -526,7 +516,7 @@ func (s *Service) serverLogFileNameSuffix(serverType ServerType) (string, error)
 }
 
 // serverHostLogFile returns the path of the logfile (in host namespace) to which the given server will write its logs.
-func (s *Service) serverHostLogFile(serverType ServerType) (string, error) {
+func (s *Service) serverHostLogFile(serverType definitions.ServerType) (string, error) {
 	suffix, err := s.serverLogFileNameSuffix(serverType)
 	if err != nil {
 		return "", maskAny(err)
@@ -543,7 +533,7 @@ func (s *Service) serverHostLogFile(serverType ServerType) (string, error) {
 }
 
 // serverContainerLogFile returns the path of the logfile (in container namespace) to which the given server will write its logs.
-func (s *Service) serverContainerLogFile(serverType ServerType) (string, error) {
+func (s *Service) serverContainerLogFile(serverType definitions.ServerType) (string, error) {
 	suffix, err := s.serverLogFileNameSuffix(serverType)
 	if err != nil {
 		return "", maskAny(err)
@@ -561,14 +551,14 @@ func (s *Service) serverContainerLogFile(serverType ServerType) (string, error) 
 }
 
 // serverExecutable returns the path of the server's executable.
-func (c *Config) serverExecutable(processType ProcessType) string {
+func (c *Config) serverExecutable(processType definitions.ProcessType) string {
 	switch processType {
-	case ProcessTypeArangod:
+	case definitions.ProcessTypeArangod:
 		if c.RrPath != "" {
 			return c.RrPath
 		}
 		return c.ArangodPath
-	case ProcessTypeArangoSync:
+	case definitions.ProcessTypeArangoSync:
 		return c.ArangoSyncPath
 	default:
 		return ""
@@ -595,7 +585,7 @@ type instanceUpInfo struct {
 }
 
 // TestInstance checks the `up` status of an arangod server instance.
-func (s *Service) TestInstance(ctx context.Context, serverType ServerType, address string, port int,
+func (s *Service) TestInstance(ctx context.Context, serverType definitions.ServerType, address string, port int,
 	statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, isLeader bool, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan instanceUpInfo)
 	statusCodes := make(chan int)
@@ -619,30 +609,33 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 		}
 		makeArangodVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
-			url := fmt.Sprintf("%s://%s/_api/version", scheme, addr)
-			req, err := http.NewRequest("GET", url, nil)
+
+			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
 			if err != nil {
 				return "", -1, maskAny(err)
 			}
-			if err := addJwtHeader(req, s.jwtSecret); err != nil {
-				return "", -2, maskAny(err)
+
+			c := client.Connection()
+
+			req, err := c.NewRequest("GET", "/_api/version")
+			if err != nil {
+				return "", -1, maskAny(err)
 			}
-			resp, err := client.Do(req)
+
+			resp, err := c.Do(ctx, req)
 			if err != nil {
 				return "", -3, maskAny(err)
 			}
-			if resp.StatusCode != 200 {
-				return "", resp.StatusCode, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+			if resp.StatusCode() != 200 {
+				return "", resp.StatusCode(), maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
 			}
 			versionResponse := struct {
 				Version string `json:"version"`
 			}{}
-			defer resp.Body.Close()
-			decoder := json.NewDecoder(resp.Body)
-			if err := decoder.Decode(&versionResponse); err != nil {
+			if err := resp.ParseBody("", &versionResponse); err != nil {
 				return "", -4, maskAny(fmt.Errorf("Unexpected version response: %#v", err))
 			}
-			return versionResponse.Version, resp.StatusCode, nil
+			return versionResponse.Version, resp.StatusCode(), nil
 		}
 		makeArangoSyncVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
@@ -674,74 +667,84 @@ func (s *Service) TestInstance(ctx context.Context, serverType ServerType, addre
 		}
 		makeVersionRequest := func() (string, int, error) {
 			switch serverType.ProcessType() {
-			case ProcessTypeArangod:
+			case definitions.ProcessTypeArangod:
 				return makeArangodVersionRequest()
-			case ProcessTypeArangoSync:
+			case definitions.ProcessTypeArangoSync:
 				return makeArangoSyncVersionRequest()
 			default:
 				return "", 0, maskAny(fmt.Errorf("Unknown process type '%s'", serverType.ProcessType()))
 			}
 		}
 		makeRoleRequest := func() (string, string, int, error) {
-			if serverType.ProcessType() == ProcessTypeArangoSync {
+			if serverType.ProcessType() == definitions.ProcessTypeArangoSync {
 				return "", "", 200, nil
 			}
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
-			url := fmt.Sprintf("%s://%s/_admin/server/role", scheme, addr)
-			req, err := http.NewRequest("GET", url, nil)
+
+			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
 			if err != nil {
 				return "", "", -1, maskAny(err)
 			}
-			if err := addJwtHeader(req, s.jwtSecret); err != nil {
-				return "", "", -2, maskAny(err)
+
+			c := client.Connection()
+			req, err := c.NewRequest("GET", "/_admin/server/role")
+			if err != nil {
+				return "", "", -1, maskAny(err)
 			}
-			resp, err := client.Do(req)
+
+			resp, err := c.Do(ctx, req)
 			if err != nil {
 				return "", "", -3, maskAny(err)
 			}
-			if resp.StatusCode != 200 {
-				return "", "", resp.StatusCode, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+			if resp.StatusCode() != 200 {
+				return "", "", resp.StatusCode(), maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode()))
 			}
 			roleResponse := struct {
 				Role string `json:"role,omitempty"`
 				Mode string `json:"mode,omitempty"`
 			}{}
-			defer resp.Body.Close()
-			decoder := json.NewDecoder(resp.Body)
-			if err := decoder.Decode(&roleResponse); err != nil {
+			if err := resp.ParseBody("", &roleResponse); err != nil {
 				return "", "", -4, maskAny(fmt.Errorf("Unexpected role response: %#v", err))
 			}
-			return roleResponse.Role, roleResponse.Mode, resp.StatusCode, nil
+			return roleResponse.Role, roleResponse.Mode, resp.StatusCode(), nil
 		}
 		makeIsLeaderRequest := func() (bool, error) {
-			if serverType != ServerTypeResilientSingle {
+			if serverType != definitions.ServerTypeResilientSingle {
 				return false, nil
 			}
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
-			url := fmt.Sprintf("%s://%s/_api/database", scheme, addr)
-			req, err := http.NewRequest("GET", url, nil)
+
+			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
 			if err != nil {
 				return false, maskAny(err)
 			}
-			if err := addJwtHeader(req, s.jwtSecret); err != nil {
-				return false, maskAny(err)
-			}
-			resp, err := client.Do(req)
+
+			c := client.Connection()
+
+			req, err := c.NewRequest("GET", "/_api/database")
 			if err != nil {
 				return false, maskAny(err)
 			}
-			if resp.StatusCode == 200 {
+
+			resp, err := c.Do(ctx, req)
+			if err != nil {
+				return false, maskAny(err)
+			}
+			if resp.StatusCode() == 200 {
 				return true, nil
 			}
-			defer resp.Body.Close()
-			if data, err := ioutil.ReadAll(resp.Body); err != nil {
+
+			var data driver.ArangoError
+
+			if err := resp.ParseBody("", &data); err != nil {
 				return false, maskAny(err)
-			} else {
-				if IsNoLeaderError(data) {
+			}
+
+			if IsNoLeaderError(data) {
 					// Server is up, just not the leader
 					return false, nil
 				}
-			}
+
 			return false, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
 		}
 
@@ -1002,7 +1005,7 @@ func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
 }
 
 // CreateClient creates a go-driver client with authentication for the given endpoints.
-func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType) (driver.Client, error) {
+func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error) {
 	connConfig := driver_http.ConnectionConfig{
 		Endpoints:          endpoints,
 		DontFollowRedirect: connectionType == ConnectionTypeAgency,
@@ -1020,10 +1023,27 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	default:
 		return nil, maskAny(fmt.Errorf("Unknown ConnectionType: %d", connectionType))
 	}
+
+	secret := s.jwtSecret
+
+	if s.DatabaseFeatures().GetJWTFolderOption() && s.jwtSecret != "" {
+		if serverType != definitions.ServerTypeUnknown {
+			if t, err := s.getFolderToken(serverType); err != nil {
+				return nil, err
+			} else {
+				secret = t
+			}
+		} else {
+			if t, err := s.getFolderToken(definitions.AllServerTypes()...); err == nil {
+				secret = t
+			}
+		}
+	}
+
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	jwtBearer, err := jwt.CreateArangodJwtAuthorizationHeader(s.jwtSecret, "starter")
+	jwtBearer, err := jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
 	if err != nil {
 		return nil, maskAny(err)
 	}
@@ -1035,6 +1055,27 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 		return nil, maskAny(err)
 	}
 	return c, nil
+}
+
+func (s *Service) getFolderToken(serverTypes ... definitions.ServerType) (string, error) {
+	var currentErr = errors.Errorf("Missing ServerType")
+	for _, serverType := range serverTypes {
+		p, err := s.serverHostDir(serverType)
+		if err != nil {
+			currentErr = err
+			continue
+		}
+
+		token, err := ioutil.ReadFile(path.Join(p, definitions.ArangodJWTSecretFolderName, definitions.ArangodJWTSecretActive))
+		if err != nil {
+			currentErr = err
+			continue
+		}
+
+		return strings.TrimSpace(string(token)), nil
+	}
+
+	return "", currentErr
 }
 
 // UpdateClusterConfig updates the current cluster configuration.
@@ -1086,7 +1127,7 @@ func (s *Service) runRotateLogFiles(ctx context.Context) {
 }
 
 // RestartServer triggers a restart of the server of the given type.
-func (s *Service) RestartServer(serverType ServerType) error {
+func (s *Service) RestartServer(serverType definitions.ServerType) error {
 	if err := s.runtimeServerManager.RestartServer(s.log, serverType); err != nil {
 		return maskAny(err)
 	}
@@ -1223,6 +1264,22 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	ctx := context.Background()
 	if err := s.detectDatabaseFeatures(ctx); err != nil {
 		return errors.Wrap(err, "Failed to detect database features")
+	}
+
+	if s.jwtSecret != "" {
+		if s.DatabaseFeatures().GetJWTFolderOption() {
+			os.MkdirAll(bsCfg.JWTFolderDir(), 0600)
+
+			if _, err := os.Stat(bsCfg.JWTFolderDirFile(definitions.ArangodJWTSecretActive)); err != nil {
+				if !os.IsNotExist(err) {
+					return err
+				}
+
+				if err := ioutil.WriteFile(bsCfg.JWTFolderDirFile(definitions.ArangodJWTSecretActive), []byte(s.jwtSecret), 0600); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
 	// Check storage engine

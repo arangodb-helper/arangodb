@@ -621,7 +621,6 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		}
 	}
 
-	// Read jwtSecret (if any)
 	var jwtSecret string
 	if jwtSecretFile != "" {
 		content, err := ioutil.ReadFile(jwtSecretFile)
@@ -703,6 +702,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	bsCfg := service.BootstrapConfig{
 		ID:                       id,
 		Mode:                     service.ServiceMode(mode),
+		DataDir:                  dataDir,
 		AgencySize:               agencySize,
 		StartLocalSlaves:         startLocalSlaves,
 		StartAgent:               mustGetOptionalBoolRef("cluster.start-agent", startAgent),
@@ -762,7 +762,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
 	}
-	service := service.NewService(context.Background(), log, logService, serviceConfig, false)
+	service := service.NewService(context.Background(), log, logService, serviceConfig, bsCfg, false)
 
 	return service, bsCfg
 }

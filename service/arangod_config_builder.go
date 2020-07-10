@@ -42,6 +42,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	"github.com/rs/zerolog"
 )
 
@@ -60,9 +62,9 @@ func fixupEndpointURLSchemeForArangod(u string) string {
 
 // createArangodConf creates an arangod.conf file in the given host directory if it does not yet exists.
 // The arangod.conf file contains all settings that are considered static for the lifetime of the server.
-func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType ServerType, features DatabaseFeatures) ([]Volume, configFile, error) {
-	hostConfFileName := filepath.Join(myHostDir, arangodConfFileName)
-	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
+func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir, myPort string, serverType definitions.ServerType, features DatabaseFeatures) ([]Volume, configFile, error) {
+	hostConfFileName := filepath.Join(myHostDir, definitions.ArangodConfFileName)
+	containerConfFileName := filepath.Join(myContainerDir, definitions.ArangodConfFileName)
 	volumes := addVolume(nil, hostConfFileName, containerConfFileName, true)
 
 	if _, err := os.Stat(hostConfFileName); err == nil {
@@ -146,9 +148,9 @@ func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myC
 
 // createArangodArgs returns the command line arguments needed to run an arangod server of given type.
 func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
-	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool, clusterJWTSecretFile string,
+	myPeerID, myAddress, myPort string, serverType definitions.ServerType, arangodConfig configFile, agentRecoveryID string, databaseAutoUpgrade bool, clusterJWTSecretFile string,
 	features DatabaseFeatures) []string {
-	containerConfFileName := filepath.Join(myContainerDir, arangodConfFileName)
+	containerConfFileName := filepath.Join(myContainerDir, definitions.ArangodConfFileName)
 
 	args := make([]string, 0, 40)
 	options := make([]optionPair, 0, 32)
@@ -170,9 +172,15 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		optionPair{"--log.force-direct", "false"},
 	)
 	if clusterJWTSecretFile != "" {
-		options = append(options,
-			optionPair{"--server.jwt-secret-keyfile", clusterJWTSecretFile},
-		)
+		if !features.GetJWTFolderOption() {
+			options = append(options,
+				optionPair{"--server.jwt-secret-keyfile", clusterJWTSecretFile},
+			)
+		} else {
+			options = append(options,
+				optionPair{"--server.jwt-secret-folder", clusterJWTSecretFile},
+			)
+		}
 	}
 	if !config.RunningInDocker && features.HasCopyInstallationFiles() {
 		options = append(options, optionPair{"--javascript.copy-installation", "true"})
@@ -193,7 +201,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 	scheme := NewURLSchemes(clusterConfig.IsSecure()).Arangod
 	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch serverType {
-	case ServerTypeAgent:
+	case definitions.ServerTypeAgent:
 		options = append(options,
 			optionPair{"--agency.activate", "true"},
 			optionPair{"--agency.my-address", myTCPURL},
@@ -205,7 +213,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		for _, p := range clusterConfig.AllAgents() {
 			if p.ID != myPeerID {
 				options = append(options,
-					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
+					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+definitions.PortOffsetAgent)))},
 				)
 			}
 		}
@@ -214,26 +222,26 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 				optionPair{"--agency.disaster-recovery-id", agentRecoveryID},
 			)
 		}
-	case ServerTypeDBServer:
+	case definitions.ServerTypeDBServer:
 		options = append(options,
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "PRIMARY"},
 			optionPair{"--foxx.queues", "false"},
 			optionPair{"--server.statistics", "true"},
 		)
-	case ServerTypeCoordinator:
+	case definitions.ServerTypeCoordinator:
 		options = append(options,
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "COORDINATOR"},
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 		)
-	case ServerTypeSingle:
+	case definitions.ServerTypeSingle:
 		options = append(options,
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 		)
-	case ServerTypeResilientSingle:
+	case definitions.ServerTypeResilientSingle:
 		options = append(options,
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
@@ -242,18 +250,18 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			optionPair{"--cluster.my-role", "SINGLE"},
 		)
 	}
-	if serverType == ServerTypeCoordinator || serverType == ServerTypeResilientSingle {
+	if serverType == definitions.ServerTypeCoordinator || serverType == definitions.ServerTypeResilientSingle {
 		if config.AdvertisedEndpoint != "" {
 			options = append(options,
 				optionPair{"--cluster.my-advertised-endpoint", fixupEndpointURLSchemeForArangod(config.AdvertisedEndpoint)},
 			)
 		}
 	}
-	if serverType != ServerTypeAgent && serverType != ServerTypeSingle {
+	if serverType != definitions.ServerTypeAgent && serverType != definitions.ServerTypeSingle {
 		for _, p := range clusterConfig.AllAgents() {
 			options = append(options,
 				optionPair{"--cluster.agency-endpoint",
-					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+_portOffsetAgent)))},
+					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+definitions.PortOffsetAgent)))},
 			)
 		}
 	}

@@ -22,7 +22,11 @@
 
 package service
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+)
 
 type PassthroughOption struct {
 	Name   string
@@ -69,29 +73,29 @@ var (
 
 // valueForServerType returns the value for the given option for a specific server type.
 // If no value is given for the specific server type, any value for `all` is returned.
-func (o *PassthroughOption) valueForServerType(serverType ServerType) []string {
+func (o *PassthroughOption) valueForServerType(serverType definitions.ServerType) []string {
 	var result []string
 	switch serverType {
-	case ServerTypeSingle:
+	case definitions.ServerTypeSingle:
 		result = o.Values.All
-	case ServerTypeCoordinator:
+	case definitions.ServerTypeCoordinator:
 		result = o.Values.Coordinators
-	case ServerTypeDBServer, ServerTypeResilientSingle:
+	case definitions.ServerTypeDBServer, definitions.ServerTypeResilientSingle:
 		result = o.Values.DBServers
-	case ServerTypeAgent:
+	case definitions.ServerTypeAgent:
 		result = o.Values.Agents
-	case ServerTypeSyncMaster:
+	case definitions.ServerTypeSyncMaster:
 		result = o.Values.SyncMasters
-	case ServerTypeSyncWorker:
+	case definitions.ServerTypeSyncWorker:
 		result = o.Values.SyncWorkers
 	}
 	if len(result) > 0 {
 		return result
 	}
 	switch serverType.ProcessType() {
-	case ProcessTypeArangod:
+	case definitions.ProcessTypeArangod:
 		return o.Values.All
-	case ProcessTypeArangoSync:
+	case definitions.ProcessTypeArangoSync:
 		return o.Values.AllSync
 	default:
 		return nil
@@ -128,7 +132,7 @@ func (o *PassthroughOption) sectionKey() string {
 	return ""
 }
 
-func (c *Config) passthroughOptionValuesForServerType(name string, serverType ServerType) []string {
+func (c *Config) passthroughOptionValuesForServerType(name string, serverType definitions.ServerType) []string {
 	for _, ptOpt := range c.PassthroughOptions {
 		if ptOpt.Name != name {
 			continue

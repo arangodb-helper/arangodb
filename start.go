@@ -32,8 +32,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	"github.com/arangodb-helper/arangodb/client"
-	svc "github.com/arangodb-helper/arangodb/service"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -155,7 +156,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 				allUp := true
 				for _, server := range list.Servers {
 					ctx, cancel := context.WithTimeout(rootCtx, time.Second)
-					up, _, _, _, _, _, _, _ := service.TestInstance(ctx, svc.ServerType(server.Type), server.IP, server.Port, nil)
+					up, _, _, _, _, _, _, _ := service.TestInstance(ctx, definitions.ServerType(server.Type), server.IP, server.Port, nil)
 					cancel()
 					if !up {
 						allUp = false

@@ -18,8 +18,26 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 
-package tools
+package api
 
-import (
-	_ "github.com/aktau/github-release"
-)
+type Error struct {
+	Error string `json:"Error,omitempty"`
+}
+
+func (e *Error) String() string {
+	if e == nil {
+		return ""
+	}
+
+	return e.Error
+}
+
+func NewError(err error) *Error {
+	if err == nil {
+		return nil
+	}
+
+	return &Error{
+		Error: err.Error(),
+	}
+}

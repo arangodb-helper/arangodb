@@ -34,6 +34,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	"github.com/arangodb-helper/arangodb/pkg/logging"
 	"github.com/rs/zerolog"
 )
@@ -58,17 +60,17 @@ type runtimeServerManagerContext interface {
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
 
 	// serverPort returns the port number on which my server of given type will listen.
-	serverPort(serverType ServerType) (int, error)
+	serverPort(serverType definitions.ServerType) (int, error)
 
 	// serverHostDir returns the path of the folder (in host namespace) containing data for the given server.
-	serverHostDir(serverType ServerType) (string, error)
+	serverHostDir(serverType definitions.ServerType) (string, error)
 	// serverContainerDir returns the path of the folder (in container namespace) containing data for the given server.
-	serverContainerDir(serverType ServerType) (string, error)
+	serverContainerDir(serverType definitions.ServerType) (string, error)
 
 	// serverHostLogFile returns the path of the logfile (in host namespace) to which the given server will write its logs.
-	serverHostLogFile(serverType ServerType) (string, error)
+	serverHostLogFile(serverType definitions.ServerType) (string, error)
 	// serverContainerLogFile returns the path of the logfile (in container namespace) to which the given server will write its logs.
-	serverContainerLogFile(serverType ServerType) (string, error)
+	serverContainerLogFile(serverType definitions.ServerType) (string, error)
 
 	// removeRecoveryFile removes any recorded RECOVERY file.
 	removeRecoveryFile()
@@ -77,7 +79,7 @@ type runtimeServerManagerContext interface {
 	UpgradeManager() UpgradeManager
 
 	// TestInstance checks the `up` status of an arangod server instance.
-	TestInstance(ctx context.Context, serverType ServerType, address string, port int,
+	TestInstance(ctx context.Context, serverType definitions.ServerType, address string, port int,
 		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, isLeader bool, statusTrail []int, cancelled bool)
 
 	// IsLocalSlave returns true if this peer is running as a local slave
@@ -92,7 +94,7 @@ type runtimeServerManagerContext interface {
 
 // startServer starts a single Arangod/Arangosync server of the given type.
 func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
-	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType ServerType, features DatabaseFeatures, restart int) (Process, bool, error) {
+	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -112,6 +114,7 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 
 	os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 	os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
+	os.MkdirAll(filepath.Join(myHostDir, definitions.ArangodJWTSecretFolderName), 0600)
 
 	// Check if the server is already running
 	log.Info().Msgf("Looking for a running instance of %s on port %d", serverType, myPort)
@@ -147,17 +150,17 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	var confVolumes []Volume
 	var arangodConfig configFile
 	var containerSecretFileName string
-	if processType == ProcessTypeArangod {
+	if processType == definitions.ProcessTypeArangod {
 		var err error
 		confVolumes, arangodConfig, err = createArangodConf(log, bsCfg, myHostDir, myContainerDir, strconv.Itoa(myPort), serverType, features)
 		if err != nil {
 			return nil, false, maskAny(err)
 		}
 	}
-	if processType == ProcessTypeArangoSync || features.HasJWTSecretFileOption() {
+	if processType == definitions.ProcessTypeArangoSync || features.HasJWTSecretFileOption() {
 		var err error
 		var secretFileVolumes []Volume
-		secretFileVolumes, containerSecretFileName, err = createArangoClusterSecretFile(log, bsCfg, myHostDir, myContainerDir, serverType)
+		secretFileVolumes, containerSecretFileName, err = createArangoClusterSecretFile(log, bsCfg, myHostDir, myContainerDir, serverType, features)
 		if err != nil {
 			return nil, false, maskAny(err)
 		}
@@ -199,7 +202,7 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 }
 
 // showRecentLogs dumps the most recent log lines of the server of given type to the console.
-func (s *runtimeServerManager) showRecentLogs(log zerolog.Logger, runtimeContext runtimeServerManagerContext, serverType ServerType) {
+func (s *runtimeServerManager) showRecentLogs(log zerolog.Logger, runtimeContext runtimeServerManagerContext, serverType definitions.ServerType) {
 	logPath, err := runtimeContext.serverHostLogFile(serverType)
 	if err != nil {
 		log.Error().Err(err).Msg("Cannot find server host log file")
@@ -239,7 +242,7 @@ func (s *runtimeServerManager) showRecentLogs(log zerolog.Logger, runtimeContext
 }
 
 // rotateLogFile rotates the log file of a single server.
-func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, myPeer Peer, serverType ServerType, p Process, filesToKeep int) {
+func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, myPeer Peer, serverType definitions.ServerType, p Process, filesToKeep int) {
 	if p == nil {
 		return
 	}
@@ -297,32 +300,32 @@ func (s *runtimeServerManager) RotateLogFiles(ctx context.Context, log zerolog.L
 	} else {
 		if w := s.syncWorkerProc; w != nil {
 			if p := w.Process(); p != nil {
-				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeSyncWorker, p, config.LogRotateFilesToKeep)
+				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, definitions.ServerTypeSyncWorker, p, config.LogRotateFilesToKeep)
 			}
 		}
 		if w := s.syncMasterProc; w != nil {
 			if p := w.Process(); p != nil {
-				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeSyncMaster, p, config.LogRotateFilesToKeep)
+				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, definitions.ServerTypeSyncMaster, p, config.LogRotateFilesToKeep)
 			}
 		}
 		if w := s.singleProc; w != nil {
 			if p := w.Process(); p != nil {
-				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeSingle, p, config.LogRotateFilesToKeep)
+				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, definitions.ServerTypeSingle, p, config.LogRotateFilesToKeep)
 			}
 		}
 		if w := s.coordinatorProc; w != nil {
 			if p := w.Process(); p != nil {
-				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeCoordinator, p, config.LogRotateFilesToKeep)
+				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, definitions.ServerTypeCoordinator, p, config.LogRotateFilesToKeep)
 			}
 		}
 		if w := s.dbserverProc; w != nil {
 			if p := w.Process(); p != nil {
-				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeDBServer, p, config.LogRotateFilesToKeep)
+				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, definitions.ServerTypeDBServer, p, config.LogRotateFilesToKeep)
 			}
 		}
 		if w := s.agentProc; w != nil {
 			if p := w.Process(); p != nil {
-				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, ServerTypeAgent, p, config.LogRotateFilesToKeep)
+				s.rotateLogFile(ctx, log, runtimeContext, *myPeer, definitions.ServerTypeAgent, p, config.LogRotateFilesToKeep)
 			}
 		}
 	}
@@ -340,44 +343,44 @@ func (s *runtimeServerManager) Run(ctx context.Context, log zerolog.Logger, runt
 	if mode.IsClusterMode() {
 		// Start agent:
 		if myPeer.HasAgent() {
-			s.agentProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, time.Minute)
+			s.agentProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, definitions.ServerTypeAgent, time.Minute)
 			time.Sleep(time.Second)
 		}
 
 		// Start DBserver:
 		if bsCfg.StartDBserver == nil || *bsCfg.StartDBserver {
-			s.dbserverProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeDBServer, time.Minute)
+			s.dbserverProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, definitions.ServerTypeDBServer, time.Minute)
 			time.Sleep(time.Second)
 		}
 
 		// Start Coordinator:
 		if bsCfg.StartCoordinator == nil || *bsCfg.StartCoordinator {
-			s.coordinatorProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeCoordinator, time.Minute)
+			s.coordinatorProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, definitions.ServerTypeCoordinator, time.Minute)
 		}
 
 		// Start sync master
 		if bsCfg.StartSyncMaster == nil || *bsCfg.StartSyncMaster {
-			s.syncMasterProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSyncMaster, time.Minute)
+			s.syncMasterProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, definitions.ServerTypeSyncMaster, time.Minute)
 		}
 
 		// Start sync worker
 		if bsCfg.StartSyncWorker == nil || *bsCfg.StartSyncWorker {
-			s.syncWorkerProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSyncWorker, time.Minute)
+			s.syncWorkerProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, definitions.ServerTypeSyncWorker, time.Minute)
 		}
 	} else if mode.IsActiveFailoverMode() {
 		// Start agent:
 		if myPeer.HasAgent() {
-			s.agentProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeAgent, time.Minute)
+			s.agentProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, definitions.ServerTypeAgent, time.Minute)
 			time.Sleep(time.Second)
 		}
 
 		// Start Single server:
 		if myPeer.HasResilientSingle() {
-			s.singleProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeResilientSingle, time.Minute)
+			s.singleProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, definitions.ServerTypeResilientSingle, time.Minute)
 		}
 	} else if mode.IsSingleMode() {
 		// Start Single server:
-		s.singleProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, ServerTypeSingle, time.Minute)
+		s.singleProc = NewProcessWrapper(s, ctx, log, runtimeContext, runner, config, bsCfg, *myPeer, definitions.ServerTypeSingle, time.Minute)
 	}
 
 	// Wait until context is cancelled, then we'll stop
@@ -469,26 +472,26 @@ func (s *runtimeServerManager) Run(ctx context.Context, log zerolog.Logger, runt
 }
 
 // RestartServer triggers a restart of the server of the given type.
-func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType ServerType) error {
+func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType definitions.ServerType) error {
 	var p Process
 	var name string
 	switch serverType {
-	case ServerTypeAgent:
+	case definitions.ServerTypeAgent:
 		p = s.agentProc.Process()
 		name = "agent"
-	case ServerTypeDBServer:
+	case definitions.ServerTypeDBServer:
 		p = s.dbserverProc.Process()
 		name = "dbserver"
-	case ServerTypeCoordinator:
+	case definitions.ServerTypeCoordinator:
 		p = s.coordinatorProc.Process()
 		name = "coordinator"
-	case ServerTypeSingle, ServerTypeResilientSingle:
+	case definitions.ServerTypeSingle, definitions.ServerTypeResilientSingle:
 		p = s.singleProc.Process()
 		name = "single server"
-	case ServerTypeSyncMaster:
+	case definitions.ServerTypeSyncMaster:
 		p = s.syncMasterProc.Process()
 		name = "sync master"
-	case ServerTypeSyncWorker:
+	case definitions.ServerTypeSyncWorker:
 		p = s.syncWorkerProc.Process()
 		name = "sync worker"
 	default:

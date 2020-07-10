@@ -27,11 +27,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	"github.com/rs/zerolog"
 )
 
 func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
-	config Config, bsCfg BootstrapConfig, myPeer Peer, serverType ServerType, gracePeriod time.Duration) ProcessWrapper {
+	config Config, bsCfg BootstrapConfig, myPeer Peer, serverType definitions.ServerType, gracePeriod time.Duration) ProcessWrapper {
 	p := &processWrapper{
 		s:              s,
 		ctx:            ctx,
@@ -72,7 +74,7 @@ type processWrapper struct {
 	config         Config
 	bsCfg          BootstrapConfig
 	myPeer         Peer
-	serverType     ServerType
+	serverType     definitions.ServerType
 	gracePeriod    time.Duration
 
 	lock sync.Mutex
@@ -163,11 +165,11 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 				if up, correctRole, version, role, mode, isLeader, statusTrail, cancelled := p.runtimeContext.TestInstance(ctx, p.serverType, myHostAddress, port, statusChanged); !cancelled {
 					if up && correctRole {
 						msgPostfix := ""
-						if p.serverType == ServerTypeResilientSingle && !isLeader {
+						if p.serverType == definitions.ServerTypeResilientSingle && !isLeader {
 							msgPostfix = " as follower"
 						}
 						p.log.Info().Msgf("%s up and running%s (version %s).", p.serverType, msgPostfix, version)
-						if (p.serverType == ServerTypeCoordinator && !p.runtimeContext.IsLocalSlave()) || p.serverType == ServerTypeSingle || p.serverType == ServerTypeResilientSingle {
+						if (p.serverType == definitions.ServerTypeCoordinator && !p.runtimeContext.IsLocalSlave()) || p.serverType == definitions.ServerTypeSingle || p.serverType == definitions.ServerTypeResilientSingle {
 							hostPort, err := proc.HostPort(port)
 							if err != nil {
 								if id := proc.ContainerID(); id != "" {
@@ -176,13 +178,13 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 							} else {
 								ip := p.myPeer.Address
 								urlSchemes := NewURLSchemes(p.myPeer.IsSecure)
-								what := "cluster"
-								if p.serverType == ServerTypeSingle {
+								what := ServiceModeCluster
+								if p.serverType == definitions.ServerTypeSingle {
 									what = "single server"
-								} else if p.serverType == ServerTypeResilientSingle {
+								} else if p.serverType == definitions.ServerTypeResilientSingle {
 									what = "resilient single server"
 								}
-								if p.serverType != ServerTypeResilientSingle || isLeader {
+								if p.serverType != definitions.ServerTypeResilientSingle || isLeader {
 									p.s.logMutex.Lock()
 									p.log.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
 									p.log.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
@@ -191,7 +193,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 								p.runtimeContext.removeRecoveryFile()
 							}
 						}
-						if p.serverType == ServerTypeSyncMaster && !p.runtimeContext.IsLocalSlave() {
+						if p.serverType == definitions.ServerTypeSyncMaster && !p.runtimeContext.IsLocalSlave() {
 							hostPort, err := proc.HostPort(port)
 							if err != nil {
 								if id := proc.ContainerID(); id != "" {
@@ -262,12 +264,12 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			if isRecentFailure && !p.s.stopping {
 				if !portInUse {
 					p.log.Info().Msgf("%s has terminated quickly, in %s (recent failures: %d)", p.serverType, uptime, recentFailures)
-					if recentFailures >= minRecentFailuresForLog {
+					if recentFailures >= definitions.MinRecentFailuresForLog {
 						// Show logs of the server
 						p.s.showRecentLogs(p.log, p.runtimeContext, p.serverType)
 					}
 				}
-				if recentFailures >= maxRecentFailures {
+				if recentFailures >= definitions.MaxRecentFailures {
 					p.log.Error().Msgf("%s has failed %d times, giving up", p.serverType, recentFailures)
 					p.runtimeContext.Stop()
 					p.s.stopping = true

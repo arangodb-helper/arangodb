@@ -36,6 +36,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	driver "github.com/arangodb/go-driver"
 )
 
@@ -131,7 +133,7 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 
 		// Find agent ID
 		found := false
-		agentPort := peer.Port + peer.PortOffset + ServerType(ServerTypeAgent).PortOffset()
+		agentPort := peer.Port + peer.PortOffset + definitions.ServerType(definitions.ServerTypeAgent).PortOffset()
 		expectedAgentHost := strings.ToLower(net.JoinHostPort(peer.Address, strconv.Itoa(agentPort)))
 		foundAgentHosts := make([]string, 0, len(h.Health))
 		for id, server := range h.Health {
@@ -158,7 +160,7 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 		}
 
 		// Remove agent data directory
-		agentDataDir, err := s.serverHostDir(ServerTypeAgent)
+		agentDataDir, err := s.serverHostDir(definitions.ServerTypeAgent)
 		if err != nil {
 			s.log.Error().Err(err).Msg("Cannot get agent directory")
 			return bsCfg, maskAny(err)

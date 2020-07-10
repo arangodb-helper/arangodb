@@ -18,8 +18,34 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 
-package tools
+package api
 
 import (
-	_ "github.com/aktau/github-release"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	client "github.com/arangodb-helper/arangodb/service/clients"
+	"github.com/arangodb/go-driver"
 )
+
+type ClusterInventory struct {
+	Peers map[string]Inventory `json:"peers,omitempty"`
+
+	*Error `json:",inline"`
+}
+
+type Inventory struct {
+	Members map[definitions.ServerType]MemberInventory `json:"members,omitempty"`
+
+	*Error `json:",inline"`
+}
+
+type MemberInventory struct {
+	Version driver.VersionInfo `json:"version"`
+
+	Hashes *MemberHashes `json:"hashes,omitempty"`
+
+	*Error `json:",inline"`
+}
+
+type MemberHashes struct {
+	JWT client.JWTDetailsResult `json:"jwt"`
+}

@@ -25,8 +25,12 @@ package client
 import (
 	"context"
 
+	"github.com/arangodb-helper/arangodb/pkg/api"
+
 	driver "github.com/arangodb/go-driver"
 )
+
+var _ API = &client{}
 
 // API is the interface implemented by the starter's HTTP API's.
 type API interface {
@@ -71,6 +75,14 @@ type API interface {
 
 	// Status returns the status of any upgrade plan
 	UpgradeStatus(context.Context) (UpgradeStatus, error)
+
+	Inventory(ctx context.Context) (api.Inventory, error)
+
+	ClusterInventory(ctx context.Context) (api.ClusterInventory, error)
+
+	AdminJWTRefresh(ctx context.Context) (api.Empty, error)
+
+	AdminJWTActivate(ctx context.Context, token string) (api.Empty, error)
 }
 
 // IDInfo contains the ID of the starter

@@ -39,40 +39,106 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/pkg/errors"
 
 	"github.com/rs/zerolog"
 )
 
 // createArangoClusterSecretFile creates an arangod.jwtsecret file in the given host directory if it does not yet exists.
 // The arangod.jwtsecret file contains the JWT secret used to authenticate with the local cluster.
-func createArangoClusterSecretFile(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir string, serverType ServerType) ([]Volume, string, error) {
+func createArangoClusterSecretFile(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myContainerDir string, serverType definitions.ServerType, features DatabaseFeatures) ([]Volume, string, error) {
+
 	// Is there a secret set?
-	if bsCfg.JwtSecret == "" {
-		return nil, "", nil
-	}
+	if bsCfg.JwtSecret != "" {
+		if features.GetJWTFolderOption() {
+			// Yes there is a secret
+			hostSecretFolderName := filepath.Join(myHostDir, definitions.ArangodJWTSecretFolderName)
+			containerSecretFolderName := filepath.Join(myContainerDir, definitions.ArangodJWTSecretFolderName)
+			volumes := addVolume(nil, hostSecretFolderName, containerSecretFolderName, true)
 
-	// Yes there is a secret
-	hostSecretFileName := filepath.Join(myHostDir, arangodJWTSecretFileName)
-	containerSecretFileName := filepath.Join(myContainerDir, arangodJWTSecretFileName)
-	volumes := addVolume(nil, hostSecretFileName, containerSecretFileName, true)
+			files, err := ioutil.ReadDir(hostSecretFolderName)
+			if err != nil {
+				return nil, "", err
+			}
 
-	if _, err := os.Stat(hostSecretFileName); err == nil {
-		// Arangod.jwtsecret already exists
-		return volumes, containerSecretFileName, nil
-	}
+			files = FilterFiles(files, FilterOnlyFiles)
 
-	// Create arangod.jwtsecret file now
-	if err := ioutil.WriteFile(hostSecretFileName, []byte(bsCfg.JwtSecret), 0600); err != nil {
-		return nil, "", maskAny(err)
+			if len(files) != 0 {
+				return volumes, containerSecretFolderName, nil
+			}
+
+			if files, err := ioutil.ReadDir(hostSecretFolderName); err != nil {
+				return nil, "", err
+			} else {
+				// Cleanup old files
+				for _, f := range files {
+					if err := os.Remove(filepath.Join(hostSecretFolderName, f.Name())); err != nil {
+						return nil, "", err
+					}
+				}
+			}
+
+			files, err = ioutil.ReadDir(bsCfg.JWTFolderDir())
+			if err != nil {
+				return nil, "", err
+			}
+
+			files = FilterFiles(files, FilterOnlyFiles)
+
+			if len(files) == 0 {
+				return nil, "", errors.Errorf("Unable to find any usable file")
+			}
+
+			for _, f := range files {
+				h, err := ioutil.ReadFile(filepath.Join(bsCfg.JWTFolderDir(), f.Name()))
+				if err != nil {
+					return nil, "", err
+				}
+
+				if err := ioutil.WriteFile(filepath.Join(hostSecretFolderName, Sha256sum(h)), h, 0600); err != nil {
+					return nil, "", err
+				}
+			}
+			h, err := ioutil.ReadFile(filepath.Join(bsCfg.JWTFolderDir(), files[0].Name()))
+			if err != nil {
+				return nil, "", err
+			}
+
+			if err := ioutil.WriteFile(filepath.Join(hostSecretFolderName, definitions.ArangodJWTSecretActive), h, 0600); err != nil {
+				return nil, "", err
+			}
+
+			return volumes, containerSecretFolderName, nil
+		} else {
+
+			// Yes there is a secret
+			hostSecretFileName := filepath.Join(myHostDir, definitions.ArangodJWTSecretFileName)
+			containerSecretFileName := filepath.Join(myContainerDir, definitions.ArangodJWTSecretFileName)
+			volumes := addVolume(nil, hostSecretFileName, containerSecretFileName, true)
+
+			if _, err := os.Stat(hostSecretFileName); err == nil {
+				// Arangod.jwtsecret already exists
+				return volumes, containerSecretFileName, nil
+			}
+
+			// Create arangod.jwtsecret file now
+			if err := ioutil.WriteFile(hostSecretFileName, []byte(bsCfg.JwtSecret), 0600); err != nil {
+				return nil, "", maskAny(err)
+			}
+			return volumes, containerSecretFileName, nil
+		}
 	}
-	return volumes, containerSecretFileName, nil
+	return nil, "", nil
 }
 
 // createArangoSyncArgs returns the command line arguments needed to run an arangosync server of given type.
 func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
-	myPeerID, myAddress, myPort string, serverType ServerType, clusterJWTSecretFile string) ([]string, error) {
+	myPeerID, myAddress, myPort string, serverType definitions.ServerType, clusterJWTSecretFile string, features DatabaseFeatures) ([]string, error) {
 
 	options := make([]optionPair, 0, 32)
 	executable := config.ArangoSyncPath
@@ -92,7 +158,7 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 			optionPair{"--log.level", "debug"})
 	}
 	switch serverType {
-	case ServerTypeSyncMaster:
+	case definitions.ServerTypeSyncMaster:
 		args = append(args, "run", "master")
 		options = append(options,
 			optionPair{"--server.keyfile", config.SyncMasterKeyFile},
@@ -100,9 +166,15 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 			optionPair{"--mq.type", config.SyncMQType},
 		)
 		if clusterJWTSecretFile != "" {
-			options = append(options,
-				optionPair{"--cluster.jwt-secret", clusterJWTSecretFile},
-			)
+			if !features.GetJWTFolderOption() {
+				options = append(options,
+					optionPair{"--cluster.jwt-secret", clusterJWTSecretFile},
+				)
+			} else {
+				options = append(options,
+					optionPair{"--cluster.jwt-secret", path.Join(clusterJWTSecretFile, definitions.ArangodJWTSecretActive)},
+				)
+			}
 		}
 		if clusterEPs, err := clusterConfig.GetCoordinatorEndpoints(); err == nil {
 			if len(clusterEPs) == 0 {
@@ -116,7 +188,7 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 			log.Error().Err(err).Msg("Cannot find coordinator endpoints")
 			return nil, maskAny(err)
 		}
-	case ServerTypeSyncWorker:
+	case definitions.ServerTypeSyncWorker:
 		args = append(args, "run", "worker")
 		if syncMasterEPs, err := clusterConfig.GetSyncMasterEndpoints(); err == nil {
 			if len(syncMasterEPs) == 0 {
@@ -155,10 +227,10 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 	return args, nil
 }
 
-func isOptionSuitableForArangoSyncServer(serverType ServerType, optionName string) bool {
+func isOptionSuitableForArangoSyncServer(serverType definitions.ServerType, optionName string) bool {
 	switch serverType {
-	case ServerTypeSyncMaster:
-	case ServerTypeSyncWorker:
+	case definitions.ServerTypeSyncMaster:
+	case definitions.ServerTypeSyncWorker:
 		if strings.HasPrefix(optionName, "mq.") || strings.HasPrefix(optionName, "cluster.") {
 			return false
 		}

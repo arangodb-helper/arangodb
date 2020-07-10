@@ -25,7 +25,9 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"github.com/arangodb/go-driver"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 )
@@ -90,4 +92,20 @@ func getURLWithPath(rootURL string, relPath string) (string, error) {
 		query = "?" + parts[1]
 	}
 	return u.String() + query, nil
+}
+
+type causer interface {
+	Cause() error
+}
+
+func getErrorCodeFromError(err error) int {
+	if e, ok := err.(driver.ArangoError); ok {
+		return e.Code
+	}
+
+	if c, ok := err.(causer); ok && c.Cause() != err {
+		return getErrorCodeFromError(c.Cause())
+	}
+
+	return http.StatusInternalServerError
 }

@@ -17,9 +17,19 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
+// Author Adam Janikowski
+//
 
-package tools
+package client
 
-import (
-	_ "github.com/aktau/github-release"
-)
+type EncryptionDetailsResult struct {
+	Keys Entries `json:"encryption-keys,omitempty"`
+}
+
+func (e EncryptionDetailsResult) KeysPresent(m map[string][]byte) bool {
+	return e.Keys.KeysPresent(m)
+}
+
+type EncryptionDetails struct {
+	Result EncryptionDetailsResult `json:"result,omitempty"`
+}

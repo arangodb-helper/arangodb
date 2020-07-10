@@ -28,6 +28,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	driver "github.com/arangodb/go-driver"
 )
 
@@ -99,10 +101,10 @@ func (p Peer) CreateStarterURL(relPath string) string {
 // CreateDBServerAPI creates a client for the dbserver of the peer
 func (p Peer) CreateDBServerAPI(clientBuilder ClientBuilder) (driver.Client, error) {
 	if p.HasDBServer() {
-		port := p.Port + p.PortOffset + ServerType(ServerTypeDBServer).PortOffset()
+		port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeDBServer).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
 		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase)
+		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeDBServer)
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -111,13 +113,24 @@ func (p Peer) CreateDBServerAPI(clientBuilder ClientBuilder) (driver.Client, err
 	return nil, maskAny(fmt.Errorf("Peer has no dbserver"))
 }
 
+func (p Peer) CreateClient(clientBuilder ClientBuilder, t definitions.ServerType) (driver.Client, error) {
+	port := p.Port + p.PortOffset + definitions.ServerType(t).PortOffset()
+	scheme := NewURLSchemes(p.IsSecure).Browser
+	ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+	c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase, t)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return c, nil
+}
+
 // CreateCoordinatorAPI creates a client for the coordinator of the peer
 func (p Peer) CreateCoordinatorAPI(clientBuilder ClientBuilder) (driver.Client, error) {
 	if p.HasCoordinator() {
-		port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
+		port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeCoordinator).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
 		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase)
+		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeCoordinator)
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -129,10 +142,10 @@ func (p Peer) CreateCoordinatorAPI(clientBuilder ClientBuilder) (driver.Client, 
 // CreateAgentAPI creates a client for the agent of the peer
 func (p Peer) CreateAgentAPI(clientBuilder ClientBuilder) (driver.Client, error) {
 	if p.HasAgent() {
-		port := p.Port + p.PortOffset + ServerType(ServerTypeAgent).PortOffset()
+		port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeAgent).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
 		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase)
+		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeAgent)
 		if err != nil {
 			return nil, maskAny(err)
 		}
