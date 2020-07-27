@@ -78,6 +78,16 @@ type LoggerOutputOptions struct {
 	LogFile string // Path of file to write to
 }
 
+func configureLogger(lg zerolog.ConsoleWriter) zerolog.ConsoleWriter {
+	lg.TimeFormat = "2006-01-02T15:04:05-07:00"
+
+	lg.FormatLevel = func(i interface{}) string {
+		return fmt.Sprintf("|%s|", strings.ToUpper(fmt.Sprintf("%s", i)))
+	}
+
+	return lg
+}
+
 // NewRootLogger creates a new zerolog logger with default settings.
 func NewRootLogger(options LoggerOutputOptions) (zerolog.Logger, func()) {
 	var writers []io.Writer
@@ -92,10 +102,10 @@ func NewRootLogger(options LoggerOutputOptions) (zerolog.Logger, func()) {
 			rotate = func() { fileWriter.Rotate() }
 			writer := io.Writer(fileWriter)
 			if !options.JSON {
-				writer = zerolog.ConsoleWriter{
+				writer = configureLogger(zerolog.ConsoleWriter{
 					Out:     fileWriter,
 					NoColor: true,
-				}
+				})
 			}
 			writers = append(writers, writer)
 		}
@@ -103,10 +113,10 @@ func NewRootLogger(options LoggerOutputOptions) (zerolog.Logger, func()) {
 	if options.Stderr {
 		writer := io.Writer(os.Stderr)
 		if !options.JSON {
-			writer = zerolog.ConsoleWriter{
+			writer = configureLogger(zerolog.ConsoleWriter{
 				Out:     writer,
 				NoColor: !options.Color,
-			}
+			})
 		}
 		writers = append(writers, writer)
 	}

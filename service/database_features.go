@@ -22,7 +22,10 @@
 
 package service
 
-import driver "github.com/arangodb/go-driver"
+import (
+	"github.com/arangodb-helper/arangodb/pkg/features"
+	driver "github.com/arangodb/go-driver"
+)
 
 // DatabaseFeatures provides information about the features provided by the
 // database in a given version.
@@ -85,5 +88,8 @@ func (v DatabaseFeatures) HasJWTSecretFileOption() bool {
 }
 
 func (v DatabaseFeatures) GetJWTFolderOption() bool {
-	return v.Enterprise && v.Version.CompareTo("3.7.0") >= 0
+	return features.JWTRotation().Enabled(features.Version{
+		Version:    v.Version,
+		Enterprise: v.Enterprise,
+	})
 }

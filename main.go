@@ -36,6 +36,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/features"
+
 	driver "github.com/arangodb/go-driver"
 	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
@@ -195,6 +197,9 @@ func init() {
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
 	f.DurationVar(&instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
+	if err := features.JWTRotation().Register(f); err != nil {
+		panic(err)
+	}
 
 	pf.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 	pf.BoolVar(&logOutput.Console, "log.console", true, "Send log output to console")

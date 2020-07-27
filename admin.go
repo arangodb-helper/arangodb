@@ -31,35 +31,42 @@ import (
 
 var (
 	cmdAdmin = &cobra.Command{
-		Use: "admin",
+		Use:  "admin",
+		Long: `ArangoDB Starter admin commands to manage and fetch current cluster state.`,
 	}
 
 	cmdInventory = &cobra.Command{
-		Use: "inventory",
+		Use:  "inventory",
+		Long: `Fetch inventory details about members including versions, and if supported, JWT Checksums`,
 	}
 
 	cmdJWT = &cobra.Command{
-		Use: "jwt",
+		Use:  "jwt",
+		Long: `Cluster JWT Management. Requires Enterprise 3.7.1+`,
 	}
 
 	cmdJWTRefresh = &cobra.Command{
-		Use: "refresh",
-		Run:jwtRefresh,
+		Use:  "refresh",
+		Run:  jwtRefresh,
+		Long: `Reload local JWT Tokens from Starter JWT folder. Starter will remove obsolete keys if they are not used as Active on any member in inventory.`,
 	}
 
 	cmdJWTActivate = &cobra.Command{
-		Use: "activate",
-		Run:jwtActivate,
+		Use:  "activate",
+		Run:  jwtActivate,
+		Long: `Activate JWT Token. Token needs to be installed on all instances, at least in passive mode.`,
 	}
 
 	cmdInventoryLocal = &cobra.Command{
-		Use: "local",
-		Run: localInventory,
+		Use:  "local",
+		Run:  localInventory,
+		Long: `Fetch inventory details about current starter instance members`,
 	}
 
 	cmdInventoryCluster = &cobra.Command{
-		Use: "cluster",
-		Run: clusterInventory,
+		Use:  "cluster",
+		Run:  clusterInventory,
+		Long: `Fetch inventory details about starter instances members from cluster`,
 	}
 
 	adminOptions struct {

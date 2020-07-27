@@ -25,11 +25,12 @@ package service
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"github.com/arangodb/go-driver"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/arangodb/go-driver"
 )
 
 // createUniqueID creates a new random ID.

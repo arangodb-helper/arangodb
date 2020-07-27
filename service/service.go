@@ -741,9 +741,9 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			}
 
 			if IsNoLeaderError(data) {
-					// Server is up, just not the leader
-					return false, nil
-				}
+				// Server is up, just not the leader
+				return false, nil
+			}
 
 			return false, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
 		}
@@ -1057,7 +1057,7 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	return c, nil
 }
 
-func (s *Service) getFolderToken(serverTypes ... definitions.ServerType) (string, error) {
+func (s *Service) getFolderToken(serverTypes ...definitions.ServerType) (string, error) {
 	var currentErr = errors.Errorf("Missing ServerType")
 	for _, serverType := range serverTypes {
 		p, err := s.serverHostDir(serverType)

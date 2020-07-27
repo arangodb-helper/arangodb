@@ -26,6 +26,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/features"
+
 	"github.com/arangodb-helper/arangodb/pkg/api"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	client "github.com/arangodb-helper/arangodb/service/clients"
@@ -172,7 +174,10 @@ func (s *httpServer) localInventoryMember(p *Peer, t definitions.ServerType) (ap
 	}
 	i.Version = v
 
-	if v.Version.CompareTo("3.7.0") > 0 && v.IsEnterprise() {
+	if features.JWTRotation().Enabled(features.Version{
+		Enterprise: v.IsEnterprise(),
+		Version:    v.Version,
+	}) {
 		i.Hashes = &api.MemberHashes{}
 
 		ic := client.NewClient(c)
@@ -203,6 +208,17 @@ func (s *httpServer) forEachServerType(m ServiceMode, p *Peer, action func(m Ser
 		}
 		if p.HasCoordinator() {
 			if err := action(m, p, definitions.ServerTypeCoordinator); err != nil {
+				return err
+			}
+		}
+		if p.HasAgent() {
+			if err := action(m, p, definitions.ServerTypeAgent); err != nil {
+				return err
+			}
+		}
+	case ServiceModeActiveFailover, ServiceModeResilentSingle:
+		if p.HasResilientSingle() {
+			if err := action(m, p, definitions.ServerTypeResilientSingle); err != nil {
 				return err
 			}
 		}
