@@ -20,8 +20,14 @@
 // Author Adam Janikowski
 //
 
-package tools
+package features
 
-import (
-	_ "github.com/aktau/github-release"
+var (
+	jwtRotation = NewFeature("jwt.rotation", "Enable JWT rotation and folder support", false, func(v Version) bool {
+		return v.Enterprise && v.Version.CompareTo("3.7.0") >= 0
+	})
 )
+
+func JWTRotation() Feature {
+	return jwtRotation
+}

@@ -31,6 +31,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	"github.com/rs/zerolog"
@@ -62,7 +64,7 @@ type runtimeClusterManagerContext interface {
 	ChangeState(newState State)
 
 	// CreateClient returns go-driver client with authentication configured for the given endpoint.
-	CreateClient(endpoint []string, connectionType ConnectionType) (driver.Client, error)
+	CreateClient(endpoint []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)
 
 	// UpdateClusterConfig updates the current cluster configuration.
 	UpdateClusterConfig(ClusterConfig)

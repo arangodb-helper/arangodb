@@ -20,8 +20,13 @@
 // Author Adam Janikowski
 //
 
-package tools
+package client
 
-import (
-	_ "github.com/aktau/github-release"
-)
+type JWTDetailsResult struct {
+	Active  *Entry  `json:"active,omitempty"`
+	Passive Entries `json:"passive,omitempty"`
+}
+
+type JWTDetails struct {
+	Result JWTDetailsResult `json:"result,omitempty"`
+}

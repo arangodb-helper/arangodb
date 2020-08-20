@@ -26,8 +26,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/arangodb/go-driver"
 )
 
 // createUniqueID creates a new random ID.
@@ -90,4 +93,20 @@ func getURLWithPath(rootURL string, relPath string) (string, error) {
 		query = "?" + parts[1]
 	}
 	return u.String() + query, nil
+}
+
+type causer interface {
+	Cause() error
+}
+
+func getErrorCodeFromError(err error) int {
+	if e, ok := err.(driver.ArangoError); ok {
+		return e.Code
+	}
+
+	if c, ok := err.(causer); ok && c.Cause() != err {
+		return getErrorCodeFromError(c.Cause())
+	}
+
+	return http.StatusInternalServerError
 }

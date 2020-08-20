@@ -22,7 +22,10 @@
 
 package service
 
-import driver "github.com/arangodb/go-driver"
+import (
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	driver "github.com/arangodb/go-driver"
+)
 
 type ConnectionType int
 
@@ -33,4 +36,4 @@ const (
 
 // ClientBuilder is a callback used to create authenticated go-driver clients with or without
 // follow-redirect.
-type ClientBuilder func(endpoints []string, connectionType ConnectionType) (driver.Client, error)
+type ClientBuilder func(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)

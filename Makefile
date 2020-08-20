@@ -227,9 +227,15 @@ tools:
 	@echo ">> Fetching github release"
 	@go get -u github.com/aktau/github-release
 
+
+.PHONY: license
+license:
+	@echo ">> Verify license of files"
+	@go run github.com/google/addlicense -f "./LICENSE.BOILERPLATE" $(GO_SOURCES)
+
 .PHONY: license-verify
 license-verify:
-	@echo ">> Verify license of files"
+	@echo ">> Ensuring license of files"
 	@go run github.com/google/addlicense -f "./LICENSE.BOILERPLATE" -check $(GO_SOURCES)
 
 .PHONY: fmt

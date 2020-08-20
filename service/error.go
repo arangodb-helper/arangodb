@@ -23,7 +23,6 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 
 	driver "github.com/arangodb/go-driver"
@@ -52,22 +51,18 @@ func IsRedirect(err error) (string, bool) {
 // IsArangoErrorWithCodeAndNum returns true when the given raw content
 // contains a valid arangodb error encoded as json with the given
 // code and errorNum values.
-func IsArangoErrorWithCodeAndNum(rawJSON []byte, code, errorNum int) bool {
-	var aerr driver.ArangoError
-	if err := json.Unmarshal(rawJSON, &aerr); err != nil {
-		return false
-	}
+func IsArangoErrorWithCodeAndNum(aerr driver.ArangoError, code, errorNum int) bool {
 	return aerr.HasError && aerr.Code == code && aerr.ErrorNum == errorNum
 }
 
 // IsLeadershipChallengeOngoingError returns true when given response content
 // contains an arango error indicating an ongoing leadership challenge.
-func IsLeadershipChallengeOngoingError(rawJSON []byte) bool {
-	return IsArangoErrorWithCodeAndNum(rawJSON, 503, 1495)
+func IsLeadershipChallengeOngoingError(d driver.ArangoError) bool {
+	return IsArangoErrorWithCodeAndNum(d, 503, 1495)
 }
 
 // IsNoLeaderError returns true when given response content
 // contains an arango error indicating an "I'm not the leader" error.
-func IsNoLeaderError(rawJSON []byte) bool {
-	return IsArangoErrorWithCodeAndNum(rawJSON, 503, 1496)
+func IsNoLeaderError(d driver.ArangoError) bool {
+	return IsArangoErrorWithCodeAndNum(d, 503, 1496)
 }

@@ -20,14 +20,17 @@
 // Author Ewout Prangsma
 //
 
-package service
+package definitions
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // ServerType specifies the types of database servers.
 type ServerType string
 
 const (
+	ServerTypeUnknown         = "unknown"
 	ServerTypeCoordinator     = "coordinator"
 	ServerTypeDBServer        = "dbserver"
 	ServerTypeAgent           = "agent"
@@ -46,15 +49,15 @@ func (s ServerType) String() string {
 func (s ServerType) PortOffset() int {
 	switch s {
 	case ServerTypeCoordinator, ServerTypeSingle, ServerTypeResilientSingle:
-		return _portOffsetCoordinator
+		return PortOffsetCoordinator
 	case ServerTypeDBServer:
-		return _portOffsetDBServer
+		return PortOffsetDBServer
 	case ServerTypeAgent:
-		return _portOffsetAgent
+		return PortOffsetAgent
 	case ServerTypeSyncMaster:
-		return _portOffsetSyncMaster
+		return PortOffsetSyncMaster
 	case ServerTypeSyncWorker:
-		return _portOffsetSyncWorker
+		return PortOffsetSyncWorker
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
 	}
@@ -87,5 +90,17 @@ func (s ServerType) ExpectedServerRole() (string, string) {
 		return "", ""
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
+	}
+}
+
+func AllServerTypes() []ServerType {
+	return []ServerType{
+		ServerTypeCoordinator,
+		ServerTypeDBServer,
+		ServerTypeAgent,
+		ServerTypeSingle,
+		ServerTypeResilientSingle,
+		ServerTypeSyncMaster,
+		ServerTypeSyncWorker,
 	}
 }

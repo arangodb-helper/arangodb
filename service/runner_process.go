@@ -36,6 +36,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	"github.com/rs/zerolog"
 )
 
@@ -104,7 +106,7 @@ func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
 	return &process{log: r.log, p: p, isChild: false}, nil
 }
 
-func (r *processRunner) Start(ctx context.Context, processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
+func (r *processRunner) Start(ctx context.Context, processType definitions.ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
 	c := exec.Command(command, args...)
 	if output != nil {
 		c.Stdout = output

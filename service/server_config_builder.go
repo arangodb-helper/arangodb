@@ -40,6 +40,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	"github.com/rs/zerolog"
 )
 
@@ -49,7 +51,7 @@ type optionPair struct {
 }
 
 // collectServerConfigVolumes collects all files from the given config file for which a volume needs to be mapped.
-func collectServerConfigVolumes(serverType ServerType, config configFile) []Volume {
+func collectServerConfigVolumes(serverType definitions.ServerType, config configFile) []Volume {
 	var result []Volume
 
 	addVolumeForSetting := func(sectionName, key string) {
@@ -61,11 +63,11 @@ func collectServerConfigVolumes(serverType ServerType, config configFile) []Volu
 	}
 
 	switch serverType.ProcessType() {
-	case ProcessTypeArangod:
+	case definitions.ProcessTypeArangod:
 		addVolumeForSetting("ssl", "keyfile")
 		addVolumeForSetting("ssl", "cafile")
 		addVolumeForSetting("rocksdb", "encryption-keyfile")
-	case ProcessTypeArangoSync:
+	case definitions.ProcessTypeArangoSync:
 		// TODO
 	}
 
@@ -74,13 +76,13 @@ func collectServerConfigVolumes(serverType ServerType, config configFile) []Volu
 
 // createServerArgs returns the command line arguments needed to run an arangod/arangosync server of given type.
 func createServerArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
-	myPeerID, myAddress, myPort string, serverType ServerType, arangodConfig configFile,
-	clusterJWTSecretFile, agentRecoveryID string, databaseAutoUpgrade bool, features DatabaseFeatures) ([]string, error) {
+	myPeerID, myAddress, myPort string, serverType definitions.ServerType, arangodConfig configFile,
+	clusterJWTSecretFile string, agentRecoveryID string, databaseAutoUpgrade bool, features DatabaseFeatures) ([]string, error) {
 	switch serverType.ProcessType() {
-	case ProcessTypeArangod:
+	case definitions.ProcessTypeArangod:
 		return createArangodArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, arangodConfig, agentRecoveryID, databaseAutoUpgrade, clusterJWTSecretFile, features), nil
-	case ProcessTypeArangoSync:
-		return createArangoSyncArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, clusterJWTSecretFile)
+	case definitions.ProcessTypeArangoSync:
+		return createArangoSyncArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, clusterJWTSecretFile, features)
 	default:
 		return nil, nil
 	}

@@ -22,11 +22,17 @@
 
 package service
 
-import driver "github.com/arangodb/go-driver"
+import (
+	"github.com/arangodb-helper/arangodb/pkg/features"
+	driver "github.com/arangodb/go-driver"
+)
 
 // DatabaseFeatures provides information about the features provided by the
 // database in a given version.
-type DatabaseFeatures driver.Version
+type DatabaseFeatures struct {
+	Version    driver.Version
+	Enterprise bool
+}
 
 const (
 	v32    driver.Version = "3.2.0"
@@ -38,19 +44,22 @@ const (
 
 // NewDatabaseFeatures returns a new DatabaseFeatures based on
 // the given version.
-func NewDatabaseFeatures(version driver.Version) DatabaseFeatures {
-	return DatabaseFeatures(version)
+func NewDatabaseFeatures(version driver.Version, enterprise bool) DatabaseFeatures {
+	return DatabaseFeatures{
+		Version:    version,
+		Enterprise: enterprise,
+	}
 }
 
 // HasStorageEngineOption returns true when `server.storage-engine`
 // option is supported.
 func (v DatabaseFeatures) HasStorageEngineOption() bool {
-	return driver.Version(v).CompareTo(v32) >= 0
+	return v.Version.CompareTo(v32) >= 0
 }
 
 // DefaultStorageEngine returns the default storage engine (mmfiles|rocksdb).
 func (v DatabaseFeatures) DefaultStorageEngine() string {
-	if driver.Version(v).CompareTo(v34) >= 0 {
+	if v.Version.CompareTo(v34) >= 0 {
 		return "rocksdb"
 	}
 	return "mmfiles"
@@ -58,10 +67,10 @@ func (v DatabaseFeatures) DefaultStorageEngine() string {
 
 // HasCopyInstallationFiles does server support copying installation files
 func (v DatabaseFeatures) HasCopyInstallationFiles() bool {
-	if driver.Version(v).CompareTo(v34) >= 0 {
+	if v.Version.CompareTo(v34) >= 0 {
 		return true
 	}
-	if driver.Version(v).CompareTo(v33_20) >= 0 {
+	if v.Version.CompareTo(v33_20) >= 0 {
 		return true
 	}
 	return false
@@ -69,11 +78,18 @@ func (v DatabaseFeatures) HasCopyInstallationFiles() bool {
 
 // HasJWTSecretFileOption does the server support passing jwt secret by file
 func (v DatabaseFeatures) HasJWTSecretFileOption() bool {
-	if driver.Version(v).CompareTo(v33_22) >= 0 && driver.Version(v).CompareTo(v34) < 0 {
+	if v.Version.CompareTo(v33_22) >= 0 && v.Version.CompareTo(v34) < 0 {
 		return true
 	}
-	if driver.Version(v).CompareTo(v34_2) >= 0 {
+	if v.Version.CompareTo(v34_2) >= 0 {
 		return true
 	}
 	return false
+}
+
+func (v DatabaseFeatures) GetJWTFolderOption() bool {
+	return features.JWTRotation().Enabled(features.Version{
+		Version:    v.Version,
+		Enterprise: v.Enterprise,
+	})
 }

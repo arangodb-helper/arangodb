@@ -35,6 +35,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
@@ -150,16 +152,16 @@ func (r *dockerRunner) GetRunningServer(serverDir string) (Process, error) {
 	}, nil
 }
 
-func (r *dockerRunner) Start(ctx context.Context, processType ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
+func (r *dockerRunner) Start(ctx context.Context, processType definitions.ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
 	// Start gc (once)
 	r.startGC()
 
 	// Select image
 	var image string
 	switch processType {
-	case ProcessTypeArangod:
+	case definitions.ProcessTypeArangod:
 		image = r.arangodImage
-	case ProcessTypeArangoSync:
+	case definitions.ProcessTypeArangoSync:
 		image = r.arangoSyncImage
 	default:
 		return nil, maskAny(fmt.Errorf("Unknown process type: %s", processType))

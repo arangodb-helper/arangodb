@@ -31,6 +31,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
@@ -83,7 +85,7 @@ func (p ClusterConfig) AllAgents() []Peer {
 func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int, storageEngine string) {
 	p.AllPeers = []Peer{initialPeer}
 	p.AgencySize = agencySize
-	p.PortOffsetIncrement = portOffsetIncrementNew
+	p.PortOffsetIncrement = definitions.PortOffsetIncrementNew
 	p.ServerStorageEngine = storageEngine
 	p.updateLastModified()
 }
@@ -164,9 +166,9 @@ func (p ClusterConfig) GetFreePortOffset(peerAddress string, basePort int, allPo
 // NextPortOffset returns the next port offset (from given offset)
 func (p ClusterConfig) NextPortOffset(portOffset int) int {
 	if p.PortOffsetIncrement == 0 {
-		return portOffset + portOffsetIncrementOld
+		return portOffset + definitions.PortOffsetIncrementOld
 	}
-	return portOffset + portOffsetIncrementNew
+	return portOffset + definitions.PortOffsetIncrementNew
 }
 
 // HaveEnoughAgents returns true when the number of peers that have an agent
@@ -210,7 +212,7 @@ func (p ClusterConfig) GetAgentEndpoints() ([]string, error) {
 	var endpoints []string
 	for _, p := range p.AllPeers {
 		if p.HasAgent() {
-			port := p.Port + p.PortOffset + ServerType(ServerTypeAgent).PortOffset()
+			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeAgent).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
 			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
 			endpoints = append(endpoints, ep)
@@ -225,7 +227,7 @@ func (p ClusterConfig) GetDBServerEndpoints() ([]string, error) {
 	var endpoints []string
 	for _, p := range p.AllPeers {
 		if p.HasDBServer() {
-			port := p.Port + p.PortOffset + ServerType(ServerTypeDBServer).PortOffset()
+			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeDBServer).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
 			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
 			endpoints = append(endpoints, ep)
@@ -240,7 +242,7 @@ func (p ClusterConfig) GetCoordinatorEndpoints() ([]string, error) {
 	var endpoints []string
 	for _, p := range p.AllPeers {
 		if p.HasCoordinator() {
-			port := p.Port + p.PortOffset + ServerType(ServerTypeCoordinator).PortOffset()
+			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeCoordinator).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
 			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
 			endpoints = append(endpoints, ep)
@@ -269,7 +271,7 @@ func (p ClusterConfig) GetSingleEndpoints(all bool) ([]string, error) {
 	var endpoints []string
 	for _, p := range p.AllPeers {
 		if all || p.HasResilientSingle() {
-			port := p.Port + p.PortOffset + ServerType(ServerTypeSingle).PortOffset()
+			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeSingle).PortOffset()
 			scheme := NewURLSchemes(p.IsSecure).Browser
 			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
 			endpoints = append(endpoints, ep)
@@ -284,7 +286,7 @@ func (p ClusterConfig) GetSyncMasterEndpoints() ([]string, error) {
 	var endpoints []string
 	for _, p := range p.AllPeers {
 		if p.HasSyncMaster() {
-			port := p.Port + p.PortOffset + ServerType(ServerTypeSyncMaster).PortOffset()
+			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeSyncMaster).PortOffset()
 			ep := fmt.Sprintf("https://%s", net.JoinHostPort(p.Address, strconv.Itoa(port)))
 			endpoints = append(endpoints, ep)
 		}
@@ -299,7 +301,7 @@ func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agen
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := clientBuilder(endpoints, ConnectionTypeAgency)
+	c, err := clientBuilder(endpoints, ConnectionTypeAgency, definitions.ServerTypeUnknown)
 	if err != nil {
 		return nil, maskAny(err)
 	}
@@ -318,7 +320,7 @@ func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder Clien
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := clientBuilder(endpoints, ConnectionTypeDatabase)
+	c, err := clientBuilder(endpoints, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
 	if err != nil {
 		return nil, maskAny(err)
 	}

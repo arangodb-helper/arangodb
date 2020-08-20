@@ -20,8 +20,32 @@
 // Author Adam Janikowski
 //
 
-package tools
+package service
 
 import (
-	_ "github.com/aktau/github-release"
+	"crypto/sha256"
+	"fmt"
+	"os"
 )
+
+func FilterFiles(f []os.FileInfo, filter func(f os.FileInfo) bool) []os.FileInfo {
+	localFiles := make([]os.FileInfo, 0, len(f))
+
+	for _, file := range f {
+		if !filter(file) {
+			continue
+		}
+
+		localFiles = append(localFiles, file)
+	}
+
+	return localFiles
+}
+
+func FilterOnlyFiles(f os.FileInfo) bool {
+	return f.Mode().IsRegular()
+}
+
+func Sha256sum(d []byte) string {
+	return fmt.Sprintf("%0x", sha256.Sum256(d))
+}

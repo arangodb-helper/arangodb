@@ -20,7 +20,7 @@
 // Author Ewout Prangsma
 //
 
-package service
+package definitions
 
 import "fmt"
 

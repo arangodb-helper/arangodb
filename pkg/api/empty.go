@@ -20,8 +20,8 @@
 // Author Adam Janikowski
 //
 
-package tools
+package api
 
-import (
-	_ "github.com/aktau/github-release"
-)
+type Empty struct {
+	*Error `json:",inline"`
+}

@@ -36,6 +36,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/features"
+
 	driver "github.com/arangodb/go-driver"
 	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
@@ -195,6 +197,9 @@ func init() {
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
 	f.DurationVar(&instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
+	if err := features.JWTRotation().Register(f); err != nil {
+		panic(err)
+	}
 
 	pf.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
 	pf.BoolVar(&logOutput.Console, "log.console", true, "Send log output to console")
@@ -621,7 +626,6 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		}
 	}
 
-	// Read jwtSecret (if any)
 	var jwtSecret string
 	if jwtSecretFile != "" {
 		content, err := ioutil.ReadFile(jwtSecretFile)
@@ -703,6 +707,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	bsCfg := service.BootstrapConfig{
 		ID:                       id,
 		Mode:                     service.ServiceMode(mode),
+		DataDir:                  dataDir,
 		AgencySize:               agencySize,
 		StartLocalSlaves:         startLocalSlaves,
 		StartAgent:               mustGetOptionalBoolRef("cluster.start-agent", startAgent),
@@ -762,7 +767,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	for _, ptOpt := range passthroughOptions {
 		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
 	}
-	service := service.NewService(context.Background(), log, logService, serviceConfig, false)
+	service := service.NewService(context.Background(), log, logService, serviceConfig, bsCfg, false)
 
 	return service, bsCfg
 }
