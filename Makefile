@@ -111,7 +111,7 @@ endif
 all: build
 
 clean:
-	rm -Rf $(BIN) $(BINDIR) $(GOBUILDDIR) $(ROOTDIR)/arangodb
+	rm -Rf $(BIN) $(BINDIR) $(ROOTDIR)/arangodb
 
 local:
 ifneq ("$(DOCKERCLI)", "")
@@ -211,6 +211,9 @@ run-tests-docker: docker _run-tests
 # Run all integration tests on the local system
 run-tests-local: export TEST_MODES=localprocess
 run-tests-local: _run-tests
+
+$(GOBUILDDIR):
+	@mkdir -p "$(GOBUILDDIR)"
 
 ## LINT
 
