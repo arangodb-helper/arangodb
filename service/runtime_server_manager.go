@@ -114,7 +114,7 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 
 	os.MkdirAll(filepath.Join(myHostDir, "data"), 0755)
 	os.MkdirAll(filepath.Join(myHostDir, "apps"), 0755)
-	os.MkdirAll(filepath.Join(myHostDir, definitions.ArangodJWTSecretFolderName), 0600)
+	os.MkdirAll(filepath.Join(myHostDir, definitions.ArangodJWTSecretFolderName), 0700)
 
 	// Check if the server is already running
 	log.Info().Msgf("Looking for a running instance of %s on port %d", serverType, myPort)
