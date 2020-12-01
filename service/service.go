@@ -1268,7 +1268,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 
 	if s.jwtSecret != "" {
 		if s.DatabaseFeatures().GetJWTFolderOption() {
-			os.MkdirAll(bsCfg.JWTFolderDir(), 0600)
+			os.MkdirAll(bsCfg.JWTFolderDir(), 0700)
 
 			if _, err := os.Stat(bsCfg.JWTFolderDirFile(definitions.ArangodJWTSecretActive)); err != nil {
 				if !os.IsNotExist(err) {

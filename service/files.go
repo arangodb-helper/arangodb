@@ -26,6 +26,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"strings"
 )
 
 func FilterFiles(f []os.FileInfo, filter func(f os.FileInfo) bool) []os.FileInfo {
@@ -47,5 +48,6 @@ func FilterOnlyFiles(f os.FileInfo) bool {
 }
 
 func Sha256sum(d []byte) string {
-	return fmt.Sprintf("%0x", sha256.Sum256(d))
+	cleanData := []byte(strings.TrimSpace(string(d)))
+	return fmt.Sprintf("%0x", sha256.Sum256(cleanData))
 }

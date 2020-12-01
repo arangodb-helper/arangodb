@@ -77,7 +77,7 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 	}
 	// Wait until upgrade complete
 	recentErrors := 0
-	deadline := time.Now().Add(time.Minute * 5)
+	deadline := time.Now().Add(time.Minute * 10)
 	for {
 		status, err := c.UpgradeStatus(ctx)
 		if err != nil {

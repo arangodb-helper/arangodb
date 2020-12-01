@@ -244,12 +244,12 @@ license-verify:
 .PHONY: fmt
 fmt:
 	@echo ">> Ensuring style of files"
-	@go run golang.org/x/tools/cmd/goimports -w $(GO_SOURCES)
+	@goimports -w $(GO_SOURCES)
 
 .PHONY: fmt-verify
 fmt-verify: license-verify
 	@echo ">> Verify files style"
-	@if [ X"$$(go run golang.org/x/tools/cmd/goimports -l $(GO_SOURCES) | wc -l)" != X"0" ]; then echo ">> Style errors"; go run golang.org/x/tools/cmd/goimports -l $(GO_SOURCES); exit 1; fi
+	@if [ X"$$(go goimports -l $(GO_SOURCES) | wc -l)" != X"0" ]; then echo ">> Style errors"; go goimports -l $(GO_SOURCES); exit 1; fi
 
 .PHONY: linter
 linter: fmt
