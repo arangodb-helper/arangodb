@@ -32,7 +32,7 @@ import (
 var confHeader = `# ArangoDB configuration file
 #
 # Documentation:
-# https://docs.arangodb.com/Manual/Administration/Configuration/
+# https://www.arangodb.com/docs/stable/administration-configuration.html
 #
 
 `
