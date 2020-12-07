@@ -27,6 +27,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/dchest/uniuri"
@@ -40,6 +41,8 @@ func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, error) {
 		d, err := s.databaseVersion(ctx)
 		if err != nil {
 			s.log.Warn().Err(err).Msg("Error while getting version")
+			time.Sleep(time.Second)
+			continue
 		}
 
 		return d, nil

@@ -77,7 +77,9 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			slaveService.Run(s.stopPeer.ctx, slaveBsCfg, myPeers, relaunch)
+			if err := slaveService.Run(s.stopPeer.ctx, slaveBsCfg, myPeers, relaunch); err != nil {
+				s.log.Error().Str("peer", p.ID).Err(err).Msg("Unable to start one of peers")
+			}
 		}()
 	}
 }
