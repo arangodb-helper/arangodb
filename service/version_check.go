@@ -27,6 +27,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 
@@ -42,6 +43,8 @@ func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, bool, er
 		d, enterprise, err := s.databaseVersion(ctx)
 		if err != nil {
 			s.log.Warn().Err(err).Msg("Error while getting version")
+			time.Sleep(time.Second)
+			continue
 		}
 
 		return d, enterprise, nil
