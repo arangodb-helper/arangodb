@@ -67,7 +67,8 @@ func (s *Service) readActualStorageEngine() (string, error) {
 		} else if peer.HasAgent() {
 			serverType = ServerTypeAgent
 		} else {
-			serverType = ServerTypeCoordinator
+			// In case of Coordinator return default storage engine
+			return features.DefaultStorageEngine(), nil
 		}
 	} else if mode.IsActiveFailoverMode() {
 		// Read engine from agent data directory
