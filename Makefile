@@ -151,6 +151,9 @@ $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 docker: build
 	$(DOCKERCLI) build -t arangodb/arangodb-starter .
 
+docker-debug:
+	$(DOCKERCLI) build -f Dockerfile.debug -t arangodb/arangodb-starter:debug .
+
 docker-push: docker
 ifneq ($(DOCKERNAMESPACE), arangodb)
 	docker tag arangodb/arangodb-starter $(DOCKERNAMESPACE)/arangodb-starter

@@ -1,0 +1,36 @@
+# The default GOPATH=/go is used from the golang image.
+ARG GOVERSION=1.16.0-alpine3.13
+FROM golang:${GOVERSION} AS downloader
+
+## git is required by 'go get'
+RUN apk add git
+
+COPY vendor/ /go/src/
+RUN go get github.com/go-delve/delve/cmd/dlv
+
+FROM downloader AS builder
+
+WORKDIR /go/src/github.com/arangodb-helper/arangodb
+COPY *.go ./
+COPY pkg pkg
+COPY service service
+COPY client client
+
+RUN GO111MODULE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -installsuffix netgo -tags netgo \
+    -gcflags "all=-N -l" -ldflags "-extldflags '-static'" -o /bin/arangodb .
+
+FROM alpine:3.13
+
+COPY --from=builder /bin/arangodb /bin/arangodb
+COPY --from=downloader /go/bin/dlv /bin/
+
+# Data directory
+ENV DATA_DIR=/data
+# Signal running in docker
+ENV RUNNING_IN_DOCKER=true
+# Docker image containing arangod.
+ENV DOCKER_IMAGE=arangodb/enterprise:latest
+
+EXPOSE 2345 8528
+
+ENTRYPOINT ["/bin/dlv", "exec", "/bin/arangodb", "--api-version=2", "--listen=:2345", "--headless=true", "--"]
