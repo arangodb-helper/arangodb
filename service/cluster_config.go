@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -301,7 +302,7 @@ func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agen
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := clientBuilder(endpoints, ConnectionTypeAgency, definitions.ServerTypeUnknown)
+	c, err := clientBuilder.CreateClient(endpoints, ConnectionTypeAgency, definitions.ServerTypeUnknown)
 	if err != nil {
 		return nil, maskAny(err)
 	}
@@ -320,7 +321,7 @@ func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder Clien
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := clientBuilder(endpoints, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
+	c, err := clientBuilder.CreateClient(endpoints, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
 	if err != nil {
 		return nil, maskAny(err)
 	}

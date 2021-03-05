@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -34,6 +35,8 @@ const (
 	ConnectionTypeAgency
 )
 
-// ClientBuilder is a callback used to create authenticated go-driver clients with or without
-// follow-redirect.
-type ClientBuilder func(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)
+// ClientBuilder describes how to create connections to the specific instance of the cluster.
+type ClientBuilder interface {
+	// ClientBuilder creates authenticated go-driver clients with or without follow-redirect.
+	CreateClient(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)
+}

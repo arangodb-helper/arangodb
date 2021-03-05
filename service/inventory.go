@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2020 ArangoDB GmbH, Cologne, Germany
+// Copyright 2020-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Adam Janikowski
+// Author Tomasz Mielech
 //
 
 package service
@@ -160,7 +161,7 @@ func (s *httpServer) localInventoryMemberAddWithCondition(inv *api.Inventory, p 
 }
 
 func (s *httpServer) localInventoryMember(p *Peer, t definitions.ServerType) (api.MemberInventory, error) {
-	c, err := p.CreateClient(s.context.CreateClient, t)
+	c, err := p.CreateClient(s.context, t)
 	if err != nil {
 		return api.MemberInventory{}, err
 	}

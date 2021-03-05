@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -104,7 +105,7 @@ func (p Peer) CreateDBServerAPI(clientBuilder ClientBuilder) (driver.Client, err
 		port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeDBServer).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
 		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeDBServer)
+		c, err := clientBuilder.CreateClient([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeDBServer)
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -117,7 +118,7 @@ func (p Peer) CreateClient(clientBuilder ClientBuilder, t definitions.ServerType
 	port := p.Port + p.PortOffset + definitions.ServerType(t).PortOffset()
 	scheme := NewURLSchemes(p.IsSecure).Browser
 	ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-	c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase, t)
+	c, err := clientBuilder.CreateClient([]string{ep}, ConnectionTypeDatabase, t)
 	if err != nil {
 		return nil, maskAny(err)
 	}
@@ -130,7 +131,7 @@ func (p Peer) CreateCoordinatorAPI(clientBuilder ClientBuilder) (driver.Client, 
 		port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeCoordinator).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
 		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeCoordinator)
+		c, err := clientBuilder.CreateClient([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeCoordinator)
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -145,7 +146,7 @@ func (p Peer) CreateAgentAPI(clientBuilder ClientBuilder) (driver.Client, error)
 		port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeAgent).PortOffset()
 		scheme := NewURLSchemes(p.IsSecure).Browser
 		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-		c, err := clientBuilder([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeAgent)
+		c, err := clientBuilder.CreateClient([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeAgent)
 		if err != nil {
 			return nil, maskAny(err)
 		}

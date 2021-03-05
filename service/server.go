@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -78,6 +79,8 @@ type httpServer struct {
 
 // httpServerContext provides a context for the httpServer.
 type httpServerContext interface {
+	ClientBuilder
+
 	// ClusterConfig returns the current cluster configuration and the current peer
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
 
@@ -112,8 +115,6 @@ type httpServerContext interface {
 	// DatabaseVersion returns the version of the `arangod` binary that is being
 	// used by this starter.
 	DatabaseVersion(context.Context) (driver.Version, bool, error)
-
-	CreateClient(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)
 
 	GetLocalFolder() string
 
