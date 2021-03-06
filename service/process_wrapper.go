@@ -28,11 +28,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb/go-driver"
-	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service/actions"
 )
 
 func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
@@ -111,67 +110,6 @@ func (p *processWrapper) stop() {
 	default:
 		close(p.stopping)
 	}
-}
-
-// TODO leadership create interface actions
-// resignLeadership sends requests to the db server to resign leadership.
-func resignLeadership(log zerolog.Logger, runtimeContext runtimeServerManagerContext) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute*5)
-	defer cancel()
-
-	jobID := ""
-	sendResignLeadership := func() error {
-		// create necessary API's
-		clusterConfig, peer, _ := runtimeContext.ClusterConfig()
-		if peer == nil {
-			log.Info().Msg("1")
-			return errors.New("failed to get peer from cluster config")
-		}
-
-		clusterClient, err := clusterConfig.CreateClusterAPI(ctx, runtimeContext)
-		if err != nil {
-			log.Info().Err(err).Msg("2")
-			return errors.Wrap(err, "failed to create cluster API")
-		}
-		dbServerClient, err := peer.CreateDBServerAPI(runtimeContext)
-		if err != nil {
-			log.Info().Err(err).Msg("3")
-			return errors.Wrap(err, "failed to create DB server API")
-		}
-
-		// Get DB server ID.
-		serverID, err := dbServerClient.ServerID(ctx)
-		if err != nil {
-			log.Info().Err(err).Msg("failed to get DB server ID")
-			return errors.Wrap(err, "failed to get DB server ID")
-		}
-
-		// Create a job for leadership resignation
-		jobCtx := driver.WithJobIDResponse(ctx, &jobID)
-		if err := clusterClient.ResignServer(jobCtx, serverID); err != nil {
-			log.Info().Err(err).Msg("4")
-			return errors.Wrap(err, "failed to send request for resigning leadership")
-		}
-
-		return nil
-	}
-
-	if err := retry(ctx, sendResignLeadership, time.Minute*5); err != nil {
-		return maskAny(err)
-	}
-
-	// wait for the job to be finished.
-	clusterConfig, _, _ := runtimeContext.ClusterConfig()
-	agencyClient, err := clusterConfig.CreateAgencyAPI(runtimeContext)
-	if err != nil {
-		return errors.Wrap(err, "failed to create agency API")
-	}
-
-	if err := WaitForFinishedJob(ctx, jobID, agencyClient); err != nil {
-		return errors.Wrapf(err, "failed waiting for the job %s to be finished", jobID)
-	}
-
-	return nil
 }
 
 func (p *processWrapper) run(startedCh chan<- struct{}) {
@@ -294,18 +232,10 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 				logProcess.Info().Msgf("Terminated %s", p.serverType)
 				break
 			case <-p.stopping:
-				//// TODO leadership create interface actions
-				//if p.serverType == definitions.ServerTypeDBServer {
-				//	logProcess.Info().Msg("Try to resign from leadership for DB server")
-				//	if err := resignLeadership(p.log, p.runtimeContext); err != nil {
-				//		logProcess.Error().Err(err).Msg("failed to resign leadership")
-				//		// Do not return from here and proceed with a termination.
-				//	} else {
-				//		logProcess.Info().Msg("leadership resignation for DB server succeeded")
-				//	}
-				//}
-
 				logProcess.Info().Msgf("Terminating %s", p.serverType)
+
+				actions.StartPreStopActions(logProcess, p.serverType)
+
 				if err := proc.Terminate(); err != nil {
 					logProcess.Warn().Err(err).Msgf("Failed to terminate %s", p.serverType)
 				}

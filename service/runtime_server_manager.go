@@ -35,10 +35,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
-	"github.com/arangodb-helper/arangodb/pkg/logging"
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/pkg/logging"
+	"github.com/arangodb-helper/arangodb/service/actions"
 )
 
 // runtimeServerManager implements the start, monitor, stop behavior of database servers in a runtime
@@ -343,6 +344,10 @@ func (s *runtimeServerManager) Run(ctx context.Context, log zerolog.Logger, runt
 	if myPeer == nil {
 		log.Fatal().Msg("Cannot find my own peer in cluster configuration")
 	}
+
+	actions.RegisterAction(&ActionResignLeadership{
+		runtimeContext: runtimeContext,
+	})
 
 	if mode.IsClusterMode() {
 		// Start agent:
