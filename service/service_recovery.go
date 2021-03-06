@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -113,7 +114,7 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 	// Do we have an agent on our peer?
 	if peer.HasAgent() {
 		// Ask cluster for its health in order to find the ID of our agent
-		client, err := clusterConfig.CreateCoordinatorsClient(ctx, bsCfg.JwtSecret)
+		client, err := clusterConfig.CreateCoordinatorsClient(bsCfg.JwtSecret)
 		if err != nil {
 			s.log.Error().Err(err).Msg("Cannot create coordinator client")
 			return bsCfg, maskAny(err)

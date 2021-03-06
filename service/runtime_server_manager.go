@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -56,6 +57,8 @@ type runtimeServerManager struct {
 
 // runtimeServerManagerContext provides a context for the runtimeServerManager.
 type runtimeServerManagerContext interface {
+	ClientBuilder
+
 	// ClusterConfig returns the current cluster configuration and the current peer
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
 
@@ -137,6 +140,7 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 			log.Info().Msgf("%s is not of role '%s.%s' on port %d. Terminating existing process and restarting it...", serverType, expectedRole, expectedMode, myPort)
 		}
 		p.Terminate()
+		// Don't return here. Process is terminated and will be created.
 	}
 
 	// Check availability of port
@@ -388,35 +392,58 @@ func (s *runtimeServerManager) Run(ctx context.Context, log zerolog.Logger, runt
 	s.stopping = true
 
 	log.Info().Msg("Shutting down services...")
+	timeout := getTimeoutProcessTermination(definitions.ServerTypeSyncWorker)
 	if p := s.syncWorkerProc; p != nil {
-		if !p.Wait(time.Minute) {
-			log.Warn().Msg("Service sync worker did not terminate in time")
+		if !p.Wait(timeout) {
+			log.Warn().Str("timeout", timeout.String()).
+				Str("type", definitions.ServerTypeSyncWorker).
+				Msg("did not terminate in time")
 		}
 	}
+
+	timeout = getTimeoutProcessTermination(definitions.ServerTypeSyncMaster)
 	if p := s.syncMasterProc; p != nil {
-		if !p.Wait(time.Minute) {
-			log.Warn().Msg("Service sync master did not terminate in time")
+		if !p.Wait(timeout) {
+			log.Warn().Str("timeout", timeout.String()).
+				Str("type", definitions.ServerTypeSyncMaster).
+				Msg("did not terminate in time")
 		}
 	}
+
+	timeout = getTimeoutProcessTermination(definitions.ServerTypeSingle)
 	if p := s.singleProc; p != nil {
-		if !p.Wait(time.Minute) {
-			log.Warn().Msg("Service sync worker did not terminate in time")
+		if !p.Wait(timeout) {
+			log.Warn().Str("timeout", timeout.String()).
+				Str("type", definitions.ServerTypeSingle).
+				Msg("did not terminate in time")
 		}
 	}
+
+	timeout = getTimeoutProcessTermination(definitions.ServerTypeCoordinator)
 	if p := s.coordinatorProc; p != nil {
-		if !p.Wait(time.Minute) {
-			log.Warn().Msg("Service coordinator did not terminate in time")
+		if !p.Wait(timeout) {
+			log.Warn().Str("timeout", timeout.String()).
+				Str("type", definitions.ServerTypeCoordinator).
+				Msg("did not terminate in time")
 		}
 	}
+
+	timeout = getTimeoutProcessTermination(definitions.ServerTypeDBServer)
 	if p := s.dbserverProc; p != nil {
-		if !p.Wait(time.Minute) {
-			log.Warn().Msg("Service dbserver did not terminate in time")
+		if !p.Wait(timeout) {
+			log.Warn().Str("timeout", timeout.String()).
+				Str("type", definitions.ServerTypeDBServer).
+				Msg("did not terminate in time")
 		}
 	}
+
+	timeout = getTimeoutProcessTermination(definitions.ServerTypeAgent)
 	if p := s.agentProc; p != nil {
 		time.Sleep(3 * time.Second)
-		if !p.Wait(time.Minute) {
-			log.Warn().Msg("Service agent did not terminate in time")
+		if !p.Wait(timeout) {
+			log.Warn().Str("timeout", timeout.String()).
+				Str("type", definitions.ServerTypeAgent).
+				Msg("did not terminate in time")
 		}
 	}
 
@@ -501,4 +528,14 @@ func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType defi
 		terminateProcess(log, p, name, time.Minute)
 	}
 	return nil
+}
+
+// getTimeoutProcessTermination returns how long it should wait for termination for a given server type.
+func getTimeoutProcessTermination(serverType definitions.ServerType) time.Duration {
+	if serverType == definitions.ServerTypeDBServer {
+		return time.Minute * 5
+	}
+
+	// return default timeout
+	return time.Minute
 }

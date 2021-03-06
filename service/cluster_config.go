@@ -333,7 +333,7 @@ func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder Clien
 }
 
 // CreateCoordinatorsClient creates go-driver client targeting the coordinators.
-func (p ClusterConfig) CreateCoordinatorsClient(ctx context.Context, jwtSecret string) (driver.Client, error) {
+func (p ClusterConfig) CreateCoordinatorsClient(jwtSecret string) (driver.Client, error) {
 	// Build endpoint list
 	endpoints, err := p.GetCoordinatorEndpoints()
 	if err != nil {

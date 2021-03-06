@@ -64,7 +64,7 @@ func getJobStatus(ctx context.Context, jobID string, agencyClient agency.Agency)
 
 		key := keyPrefix.CreateSubKey(jobID)
 		if err := agencyClient.ReadKey(ctx, key, &job); err == nil {
-			job.state = JobState(keyPrefix[len(keyPrefix)-2])
+			job.state = JobState(keyPrefix[len(keyPrefix)-1])
 			return job, nil
 		} else if agency.IsKeyNotFound(err) {
 			continue
@@ -79,7 +79,6 @@ func getJobStatus(ctx context.Context, jobID string, agencyClient agency.Agency)
 // WaitForFinishedJob waits for the job to be finished until context is canceled.
 // If the job fails the error ErrJobFailed is returned.
 func WaitForFinishedJob(ctx context.Context, jobID string, agencyClient agency.Agency) error {
-	// TODO check if ctx is deadline
 	for {
 		job, err := getJobStatus(ctx, jobID, agencyClient)
 		if err != nil {
