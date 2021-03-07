@@ -139,7 +139,11 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			if pid := proc.ProcessID(); pid > 0 {
 				logProcess = logProcess.With().Int("pid", pid).Logger()
 			} else {
-				logProcess = logProcess.With().Str("cid", proc.ContainerID()).Logger()
+				if cid := proc.ContainerID(); len(cid) > 12 {
+					logProcess = logProcess.With().Str("cid", cid[:12]).Logger()
+				} else {
+					logProcess = logProcess.With().Str("cid", cid).Logger()
+				}
 			}
 
 			logProcess.Info().Msg("server started")

@@ -35,14 +35,18 @@ var actions map[string]Action
 
 // Action describes how some actions should be started.
 type Action interface {
+	// Name returns name of the action.
 	Name() string
+	// Timeout returns how long it should wait for the action to be finished.
 	Timeout() time.Duration
+	// Condition returns true if this action should be launched.
 	Condition(serverType definitions.ServerType) bool
 }
 
 // ActionPreStop describes how pre stop actions should be started.
 type ActionPreStop interface {
 	Action
+	// PreStop runs action before server is stopped.
 	PreStop(ctx context.Context) error
 }
 
