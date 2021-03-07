@@ -238,7 +238,10 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			case <-p.stopping:
 				logProcess.Info().Msgf("Terminating %s", p.serverType)
 
-				actions.StartPreStopActions(logProcess, p.serverType)
+				progress := actions.ProgressLog{
+					LoggerOriginal: p.log.With().Str("type", p.serverType.String()).Logger(),
+				}
+				actions.StartPreStopActions(p.serverType, &progress)
 
 				if err := proc.Terminate(); err != nil {
 					logProcess.Warn().Err(err).Msgf("Failed to terminate %s", p.serverType)

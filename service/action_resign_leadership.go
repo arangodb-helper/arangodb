@@ -24,11 +24,13 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service/actions"
 	"github.com/arangodb/go-driver"
 )
 
@@ -39,7 +41,7 @@ type ActionResignLeadership struct {
 
 // Name returns name of the action.
 func (a *ActionResignLeadership) Name() string {
-	return "resigning leadership for dbserver"
+	return "resigning leadership"
 }
 
 // Timeout returns how long it should wait for the action to be finished.
@@ -53,8 +55,16 @@ func (a *ActionResignLeadership) Condition(serverType definitions.ServerType) bo
 		return false
 	}
 
-	_, _, serviceMode := a.runtimeContext.ClusterConfig()
+	clusterConfig, _, serviceMode := a.runtimeContext.ClusterConfig()
 	if serviceMode != ServiceModeCluster {
+		return false
+	}
+
+	//log.Info().Bool("enough", clusterConfig.HaveEnoughAgents()).Msg("test")
+	//log.Info().Interface("config", clusterConfig).Msg("test")
+	//log.Info().Interface("peer", peer).Msg("test")
+	if len(clusterConfig.AllPeers) <= 1 {
+		// It is the last starter so it does not make sense to resign leadership.
 		return false
 	}
 
@@ -62,7 +72,7 @@ func (a *ActionResignLeadership) Condition(serverType definitions.ServerType) bo
 }
 
 // PreStop runs action before server is stopped.
-func (a *ActionResignLeadership) PreStop(ctx context.Context) error {
+func (a *ActionResignLeadership) PreStop(ctx context.Context, progress actions.Progressor) error {
 	serverID := ""
 	var clusterClient driver.Cluster
 
@@ -70,22 +80,26 @@ func (a *ActionResignLeadership) PreStop(ctx context.Context) error {
 		// create necessary API's
 		clusterConfig, peer, _ := a.runtimeContext.ClusterConfig()
 		if peer == nil {
+			progress.Progress("failed to get peer from cluster config")
 			return errors.New("failed to get peer from cluster config")
 		}
 
 		var err error
 		clusterClient, err = clusterConfig.CreateClusterAPI(ctx, a.runtimeContext)
 		if err != nil {
+			progress.Progress("failed to create cluster API")
 			return errors.Wrap(err, "failed to create cluster API")
 		}
 		dbServerClient, err := peer.CreateDBServerAPI(a.runtimeContext)
 		if err != nil {
+			progress.Progress("failed to create DB server API")
 			return errors.Wrap(err, "failed to create DB server API")
 		}
 
 		// Get DB server ID.
 		serverID, err = dbServerClient.ServerID(ctx)
 		if err != nil {
+			progress.Progress("failed to get DB server ID")
 			return errors.Wrap(err, "failed to get DB server ID")
 		}
 
@@ -102,6 +116,8 @@ func (a *ActionResignLeadership) PreStop(ctx context.Context) error {
 	if err := clusterClient.ResignServer(jobCtx, serverID); err != nil {
 		return errors.Wrap(err, "failed to send request for resigning leadership")
 	}
+
+	progress.Progress(fmt.Sprintf("leadership resignation waits for the job ID %s to be finished", jobID))
 
 	// wait for the job to be finished.
 	clusterConfig, _, _ := a.runtimeContext.ClusterConfig()

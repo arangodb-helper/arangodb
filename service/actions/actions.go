@@ -43,11 +43,23 @@ type Action interface {
 	Condition(serverType definitions.ServerType) bool
 }
 
+// Progressor describes what to do when the specific moment of action occurs.
+type Progressor interface {
+	// Started is launched when the action starts.
+	Started(actionName string)
+	// Failed is launched when the action fails.
+	Failed(err error)
+	// Finished is launched when the action finishes.
+	Finished()
+	// Progress is launched whenever some progress occurs for the specific action.
+	Progress(message string)
+}
+
 // ActionPreStop describes how pre stop actions should be started.
 type ActionPreStop interface {
 	Action
 	// PreStop runs action before server is stopped.
-	PreStop(ctx context.Context) error
+	PreStop(ctx context.Context, progress Progressor) error
 }
 
 // RegisterAction registers a new action if it does not exist.
@@ -64,7 +76,11 @@ func RegisterAction(action Action) {
 }
 
 // StartPreStopActions runs registered pre stop actions.
-func StartPreStopActions(log zerolog.Logger, serverType definitions.ServerType) {
+func StartPreStopActions(serverType definitions.ServerType, progress Progressor) {
+	if progress == nil {
+		progress = &ProgressEmpty{}
+	}
+
 	for _, anyAction := range actions {
 		preStopAction, ok := anyAction.(ActionPreStop)
 		if !ok {
@@ -77,14 +93,55 @@ func StartPreStopActions(log zerolog.Logger, serverType definitions.ServerType) 
 
 		ctxAction, cancelAction := context.WithTimeout(context.Background(), preStopAction.Timeout())
 
-		logAction := log.With().Str("name", preStopAction.Name()).Logger()
-		logAction.Info().Msg("Action started")
-		if err := preStopAction.PreStop(ctxAction); err != nil {
-			logAction.Info().Msg("Action failed")
+		progress.Started(preStopAction.Name())
+		if err := preStopAction.PreStop(ctxAction, progress); err != nil {
+			progress.Failed(err)
 		} else {
-			logAction.Info().Msg("Action finished")
+			progress.Finished()
 		}
 
 		cancelAction()
 	}
 }
+
+// ProgressLog describes simple logger for actions.
+type ProgressLog struct {
+	LoggerOriginal zerolog.Logger
+	logger         zerolog.Logger
+}
+
+// Started is launched when the action starts.
+func (p *ProgressLog) Started(actionName string) {
+	p.logger = p.LoggerOriginal.With().Str("name", actionName).Logger()
+	p.logger.Info().Msg("Action started")
+}
+
+// Failed is launched when the action fails.
+func (p *ProgressLog) Failed(err error) {
+	p.logger.Error().Err(err).Msg("Action failed")
+}
+
+// Finished is launched when the action finishes.
+func (p *ProgressLog) Finished() {
+	p.logger.Info().Msg("Action finished")
+}
+
+// Progress is launched whenever some progress occurs for the specific action.
+func (p *ProgressLog) Progress(message string) {
+	p.logger.Info().Str("message", message).Msg("Action progress")
+}
+
+// ProgressEmpty describes empty progress for the actions.
+type ProgressEmpty struct{}
+
+// Started is launched when the action starts.
+func (p ProgressEmpty) Started(_ string) {}
+
+// Failed is launched when the action fails.
+func (p ProgressEmpty) Failed(_ error) {}
+
+// Finished is launched when the action finishes.
+func (p ProgressEmpty) Finished() {}
+
+// Progress is launched whenever some progress occurs for the specific action.
+func (p ProgressEmpty) Progress(_ string) {}
