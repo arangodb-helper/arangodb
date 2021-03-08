@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -27,9 +28,10 @@ import (
 	"io"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service/actions"
 )
 
 type Volume struct {
@@ -80,27 +82,39 @@ type Process interface {
 
 	// Remove all traces of this process
 	Cleanup() error
+
+	// GetLogger creates a new logger for the process.
+	GetLogger(logger zerolog.Logger) zerolog.Logger
 }
 
 // terminateProcess tries to terminate the given process gracefully.
 // When the process has not terminated after given timeout it is killed.
-func terminateProcess(log zerolog.Logger, p Process, name string, killTimeout time.Duration) {
-	log.Info().Msgf("Terminating %s...", name)
+func terminateProcess(log zerolog.Logger, p Process, serverType definitions.ServerType, killTimeout time.Duration) {
+	name := serverType.GetName()
+
+	logTerminate := log.With().Str("type", serverType.String()).Logger()
+	logTerminate = p.GetLogger(logTerminate)
+	logTerminate.Info().Msgf("Terminating %s...", name)
 	terminated := make(chan struct{})
 	go func() {
 		defer close(terminated)
+
+		actions.StartPreStopActions(serverType, &actions.ProgressLog{
+			LoggerOriginal: logTerminate,
+		})
+
 		if err := p.Terminate(); err != nil {
-			log.Warn().Err(err).Msgf("Failed to terminate %s", name)
+			logTerminate.Warn().Err(err).Msgf("Failed to terminate %s", name)
 		}
 		p.Wait()
-		log.Info().Msgf("%s terminated", name)
+		logTerminate.Info().Msgf("%s terminated", name)
 	}()
 	select {
 	case <-terminated:
 		// We're done
 	case <-time.After(killTimeout):
 		// Kill the process
-		log.Warn().Msgf("Killing %s...", name)
+		logTerminate.Warn().Msgf("Killing %s...", name)
 		p.Kill()
 		p.Wait()
 	}

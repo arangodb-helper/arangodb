@@ -93,6 +93,26 @@ func (s ServerType) ExpectedServerRole() (string, string) {
 	}
 }
 
+// GetName returns readable name for the specific type of server.
+func (s ServerType) GetName() string {
+	switch s {
+	case ServerTypeAgent:
+		return "agent"
+	case ServerTypeDBServer:
+		return "dbserver"
+	case ServerTypeCoordinator:
+		return "coordinator"
+	case ServerTypeSingle, ServerTypeResilientSingle:
+		return "single server"
+	case ServerTypeSyncMaster:
+		return "sync master"
+	case ServerTypeSyncWorker:
+		return "sync worker"
+	}
+
+	return ""
+}
+
 func AllServerTypes() []ServerType {
 	return []ServerType{
 		ServerTypeCoordinator,

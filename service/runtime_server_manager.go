@@ -506,31 +506,26 @@ func (s *runtimeServerManager) Run(ctx context.Context, log zerolog.Logger, runt
 // RestartServer triggers a restart of the server of the given type.
 func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType definitions.ServerType) error {
 	var p Process
-	var name string
+
 	switch serverType {
 	case definitions.ServerTypeAgent:
 		p = s.agentProc.Process()
-		name = "agent"
 	case definitions.ServerTypeDBServer:
 		p = s.dbserverProc.Process()
-		name = "dbserver"
 	case definitions.ServerTypeCoordinator:
 		p = s.coordinatorProc.Process()
-		name = "coordinator"
 	case definitions.ServerTypeSingle, definitions.ServerTypeResilientSingle:
 		p = s.singleProc.Process()
-		name = "single server"
 	case definitions.ServerTypeSyncMaster:
 		p = s.syncMasterProc.Process()
-		name = "sync master"
 	case definitions.ServerTypeSyncWorker:
 		p = s.syncWorkerProc.Process()
-		name = "sync worker"
 	default:
 		return maskAny(fmt.Errorf("Unknown server type '%s'", serverType))
 	}
+
 	if p != nil {
-		terminateProcess(log, p, name, time.Minute)
+		terminateProcess(log, p, serverType, time.Minute)
 	}
 	return nil
 }

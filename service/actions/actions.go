@@ -26,6 +26,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
@@ -52,7 +53,7 @@ type Progressor interface {
 	// Finished is launched when the action finishes.
 	Finished()
 	// Progress is launched whenever some progress occurs for the specific action.
-	Progress(message string)
+	Progress(message string) error
 }
 
 // ActionPreStop describes how pre stop actions should be started.
@@ -127,8 +128,9 @@ func (p *ProgressLog) Finished() {
 }
 
 // Progress is launched whenever some progress occurs for the specific action.
-func (p *ProgressLog) Progress(message string) {
+func (p *ProgressLog) Progress(message string) error {
 	p.logger.Info().Str("progress", message).Msg("Action progress")
+	return errors.New(message)
 }
 
 // ProgressEmpty describes empty progress for the actions.
@@ -144,4 +146,6 @@ func (p ProgressEmpty) Failed(_ error) {}
 func (p ProgressEmpty) Finished() {}
 
 // Progress is launched whenever some progress occurs for the specific action.
-func (p ProgressEmpty) Progress(_ string) {}
+func (p ProgressEmpty) Progress(message string) error {
+	return errors.New(message)
+}

@@ -587,6 +587,18 @@ func (p *dockerContainer) Cleanup() error {
 	return nil
 }
 
+// GetLogger creates a new logger for the process.
+func (p *dockerContainer) GetLogger(logger zerolog.Logger) zerolog.Logger {
+	cid := p.ContainerID()
+
+	if len(cid) > 8 {
+		// in logs it is better to see the abbreviation of the long container ID.
+		cid = cid[:8]
+	}
+
+	return logger.With().Str("cid", cid).Logger()
+}
+
 // isNoSuchContainer returns true if the given error is (or is caused by) a NoSuchContainer error.
 func isNoSuchContainer(err error) bool {
 	if _, ok := err.(*docker.NoSuchContainer); ok {

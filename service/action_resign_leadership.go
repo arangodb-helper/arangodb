@@ -65,37 +65,65 @@ func (a *ActionResignLeadership) Condition(serverType definitions.ServerType) bo
 
 // PreStop runs action before server is stopped.
 func (a *ActionResignLeadership) PreStop(ctx context.Context, progress actions.Progressor) error {
+	serverID, err := a.getDBServerID(ctx, progress)
+	if err != nil {
+		return maskAny(err)
+	}
+
+	jobID, err := a.resignLeadership(ctx, serverID)
+	if err != nil {
+		return maskAny(err)
+	}
+
+	// wait for the job to be finished.
+	clusterConfig, _, _ := a.runtimeContext.ClusterConfig()
+	agencyClient, err := clusterConfig.CreateAgencyAPI(a.runtimeContext)
+	if err != nil {
+		return errors.Wrap(err, "failed to create agency API")
+	}
+
+	progress.Progress(fmt.Sprintf("leadership resignation waits for the job ID %s to be finished", jobID))
+
+	if err := WaitForFinishedJob(ctx, jobID, agencyClient); err != nil {
+		return errors.Wrapf(err, "failed waiting for the job %s to be finished", jobID)
+	}
+
+	return nil
+}
+
+// getDBServerID gets DB server ID .
+func (a *ActionResignLeadership) getDBServerID(ctx context.Context, progress actions.Progressor) (string, error) {
 	serverID := ""
 
-	// Get DB server ID.
 	getServerID := func() error {
 		_, peer, _ := a.runtimeContext.ClusterConfig()
 		if peer == nil {
-			progress.Progress("failed to get peer from cluster config")
-			return errors.New("failed to get peer from cluster config")
+			return progress.Progress("failed to get peer from cluster config")
 		}
 
 		dbServerClient, err := peer.CreateDBServerAPI(a.runtimeContext)
 		if err != nil {
-			progress.Progress("failed to create DB server API")
-			return errors.Wrap(err, "failed to create DB server API")
+			return progress.Progress("failed to create DB server API")
 		}
 
 		// Get DB server ID.
 		serverID, err = dbServerClient.ServerID(ctx)
 		if err != nil {
-			progress.Progress("failed to get DB server ID")
-			return errors.Wrap(err, "failed to get DB server ID")
+			return progress.Progress("failed to get DB server ID")
 		}
 
 		return nil
 	}
 
 	if err := retry(ctx, getServerID, a.Timeout()); err != nil {
-		return maskAny(err)
+		return "", err
 	}
 
-	// Create a job for resignation leadership.
+	return serverID, nil
+}
+
+// resignLeadership creates a job for resignation leadership.
+func (a *ActionResignLeadership) resignLeadership(ctx context.Context, serverID string) (string, error) {
 	jobID := ""
 	resignLeadership := func() error {
 		clusterConfig, peer, _ := a.runtimeContext.ClusterConfig()
@@ -119,21 +147,8 @@ func (a *ActionResignLeadership) PreStop(ctx context.Context, progress actions.P
 	// Retry for a few seconds to create resignation job.
 	// If it is the last start instance then there is not coordinator and it will return error.
 	if err := retry(ctx, resignLeadership, time.Second*3); err != nil {
-		return maskAny(err)
+		return "", err
 	}
 
-	// wait for the job to be finished.
-	clusterConfig, _, _ := a.runtimeContext.ClusterConfig()
-	agencyClient, err := clusterConfig.CreateAgencyAPI(a.runtimeContext)
-	if err != nil {
-		return errors.Wrap(err, "failed to create agency API")
-	}
-
-	progress.Progress(fmt.Sprintf("leadership resignation waits for the job ID %s to be finished", jobID))
-
-	if err := WaitForFinishedJob(ctx, jobID, agencyClient); err != nil {
-		return errors.Wrapf(err, "failed waiting for the job %s to be finished", jobID)
-	}
-
-	return nil
+	return jobID, nil
 }

@@ -136,15 +136,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 				break
 			}
 		} else {
-			if pid := proc.ProcessID(); pid > 0 {
-				logProcess = logProcess.With().Int("pid", pid).Logger()
-			} else {
-				if cid := proc.ContainerID(); len(cid) > 12 {
-					logProcess = logProcess.With().Str("cid", cid[:12]).Logger()
-				} else {
-					logProcess = logProcess.With().Str("cid", cid).Logger()
-				}
-			}
+			logProcess = proc.GetLogger(logProcess)
 
 			logProcess.Info().Msg("server started")
 			p.proc = proc
@@ -238,10 +230,9 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			case <-p.stopping:
 				logProcess.Info().Msgf("Terminating %s", p.serverType)
 
-				progress := actions.ProgressLog{
-					LoggerOriginal: p.log.With().Str("type", p.serverType.String()).Logger(),
-				}
-				actions.StartPreStopActions(p.serverType, &progress)
+				actions.StartPreStopActions(p.serverType, &actions.ProgressLog{
+					LoggerOriginal: logProcess,
+				})
 
 				if err := proc.Terminate(); err != nil {
 					logProcess.Warn().Err(err).Msgf("Failed to terminate %s", p.serverType)
