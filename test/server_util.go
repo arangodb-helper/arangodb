@@ -26,6 +26,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/pkg/errors"
 	"net"
 	"net/http"
 	"testing"
@@ -33,6 +34,8 @@ import (
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/service"
+	"github.com/arangodb/go-driver"
+	driverhttp "github.com/arangodb/go-driver/http"
 )
 
 const (
@@ -83,7 +86,7 @@ func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API
 // testClusterWithSync runs a series of tests to verify a good cluster with synchronization enabled.
 func testClusterWithSync(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, 0, time.Minute*2)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, 0, time.Minute*5)
 	return c
 }
 
@@ -97,7 +100,8 @@ func testSingle(t *testing.T, starterEndpoint string, isSecure bool) client.API 
 // testResilientSingle runs a series of tests to verify good resilientsingle servers.
 func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, expectAgencyOnly bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, false, time.Second*30, time.Second*30)
+
+	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, false, time.Second*30, time.Minute*2)
 	return c
 }
 
@@ -279,4 +283,38 @@ func testArangoSyncReachable(t *testing.T, sp client.ServerProcess, timeout time
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// CreateClient creates a client to the server of the given type based on the arangodb starter endpoint.
+func CreateClient(t *testing.T, starterEndpoint string, serverType client.ServerType) (driver.Client, error) {
+	c := NewStarterClient(t, starterEndpoint)
+	processes, err := c.Processes(context.Background()) // TODO
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get processes")
+	}
+
+	var endpoints []string
+	if sp, ok := processes.ServerByType(serverType); ok {
+		endpoints = append(endpoints, sp.GetEndpoint())
+	}
+
+	config := driverhttp.ConnectionConfig{
+		Endpoints: endpoints,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+	connection, err := driverhttp.NewConnection(config)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create a new connection")
+	}
+	clientCfg := driver.ClientConfig{
+		Connection:     connection,
+		Authentication: driver.BasicAuthentication("root", ""),
+	}
+	client, err := driver.NewClient(clientCfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create a new client")
+	}
+	return client, nil
 }
