@@ -128,7 +128,7 @@ func (p *ProgressLog) Finished() {
 
 // Progress is launched whenever some progress occurs for the specific action.
 func (p *ProgressLog) Progress(message string) {
-	p.logger.Info().Str("message", message).Msg("Action progress")
+	p.logger.Info().Str("progress", message).Msg("Action progress")
 }
 
 // ProgressEmpty describes empty progress for the actions.
