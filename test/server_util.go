@@ -286,20 +286,21 @@ func testArangoSyncReachable(t *testing.T, sp client.ServerProcess, timeout time
 }
 
 // CreateClient creates a client to the server of the given type based on the arangodb starter endpoint.
-func CreateClient(t *testing.T, starterEndpoint string, serverType client.ServerType) (driver.Client, error) {
+func CreateClient(t *testing.T, starterEndpoint string, serverType client.ServerType,
+	auth driver.Authentication) (driver.Client, error) {
 	c := NewStarterClient(t, starterEndpoint)
-	processes, err := c.Processes(context.Background()) // TODO
+	processes, err := c.Processes(context.Background())
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get processes")
 	}
 
-	var endpoints []string
-	if sp, ok := processes.ServerByType(serverType); ok {
-		endpoints = append(endpoints, sp.GetEndpoint())
+	sp, ok := processes.ServerByType(serverType)
+	if !ok {
+		return nil, errors.Errorf("failed to server of type %s", string(serverType))
 	}
 
 	config := driverhttp.ConnectionConfig{
-		Endpoints: endpoints,
+		Endpoints: []string{sp.GetEndpoint()},
 		TLSConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
@@ -308,9 +309,10 @@ func CreateClient(t *testing.T, starterEndpoint string, serverType client.Server
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create a new connection")
 	}
+
 	clientCfg := driver.ClientConfig{
 		Connection:     connection,
-		Authentication: driver.BasicAuthentication("root", ""),
+		Authentication: auth,
 	}
 	client, err := driver.NewClient(clientCfg)
 	if err != nil {

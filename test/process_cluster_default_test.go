@@ -23,13 +23,9 @@
 package test
 
 import (
-	"context"
-	"github.com/arangodb/go-driver"
 	"os"
 	"testing"
 	"time"
-
-	"github.com/arangodb-helper/arangodb/client"
 )
 
 // TestProcessClusterDefault starts a master starter, followed by 2 slave starters.
@@ -64,26 +60,6 @@ func TestProcessClusterDefault(t *testing.T) {
 
 	if isVerbose {
 		t.Log("Waiting for termination")
-	}
-
-	coordinatorClient, err := CreateClient(t, insecureStarterEndpoint(1*portIncrement), client.ServerTypeCoordinator)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-
-	database, err := coordinatorClient.Database(context.Background(), "_system")
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-
-	options := &driver.CreateCollectionOptions{
-		ReplicationFactor: 2,
-		NumberOfShards:    1,
-	}
-
-	_, err = database.CreateCollection(context.Background(), "test", options)
-	if err != nil {
-		t.Fatal(err.Error())
 	}
 
 	SendIntrAndWait(t, master, slave1, slave2)
