@@ -40,17 +40,19 @@ import (
 	"github.com/pkg/errors"
 )
 
+type starterMode string
+
 const (
-	ctrlC                     = "\u0003"
-	whatCluster               = "cluster"
-	whatSingle                = "single server"
-	whatResilientSingle       = "resilient single server"
-	testModeProcess           = "localprocess"
-	testModeDocker            = "docker"
-	starterModeCluster        = "cluster"
-	starterModeSingle         = "single"
-	starterModeActiveFailover = "activefailover"
-	portIncrement             = 10
+	ctrlC                                 = "\u0003"
+	testModeProcess                       = "localprocess"
+	testModeDocker                        = "docker"
+	portIncrement                         = 10
+	whatCluster               starterMode = "cluster"
+	whatSingle                starterMode = "single server"
+	whatResilientSingle       starterMode = "resilient single server"
+	starterModeCluster        starterMode = "cluster"
+	starterModeSingle         starterMode = "single"
+	starterModeActiveFailover starterMode = "activefailover"
 )
 
 var (
@@ -85,9 +87,9 @@ func needTestMode(t *testing.T, testMode string) {
 	t.Skipf("Test mode '%s' not set", testMode)
 }
 
-func needStarterMode(t *testing.T, starterMode string) {
+func needStarterMode(t *testing.T, starterMode starterMode) {
 	for _, x := range starterModes {
-		if x == starterMode {
+		if x == string(starterMode) {
 			return
 		}
 	}
@@ -151,16 +153,20 @@ type waitUntilReadyResult struct {
 }
 
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
-func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, starters ...*SubProcess) bool {
+func WaitUntilStarterReady(t *testing.T, what starterMode, requiredGoodResults int, starters ...*SubProcess) bool {
 	results := make(chan waitUntilReadyResult, len(starters))
 	ctx, cancel := context.WithCancel(context.Background())
+	timeout := time.Minute * 3
+	//if what == whatCluster {
+	//	timeout = time.Minute * 5
+	//}
 	defer cancel()
 	for index, starter := range starters {
 		starter := starter // Used in nested function
 		id := fmt.Sprintf("starter-%d", index+1)
 		go func() {
 			started := time.Now()
-			if err := starter.ExpectTimeout(ctx, time.Minute*3, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
+			if err := starter.ExpectTimeout(ctx, timeout, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
 				timeSpan := time.Since(started)
 				results <- waitUntilReadyResult{
 					Ready:    false,
