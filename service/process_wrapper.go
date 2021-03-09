@@ -39,7 +39,7 @@ func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog
 	p := &processWrapper{
 		s:              s,
 		ctx:            ctx,
-		log:            log,
+		log:            log.With().Str("type", serverType.String()).Logger(),
 		runtimeContext: runtimeContext,
 		runner:         runner,
 		config:         config,
@@ -113,7 +113,7 @@ func (p *processWrapper) stop() {
 }
 
 func (p *processWrapper) run(startedCh chan<- struct{}) {
-	logProcess := p.log.With().Str("type", p.serverType.String()).Logger()
+	logProcess := p.log
 	defer func() {
 		logProcess.Info().Msg("Exited")
 		defer close(p.closed)
@@ -192,8 +192,8 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 								}
 								if p.serverType != definitions.ServerTypeResilientSingle || isLeader {
 									p.s.logMutex.Lock()
-									p.log.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
-									p.log.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
+									logProcess.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
+									logProcess.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
 									p.s.logMutex.Unlock()
 								}
 								p.runtimeContext.removeRecoveryFile()
@@ -208,7 +208,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 							} else {
 								ip := p.myPeer.Address
 								p.s.logMutex.Lock()
-								p.log.Info().Msgf("Your syncmaster can now available at `https://%s:%d`", ip, hostPort)
+								logProcess.Info().Msgf("Your syncmaster can now available at `https://%s:%d`", ip, hostPort)
 								p.s.logMutex.Unlock()
 							}
 						}
