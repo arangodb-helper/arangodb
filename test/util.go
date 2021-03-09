@@ -117,7 +117,8 @@ func SpawnWithExpand(t *testing.T, command string, expand bool) *SubProcess {
 	if expand {
 		command = os.ExpandEnv(command)
 	}
-	t.Logf("Executing command: %s", command)
+
+	t.Logf("%s Executing command: %s", time.Now().UTC().Format(time.RFC3339), command)
 	args, err := shell.Split(command)
 	if err != nil {
 		t.Fatal(describe(err))
