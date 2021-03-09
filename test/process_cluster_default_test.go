@@ -61,7 +61,6 @@ func TestProcessClusterDefault(t *testing.T) {
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-
 	SendIntrAndWait(t, master, slave1, slave2)
 }
 
