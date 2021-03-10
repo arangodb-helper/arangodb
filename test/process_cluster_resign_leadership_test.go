@@ -24,7 +24,9 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,9 +88,24 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		ReplicationFactor: 2,
 		NumberOfShards:    1,
 	}
-	if _, err = database.CreateCollection(context.Background(), collectionName, options); err != nil {
+	collection, err := database.CreateCollection(context.Background(), collectionName, options)
+	if err != nil {
 		t.Fatal(err.Error())
 	}
+
+	// create some documents.
+	type book struct {
+		Title string `json:"name"`
+	}
+	var documents []interface{}
+	for i := 0; i < 1000; i++ {
+		documents = append(documents, &book{Title: fmt.Sprintf("Title %d", i)})
+	}
+	documentsMetaData, _, err := collection.CreateDocuments(context.Background(), documents)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	keys := documentsMetaData.Keys()
 
 	dbServerLeader, err := getServerIDLeaderForFirstShard(coordinatorClient, database, collectionName)
 	if err != nil {
@@ -114,13 +131,44 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 				if err != nil {
 					t.Fatal(err.Error())
 				}
+				collection, err = database.CreateCollection(context.Background(), collectionName, options)
+				if err != nil {
+					t.Fatal(err.Error())
+				}
 				break
 			}
 		}
 	}
 
-	ShutdownStarter(t, starterEndpointWithLeader)
+	// read books during the shutdown of the one starter.
+	var errRead error
+	ctxShutdown, cancel := context.WithCancel(context.Background())
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		var oneBook book
+		for {
+			for _, key := range keys {
+				if _, errRead = collection.ReadDocument(context.Background(), key, &oneBook); errRead != nil {
+					return
+				}
+			}
 
+			if _, ok := <-ctxShutdown.Done(); !ok {
+				return
+			}
+		}
+	}()
+
+	ShutdownStarter(t, starterEndpointWithLeader)
+	cancel()
+	wg.Wait()
+	if errRead != nil {
+		t.Logf("Reading documents: %s", errRead.Error())
+	}
+
+	// check new leader of the shard.
 	newDBServerLeader, err := getServerIDLeaderForFirstShard(coordinatorClient, database, collectionName)
 	if err != nil {
 		t.Fatal(err.Error())
@@ -130,6 +178,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		t.Fatalf("DB server's ID '%s' can not be the same after leadership resignation", dbServerLeader)
 	}
 
+	// close the rest of the starters.
 	for _, endpoint := range starterEndpoints {
 		if endpoint == starterEndpointWithLeader {
 			continue
