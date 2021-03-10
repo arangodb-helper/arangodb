@@ -122,21 +122,23 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		// The starter with current connection to the coordinator will be closed so the
 		// new coordinator connection must be established for the future requests.
 		for _, endpoint := range starterEndpoints {
-			if endpoint != starterEndpointWithLeader {
-				coordinatorClient, err = CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
-				if err != nil {
-					t.Fatal(err.Error())
-				}
-				database, err = coordinatorClient.Database(context.Background(), databaseName)
-				if err != nil {
-					t.Fatal(err.Error())
-				}
-				collection, err = database.CreateCollection(context.Background(), collectionName, options)
-				if err != nil {
-					t.Fatal(err.Error())
-				}
-				break
+			if endpoint == starterEndpointWithLeader {
+				continue
 			}
+
+			coordinatorClient, err = CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+			database, err = coordinatorClient.Database(context.Background(), databaseName)
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+			collection, err = database.Collection(context.Background(), collectionName)
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+			break
 		}
 	}
 
