@@ -24,6 +24,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/arangodb-helper/arangodb/pkg/api"
 
@@ -177,4 +178,13 @@ type UpgradeStatusServer struct {
 	Port int `json:"port"`
 	// Address of the server (IP or hostname)
 	Address string `json:"address"`
+}
+
+// GetEndpoint return address endpoint to the server.
+func (s *ServerProcess) GetEndpoint() string {
+	if s.IsSecure {
+		return fmt.Sprintf("https://%s:%d", s.IP, s.Port)
+	}
+
+	return fmt.Sprintf("http://%s:%d", s.IP, s.Port)
 }

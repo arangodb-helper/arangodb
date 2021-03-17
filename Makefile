@@ -44,7 +44,7 @@ ifdef TRAVIS
 	IP := $(shell hostname -I | cut -d ' ' -f 1)
 endif
 
-TEST_TIMEOUT := 25m
+TEST_TIMEOUT := 1h
 
 BINNAME := arangodb$(GOEXE)
 TESTNAME := test$(GOEXE)

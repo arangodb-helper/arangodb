@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -79,10 +80,9 @@ type UpgradeManager interface {
 
 // UpgradeManagerContext holds methods used by the upgrade manager to control its context.
 type UpgradeManagerContext interface {
+	ClientBuilder
 	// ClusterConfig returns the current cluster configuration and the current peer
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
-	// CreateClient creates a go-driver client with authentication for the given endpoints.
-	CreateClient(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)
 	// RestartServer triggers a restart of the server of the given type.
 	RestartServer(serverType definitions.ServerType) error
 	// IsRunningMaster returns if the starter is the running master.
@@ -348,7 +348,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		// Repair each agent's persistent snapshots:
 		for _, p := range config.AllPeers {
 			if p.HasAgent() {
-				cli, err := p.CreateAgentAPI(m.upgradeManagerContext.CreateClient)
+				cli, err := p.CreateAgentAPI(m.upgradeManagerContext)
 				if err != nil {
 					m.log.Error().Msgf("Could not create client for agent of peer %s", p.ID)
 					return maskAny(err)
@@ -765,7 +765,7 @@ func (m *upgradeManager) createAgencyAPI() (agency.Agency, error) {
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Create client
-	a, err := clusterConfig.CreateAgencyAPI(m.upgradeManagerContext.CreateClient)
+	a, err := clusterConfig.CreateAgencyAPI(m.upgradeManagerContext)
 	if err != nil {
 		return nil, maskAny(err)
 	}

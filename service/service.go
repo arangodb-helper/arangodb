@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -323,7 +324,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 
 	// Prepare cluster client
 	ctx := context.Background()
-	c, err := s.myPeers.CreateClusterAPI(ctx, s.CreateClient)
+	c, err := s.myPeers.CreateClusterAPI(ctx, s)
 	if err != nil {
 		return false, maskAny(err)
 	}
@@ -333,7 +334,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 		shutdownServer := func() error {
 			// Find id of dbserver
 			s.log.Info().Msg("Finding server ID of dbserver")
-			sc, err := peer.CreateDBServerAPI(s.CreateClient)
+			sc, err := peer.CreateDBServerAPI(s)
 			if err != nil {
 				return maskAny(err)
 			}
@@ -381,7 +382,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 		shutdownServer := func() error {
 			// Find id of coordinator
 			s.log.Info().Msg("Finding server ID of coordinator")
-			sc, err := peer.CreateCoordinatorAPI(s.CreateClient)
+			sc, err := peer.CreateCoordinatorAPI(s)
 			if err != nil {
 				return maskAny(err)
 			}

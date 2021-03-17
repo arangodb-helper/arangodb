@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Ewout Prangsma
+// Author Tomasz Mielech
 //
 
 package service
@@ -31,9 +32,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
-	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	"github.com/rs/zerolog"
 )
@@ -57,14 +55,13 @@ type runtimeClusterManager struct {
 
 // runtimeClusterManagerContext provides a context for the runtimeClusterManager.
 type runtimeClusterManagerContext interface {
+	ClientBuilder
+
 	// ClusterConfig returns the current cluster configuration and the current peer
 	ClusterConfig() (ClusterConfig, *Peer, ServiceMode)
 
 	// ChangeState alters the current state of the service
 	ChangeState(newState State)
-
-	// CreateClient returns go-driver client with authentication configured for the given endpoint.
-	CreateClient(endpoint []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)
 
 	// UpdateClusterConfig updates the current cluster configuration.
 	UpdateClusterConfig(ClusterConfig)
@@ -75,7 +72,7 @@ func (s *runtimeClusterManager) createAgencyAPI() (agency.Agency, error) {
 	// Get cluster config
 	clusterConfig, _, _ := s.runtimeContext.ClusterConfig()
 	// Create client
-	return clusterConfig.CreateAgencyAPI(s.runtimeContext.CreateClient)
+	return clusterConfig.CreateAgencyAPI(s.runtimeContext)
 }
 
 // getMasterURL tries to get the URL of the current master from

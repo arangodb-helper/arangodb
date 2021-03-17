@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
 // Author Adam Janikowski
+// Author Tomasz Mielech
 //
 
 package service
@@ -27,9 +28,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service/actions"
 )
 
 func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
@@ -37,7 +39,7 @@ func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog
 	p := &processWrapper{
 		s:              s,
 		ctx:            ctx,
-		log:            log,
+		log:            log.With().Str("type", serverType.String()).Logger(),
 		runtimeContext: runtimeContext,
 		runner:         runner,
 		config:         config,
@@ -111,8 +113,9 @@ func (p *processWrapper) stop() {
 }
 
 func (p *processWrapper) run(startedCh chan<- struct{}) {
+	logProcess := p.log
 	defer func() {
-		p.log.Info().Str("type", p.serverType.String()).Msg("Exited")
+		logProcess.Info().Msg("Exited")
 		defer close(p.closed)
 	}()
 	restart := 0
@@ -120,25 +123,28 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 
 	close(startedCh)
 
-	p.log.Info().Msgf("%s started routine", p.serverType)
+	logProcess.Info().Msgf("%s started routine", p.serverType)
 
 	for {
 		myHostAddress := p.myPeer.Address
 		startTime := time.Now()
 		features := p.runtimeContext.DatabaseFeatures()
-		proc, portInUse, err := startServer(p.ctx, p.log, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart)
+		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart)
 		if err != nil {
-			p.log.Error().Err(err).Msgf("Error while starting %s", p.serverType)
+			logProcess.Error().Err(err).Msgf("Error while starting %s", p.serverType)
 			if !portInUse {
 				break
 			}
 		} else {
+			logProcess = proc.GetLogger(logProcess)
+
+			logProcess.Info().Msg("server started")
 			p.proc = proc
 			ctx, cancel := context.WithCancel(p.ctx)
 			go func() {
 				port, err := p.runtimeContext.serverPort(p.serverType)
 				if err != nil {
-					p.log.Fatal().Err(err).Msg("Cannot collect serverPort")
+					logProcess.Fatal().Err(err).Msg("Cannot collect serverPort")
 				}
 				statusChanged := make(chan StatusItem)
 				go func() {
@@ -151,14 +157,14 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 						}
 						if statusItem.PrevStatusCode != statusItem.StatusCode {
 							if p.config.DebugCluster {
-								p.log.Info().Msgf("%s status changed to %d", p.serverType, statusItem.StatusCode)
+								logProcess.Info().Msgf("%s status changed to %d", p.serverType, statusItem.StatusCode)
 							} else {
-								p.log.Debug().Msgf("%s status changed to %d", p.serverType, statusItem.StatusCode)
+								logProcess.Debug().Msgf("%s status changed to %d", p.serverType, statusItem.StatusCode)
 							}
 						}
 						if statusItem.Duration > showLogDuration {
 							showLogDuration = statusItem.Duration + time.Second*30
-							p.s.showRecentLogs(p.log, p.runtimeContext, p.serverType)
+							p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 						}
 					}
 				}()
@@ -168,12 +174,12 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 						if p.serverType == definitions.ServerTypeResilientSingle && !isLeader {
 							msgPostfix = " as follower"
 						}
-						p.log.Info().Msgf("%s up and running%s (version %s).", p.serverType, msgPostfix, version)
+						logProcess.Info().Msgf("%s up and running%s (version %s).", p.serverType, msgPostfix, version)
 						if (p.serverType == definitions.ServerTypeCoordinator && !p.runtimeContext.IsLocalSlave()) || p.serverType == definitions.ServerTypeSingle || p.serverType == definitions.ServerTypeResilientSingle {
 							hostPort, err := proc.HostPort(port)
 							if err != nil {
 								if id := proc.ContainerID(); id != "" {
-									p.log.Info().Msgf("%s can only be accessed from inside a container.", p.serverType)
+									logProcess.Info().Msgf("%s can only be accessed from inside a container.", p.serverType)
 								}
 							} else {
 								ip := p.myPeer.Address
@@ -186,8 +192,8 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 								}
 								if p.serverType != definitions.ServerTypeResilientSingle || isLeader {
 									p.s.logMutex.Lock()
-									p.log.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
-									p.log.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
+									logProcess.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
+									logProcess.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
 									p.s.logMutex.Unlock()
 								}
 								p.runtimeContext.removeRecoveryFile()
@@ -197,20 +203,20 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 							hostPort, err := proc.HostPort(port)
 							if err != nil {
 								if id := proc.ContainerID(); id != "" {
-									p.log.Info().Msgf("%s can only be accessed from inside a container.", p.serverType)
+									logProcess.Info().Msgf("%s can only be accessed from inside a container.", p.serverType)
 								}
 							} else {
 								ip := p.myPeer.Address
 								p.s.logMutex.Lock()
-								p.log.Info().Msgf("Your syncmaster can now available at `https://%s:%d`", ip, hostPort)
+								logProcess.Info().Msgf("Your syncmaster can now available at `https://%s:%d`", ip, hostPort)
 								p.s.logMutex.Unlock()
 							}
 						}
 					} else if !up {
-						p.log.Warn().Msgf("%s not ready after 5min!: Status trail: %#v", p.serverType, statusTrail)
+						logProcess.Warn().Msgf("%s not ready after 5min!: Status trail: %#v", p.serverType, statusTrail)
 					} else if !correctRole {
 						expectedRole, expectedMode := p.serverType.ExpectedServerRole()
-						p.log.Warn().Msgf("%s does not have the expected role of '%s,%s' (but '%s,%s'): Status trail: %#v", p.serverType, expectedRole, expectedMode, role, mode, statusTrail)
+						logProcess.Warn().Msgf("%s does not have the expected role of '%s,%s' (but '%s,%s'): Status trail: %#v", p.serverType, expectedRole, expectedMode, role, mode, statusTrail)
 					}
 				}
 			}()
@@ -219,28 +225,33 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 
 			select {
 			case <-procC:
-				p.log.Info().Int("process", proc.ProcessID()).Msgf("Terminated %s", p.serverType)
+				logProcess.Info().Msgf("Terminated %s", p.serverType)
 				break
 			case <-p.stopping:
-				p.log.Info().Int("process", proc.ProcessID()).Msgf("Terminating %s", p.serverType)
+				logProcess.Info().Msgf("Terminating %s", p.serverType)
+
+				actions.StartPreStopActions(p.serverType, &actions.ProgressLog{
+					LoggerOriginal: logProcess,
+				})
+
 				if err := proc.Terminate(); err != nil {
-					p.log.Warn().Err(err).Int("process", proc.ProcessID()).Msgf("Failed to terminate %s", p.serverType)
+					logProcess.Warn().Err(err).Msgf("Failed to terminate %s", p.serverType)
 				}
-				p.log.Info().Int("process", proc.ProcessID()).Msgf("Terminate request send %s", p.serverType)
+				logProcess.Info().Msgf("Terminate request send %s", p.serverType)
 
 				select {
 				case <-procC:
-					p.log.Info().Int("process", proc.ProcessID()).Msgf("Terminated %s", p.serverType)
+					logProcess.Info().Msgf("Terminated %s", p.serverType)
 					break
 				case <-time.After(p.gracePeriod):
-					p.log.Warn().Int("process", proc.ProcessID()).Msgf("Killing %s", p.serverType)
+					logProcess.Warn().Msgf("Killing %s", p.serverType)
 					proc.Kill()
 					select {
 					case <-procC:
-						p.log.Warn().Int("process", proc.ProcessID()).Msgf("Killed %s", p.serverType)
+						logProcess.Warn().Msgf("Killed %s", p.serverType)
 						break
 					case <-time.After(2 * time.Second):
-						p.log.Error().Int("process", proc.ProcessID()).Msgf("Not able to kill %s", p.serverType)
+						logProcess.Error().Msgf("Not able to kill %s", p.serverType)
 						break
 					}
 				}
@@ -250,7 +261,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		uptime := time.Since(startTime)
 		isTerminationExpected := p.runtimeContext.UpgradeManager().IsServerUpgradeInProgress(p.serverType)
 		if isTerminationExpected {
-			p.log.Debug().Msgf("%s stopped as expected", p.serverType)
+			logProcess.Debug().Msgf("%s stopped as expected", p.serverType)
 		} else {
 			var isRecentFailure bool
 			if uptime < time.Second*30 {
@@ -263,23 +274,23 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 
 			if isRecentFailure && !p.s.stopping {
 				if !portInUse {
-					p.log.Info().Msgf("%s has terminated quickly, in %s (recent failures: %d)", p.serverType, uptime, recentFailures)
+					logProcess.Info().Msgf("%s has terminated quickly, in %s (recent failures: %d)", p.serverType, uptime, recentFailures)
 					if recentFailures >= definitions.MinRecentFailuresForLog {
 						// Show logs of the server
-						p.s.showRecentLogs(p.log, p.runtimeContext, p.serverType)
+						p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 					}
 				}
 				if recentFailures >= definitions.MaxRecentFailures {
-					p.log.Error().Msgf("%s has failed %d times, giving up", p.serverType, recentFailures)
+					logProcess.Error().Msgf("%s has failed %d times, giving up", p.serverType, recentFailures)
 					p.runtimeContext.Stop()
 					p.s.stopping = true
 					break
 				}
 			} else {
-				p.log.Info().Msgf("%s has terminated", p.serverType)
+				logProcess.Info().Msgf("%s has terminated", p.serverType)
 				if p.config.DebugCluster && !p.s.stopping {
 					// Show logs of the server
-					p.s.showRecentLogs(p.log, p.runtimeContext, p.serverType)
+					p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 				}
 			}
 			if portInUse {
@@ -291,7 +302,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			break
 		}
 
-		p.log.Info().Msgf("restarting %s", p.serverType)
+		logProcess.Info().Msgf("restarting %s", p.serverType)
 		restart++
 	}
 }

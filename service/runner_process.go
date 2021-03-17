@@ -247,3 +247,8 @@ func (p *process) Cleanup() error {
 	// Nothing todo here
 	return nil
 }
+
+// GetLogger creates a new logger for the process.
+func (p *process) GetLogger(logger zerolog.Logger) zerolog.Logger {
+	return logger.With().Int("pid", p.ProcessID()).Logger()
+}
