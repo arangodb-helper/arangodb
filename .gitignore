@@ -2,3 +2,7 @@
 /arangodb
 bin
 vendor/
+
+#IDE's
+.idea
+

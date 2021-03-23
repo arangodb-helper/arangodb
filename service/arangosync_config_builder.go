@@ -152,6 +152,7 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 		optionPair{"--server.port", myPort},
 		optionPair{"--monitoring.token", config.SyncMonitoringToken},
 		optionPair{"--master.jwt-secret", config.SyncMasterJWTSecretFile},
+		optionPair{"--pid-file", getLockFilePath(myContainerDir)},
 	)
 	if config.DebugCluster {
 		options = append(options,

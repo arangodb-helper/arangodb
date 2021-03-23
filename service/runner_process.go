@@ -59,6 +59,11 @@ type process struct {
 	isChild bool
 }
 
+// getLockFilePath returns path to the file with the lock for the given server directory.
+func getLockFilePath(serverDir string) string {
+	return filepath.Join(serverDir, "data", "LOCK")
+}
+
 func (p *process) WaitCh() <-chan struct{} {
 	c := make(chan struct{})
 
@@ -71,7 +76,7 @@ func (p *process) WaitCh() <-chan struct{} {
 	return c
 }
 
-func (r *processRunner) GetContainerDir(hostDir, defaultContainerDir string) string {
+func (r *processRunner) GetContainerDir(hostDir, _ string) string {
 	return hostDir
 }
 
@@ -79,9 +84,10 @@ func (r *processRunner) GetContainerDir(hostDir, defaultContainerDir string) str
 // If that is the case, its process is returned.
 // Otherwise nil is returned.
 func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
-	lockContent, err := ioutil.ReadFile(filepath.Join(serverDir, "data", "LOCK"))
+	lockFile := getLockFilePath(serverDir)
+	lockContent, err := ioutil.ReadFile(lockFile)
 	if os.IsNotExist(err) {
-		r.log.Debug().Msgf("Cannot find %s", filepath.Join(serverDir, "data", "LOCK"))
+		r.log.Debug().Msgf("Cannot find %s", lockFile)
 		return nil, nil
 	} else if err != nil {
 		return nil, maskAny(err)
