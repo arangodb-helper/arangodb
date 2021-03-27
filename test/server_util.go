@@ -26,11 +26,12 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/pkg/errors"
 	"net"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/service"
