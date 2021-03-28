@@ -729,6 +729,10 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 
 			resp, err := c.Do(ctx, req)
 			if err != nil {
+				if driver.IsNoLeader(err) {
+					// Server is up, just not the leader
+					return false, nil
+				}
 				return false, maskAny(err)
 			}
 			if resp.StatusCode() == 200 {
