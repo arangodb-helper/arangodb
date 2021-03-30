@@ -29,8 +29,16 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
+)
+
+type TimeFormat int
+
+const (
+	TimeFormatLocal TimeFormat = 0
+	TimeFormatUTC   TimeFormat = 1
 )
 
 var (
@@ -72,14 +80,14 @@ type loggingService struct {
 }
 
 type LoggerOutputOptions struct {
-	Color   bool   // Produce colored logs
-	JSON    bool   // Project JSON messages
-	Stderr  bool   // Write logs to stderr
-	LogFile string // Path of file to write to
+	Color      bool       // Produce colored logs
+	TimeFormat TimeFormat // Instructs how to print time in logs
+	Stderr     bool       // Write logs to stderr
+	LogFile    string     // Path of file to write to
 }
 
 func configureLogger(lg zerolog.ConsoleWriter) zerolog.ConsoleWriter {
-	lg.TimeFormat = "2006-01-02T15:04:05-07:00"
+	lg.TimeFormat = time.RFC3339
 
 	lg.FormatLevel = func(i interface{}) string {
 		return fmt.Sprintf("|%s|", strings.ToUpper(fmt.Sprintf("%s", i)))
@@ -93,6 +101,13 @@ func NewRootLogger(options LoggerOutputOptions) (zerolog.Logger, func()) {
 	var writers []io.Writer
 	var errors []error
 	var rotate func()
+
+	if options.TimeFormat == TimeFormatUTC {
+		zerolog.TimestampFunc = func() time.Time {
+			return time.Now().UTC()
+		}
+	}
+
 	if options.LogFile != "" {
 		fileWriter, err := newRotatingWriter(options.LogFile)
 		if err != nil {
@@ -100,24 +115,18 @@ func NewRootLogger(options LoggerOutputOptions) (zerolog.Logger, func()) {
 			options.Stderr = true
 		} else {
 			rotate = func() { fileWriter.Rotate() }
-			writer := io.Writer(fileWriter)
-			if !options.JSON {
-				writer = configureLogger(zerolog.ConsoleWriter{
-					Out:     fileWriter,
-					NoColor: true,
-				})
-			}
+			writer := configureLogger(zerolog.ConsoleWriter{
+				Out:     fileWriter,
+				NoColor: true,
+			})
 			writers = append(writers, writer)
 		}
 	}
 	if options.Stderr {
-		writer := io.Writer(os.Stderr)
-		if !options.JSON {
-			writer = configureLogger(zerolog.ConsoleWriter{
-				Out:     writer,
-				NoColor: !options.Color,
-			})
-		}
+		writer := configureLogger(zerolog.ConsoleWriter{
+			Out:     os.Stderr,
+			NoColor: !options.Color,
+		})
 		writers = append(writers, writer)
 	}
 
