@@ -1034,7 +1034,15 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	if s.DatabaseFeatures().GetJWTFolderOption() && s.jwtSecret != "" {
 		if serverType != definitions.ServerTypeUnknown {
 			if t, err := s.getFolderToken(serverType); err != nil {
-				return nil, err
+				if !os.IsNotExist(err) {
+					return nil, err
+				}
+
+				if t, err := s.getGlobalToken(); err != nil {
+					return nil, err
+				} else {
+					secret = t
+				}
 			} else {
 				secret = t
 			}
@@ -1060,6 +1068,16 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 		return nil, maskAny(err)
 	}
 	return c, nil
+}
+
+func (s *Service) getGlobalToken() (string, error) {
+	p := s.GetLocalFolder()
+
+	token, err := ioutil.ReadFile(path.Join(p, definitions.ArangodJWTSecretFolderName, definitions.ArangodJWTSecretActive))
+	if err != nil {
+		return "", err
+	}
+	return string(token), nil
 }
 
 func (s *Service) getFolderToken(serverTypes ...definitions.ServerType) (string, error) {
