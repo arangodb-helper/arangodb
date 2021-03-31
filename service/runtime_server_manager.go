@@ -140,8 +140,9 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 			expectedRole, expectedMode := serverType.ExpectedServerRole()
 			log.Info().Msgf("%s is not of role '%s.%s' on port %d. Terminating existing process and restarting it...", serverType, expectedRole, expectedMode, myPort)
 		}
-		p.Terminate()
-		// Don't return here. Process is terminated and will be created.
+
+		// Terminate without actions
+		terminateProcessWithActions(log, p, serverType, 0, time.Minute)
 	}
 
 	// Check availability of port
@@ -525,7 +526,7 @@ func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType defi
 	}
 
 	if p != nil {
-		terminateProcess(log, p, serverType, time.Minute)
+		terminateProcessWithActions(log, p, serverType, 0, time.Minute, actions.ActionTypeAll)
 	}
 	return nil
 }

@@ -87,31 +87,47 @@ type Process interface {
 	GetLogger(logger zerolog.Logger) zerolog.Logger
 }
 
-// terminateProcess tries to terminate the given process gracefully.
+// terminateProcessWithActions tries to terminate the given process gracefully.
 // When the process has not terminated after given timeout it is killed.
-func terminateProcess(log zerolog.Logger, p Process, serverType definitions.ServerType, killTimeout time.Duration) {
+func terminateProcessWithActions(log zerolog.Logger, p Process, serverType definitions.ServerType, initialTimeout time.Duration, killTimeout time.Duration, actionTypes ...actions.ActionType) {
 	name := serverType.GetName()
 
 	logTerminate := log.With().Str("type", serverType.String()).Logger()
 	logTerminate = p.GetLogger(logTerminate)
-	logTerminate.Info().Msgf("Terminating %s...", name)
-	terminated := make(chan struct{})
-	go func() {
-		defer close(terminated)
 
-		actions.StartPreStopActions(serverType, &actions.ProgressLog{
-			LoggerOriginal: logTerminate,
-		})
-
-		if err := p.Terminate(); err != nil {
-			logTerminate.Warn().Err(err).Msgf("Failed to terminate %s", name)
-		}
+	if killTimeout == 0 {
+		// Kill process
+		logTerminate.Warn().Msgf("Killing %s...", name)
+		p.Kill()
 		p.Wait()
-		logTerminate.Info().Msgf("%s terminated", name)
-	}()
+
+		return
+	} else if initialTimeout > 0 {
+		logTerminate.Info().Msgf("Wait for process termination without sending signal %s...", name)
+		stopCh := p.WaitCh()
+
+		select {
+		case <-stopCh:
+			logTerminate.Info().Msgf("Terminated %s...", name)
+			return
+		case <-time.After(initialTimeout):
+			// Kill the process
+			logTerminate.Info().Msgf("Continue signal termination process %s...", name)
+		}
+	}
+
+	logTerminate.Info().Msgf("Terminating %s...", name)
+	stopCh := p.WaitCh()
+
+	actions.StartLimitedAction(logTerminate, actions.ActionTypePreStop, serverType, actionTypes)
+
+	if err := p.Terminate(); err != nil {
+		logTerminate.Warn().Err(err).Msgf("Failed to terminate %s", name)
+	}
+
 	select {
-	case <-terminated:
-		// We're done
+	case <-stopCh:
+		logTerminate.Info().Msgf("Terminated %s...", name)
 	case <-time.After(killTimeout):
 		// Kill the process
 		logTerminate.Warn().Msgf("Killing %s...", name)
