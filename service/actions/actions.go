@@ -34,6 +34,35 @@ import (
 
 var actions map[string]Action
 
+// ActionTypes is the list of ActionType
+type ActionTypes []ActionType
+
+// Contains returns true if requested action is on list
+func (a ActionTypes) Contains(t ActionType) bool {
+	for _, b := range a {
+		if b == t {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ActionType keeps type of action
+type ActionType string
+
+// String returns string value of ActionType
+func (a ActionType) String() string {
+	return string(a)
+}
+
+const (
+	// ActionTypeAll filter which run all action types
+	ActionTypeAll ActionType = "All"
+	// ActionTypePreStop PreStop Action Type
+	ActionTypePreStop ActionType = "PreStop"
+)
+
 // Action describes how some actions should be started.
 type Action interface {
 	// Name returns name of the action.
@@ -76,10 +105,35 @@ func RegisterAction(action Action) {
 	actions[action.Name()] = action
 }
 
+// StartAction starts actions based on type if actionType is on the limit list
+func StartLimitedAction(logger zerolog.Logger, actionType ActionType, serverType definitions.ServerType, limit ActionTypes) {
+	if !limit.Contains(actionType) && !limit.Contains(ActionTypeAll) {
+		return
+	}
+
+	StartAction(logger, actionType, serverType)
+}
+
+// StartAction starts actions based on type
+func StartAction(logger zerolog.Logger, actionType ActionType, serverType definitions.ServerType) {
+	switch actionType {
+	case ActionTypePreStop:
+		log := logger.With().Str("action", actionType.String()).Logger()
+		log.Info().Msgf("Starting actions")
+		StartPreStopActions(log, serverType, &ProgressLog{
+			LoggerOriginal: log,
+			logger:         log,
+		})
+	}
+}
+
 // StartPreStopActions runs registered pre stop actions.
-func StartPreStopActions(serverType definitions.ServerType, progress Progressor) {
+func StartPreStopActions(logger zerolog.Logger, serverType definitions.ServerType, progress Progressor) {
 	if progress == nil {
-		progress = &ProgressEmpty{}
+		progress = &ProgressLog{
+			LoggerOriginal: logger,
+			logger:         logger,
+		}
 	}
 
 	for _, anyAction := range actions {
@@ -91,6 +145,8 @@ func StartPreStopActions(serverType definitions.ServerType, progress Progressor)
 		if !preStopAction.Condition(serverType) {
 			continue
 		}
+
+		logger.Info().Str("Name", anyAction.Name()).Msgf("Starting Action")
 
 		ctxAction, cancelAction := context.WithTimeout(context.Background(), preStopAction.Timeout())
 

@@ -31,7 +31,6 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
-	"github.com/arangodb-helper/arangodb/service/actions"
 )
 
 func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
@@ -228,33 +227,14 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 				logProcess.Info().Msgf("Terminated %s", p.serverType)
 				break
 			case <-p.stopping:
-				logProcess.Info().Msgf("Terminating %s", p.serverType)
-
-				actions.StartPreStopActions(p.serverType, &actions.ProgressLog{
-					LoggerOriginal: logProcess,
-				})
-
-				if err := proc.Terminate(); err != nil {
-					logProcess.Warn().Err(err).Msgf("Failed to terminate %s", p.serverType)
+				if p.s.stopping {
+					// Starter is being closed
+					terminateProcessWithActions(logProcess, p.proc, p.serverType, 10*time.Second, time.Minute)
+				} else {
+					// Process restart
+					terminateProcessWithActions(logProcess, p.proc, p.serverType, 0, time.Minute)
 				}
-				logProcess.Info().Msgf("Terminate request send %s", p.serverType)
-
-				select {
-				case <-procC:
-					logProcess.Info().Msgf("Terminated %s", p.serverType)
-					break
-				case <-time.After(p.gracePeriod):
-					logProcess.Warn().Msgf("Killing %s", p.serverType)
-					proc.Kill()
-					select {
-					case <-procC:
-						logProcess.Warn().Msgf("Killed %s", p.serverType)
-						break
-					case <-time.After(2 * time.Second):
-						logProcess.Error().Msgf("Not able to kill %s", p.serverType)
-						break
-					}
-				}
+				break
 			}
 			cancel()
 		}

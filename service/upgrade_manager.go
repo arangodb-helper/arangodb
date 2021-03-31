@@ -993,19 +993,22 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		m.upgradeServerType = definitions.ServerTypeDBServer
 		m.updateNeeded = true
 		upgrade := func() error {
+			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServer); err != nil {
+				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
+			}
+
 			m.log.Info().Msg("Disabling supervision")
 			if err := m.disableSupervision(ctx); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to disable supervision"))
 			}
+			m.log.Info().Msg("Disabled supervision")
+
 			defer func() {
 				m.log.Info().Msg("Enabling supervision")
 				if err := m.enableSupervision(ctx); err != nil {
 					recordFailure(errors.Wrap(err, "Failed to enable supervision"))
 				}
 			}()
-			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServer); err != nil {
-				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
-			}
 
 			// Wait until dbserver restarted
 			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
@@ -1058,19 +1061,22 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		m.upgradeServerType = definitions.ServerTypeResilientSingle
 		m.updateNeeded = true
 		upgrade := func() error {
+			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeResilientSingle); err != nil {
+				return recordFailure(errors.Wrap(err, "Failed to restart single server"))
+			}
+
 			m.log.Info().Msg("Disabling supervision")
 			if err := m.disableSupervision(ctx); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to disable supervision"))
 			}
+
+			m.log.Info().Msg("Disabled supervision")
 			defer func() {
 				m.log.Info().Msg("Enabling supervision")
 				if err := m.enableSupervision(ctx); err != nil {
 					recordFailure(errors.Wrap(err, "Failed to enable supervision"))
 				}
 			}()
-			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeResilientSingle); err != nil {
-				return recordFailure(errors.Wrap(err, "Failed to restart single server"))
-			}
 
 			// Wait until single server restarted
 			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {

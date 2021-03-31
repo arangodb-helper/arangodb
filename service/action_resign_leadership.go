@@ -84,7 +84,7 @@ func (a *ActionResignLeadership) PreStop(ctx context.Context, progress actions.P
 
 	progress.Progress(fmt.Sprintf("leadership resignation waits for the job ID %s to be finished", jobID))
 
-	if err := WaitForFinishedJob(ctx, jobID, agencyClient); err != nil {
+	if err := WaitForFinishedJob(progress, ctx, jobID, agencyClient); err != nil {
 		return errors.Wrapf(err, "failed waiting for the job %s to be finished", jobID)
 	}
 

@@ -24,7 +24,10 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"github.com/arangodb-helper/arangodb/service/actions"
 
 	"github.com/arangodb/go-driver/agency"
 	"github.com/pkg/errors"
@@ -78,7 +81,7 @@ func getJobStatus(ctx context.Context, jobID string, agencyClient agency.Agency)
 
 // WaitForFinishedJob waits for the job to be finished until context is canceled.
 // If the job fails the error ErrJobFailed is returned.
-func WaitForFinishedJob(ctx context.Context, jobID string, agencyClient agency.Agency) error {
+func WaitForFinishedJob(progress actions.Progressor, ctx context.Context, jobID string, agencyClient agency.Agency) error {
 	for {
 		job, err := getJobStatus(ctx, jobID, agencyClient)
 		if err != nil {
@@ -97,6 +100,8 @@ func WaitForFinishedJob(ctx context.Context, jobID string, agencyClient agency.A
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(time.Second * 2): // TODO memory leak
+			progress.Progress(fmt.Sprintf("Job %s of type %s for server %s in state %s: %s", job.JobID, job.Type, job.Server, string(job.state), job.Reason))
+
 			break
 		}
 	}
