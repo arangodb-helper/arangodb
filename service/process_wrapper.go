@@ -25,6 +25,7 @@ package service
 
 import (
 	"context"
+	"github.com/arangodb-helper/arangodb/service/actions"
 	"sync"
 	"time"
 
@@ -229,10 +230,10 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			case <-p.stopping:
 				if p.s.stopping {
 					// Starter is being closed
-					terminateProcessWithActions(logProcess, p.proc, p.serverType, 10*time.Second, time.Minute)
+					terminateProcessWithActions(logProcess, p.proc, p.serverType, 5*time.Second, time.Minute, actions.ActionTypeAll)
 				} else {
 					// Process restart
-					terminateProcessWithActions(logProcess, p.proc, p.serverType, 0, time.Minute)
+					terminateProcessWithActions(logProcess, p.proc, p.serverType, 0, time.Minute, actions.ActionTypeAll)
 				}
 				break
 			}
