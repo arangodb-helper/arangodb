@@ -110,9 +110,10 @@ var (
 	dataDir             string
 	logDir              string // Custom log directory (default "")
 	logOutput           struct {
-		Color   bool
-		Console bool
-		File    bool
+		Color      bool
+		Console    bool
+		File       bool
+		TimeFormat string
 	}
 	ownAddress               string
 	bindAddress              string
@@ -205,6 +206,8 @@ func init() {
 	pf.BoolVar(&logOutput.Console, "log.console", true, "Send log output to console")
 	pf.BoolVar(&logOutput.File, "log.file", true, "Send log output to file")
 	pf.BoolVar(&logOutput.Color, "log.color", defaultLogColor, "Colorize the log output")
+	pf.StringVar(&logOutput.TimeFormat, "log.time-format", "local-datestring",
+		"Time format to use in logs. Possible values: 'local-datestring' (default), 'utc-datestring'")
 	pf.StringVar(&logDir, "log.dir", getEnvVar("LOG_DIR", ""), "Custom log file directory.")
 	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
 	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
@@ -514,9 +517,15 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 // configureLogging configures the log object according to command line arguments.
 func configureLogging(consoleOnly bool) {
 	logOpts := logging.LoggerOutputOptions{
-		Stderr: logOutput.Console,
-		Color:  logOutput.Color,
+		Stderr:     logOutput.Console,
+		Color:      logOutput.Color,
+		TimeFormat: logging.TimeFormatLocal,
 	}
+
+	if logOutput.TimeFormat == "utc-datestring" {
+		logOpts.TimeFormat = logging.TimeFormatUTC
+	}
+
 	if logOutput.File && !consoleOnly {
 		if logDir != "" {
 			logOpts.LogFile = filepath.Join(logDir, logFileName)
