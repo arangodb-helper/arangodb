@@ -102,7 +102,6 @@ func WaitForFinishedJob(progress actions.Progressor, ctx context.Context, jobID 
 		case <-time.After(time.Second * 2): // TODO memory leak
 			progress.Progress(fmt.Sprintf("Job %s of type %s for server %s in state %s: %s", job.JobID, job.Type, job.Server, string(job.state), job.Reason))
 
-			break
 		}
 	}
 }
