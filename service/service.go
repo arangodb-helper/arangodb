@@ -1073,7 +1073,7 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 func (s *Service) getGlobalToken() (string, error) {
 	p := s.GetLocalFolder()
 
-	token, err := ioutil.ReadFile(path.Join(p, definitions.ArangodJWTSecretFolderName, definitions.ArangodJWTSecretActive))
+	token, err := ioutil.ReadFile(path.Join(p, definitions.ArangodJWTSecretActive))
 	if err != nil {
 		return "", err
 	}
