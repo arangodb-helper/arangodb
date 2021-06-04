@@ -51,6 +51,8 @@ var (
 	authOptions struct {
 		jwtSecretFile string
 		user          string
+		paths         []string
+                exp           int64
 	}
 )
 
@@ -62,6 +64,8 @@ func init() {
 	pf := cmdAuth.PersistentFlags()
 	pf.StringVar(&authOptions.jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
 	pf.StringVar(&authOptions.user, "auth.user", "", "name of a user to authenticate as. If empty, 'super-user' authentication is used")
+	pf.StringSliceVar(&authOptions.paths, "auth.paths", nil, "a list of allowed pathes. The path must not include the '_db/DBNAME' prefix.")
+	pf.Int64Var(&authOptions.exp, "auth.exp", 0, "an expiry date in seconds since epoche")
 }
 
 // mustAuthCreateJWTToken creates a the JWT token based on authentication options.
@@ -77,7 +81,7 @@ func mustAuthCreateJWTToken() string {
 		log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", authOptions.jwtSecretFile)
 	}
 	jwtSecret := strings.TrimSpace(string(content))
-	token, err := service.CreateJwtToken(jwtSecret, authOptions.user)
+	token, err := service.CreateJwtToken(jwtSecret, authOptions.user, "", authOptions.paths, authOptions.exp)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create JWT token")
 	}
