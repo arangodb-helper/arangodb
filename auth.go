@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -34,9 +35,10 @@ import (
 
 var (
 	cmdAuth = &cobra.Command{
-		Use:   "auth",
-		Short: "ArangoDB authentication helper commands",
-		Run:   cmdShowUsage,
+		Use:               "auth",
+		Short:             "ArangoDB authentication helper commands",
+		PersistentPreRunE: persistentAuthPreFunE,
+		Run:               cmdShowUsage,
 	}
 	cmdAuthHeader = &cobra.Command{
 		Use:   "header",
@@ -52,7 +54,8 @@ var (
 		jwtSecretFile string
 		user          string
 		paths         []string
-                exp           int64
+		exp           string
+		expDuration   time.Duration
 	}
 )
 
@@ -65,7 +68,7 @@ func init() {
 	pf.StringVar(&authOptions.jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
 	pf.StringVar(&authOptions.user, "auth.user", "", "name of a user to authenticate as. If empty, 'super-user' authentication is used")
 	pf.StringSliceVar(&authOptions.paths, "auth.paths", nil, "a list of allowed pathes. The path must not include the '_db/DBNAME' prefix.")
-	pf.Int64Var(&authOptions.exp, "auth.exp", 0, "an expiry date in seconds since epoche")
+	pf.StringVar(&authOptions.exp, "auth.exp", "", "a time in which token should expire - based on current time in UTC. Supported units: h, m, s (default)")
 }
 
 // mustAuthCreateJWTToken creates a the JWT token based on authentication options.
@@ -81,7 +84,7 @@ func mustAuthCreateJWTToken() string {
 		log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", authOptions.jwtSecretFile)
 	}
 	jwtSecret := strings.TrimSpace(string(content))
-	token, err := service.CreateJwtToken(jwtSecret, authOptions.user, "", authOptions.paths, authOptions.exp)
+	token, err := service.CreateJwtToken(jwtSecret, authOptions.user, "", authOptions.paths, authOptions.expDuration)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create JWT token")
 	}
@@ -98,4 +101,41 @@ func cmdAuthHeaderRun(cmd *cobra.Command, args []string) {
 func cmdAuthTokenRun(cmd *cobra.Command, args []string) {
 	token := mustAuthCreateJWTToken()
 	fmt.Println(token)
+}
+
+func persistentAuthPreFunE(cmd *cobra.Command, args []string) error {
+	cmdMain.PersistentPreRun(cmd, args)
+
+	if authOptions.exp != "" {
+		d, err := durationParser(authOptions.exp, "s")
+		if err != nil {
+			return err
+		}
+
+		if d < 0 {
+			return fmt.Errorf("negative duration under --auth.exp is not allowed")
+		}
+
+		authOptions.expDuration = d
+	}
+
+	return nil
+}
+
+func durationParser(duration string, defaultUnit string) (time.Duration, error) {
+	if d, err := time.ParseDuration(duration); err == nil {
+		return d, nil
+	} else {
+		if !strings.HasPrefix(err.Error(), "time: missing unit in duration ") {
+			return 0, err
+		}
+
+		duration = fmt.Sprintf("%s%s", duration, defaultUnit)
+
+		if d, err := time.ParseDuration(duration); err == nil {
+			return d, nil
+		} else {
+			return 0, err
+		}
+	}
 }

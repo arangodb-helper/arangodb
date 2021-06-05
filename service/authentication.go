@@ -24,6 +24,7 @@ package service
 
 import (
 	"net/http"
+	"time"
 
 	jwt "github.com/dgrijalva/jwt-go"
 )
@@ -35,12 +36,12 @@ const (
 
 // CreateJwtToken calculates a JWT authorization token based on the given secret.
 // If the secret is empty, an empty token is returned.
-func CreateJwtToken(jwtSecret, user string, serverId string, paths []string, exp int64) (string, error) {
+func CreateJwtToken(jwtSecret, user string, serverId string, paths []string, exp time.Duration) (string, error) {
 	if jwtSecret == "" {
 		return "", nil
 	}
-        if serverId == "" {
-	        serverId = "foo"
+	if serverId == "" {
+		serverId = "foo"
 	}
 
 	// Create a new token object, specifying signing method and the claims
@@ -56,7 +57,7 @@ func CreateJwtToken(jwtSecret, user string, serverId string, paths []string, exp
 		claims["allowed_paths"] = paths
 	}
 	if exp > 0 {
-		claims["exp"] = exp
+		claims["exp"] = time.Now().UTC().Add(exp).Unix()
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
