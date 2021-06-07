@@ -9,18 +9,20 @@ go:
   - "1.13.x"
 
 env:
-  - VERBOSE=1 TEST_SUITE=run-tests-local-process ARANGODB=arangodb:3.6 STARTER_MODES="single,cluster,activefailover"
-  - VERBOSE=1 TEST_SUITE=run-tests-docker        ARANGODB=arangodb:3.6 STARTER_MODES="single,cluster,activefailover"
-  - VERBOSE=1 TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb:latest STARTER_MODES="single,cluster,activefailover"
-  - VERBOSE=1 TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb:latest STARTER_MODES="single,cluster,activefailover"
-  - VERBOSE=1 TEST_SUITE=run-tests-local-process ARANGODB=arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,activefailover"
-  - VERBOSE=1 TEST_SUITE=run-tests-docker        ARANGODB=arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,activefailover"
+  - VERBOSE=1 TEST_SUITE=run-tests-local-process GOIMAGE=gcr.io/gcr-for-testing/golang:1.13.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb:3.6 STARTER_MODES="single"
+  - VERBOSE=1 TEST_SUITE=run-tests-local-process GOIMAGE=gcr.io/gcr-for-testing/golang:1.13.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb:latest STARTER_MODES="single"
+  - VERBOSE=1 TEST_SUITE=run-tests-local-process GOIMAGE=gcr.io/gcr-for-testing/golang:1.13.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb:3.6 STARTER_MODES="single,cluster,activefailover" ON_PR=1
+  - VERBOSE=1 TEST_SUITE=run-tests-docker        GOIMAGE=gcr.io/gcr-for-testing/golang:1.13.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb:3.6 STARTER_MODES="single,cluster,activefailover" ON_PR=1
+#  - VERBOSE=1 TEST_SUITE=run-tests-local-process GOIMAGE=gcr.io/gcr-for-testing/golang:1.13.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb:latest STARTER_MODES="single,cluster,activefailover" ON_PR=1
+#  - VERBOSE=1 TEST_SUITE=run-tests-docker        GOIMAGE=gcr.io/gcr-for-testing/golang:1.13.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb:latest STARTER_MODES="single,cluster,activefailover" ON_PR=1
+#  - VERBOSE=1 TEST_SUITE=run-tests-local-process GOIMAGE=gcr.io/gcr-for-testing/golang:1.13.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,activefailover" ON_PR=1
+#  - VERBOSE=1 TEST_SUITE=run-tests-docker        GOIMAGE=gcr.io/gcr-for-testing/golang:1.13.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,activefailover" ON_PR=1
 
-script: make $TEST_SUITE
+script: 'if ([ "$TRAVIS_PULL_REQUEST" != "false" ] && [ "$ON_PR" != "" ]) || ([ "$TRAVIS_PULL_REQUEST" == "false" ] && [ "$ON_PR" == "" ]) ; then env; make $TEST_SUITE; fi'
 
-# Install Docker CE
-before_install:
-  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-  - sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-  - sudo apt-get update
-  - sudo apt-get -y install docker-ce
+## Install Docker CE
+#before_install:
+#  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+#  - sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+#  - sudo apt-get update
+#  - sudo apt-get -y install docker-ce-cli

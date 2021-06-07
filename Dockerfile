@@ -1,4 +1,5 @@
-FROM alpine:3.11
+ARG IMAGE=alpine:3.11
+FROM ${IMAGE}
 MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
 COPY bin/linux/amd64/arangodb /app/

@@ -38,6 +38,8 @@ import (
 // TestProcessClusterResignLeadership starts a master starter, followed by 2 slave starters.
 // It closes the starter where the leader of the shard resides and check whether new leader of the shard is elected.
 func TestProcessClusterResignLeadership(t *testing.T) {
+	log := GetLogger(t)
+
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	needStarterMode(t, starterModeCluster)
@@ -80,6 +82,12 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 
 	databaseName := "_system"
 	collectionName := "test"
+
+	WaitUntilServiceReadyAPI(t, coordinatorClient, func(t *testing.T, ctx context.Context, c driver.Client) error {
+		_, err := coordinatorClient.Database(context.Background(), databaseName)
+		return err
+	}).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+
 	database, err := coordinatorClient.Database(context.Background(), databaseName)
 	if err != nil {
 		t.Fatal(err.Error())
@@ -163,29 +171,39 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		}
 	}()
 
-	ShutdownStarter(t, starterEndpointWithLeader)
+	waitForCallFunction(t, ShutdownStarterCall(starterEndpointWithLeader))
+
 	cancel()
 	wg.Wait()
 	if errRead != nil {
 		t.Logf("Reading documents: %s", errRead.Error())
 	}
 
-	// check new leader of the shard.
-	newDBServerLeader, err := getServerIDLeaderForFirstShard(coordinatorClient, database, collectionName)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	log.Log("Waiting for shutdown of services")
 
-	if dbServerLeader == newDBServerLeader {
-		t.Fatalf("DB server's ID '%s' can not be the same after leadership resignation", dbServerLeader)
-	}
+	NewTimeoutFunc(func() error {
+		// check new leader of the shard.
+		newDBServerLeader, err := getServerIDLeaderForFirstShard(coordinatorClient, database, collectionName)
+		if err != nil {
+			log.Log("Error while fetching shard details: %s", err.Error())
+			return nil
+		}
+
+		if dbServerLeader == newDBServerLeader {
+			log.Log("Shard leader is on same server %s", dbServerLeader)
+			return nil
+		}
+
+		return NewInterrupt()
+	}).ExecuteT(t, time.Minute, 500*time.Millisecond)
 
 	// close the rest of the starters.
 	for _, endpoint := range starterEndpoints {
 		if endpoint == starterEndpointWithLeader {
 			continue
 		}
-		ShutdownStarter(t, endpoint)
+		waitForCallFunction(t,
+			ShutdownStarterCall(endpoint))
 	}
 }
 

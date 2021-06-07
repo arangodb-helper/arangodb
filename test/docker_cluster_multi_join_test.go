@@ -134,10 +134,8 @@ func TestDockerClusterMultipleJoins(t *testing.T) {
 		testCluster(t, "http://localhost:8000", false)
 	}
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, "http://localhost:6000")
-	ShutdownStarter(t, "http://localhost:7000")
-	ShutdownStarter(t, "http://localhost:8000")
+	waitForCallFunction(t,
+		ShutdownStarterCall("http://localhost:6000"),
+		ShutdownStarterCall("http://localhost:7000"),
+		ShutdownStarterCall("http://localhost:8000"))
 }

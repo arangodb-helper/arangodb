@@ -23,10 +23,13 @@
 package test
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -35,23 +38,42 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arangodb/go-driver"
+
 	"github.com/arangodb-helper/arangodb/client"
 	shell "github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
 )
 
 const (
-	ctrlC                     = "\u0003"
-	whatCluster               = "cluster"
-	whatSingle                = "single server"
-	whatResilientSingle       = "resilient single server"
-	testModeProcess           = "localprocess"
-	testModeDocker            = "docker"
-	starterModeCluster        = "cluster"
-	starterModeSingle         = "single"
-	starterModeActiveFailover = "activefailover"
-	portIncrement             = 10
+	ctrlC                                         = "\u0003"
+	whatCluster                                   = "cluster"
+	whatSingle                                    = "single server"
+	whatResilientSingle                           = "resilient single server"
+	testModeProcess                               = "localprocess"
+	testModeDocker                                = "docker"
+	starterModeCluster                            = "cluster"
+	starterModeSingle                             = "single"
+	starterModeActiveFailover                     = "activefailover"
+	portIncrement                                 = 10
+	travisEnv                 EnvironmentVariable = "TRAVIS"
 )
+
+type EnvironmentVariable string
+
+func (e EnvironmentVariable) String() string {
+	return string(e)
+}
+
+func (e EnvironmentVariable) Lookup() (string, bool) {
+	return os.LookupEnv(e.String())
+}
+
+func SkipOnTravis(t *testing.T, format string, args ...interface{}) {
+	if _, ok := travisEnv.Lookup(); ok {
+		t.Skipf(format, args...)
+	}
+}
 
 var (
 	isVerbose    bool
@@ -144,53 +166,41 @@ func SetUniqueDataDir(t *testing.T) string {
 	return dataDir
 }
 
-type waitUntilReadyResult struct {
-	Ready    bool
-	TimeSpan time.Duration
-	Message  string
-}
-
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
 func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, starters ...*SubProcess) bool {
-	results := make(chan waitUntilReadyResult, len(starters))
+	results := make([]error, len(starters))
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	for index, starter := range starters {
-		starter := starter // Used in nested function
-		id := fmt.Sprintf("starter-%d", index+1)
-		go func() {
-			started := time.Now()
-			if err := starter.ExpectTimeout(ctx, time.Minute*3, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id); err != nil {
-				timeSpan := time.Since(started)
-				results <- waitUntilReadyResult{
-					Ready:    false,
-					TimeSpan: timeSpan,
-					Message:  fmt.Sprintf("Starter is not ready in time (after %s): %s", timeSpan, describe(err)),
-				}
-			} else {
-				results <- waitUntilReadyResult{
-					Ready: true,
-				}
-			}
-		}()
+
+	var wg sync.WaitGroup
+
+	wg.Add(len(results))
+
+	for id, starter := range starters {
+		go func(i int, s *SubProcess) {
+			defer wg.Done()
+			defer cancel()
+			id := fmt.Sprintf("starter-%d", i+1)
+
+			results[i] = s.ExpectTimeout(ctx, time.Minute*3, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id)
+		}(id, starter)
 	}
-	okCount := 0
-	errorCount := 0
-	errorMessages := make([]string, 0, len(starters))
-	for result := range results {
-		if result.Ready {
-			okCount++
-		} else {
-			errorCount++
-			errorMessages = append(errorMessages, result.Message)
-		}
-		if okCount >= requiredGoodResults {
-			return true
-		}
-		if okCount+errorCount == len(starters) {
-			break
+
+	wg.Wait()
+
+	failed := 0
+	for _, result := range results {
+		if result != nil {
+			failed++
 		}
 	}
+
+	if failed <= requiredGoodResults {
+		GetLogger(t).Log("Starter Started")
+		return true
+	}
+
 	if os.Getenv("DEBUG_CLUSTER") == "interactive" {
 		// Halt forever
 		fmt.Println("Cluster not ready in time, halting forever for debugging")
@@ -198,10 +208,82 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 			time.Sleep(time.Hour)
 		}
 	}
-	for _, msg := range errorMessages {
+	for _, msg := range results {
 		t.Error(msg)
 	}
+
 	return false
+}
+
+type ServiceReadyCheckFunc func(t *testing.T, ctx context.Context, c driver.Client) error
+type ServiceReadyCheck func(t *testing.T, c driver.Client, check ServiceReadyCheckFunc) bool
+
+// WaitUntilServiceReadyRetryOnError do not allow any errors to occur
+func WaitUntilServiceReadyRetryOnError(t *testing.T, c driver.Client, check ServiceReadyCheckFunc) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := check(t, ctx, c)
+
+	return err == nil
+}
+
+// WaitUntilServiceReadyRetryOn503 retry on 503 code from service
+func WaitUntilServiceReadyRetryOn503(t *testing.T, c driver.Client, check ServiceReadyCheckFunc) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := check(t, ctx, c)
+	if err == nil {
+		return true
+	}
+
+	if ae, ok := driver.AsArangoError(err); !ok {
+		// Ignore unknown errors
+		return true
+	} else {
+		// Check if 503 is returned
+		return ae.Code != http.StatusServiceUnavailable
+	}
+}
+
+// WaitUntilServiceReadyAPI return timeout function which waits until service is fully ready
+func WaitUntilServiceReadyAPI(t *testing.T, c driver.Client, check ServiceReadyCheckFunc) TimeoutFunc {
+	return WaitUntilServiceReady(t, c, check, WaitUntilServiceReadyRetryOn503, WaitUntilServiceReadyRetryOnError)
+}
+
+// WaitUntilServiceReady retry on errors from service
+func WaitUntilServiceReady(t *testing.T, c driver.Client, checkFunc ServiceReadyCheckFunc, checks ...ServiceReadyCheck) TimeoutFunc {
+	return func() error {
+		for _, check := range checks {
+			if !check(t, c, checkFunc) {
+				return nil
+			}
+		}
+
+		return Interrupt{}
+	}
+}
+
+func WaitForHttpPortClosed(log Logger, throttle Throttle, url string) TimeoutFunc {
+	return func() error {
+		_, err := http.Get(url)
+		if err == nil {
+			throttle.Execute(func() {
+				log.Log("Got empty response")
+			})
+			return nil
+		}
+
+		if strings.Contains(err.Error(), "connection refused") {
+			return NewInterrupt()
+		}
+
+		throttle.Execute(func() {
+			log.Log("Unknown error: %s", err.Error())
+		})
+		return nil
+	}
 }
 
 // SendIntrAndWait stops all all given starter processes by sending a Ctrl-C into it.
@@ -257,11 +339,26 @@ func NewStarterClient(t *testing.T, endpoint string) client.API {
 	return c
 }
 
-// ShutdownStarter calls the starter the shutdown via the HTTP API.
-func ShutdownStarter(t *testing.T, endpoint string) {
+// ShutdownStarterCall returns function representation of ShutdownStarter.
+func ShutdownStarterCall(endpoint string) callFunction {
+	return func(t *testing.T) {
+		shutdownStarter(t, endpoint)
+	}
+}
+
+// shutdownStarter calls the starter the shutdown via the HTTP API.
+func shutdownStarter(t *testing.T, endpoint string) {
+	log := GetLogger(t)
+
+	log.Log("Terminating %s", endpoint)
+
+	defer func() {
+		log.Log("Terminated %s", endpoint)
+	}()
+
 	c := NewStarterClient(t, endpoint)
 	if err := c.Shutdown(context.Background(), false); err != nil {
-		t.Errorf("Shutdown failed: %s", describe(err))
+		log.Log("Shutdown failed: %s", describe(err))
 	}
 	WaitUntilStarterGone(t, endpoint)
 }
@@ -300,4 +397,44 @@ func createLicenseKeyOption() string {
 		return "-e ARANGO_LICENSE_KEY=" + license
 	}
 	return ""
+}
+
+type callFunction func(t *testing.T)
+
+func waitForCallFunction(t *testing.T, funcs ...callFunction) {
+	var wg sync.WaitGroup
+
+	wg.Add(len(funcs))
+
+	for _, f := range funcs {
+		go func(z callFunction) {
+			defer wg.Done()
+			z(t)
+		}(f)
+	}
+
+	wg.Wait()
+}
+
+func logProcessOutput(log Logger, p *SubProcess, prefix string, args ...interface{}) {
+	pre := ""
+	if prefix != "" {
+		pre = fmt.Sprintf(prefix, args...)
+	}
+
+	reader := bufio.NewReader(bytes.NewReader(p.Output()))
+
+	for {
+		line, _, err := reader.ReadLine()
+		if len(line) > 0 {
+			if pre != "" {
+				log.Log(string(line))
+			} else {
+				log.Log("%s%s", pre, string(line))
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
 }

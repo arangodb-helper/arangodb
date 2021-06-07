@@ -33,6 +33,9 @@ import (
 // TestDockerActiveFailoverDefault runs 3 arangodb starters in docker with mode=activefailover
 // and otherwise default settings.
 func TestDockerActiveFailoverDefault(t *testing.T) {
+	log := GetLogger(t)
+	defer log.Clean()
+
 	needTestMode(t, testModeDocker)
 	needStarterMode(t, starterModeActiveFailover)
 	if os.Getenv("IP") == "" {
@@ -48,6 +51,7 @@ func TestDockerActiveFailoverDefault(t *testing.T) {
 			--starter.address=$IP \
 			--starter.mode=activefailover
 	*/
+
 	volID1 := createDockerID("vol-starter-test-activefailover-default1-")
 	createDockerVolume(t, volID1)
 	defer removeDockerVolume(t, volID1)
@@ -132,12 +136,9 @@ func TestDockerActiveFailoverDefault(t *testing.T) {
 		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, false)
 	}
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
+	waitForCallFunction(t, ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)),
+		ShutdownStarterCall(insecureStarterEndpoint(1*portIncrement)),
+		ShutdownStarterCall(insecureStarterEndpoint(2*portIncrement)))
 }
 
 // TestDockerActiveFailover2Instance runs 3 arangodb starters in docker with mode=activefailover
@@ -243,10 +244,8 @@ func TestDockerActiveFailover2Instance(t *testing.T) {
 		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, true)
 	}
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
+	waitForCallFunction(t,
+		ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)),
+		ShutdownStarterCall(insecureStarterEndpoint(1*portIncrement)),
+		ShutdownStarterCall(insecureStarterEndpoint(2*portIncrement)))
 }

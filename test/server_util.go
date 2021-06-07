@@ -106,12 +106,34 @@ func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, ex
 	return c
 }
 
+// waitForStarter waits when starter endpoint starts responding
+func waitForStarter(t *testing.T, c client.API) {
+	throttle := NewThrottle(2 * time.Second)
+	NewTimeoutFunc(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if _, err := c.Version(ctx); err != nil {
+			throttle.Execute(func() {
+				t.Logf("Version check failed due to %s", err.Error())
+			})
+			return nil
+		} else {
+			return NewInterrupt()
+		}
+	}).ExecuteT(t, time.Minute, 500*time.Millisecond)
+}
+
 // testProcesses runs a series of tests to verify a good series of database servers.
 func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool,
 	expectAgencyOnly bool, syncEnabled bool, singleTimeout, reachableTimeout time.Duration) {
 	// Give the deployment a little bit of time:
-	time.Sleep(3 * time.Second)
 	ctx := context.Background()
+
+	// Wait until starter restarts
+	waitForStarter(t, c)
+	log := GetLogger(t)
+
+	log.Log("Starter is responding: %s", starterEndpoint)
 
 	// Fetch version
 	if info, err := c.Version(ctx); err != nil {

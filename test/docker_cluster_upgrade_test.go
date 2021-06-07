@@ -130,10 +130,8 @@ func TestDockerClusterUpgrade(t *testing.T) {
 
 	testUpgradeProcess(t, insecureStarterEndpoint(0*portIncrement))
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
+	waitForCallFunction(t,
+		ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)),
+		ShutdownStarterCall(insecureStarterEndpoint(1*portIncrement)),
+		ShutdownStarterCall(insecureStarterEndpoint(2*portIncrement)))
 }

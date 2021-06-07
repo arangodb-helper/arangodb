@@ -32,7 +32,10 @@ import (
 	"regexp"
 	"sync"
 	"syscall"
+	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/pkg/errors"
 )
@@ -85,7 +88,6 @@ func (sp *SubProcess) Start() error {
 		for {
 			n, err := rd.Read(byteBuf)
 			sp.writeOutput(byteBuf[:n])
-			sp.matchExpressions()
 			if err != nil {
 				break
 			}
@@ -129,6 +131,7 @@ func (sp *SubProcess) SendIntr() error {
 // Kill the process after the given timeout.
 func (sp *SubProcess) WaitTimeout(timeout time.Duration) error {
 	done := make(chan struct{})
+	defer close(done)
 	go func() {
 		select {
 		case <-time.After(timeout):
@@ -139,7 +142,15 @@ func (sp *SubProcess) WaitTimeout(timeout time.Duration) error {
 		}
 	}()
 	err := sp.cmd.Wait()
-	close(done)
+
+	if err != nil {
+		if c, ok := err.(*os.SyscallError); ok {
+			if c.Syscall == "waitid" {
+				return nil
+			}
+		}
+	}
+
 	return maskAny(err)
 }
 
@@ -151,6 +162,25 @@ func (sp *SubProcess) Wait() error {
 	return nil
 }
 
+// WaitT waits for the process to terminate with require.
+func (sp *SubProcess) WaitT(t *testing.T) {
+	require.NoError(t, sp.Wait())
+}
+
+// Output get current output
+func (sp *SubProcess) Output() []byte {
+	sp.mutex.Lock()
+	defer sp.mutex.Unlock()
+
+	d := sp.output.Bytes()
+
+	r := make([]byte, len(d))
+
+	copy(r, d)
+
+	return r
+}
+
 // ExpectTimeout waits for the output of the process to match the given expression, or until a timeout occurs.
 // If a match on the given expression is found, the process output is discard until the end of the match and
 // nil is returned, otherwise a timeout error is returned.
@@ -158,11 +188,7 @@ func (sp *SubProcess) Wait() error {
 func (sp *SubProcess) ExpectTimeout(ctx context.Context, timeout time.Duration, re *regexp.Regexp, id string) error {
 	found := make(chan struct{})
 
-	sp.mutex.Lock()
-	sp.expressions[re] = found
-	sp.mutex.Unlock()
-
-	sp.matchExpressions()
+	sp.matchExpressionAsync(ctx, found, re)
 
 	select {
 	case <-ctx.Done():
@@ -192,21 +218,35 @@ func (sp *SubProcess) writeOutput(data []byte) {
 	sp.output.Write(data)
 }
 
-func (sp *SubProcess) matchExpressions() {
+func (sp *SubProcess) matchExpressionAsync(ctx context.Context, found chan<- struct{}, regexes ...*regexp.Regexp) {
+	go func() {
+		defer close(found)
+
+		ticker := time.NewTicker(125 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if sp.matchExpressionInOutput(regexes...) {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (sp *SubProcess) matchExpressionInOutput(regexes ...*regexp.Regexp) bool {
 	sp.mutex.Lock()
 	defer sp.mutex.Unlock()
-
-	for re, found := range sp.expressions {
-		loc := re.FindIndex(sp.output.Bytes())
-		if loc == nil {
-			// No match
-			continue
+	data := sp.output.Bytes()
+	for _, re := range regexes {
+		if loc := re.FindIndex(data); loc != nil {
+			return true
 		}
-		// Found a match, remove everything until the end of the match
-		n := loc[1]
-		sp.output.Next(n)
-		close(found)
-		// Remove from map
-		delete(sp.expressions, re)
 	}
+
+	return false
 }

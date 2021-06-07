@@ -70,10 +70,8 @@ func TestProcessSingleShutdownViaAPI(t *testing.T) {
 		testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 	}
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
+	waitForCallFunction(t,
+		ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)))
 }
 
 // TestProcessSingleAutoKeyFile runs `arangodb --starter.mode=single --ssl.auto-key`
