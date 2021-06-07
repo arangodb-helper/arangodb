@@ -36,7 +36,7 @@ const (
 
 // CreateJwtToken calculates a JWT authorization token based on the given secret.
 // If the secret is empty, an empty token is returned.
-func CreateJwtToken(jwtSecret, user string, serverId string, paths []string, exp time.Duration) (string, error) {
+func CreateJwtToken(jwtSecret, user string, serverId string, paths []string, exp time.Duration, fieldsOverride jwt.MapClaims) (string, error) {
 	if jwtSecret == "" {
 		return "", nil
 	}
@@ -57,7 +57,12 @@ func CreateJwtToken(jwtSecret, user string, serverId string, paths []string, exp
 		claims["allowed_paths"] = paths
 	}
 	if exp > 0 {
-		claims["exp"] = time.Now().UTC().Add(exp).Unix()
+		t := time.Now().UTC()
+		claims["iat"] = t.Unix()
+		claims["exp"] = t.Add(exp).Unix()
+	}
+	for k, v := range fieldsOverride {
+		claims[k] = v
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
@@ -77,7 +82,7 @@ func addJwtHeader(req *http.Request, jwtSecret string) error {
 	if jwtSecret == "" {
 		return nil
 	}
-	signedToken, err := CreateJwtToken(jwtSecret, "", "", nil, 0)
+	signedToken, err := CreateJwtToken(jwtSecret, "", "", nil, 0, nil)
 	if err != nil {
 		return maskAny(err)
 	}

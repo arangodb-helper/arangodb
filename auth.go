@@ -25,6 +25,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,6 +57,9 @@ var (
 		paths         []string
 		exp           string
 		expDuration   time.Duration
+
+		fieldsOverride    []string
+		fieldsOverrideMap map[string]interface{}
 	}
 )
 
@@ -69,6 +73,7 @@ func init() {
 	pf.StringVar(&authOptions.user, "auth.user", "", "name of a user to authenticate as. If empty, 'super-user' authentication is used")
 	pf.StringSliceVar(&authOptions.paths, "auth.paths", nil, "a list of allowed pathes. The path must not include the '_db/DBNAME' prefix.")
 	pf.StringVar(&authOptions.exp, "auth.exp", "", "a time in which token should expire - based on current time in UTC. Supported units: h, m, s (default)")
+	pf.StringSliceVar(&authOptions.fieldsOverride, "auth.fields", nil, "a list of additional fields set in the token. This flags override one auto-generated in token")
 }
 
 // mustAuthCreateJWTToken creates a the JWT token based on authentication options.
@@ -84,7 +89,7 @@ func mustAuthCreateJWTToken() string {
 		log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", authOptions.jwtSecretFile)
 	}
 	jwtSecret := strings.TrimSpace(string(content))
-	token, err := service.CreateJwtToken(jwtSecret, authOptions.user, "", authOptions.paths, authOptions.expDuration)
+	token, err := service.CreateJwtToken(jwtSecret, authOptions.user, "", authOptions.paths, authOptions.expDuration, authOptions.fieldsOverrideMap)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create JWT token")
 	}
@@ -117,6 +122,32 @@ func persistentAuthPreFunE(cmd *cobra.Command, args []string) error {
 		}
 
 		authOptions.expDuration = d
+	}
+
+	authOptions.fieldsOverrideMap = map[string]interface{}{}
+
+	for _, field := range authOptions.fieldsOverride {
+		tokens := strings.Split(field, "=")
+		if len(tokens) == 0 {
+			return fmt.Errorf("invalid format of the field override: `%s`", field)
+		}
+
+		key := tokens[0]
+		value := strings.Join(tokens[1:], "=")
+		var calculatedValue interface{} = value
+
+		switch value {
+		case "true":
+			calculatedValue = true
+		case "false":
+			calculatedValue = false
+		default:
+			if i, err := strconv.Atoi(value); err == nil {
+				calculatedValue = i
+			}
+		}
+
+		authOptions.fieldsOverrideMap[key] = calculatedValue
 	}
 
 	return nil
