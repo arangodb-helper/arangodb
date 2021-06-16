@@ -24,6 +24,7 @@ package definitions
 
 import (
 	"fmt"
+	"time"
 )
 
 // ServerType specifies the types of database servers.
@@ -60,6 +61,16 @@ func (s ServerType) PortOffset() int {
 		return PortOffsetSyncWorker
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
+	}
+}
+
+// InitialStopTimeout returns initial delay for process stopping
+func (s ServerType) InitialStopTimeout() time.Duration {
+	switch s {
+	case ServerTypeDBServer, ServerTypeSingle, ServerTypeResilientSingle:
+		return 3 * time.Second
+	default:
+		return time.Second
 	}
 }
 

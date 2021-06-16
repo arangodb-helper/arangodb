@@ -31,3 +31,27 @@ func removeArangodProcesses(t *testing.T) {
 	defer c.Close()
 	c.Wait()
 }
+
+func closeProcess(t *testing.T, s *SubProcess, name string) {
+	s.Close()
+
+	showProcessLogs(t, s, name)
+}
+
+func listArangodProcesses(t *testing.T, log Logger) {
+	c := SpawnWithExpand(t, "pidof -x arangod", false)
+	defer c.Close()
+	c.Wait()
+
+	logProcessOutput(log, c, "Processes: ")
+}
+
+func showProcessLogs(t *testing.T, s *SubProcess, name string) {
+	if !t.Failed() {
+		return
+	}
+
+	log := GetLogger(t)
+
+	logProcessOutput(log, s, "Log of process: %s", name)
+}

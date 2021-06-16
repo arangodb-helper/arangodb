@@ -96,10 +96,8 @@ func TestProcessResilientSingleDefaultShutdownViaAPI(t *testing.T) {
 		testResilientSingle(t, insecureStarterEndpoint(2*portIncrement), false, false)
 	}
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(1*portIncrement))
-	ShutdownStarter(t, insecureStarterEndpoint(2*portIncrement))
+	waitForCallFunction(t,
+		ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)),
+		ShutdownStarterCall(insecureStarterEndpoint(1*portIncrement)),
+		ShutdownStarterCall(insecureStarterEndpoint(2*portIncrement)))
 }

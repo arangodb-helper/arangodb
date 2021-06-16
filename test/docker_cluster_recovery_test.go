@@ -34,6 +34,10 @@ import (
 // TestDockerClusterRecovery starts a master starter in docker, followed by 2 slave starters.
 // Once started, it destroys one of the starters and attempts a recovery.
 func TestDockerClusterRecovery(t *testing.T) {
+	log := GetLogger(t)
+
+	SkipOnTravis(t, "Test does not work on TRAVIS VM") // TODO: Fix needed
+
 	needTestMode(t, testModeDocker)
 	needStarterMode(t, starterModeCluster)
 	if os.Getenv("IP") == "" {
@@ -71,7 +75,6 @@ func TestDockerClusterRecovery(t *testing.T) {
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID1,
-		"--rm",
 		createLicenseKeyOption(),
 		fmt.Sprintf("-p %d:%d", basePort, basePort),
 		fmt.Sprintf("-v %s:/data", volID1),
@@ -90,7 +93,6 @@ func TestDockerClusterRecovery(t *testing.T) {
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID2,
-		"--rm",
 		createLicenseKeyOption(),
 		fmt.Sprintf("-p %d:%d", basePort+100, basePort+100),
 		fmt.Sprintf("-v %s:/data", volID2),
@@ -110,7 +112,6 @@ func TestDockerClusterRecovery(t *testing.T) {
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID3,
-		"--rm",
 		createLicenseKeyOption(),
 		fmt.Sprintf("-p %d:%d", basePort+200, basePort+200),
 		fmt.Sprintf("-v %s:/data", volID3),
@@ -132,9 +133,7 @@ func TestDockerClusterRecovery(t *testing.T) {
 		testCluster(t, insecureStarterEndpoint(200), false)
 	}
 
-	if isVerbose {
-		t.Log("Start killing slave1 and its servers")
-	}
+	log.Log("Kill Server1")
 
 	// Cluster is up.
 	// Kill starter slave-1 and all its processes
@@ -150,15 +149,23 @@ func TestDockerClusterRecovery(t *testing.T) {
 	for _, s := range plist.Servers {
 		containersToKill = append(containersToKill, s.ContainerID)
 	}
+
+	checkpoint := log.Checkpoint()
+
+	checkpoint.Log("Kill docker containers")
+
 	killDockerRun2 := Spawn(t, "docker rm -vf "+strings.Join(containersToKill, " "))
 	killDockerRun2.Wait()
+
+	checkpoint.Log("Wait for docker command to stop")
+
+	// Wait for command to close
+	dockerRun2.Wait()
 
 	// Remove entire docker volume
 	removeDockerVolume(t, volID2)
 
-	if isVerbose {
-		t.Log("Starting recovery...")
-	}
+	checkpoint.Log("Recovery")
 
 	// Create new volume
 	recVolID2 := createDockerID("vol-starter-test-cluster-recovery2-recovery-")
@@ -171,20 +178,22 @@ func TestDockerClusterRecovery(t *testing.T) {
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID2 + "recovery-builder",
-		"--rm",
 		fmt.Sprintf("-v %s:/data", recVolID2),
 		"alpine",
 		fmt.Sprintf("sh -c \"echo %s > /data/RECOVERY\"", recoveryContent),
 	}, " "))
 	dockerBuildRecoveryRun.Wait()
 
+	checkpoint.Log("Wait for port to be closed")
+	WaitForHttpPortClosed(checkpoint, NewThrottle(time.Second), insecureStarterEndpoint(100)).ExecuteT(t, time.Minute, time.Second)
+
+	checkpoint.Log("Start docker container")
 	// Restart dockerRun2
 	recCID2 := createDockerID("starter-test-cluster-recovery2-recovery-")
 	recDockerRun2 := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + recCID2,
-		"--rm",
 		createLicenseKeyOption(),
 		fmt.Sprintf("-p %d:%d", basePort+100, basePort+100),
 		fmt.Sprintf("-v %s:/data", recVolID2),
@@ -198,6 +207,7 @@ func TestDockerClusterRecovery(t *testing.T) {
 	}, " "))
 	defer recDockerRun2.Close()
 	defer removeDockerContainer(t, recCID2)
+	checkpoint.Log("Docker container started")
 
 	// Wait until recovered
 	if ok := WaitUntilStarterReady(t, whatCluster, 1, recDockerRun2); ok {
@@ -212,10 +222,8 @@ func TestDockerClusterRecovery(t *testing.T) {
 		t.Errorf("Expected RECOVERY file to not-exist, got: %s", describe(err))
 	}*/
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0))
-	ShutdownStarter(t, insecureStarterEndpoint(100))
-	ShutdownStarter(t, insecureStarterEndpoint(200))
+	waitForCallFunction(t,
+		ShutdownStarterCall(insecureStarterEndpoint(0)),
+		ShutdownStarterCall(insecureStarterEndpoint(100)),
+		ShutdownStarterCall(insecureStarterEndpoint(200)))
 }

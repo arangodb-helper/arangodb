@@ -10,6 +10,8 @@ VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
 MAKEFILE := $(ROOTDIR)/Makefile
 
+ALPINE_IMAGE ?= alpine:3.11
+
 DOCKERCLI ?= $(shell which docker)
 GOBUILDLINKTARGET := ../../../..
 
@@ -28,7 +30,7 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
 GOVERSION := 1.13.6
-GOIMAGE := golang:$(GOVERSION)
+GOIMAGE ?= golang:$(GOVERSION)
 
 GOOS ?= linux
 GOARCH ?= amd64
@@ -101,6 +103,7 @@ DOCKER_CMD = $(DOCKERCLI) run \
                 -e GOOS=$(GOOS) \
                 -e GOARCH=$(GOARCH) \
                 -e CGO_ENABLED=0 \
+                -e TRAVIS=$(TRAVIS) \
                 $(DOCKER_PARAMS) \
                 -w /usr/code/ \
                 $(DOCKER_IMAGE)
@@ -149,7 +152,7 @@ $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" ./test
 
 docker: build
-	$(DOCKERCLI) build -t arangodb/arangodb-starter .
+	$(DOCKERCLI) build -t arangodb/arangodb-starter --build-arg "IMAGE=$(ALPINE_IMAGE)" .
 
 docker-push: docker
 ifneq ($(DOCKERNAMESPACE), arangodb)
@@ -196,7 +199,7 @@ run-tests-local-process-run:
 	$(DOCKER_CMD) /usr/code/bin/linux/amd64/test -test.timeout $(TEST_TIMEOUT) -test.v $(TESTOPTIONS)
 
 _run-tests: build-test build
-	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.v $(TESTOPTIONS)
+	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.failfast -test.v $(TESTOPTIONS)
 
 ifdef TRAVIS
 run-tests-docker-pre: docker

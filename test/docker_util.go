@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func createDockerVolume(t *testing.T, id string) {
@@ -44,15 +45,39 @@ func removeDockerVolume(t *testing.T, id string) {
 }
 
 func removeDockerContainer(t *testing.T, id string) {
+	if t.Failed() {
+		logDockerPS(t)
+		logDockerLogs(t, id)
+	}
+
 	c := Spawn(t, fmt.Sprintf("docker rm -f -v %s", id))
 	defer c.Close()
 	c.Wait()
 }
 
-func stopDockerContainer(t *testing.T, id string) {
-	c := Spawn(t, fmt.Sprintf("docker stop --time=120 %s", id))
+func logDockerPS(t *testing.T) {
+	log := GetLogger(t)
+
+	// Dump of logs if failed
+	c := Spawn(t, fmt.Sprintf("docker ps -a"))
+	defer c.Close()
+
+	time.Sleep(500 * time.Millisecond)
+
+	c.Wait()
+
+	logProcessOutput(log, c, "List of containers: ")
+}
+
+func logDockerLogs(t *testing.T, id string) {
+	log := GetLogger(t)
+
+	// Dump of logs if failed
+	c := Spawn(t, fmt.Sprintf("docker logs --timestamps %s", id))
 	defer c.Close()
 	c.Wait()
+
+	logProcessOutput(log, c, "Log of container %s: ", id)
 }
 
 func removeDockerContainersByLabel(t *testing.T, labelKeyValue string) {

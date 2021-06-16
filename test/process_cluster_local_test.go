@@ -74,10 +74,8 @@ func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
 		testCluster(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
+	waitForCallFunction(t,
+		ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)))
 }
 
 // TestOldProcessClusterLocal runs `arangodb --local`

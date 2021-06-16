@@ -95,5 +95,6 @@ func TestDockerDatabaseVersion(t *testing.T) {
 		t.Logf("Got database-version %s", v)
 	}
 
-	ShutdownStarter(t, insecureStarterEndpoint(0*portIncrement))
+	waitForCallFunction(t,
+		ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)))
 }
