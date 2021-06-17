@@ -36,6 +36,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service/options"
+
 	"github.com/arangodb-helper/arangodb/pkg/features"
 
 	driver "github.com/arangodb/go-driver"
@@ -144,7 +147,6 @@ var (
 	dockerNetworkMode        string
 	dockerPrivileged         bool
 	dockerTTY                bool
-	passthroughOptions       = make(map[string]*service.PassthroughOption)
 	debugCluster             bool
 	enableSync               bool
 	instanceUpTimeout        time.Duration
@@ -153,6 +155,8 @@ var (
 	syncMasterClientCAFile   string // CA Certificate used for client certificate verification
 	syncMasterJWTSecretFile  string // File containing JWT secret used to access the Sync Master (from Sync Worker)
 	syncMQType               string // MQ type used to Sync Master
+
+	configuration *options.Configuration
 
 	maskAny = errors.WithStack
 )
@@ -257,49 +261,200 @@ func init() {
 
 	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
-	// Setup passthrough arguments
-	getPassthroughOption := func(arg, fullArgPrefix, ptPrefix string, f *pflag.FlagSet) *service.PassthroughOption {
-		nameAndValue := arg[len(fullArgPrefix):]
-		optionName := strings.TrimSpace(strings.Split(nameAndValue, "=")[0])
-		fullOptionName := ptPrefix + "." + optionName
-		if f.Lookup(fullOptionName) != nil {
-			return nil
-		}
-		result, found := passthroughOptions[optionName]
-		if !found {
-			result = &service.PassthroughOption{Name: optionName}
-			passthroughOptions[optionName] = result
-		}
-		return result
+	passthroughtPrefixesNew := options.ConfigurationPrefixes{
+		// Old methods
+		"all": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all server instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByProcessTypeAndName(definitions.ServerTypeAgent, key)
+			},
+			Deprecated: true,
+		},
+		"coordinators": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all coordinator instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeCoordinator, key)
+			},
+			Deprecated: true,
+		},
+		"dbservers": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all dbserver instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeDBServer, key)
+			},
+			Deprecated: true,
+		},
+		"agents": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all agent instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeAgent, key)
+			},
+			Deprecated: true,
+		},
+		"sync": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all sync instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
+			},
+			Deprecated: true,
+		},
+		"syncmasters": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
+			},
+			Deprecated: true,
+		},
+		"syncworkers": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
+			},
+			Deprecated: true,
+		},
+		// New methods for args
+		"args.all": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all server instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByProcessTypeAndName(definitions.ServerTypeAgent, key)
+			},
+		},
+		"args.coordinators": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all coordinator instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeCoordinator, key)
+			},
+		},
+		"args.dbservers": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all dbserver instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeDBServer, key)
+			},
+		},
+		"args.agents": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all agent instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeAgent, key)
+			},
+		},
+		"args.sync": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all sync instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
+			},
+		},
+		"args.syncmasters": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
+			},
+		},
+		"args.syncworkers": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
+			},
+		},
+		// New methods for args
+		"envs.all": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Env passed to all server instances as %s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.EnvByProcessTypeAndName(definitions.ServerTypeAgent, key)
+			},
+		},
+		"envs.coordinators": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Env passed to all coordinator instances as %s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.EnvByServerTypeAndName(definitions.ServerTypeCoordinator, key)
+			},
+		},
+		"envs.dbservers": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Env passed to all dbserver instances as %s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.EnvByServerTypeAndName(definitions.ServerTypeDBServer, key)
+			},
+		},
+		"envs.agents": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Env passed to all agent instances as %s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.EnvByServerTypeAndName(definitions.ServerTypeAgent, key)
+			},
+		},
+		"envs.sync": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Env passed to all sync instances as %s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.EnvByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
+			},
+		},
+		"envs.syncmasters": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Env passed to all sync master instances as %s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.EnvByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
+			},
+		},
+		"envs.syncworkers": {
+			Usage: func(arg, key string) string {
+				return fmt.Sprintf("Env passed to all sync master instances as %s", key)
+			},
+			FieldSelector: func(p *options.Configuration, key string) *[]string {
+				return p.EnvByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
+			},
+		},
 	}
-	passthroughPrefixes := []struct {
-		Prefix        string
-		Usage         string
-		FieldSelector func(option *service.PassthroughOption) *[]string
-	}{
-		{"all", "all server instances", func(option *service.PassthroughOption) *[]string { return &option.Values.All }},
-		{"coordinators", "all coordinator instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Coordinators }},
-		{"dbservers", "all dbserver instances", func(option *service.PassthroughOption) *[]string { return &option.Values.DBServers }},
-		{"agents", "all agent instances", func(option *service.PassthroughOption) *[]string { return &option.Values.Agents }},
-		{"sync", "all sync instances", func(option *service.PassthroughOption) *[]string { return &option.Values.AllSync }},
-		{"syncmasters", "all sync master instances", func(option *service.PassthroughOption) *[]string { return &option.Values.SyncMasters }},
-		{"syncworkers", "all sync worker instances", func(option *service.PassthroughOption) *[]string { return &option.Values.SyncWorkers }},
+
+	config, flags, err := passthroughtPrefixesNew.Parse(os.Args...)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("Unable to parse arguments")
 	}
-	for _, a := range os.Args {
-		for _, ptPrefix := range passthroughPrefixes {
-			fullArgPrefix := "--" + ptPrefix.Prefix + "."
-			if strings.HasPrefix(a, fullArgPrefix) {
-				option := getPassthroughOption(a, fullArgPrefix, ptPrefix.Prefix, f)
-				if option != nil {
-					if option.IsForbidden() {
-						log.Fatal().Msgf("Option '%s' is essential to the starters behavior and cannot be overwritten.", option.FormattedOptionName())
-					}
-					fullOptionName := ptPrefix.Prefix + "." + option.Name
-					f.StringSliceVar(ptPrefix.FieldSelector(option), fullOptionName, nil, fmt.Sprintf("Passed through to %s as --%s", ptPrefix.Usage, option.Name))
-				}
-			}
+
+	for _, flag := range flags {
+		f.StringSliceVar(flag.Value, flag.CleanKey, nil, flag.Usage)
+		if flag.Deprecated {
+			f.MarkDeprecated(flag.CleanKey, "Deprecated")
 		}
 	}
+
+	configuration = config
 
 	cmdStart.Flags().AddFlagSet(f)
 	cmdStop.Flags().AddFlagSet(f)
@@ -772,9 +927,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		SyncMasterClientCAFile:  syncMasterClientCAFile,
 		SyncMasterJWTSecretFile: syncMasterJWTSecretFile,
 		SyncMQType:              syncMQType,
-	}
-	for _, ptOpt := range passthroughOptions {
-		serviceConfig.PassthroughOptions = append(serviceConfig.PassthroughOptions, *ptOpt)
+		Configuration:           configuration,
 	}
 	service := service.NewService(context.Background(), log, logService, serviceConfig, bsCfg, false)
 

@@ -1,5 +1,10 @@
 # ArangoDB Starter Changelog
 
+## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Allow to pass environment variables to processes and standardize argument pass (--envs.<group>.<ENV>=<VALUE> and --args.<group>.<ARG>=<VALUE>)
+
+# ArangoDB Starter Changelog Before 0.15.0
+
 ## Changes from 0.14.12 to 0.14.13
 
 - Fixed upgrade for active failover when there are nodes without single server.

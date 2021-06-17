@@ -195,7 +195,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		}
 
 		return NewInterrupt()
-	}).ExecuteT(t, time.Minute, 500*time.Millisecond)
+	}).ExecuteT(t, 5*time.Minute, 500*time.Millisecond)
 
 	// close the rest of the starters.
 	for _, endpoint := range starterEndpoints {

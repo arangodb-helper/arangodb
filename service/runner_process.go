@@ -112,13 +112,19 @@ func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
 	return &process{log: r.log, p: p, isChild: false}, nil
 }
 
-func (r *processRunner) Start(ctx context.Context, processType definitions.ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
+func (r *processRunner) Start(ctx context.Context, processType definitions.ProcessType, command string, args []string, envs map[string]string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
 	c := exec.Command(command, args...)
 	if output != nil {
 		c.Stdout = output
 	}
 
 	c.SysProcAttr = getSysProcAttr()
+
+	// Copy current envs
+	c.Env = os.Environ()
+	for k, v := range envs {
+		c.Env = append(c.Env, fmt.Sprintf("%s=%s", k, v))
+	}
 
 	if err := c.Start(); err != nil {
 		return nil, maskAny(err)

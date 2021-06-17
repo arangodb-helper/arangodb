@@ -42,6 +42,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/service/options"
+
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 
 	driver "github.com/arangodb/go-driver"
@@ -75,7 +77,7 @@ type Config struct {
 	Verbose              bool
 	ServerThreads        int  // If set to something other than 0, this will be added to the commandline of each server with `--server.threads`...
 	AllPortOffsetsUnique bool // If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.
-	PassthroughOptions   []PassthroughOption
+	Configuration        *options.Configuration
 	DebugCluster         bool
 	LogRotateFilesToKeep int
 	LogRotateInterval    time.Duration

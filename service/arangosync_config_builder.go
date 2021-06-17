@@ -43,6 +43,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/arangodb-helper/arangodb/service/options"
+
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/pkg/errors"
 
@@ -140,13 +142,13 @@ func createArangoClusterSecretFile(log zerolog.Logger, bsCfg BootstrapConfig, my
 func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
 	myPeerID, myAddress, myPort string, serverType definitions.ServerType, clusterJWTSecretFile string, features DatabaseFeatures) ([]string, error) {
 
-	options := make([]optionPair, 0, 32)
+	opts := make([]optionPair, 0, 32)
 	executable := config.ArangoSyncPath
 	args := []string{
 		executable,
 	}
 
-	options = append(options,
+	opts = append(opts,
 		optionPair{"--log.file", myContainerLogFile},
 		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
 		optionPair{"--server.port", myPort},
@@ -155,24 +157,24 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 		optionPair{"--pid-file", getLockFilePath(myContainerDir)},
 	)
 	if config.DebugCluster {
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--log.level", "debug"})
 	}
 	switch serverType {
 	case definitions.ServerTypeSyncMaster:
 		args = append(args, "run", "master")
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--server.keyfile", config.SyncMasterKeyFile},
 			optionPair{"--server.client-cafile", config.SyncMasterClientCAFile},
 			optionPair{"--mq.type", config.SyncMQType},
 		)
 		if clusterJWTSecretFile != "" {
 			if !features.GetJWTFolderOption() {
-				options = append(options,
+				opts = append(opts,
 					optionPair{"--cluster.jwt-secret", clusterJWTSecretFile},
 				)
 			} else {
-				options = append(options,
+				opts = append(opts,
 					optionPair{"--cluster.jwt-secret", path.Join(clusterJWTSecretFile, definitions.ArangodJWTSecretActive)},
 				)
 			}
@@ -182,7 +184,7 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 				return nil, maskAny(fmt.Errorf("No cluster coordinators found"))
 			}
 			for _, ep := range clusterEPs {
-				options = append(options,
+				opts = append(opts,
 					optionPair{"--cluster.endpoint", ep})
 			}
 		} else {
@@ -196,7 +198,7 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 				return nil, maskAny(fmt.Errorf("No sync masters found"))
 			}
 			for _, ep := range syncMasterEPs {
-				options = append(options,
+				opts = append(opts,
 					optionPair{"--master.endpoint", ep})
 			}
 		} else {
@@ -205,26 +207,26 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 		}
 	}
 
-	for _, opt := range options {
-		ptValues := config.passthroughOptionValuesForServerType(strings.TrimPrefix(opt.Key, "--"), serverType)
-		if len(ptValues) > 0 {
+	passArgs := config.Configuration.ArgsForServerType(serverType)
+
+	for _, opt := range opts {
+		if _, ok := passArgs[opt.Key]; ok {
 			log.Warn().Msgf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
 		} else {
-			args = append(args, opt.Key+"="+opt.Value)
+			args = append(args, opt.Key, opt.Value)
 		}
 	}
-	for _, ptOpt := range config.PassthroughOptions {
-		values := ptOpt.valueForServerType(serverType)
+	for key, values := range passArgs {
 		if len(values) == 0 {
 			continue
 		}
+
 		// Append all values
 		for _, value := range values {
-			if isOptionSuitableForArangoSyncServer(serverType, ptOpt.Name) {
-				args = append(args, ptOpt.FormattedOptionName()+"="+value)
-			}
+			args = append(args, options.FormattedOptionName(key), value)
 		}
 	}
+
 	return args, nil
 }
 
