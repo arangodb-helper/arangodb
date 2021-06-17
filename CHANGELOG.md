@@ -3,8 +3,6 @@
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Allow to pass environment variables to processes and standardize argument pass (--envs.<group>.<ENV>=<VALUE> and --args.<group>.<ARG>=<VALUE>)
 
-# Changes from
-
 # ArangoDB Starter Changelog Before 0.15.0
 
 ## Changes from 0.14.12 to 0.14.13
