@@ -50,7 +50,7 @@ type Runner interface {
 	GetRunningServer(serverDir string) (Process, error)
 
 	// Start a server with given arguments
-	Start(ctx context.Context, processType definitions.ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error)
+	Start(ctx context.Context, processType definitions.ProcessType, command string, args []string, envs map[string]string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error)
 
 	// Create a command that a user should use to start a slave arangodb instance.
 	CreateStartArangodbCommand(myDataDir string, index int, masterIP, masterPort, starterImageName string, clusterConfig ClusterConfig) string

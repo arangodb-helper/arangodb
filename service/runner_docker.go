@@ -152,7 +152,7 @@ func (r *dockerRunner) GetRunningServer(serverDir string) (Process, error) {
 	}, nil
 }
 
-func (r *dockerRunner) Start(ctx context.Context, processType definitions.ProcessType, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
+func (r *dockerRunner) Start(ctx context.Context, processType definitions.ProcessType, command string, args []string, envs map[string]string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
 	// Start gc (once)
 	r.startGC()
 
@@ -203,7 +203,7 @@ func (r *dockerRunner) Start(ctx context.Context, processType definitions.Proces
 			r.log.Error().Err(err).Msgf("Failed to remove container '%s'", containerName)
 		}
 		// Try starting it now
-		p, err := r.start(image, command, args, volumes, ports, containerName, serverDir, output)
+		p, err := r.start(image, command, args, envs, volumes, ports, containerName, serverDir, output)
 		if err != nil {
 			return maskAny(err)
 		}
@@ -224,12 +224,17 @@ func (r *dockerRunner) startGC() {
 }
 
 // Try to start a command with given arguments
-func (r *dockerRunner) start(image string, command string, args []string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
+func (r *dockerRunner) start(image string, command string, args []string, envs map[string]string, volumes []Volume, ports []int, containerName, serverDir string, output io.Writer) (Process, error) {
 	env := make([]string, 0, 1)
 	licenseKey := os.Getenv("ARANGO_LICENSE_KEY")
 	if licenseKey != "" {
 		env = append(env, "ARANGO_LICENSE_KEY="+licenseKey)
 	}
+
+	for k, v := range envs {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	}
+
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
 		Config: &docker.Config{

@@ -57,7 +57,7 @@ func (s *Service) databaseVersion(ctx context.Context) (driver.Version, bool, er
 	// Start process to print version info
 	output := &bytes.Buffer{}
 	containerName := "arangodb-versioncheck-" + strings.ToLower(uniuri.NewLen(6))
-	p, err := s.runner.Start(ctx, definitions.ProcessTypeArangod, s.cfg.ArangodPath, []string{"--version"}, nil, nil, containerName, ".", output)
+	p, err := s.runner.Start(ctx, definitions.ProcessTypeArangod, s.cfg.ArangodPath, []string{"--version"}, nil, nil, nil, containerName, ".", output)
 	if err != nil {
 		return "", false, maskAny(err)
 	}

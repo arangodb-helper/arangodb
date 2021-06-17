@@ -42,6 +42,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/arangodb-helper/arangodb/service/options"
+
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 
 	"github.com/rs/zerolog"
@@ -153,7 +155,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 	containerConfFileName := filepath.Join(myContainerDir, definitions.ArangodConfFileName)
 
 	args := make([]string, 0, 40)
-	options := make([]optionPair, 0, 32)
+	opts := make([]optionPair, 0, 32)
 	executable := config.ArangodPath
 	jsStartup := config.ArangodJSPath
 	if config.RrPath != "" {
@@ -164,7 +166,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		"-c", slasher(containerConfFileName),
 	)
 
-	options = append(options,
+	opts = append(opts,
 		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
 		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
 		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
@@ -173,36 +175,36 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 	)
 	if clusterJWTSecretFile != "" {
 		if !features.GetJWTFolderOption() {
-			options = append(options,
+			opts = append(opts,
 				optionPair{"--server.jwt-secret-keyfile", clusterJWTSecretFile},
 			)
 		} else {
-			options = append(options,
+			opts = append(opts,
 				optionPair{"--server.jwt-secret-folder", clusterJWTSecretFile},
 			)
 		}
 	}
 	if !config.RunningInDocker && features.HasCopyInstallationFiles() {
-		options = append(options, optionPair{"--javascript.copy-installation", "true"})
+		opts = append(opts, optionPair{"--javascript.copy-installation", "true"})
 	}
 
 	if databaseAutoUpgrade {
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--database.auto-upgrade", "true"})
 	}
 	if config.ServerThreads != 0 {
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--server.threads", strconv.Itoa(config.ServerThreads)})
 	}
 	if config.DebugCluster {
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--log.level", "startup=trace"})
 	}
 	scheme := NewURLSchemes(clusterConfig.IsSecure()).Arangod
 	myTCPURL := scheme + "://" + net.JoinHostPort(myAddress, myPort)
 	switch serverType {
 	case definitions.ServerTypeAgent:
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--agency.activate", "true"},
 			optionPair{"--agency.my-address", myTCPURL},
 			optionPair{"--agency.size", strconv.Itoa(clusterConfig.AgencySize)},
@@ -212,37 +214,37 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		)
 		for _, p := range clusterConfig.AllAgents() {
 			if p.ID != myPeerID {
-				options = append(options,
+				opts = append(opts,
 					optionPair{"--agency.endpoint", fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+definitions.PortOffsetAgent)))},
 				)
 			}
 		}
 		if agentRecoveryID != "" {
-			options = append(options,
+			opts = append(opts,
 				optionPair{"--agency.disaster-recovery-id", agentRecoveryID},
 			)
 		}
 	case definitions.ServerTypeDBServer:
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "PRIMARY"},
 			optionPair{"--foxx.queues", "false"},
 			optionPair{"--server.statistics", "true"},
 		)
 	case definitions.ServerTypeCoordinator:
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "COORDINATOR"},
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 		)
 	case definitions.ServerTypeSingle:
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 		)
 	case definitions.ServerTypeResilientSingle:
-		options = append(options,
+		opts = append(opts,
 			optionPair{"--foxx.queues", "true"},
 			optionPair{"--server.statistics", "true"},
 			optionPair{"--replication.automatic-failover", "true"},
@@ -252,41 +254,43 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 	}
 	if serverType == definitions.ServerTypeCoordinator || serverType == definitions.ServerTypeResilientSingle {
 		if config.AdvertisedEndpoint != "" {
-			options = append(options,
+			opts = append(opts,
 				optionPair{"--cluster.my-advertised-endpoint", fixupEndpointURLSchemeForArangod(config.AdvertisedEndpoint)},
 			)
 		}
 	}
 	if serverType != definitions.ServerTypeAgent && serverType != definitions.ServerTypeSingle {
 		for _, p := range clusterConfig.AllAgents() {
-			options = append(options,
+			opts = append(opts,
 				optionPair{"--cluster.agency-endpoint",
 					fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(p.Port+p.PortOffset+definitions.PortOffsetAgent)))},
 			)
 		}
 	}
-	for _, opt := range options {
-		ptValues := config.passthroughOptionValuesForServerType(strings.TrimPrefix(opt.Key, "--"), serverType)
-		if len(ptValues) > 0 {
+
+	passArgs := config.Configuration.ArgsForServerType(serverType)
+
+	for _, opt := range opts {
+		if _, ok := passArgs[opt.Key]; ok {
 			log.Warn().Msgf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
 		} else {
 			args = append(args, opt.Key, opt.Value)
 		}
 	}
-	for _, ptOpt := range config.PassthroughOptions {
-		values := ptOpt.valueForServerType(serverType)
+	for key, values := range passArgs {
 		if len(values) == 0 {
 			continue
 		}
+
 		// Look for overrides of configuration sections
-		if section := arangodConfig.FindSection(ptOpt.sectionName()); section != nil {
-			if confValue, found := section.Settings[ptOpt.sectionKey()]; found {
-				log.Warn().Msgf("Pass through option %s overrides generated configuration option with value '%s'", ptOpt.Name, confValue)
+		if section := arangodConfig.FindSection(options.SectionName(key)); section != nil {
+			if confValue, found := section.Settings[options.SectionName(key)]; found {
+				log.Warn().Msgf("Pass through option %s overrides generated configuration option with value '%s'", key, confValue)
 			}
 		}
 		// Append all values
 		for _, value := range values {
-			args = append(args, ptOpt.FormattedOptionName(), value)
+			args = append(args, options.FormattedOptionName(key), value)
 		}
 	}
 	return args

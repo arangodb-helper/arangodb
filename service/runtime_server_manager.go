@@ -196,7 +196,7 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	}
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, myPeer.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
-	p, err = runner.Start(ctx, processType, args[0], args[1:], vols, ports, containerName, myHostDir, nil)
+	p, err = runner.Start(ctx, processType, args[0], args[1:], createEnvs(config, serverType), vols, ports, containerName, myHostDir, nil)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
