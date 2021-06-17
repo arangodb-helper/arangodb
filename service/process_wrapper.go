@@ -207,7 +207,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 							} else {
 								ip := p.myPeer.Address
 								p.s.logMutex.Lock()
-								logProcess.Info().Msgf("Your syncmaster can now available at `https://%s:%d`", ip, hostPort)
+								logProcess.Info().Msgf("Your syncmaster is now available at `https://%s:%d`", ip, hostPort)
 								p.s.logMutex.Unlock()
 							}
 						}
