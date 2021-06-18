@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Allow to pass environment variables to processes and standardize argument pass (--envs.<group>.<ENV>=<VALUE> and --args.<group>.<ARG>=<VALUE>)
+- Extend JWT Generator functionality by additional fields
 
 # ArangoDB Starter Changelog Before 0.15.0
 
