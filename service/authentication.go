@@ -24,6 +24,7 @@ package service
 
 import (
 	"net/http"
+	"time"
 
 	jwt "github.com/dgrijalva/jwt-go"
 )
@@ -35,18 +36,33 @@ const (
 
 // CreateJwtToken calculates a JWT authorization token based on the given secret.
 // If the secret is empty, an empty token is returned.
-func CreateJwtToken(jwtSecret, user string) (string, error) {
+func CreateJwtToken(jwtSecret, user string, serverId string, paths []string, exp time.Duration, fieldsOverride jwt.MapClaims) (string, error) {
 	if jwtSecret == "" {
 		return "", nil
 	}
+	if serverId == "" {
+		serverId = "foo"
+	}
+
 	// Create a new token object, specifying signing method and the claims
 	// you would like it to contain.
 	claims := jwt.MapClaims{
 		"iss":       "arangodb",
-		"server_id": "foo",
+		"server_id": serverId,
 	}
 	if user != "" {
 		claims["preferred_username"] = user
+	}
+	if paths != nil {
+		claims["allowed_paths"] = paths
+	}
+	if exp > 0 {
+		t := time.Now().UTC()
+		claims["iat"] = t.Unix()
+		claims["exp"] = t.Add(exp).Unix()
+	}
+	for k, v := range fieldsOverride {
+		claims[k] = v
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
@@ -66,7 +82,7 @@ func addJwtHeader(req *http.Request, jwtSecret string) error {
 	if jwtSecret == "" {
 		return nil
 	}
-	signedToken, err := CreateJwtToken(jwtSecret, "")
+	signedToken, err := CreateJwtToken(jwtSecret, "", "", nil, 0, nil)
 	if err != nil {
 		return maskAny(err)
 	}
