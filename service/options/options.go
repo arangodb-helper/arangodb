@@ -203,6 +203,8 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 	var f []ConfigurationFlag
 	config := NewConfiguration()
 
+	flags := map[string]bool{}
+
 	for _, arg := range args {
 		arg = strings.SplitN(arg, "=", 2)[0]
 
@@ -222,6 +224,12 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 
 			if forbiddenOptions.IsForbidden(targ) {
 				return nil, nil, fmt.Errorf("option --%s is essential to the starters behavior and cannot be overwritten", targ)
+			}
+
+			if _, ok := flags[arg]; ok {
+				break
+			} else {
+				flags[arg] = true
 			}
 
 			f = append(f, ConfigurationFlag{
