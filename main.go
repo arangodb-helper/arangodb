@@ -448,6 +448,11 @@ func init() {
 	}
 
 	for _, flag := range flags {
+		if f.Lookup(flag.CleanKey) != nil {
+			// Do not override predefined flags, which match prefixed config parser (like `sync.server.keyfile`)
+			continue
+		}
+
 		f.StringSliceVar(flag.Value, flag.CleanKey, nil, flag.Usage)
 		if flag.Deprecated {
 			f.MarkDeprecated(flag.CleanKey, "Deprecated")
