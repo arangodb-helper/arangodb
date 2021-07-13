@@ -511,9 +511,7 @@ func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType defi
 	switch serverType {
 	case definitions.ServerTypeAgent:
 		p = s.agentProc.Process()
-	case definitions.ServerTypeDBServer:
-		p = s.dbserverProc.Process()
-	case definitions.ServerTypeDBServerNoResign:
+	case definitions.ServerTypeDBServer, definitions.ServerTypeDBServerNoResign:
 		p = s.dbserverProc.Process()
 	case definitions.ServerTypeCoordinator:
 		p = s.coordinatorProc.Process()

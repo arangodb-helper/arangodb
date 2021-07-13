@@ -99,9 +99,7 @@ func (s ServerType) GetName() string {
 	switch s {
 	case ServerTypeAgent:
 		return "agent"
-	case ServerTypeDBServer:
-		return "dbserver"
-  case ServerTypeDBServerNoResign:
+	case ServerTypeDBServer, ServerTypeDBServerNoResign:
 		return "dbserver"
 	case ServerTypeCoordinator:
 		return "coordinator"
