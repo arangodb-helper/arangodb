@@ -1,12 +1,9 @@
 # ArangoDB Starter Changelog
 
-## Changes from 0.15.0 to 0.15.0-1
+## Changes from 0.14.13 to 0.15.0-1
 
 - Do not run ResignLeadership when upgrading from <= 3.6.14 or
   3.7 with <= 3.7.13.
-
-## Changes from 0.14.13 to 0.15.0
-
 
 ## Changes from 0.14.12 to 0.14.13
 
