@@ -30,14 +30,15 @@ import (
 type ServerType string
 
 const (
-	ServerTypeUnknown         = "unknown"
-	ServerTypeCoordinator     = "coordinator"
-	ServerTypeDBServer        = "dbserver"
-	ServerTypeAgent           = "agent"
-	ServerTypeSingle          = "single"
-	ServerTypeResilientSingle = "resilientsingle"
-	ServerTypeSyncMaster      = "syncmaster"
-	ServerTypeSyncWorker      = "syncworker"
+	ServerTypeUnknown          = "unknown"
+	ServerTypeCoordinator      = "coordinator"
+	ServerTypeDBServer         = "dbserver"
+	ServerTypeDBServerNoResign = "dbserver_noresign"
+	ServerTypeAgent            = "agent"
+	ServerTypeSingle           = "single"
+	ServerTypeResilientSingle  = "resilientsingle"
+	ServerTypeSyncMaster       = "syncmaster"
+	ServerTypeSyncWorker       = "syncworker"
 )
 
 // String returns a string representation of the given ServerType.
@@ -50,7 +51,7 @@ func (s ServerType) PortOffset() int {
 	switch s {
 	case ServerTypeCoordinator, ServerTypeSingle, ServerTypeResilientSingle:
 		return PortOffsetCoordinator
-	case ServerTypeDBServer:
+	case ServerTypeDBServer, ServerTypeDBServerNoResign:
 		return PortOffsetDBServer
 	case ServerTypeAgent:
 		return PortOffsetAgent
@@ -82,7 +83,7 @@ func (s ServerType) ExpectedServerRole() (string, string) {
 		return "SINGLE", ""
 	case ServerTypeResilientSingle:
 		return "SINGLE", "resilient"
-	case ServerTypeDBServer:
+	case ServerTypeDBServer, ServerTypeDBServerNoResign:
 		return "PRIMARY", ""
 	case ServerTypeAgent:
 		return "AGENT", ""
@@ -98,7 +99,7 @@ func (s ServerType) GetName() string {
 	switch s {
 	case ServerTypeAgent:
 		return "agent"
-	case ServerTypeDBServer:
+	case ServerTypeDBServer, ServerTypeDBServerNoResign:
 		return "dbserver"
 	case ServerTypeCoordinator:
 		return "coordinator"
@@ -117,6 +118,7 @@ func AllServerTypes() []ServerType {
 	return []ServerType{
 		ServerTypeCoordinator,
 		ServerTypeDBServer,
+    ServerTypeDBServerNoResign,
 		ServerTypeAgent,
 		ServerTypeSingle,
 		ServerTypeResilientSingle,
