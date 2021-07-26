@@ -85,6 +85,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 	if version, err := coordinatorClient.Version(context.Background()); err != nil {
 		t.Fatal(err.Error())
 	} else {
+		t.Log("Found version: ", version.Version)
 		if service.IsSpecialUpgradeFrom3614(version.Version) {
 			t.Skipf("ResignLeadership wont work in case when Maintenance is enabled")
 		}
