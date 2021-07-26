@@ -33,7 +33,7 @@ import (
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 
-	driver "github.com/arangodb/go-driver"
+	"github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	upgraderules "github.com/arangodb/go-upgrade-rules"
 	"github.com/pkg/errors"
@@ -269,12 +269,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		if from.CompareTo("3.4.6") == 0 {
 			specialUpgradeFrom346 = true
 		}
-		subint, found := from.SubInt()
-		if !found {
-			subint = 0
-	}
-		if (from.Major() == 3 && from.Minor() <= 6 && subint <= 14) ||
-		   (from.Major() == 3 && from.Minor() == 7 && subint <= 12) {
+		if IsSpecialUpgradeFrom3614(from) {
 			specialUpgradeFrom3614 = true
 		}
 	}
@@ -1005,8 +1000,8 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		m.updateNeeded = true
 		upgrade := func() error {
 			if firstEntry.WithoutResign {
-			  fmt.Printf("Without resign")
-		  }
+				fmt.Printf("Without resign")
+			}
 			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServerNoResign); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
 			}
@@ -1585,4 +1580,10 @@ func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, e
 	}
 
 	return len(versions) == 1, nil
+}
+
+// IsSpecialUpgradeFrom3614 determines if special case for upgrade is required
+func IsSpecialUpgradeFrom3614(v driver.Version) bool {
+	return (v.CompareTo("3.6.0") >= 0 && v.CompareTo("3.6.14") <= 0) ||
+		(v.CompareTo("3.7.0") >= 0 && v.CompareTo("3.7.12") <= 0)
 }

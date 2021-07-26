@@ -112,7 +112,7 @@ func (s ServerType) GetName() string {
 		return "agent"
 	case ServerTypeDBServer:
 		return "dbserver"
-  case ServerTypeDBServerNoResign:
+	case ServerTypeDBServerNoResign:
 		return "dbserver"
 	case ServerTypeCoordinator:
 		return "coordinator"
@@ -131,7 +131,7 @@ func AllServerTypes() []ServerType {
 	return []ServerType{
 		ServerTypeCoordinator,
 		ServerTypeDBServer,
-    ServerTypeDBServerNoResign,
+		ServerTypeDBServerNoResign,
 		ServerTypeAgent,
 		ServerTypeSingle,
 		ServerTypeResilientSingle,

@@ -30,6 +30,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/service"
+
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb/go-driver"
 	"github.com/pkg/errors"
@@ -78,6 +80,14 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 	coordinatorClient, err := CreateClient(t, starterEndpointForCoordinator, client.ServerTypeCoordinator, auth)
 	if err != nil {
 		t.Fatal(err.Error())
+	}
+
+	if version, err := coordinatorClient.Version(context.Background()); err != nil {
+		t.Fatal(err.Error())
+	} else {
+		if service.IsSpecialUpgradeFrom3614(version.Version) {
+			t.Skipf("ResignLeadership wont work in case when Maintenance is enabled")
+		}
 	}
 
 	databaseName := "_system"
