@@ -47,6 +47,7 @@ var (
 
 	binaries = map[string]string{
 		"arangodb-darwin-amd64":      "darwin/amd64/arangodb",
+		"arangodb-darwin-arm64":      "darwin/arm64/arangodb",
 		"arangodb-linux-amd64":       "linux/amd64/arangodb",
 		"arangodb-linux-arm64":       "linux/arm64/arangodb",
 		"arangodb-windows-amd64.exe": "windows/amd64/arangodb.exe",
