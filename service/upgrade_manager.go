@@ -33,7 +33,7 @@ import (
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 
-	driver "github.com/arangodb/go-driver"
+	"github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	upgraderules "github.com/arangodb/go-upgrade-rules"
 	"github.com/pkg/errors"
@@ -171,10 +171,11 @@ const (
 // UpgradePlanEntry is the JSON structure that describes a single entry
 // in an upgrade plan.
 type UpgradePlanEntry struct {
-	PeerID   string           `json:"peer_id"`
-	Type     UpgradeEntryType `json:"type"`
-	Failures int              `json:"failures,omitempty"`
-	Reason   string           `json:"reason,omitempty"`
+	PeerID        string           `json:"peer_id"`
+	Type          UpgradeEntryType `json:"type"`
+	Failures      int              `json:"failures,omitempty"`
+	Reason        string           `json:"reason,omitempty"`
+	WithoutResign bool             `json:"withoutResign,omitempty"`
 }
 
 // CreateStatusServer creates a UpgradeStatusServer for the given entry.
@@ -255,6 +256,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 
 	// Check if we can upgrade from running to binary versions
 	specialUpgradeFrom346 := false
+	specialUpgradeFrom3614 := false
 	rules := upgraderules.CheckUpgradeRules
 	if forceMinorUpgrade {
 		rules = upgraderules.CheckSoftUpgradeRules
@@ -266,6 +268,9 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		}
 		if from.CompareTo("3.4.6") == 0 {
 			specialUpgradeFrom346 = true
+		}
+		if IsSpecialUpgradeFrom3614(from) {
+			specialUpgradeFrom3614 = true
 		}
 	}
 
@@ -403,8 +408,9 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		for _, p := range config.AllPeers {
 			if p.HasDBServer() {
 				plan.Entries = append(plan.Entries, UpgradePlanEntry{
-					Type:   UpgradeEntryTypeDBServer,
-					PeerID: p.ID,
+					Type:          UpgradeEntryTypeDBServer,
+					PeerID:        p.ID,
+					WithoutResign: specialUpgradeFrom3614,
 				})
 			}
 		}
@@ -993,7 +999,10 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		m.upgradeServerType = definitions.ServerTypeDBServer
 		m.updateNeeded = true
 		upgrade := func() error {
-			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServer); err != nil {
+			if firstEntry.WithoutResign {
+				fmt.Printf("Without resign")
+			}
+			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServerNoResign); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
 			}
 
@@ -1571,4 +1580,10 @@ func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, e
 	}
 
 	return len(versions) == 1, nil
+}
+
+// IsSpecialUpgradeFrom3614 determines if special case for upgrade is required
+func IsSpecialUpgradeFrom3614(v driver.Version) bool {
+	return (v.CompareTo("3.6.0") >= 0 && v.CompareTo("3.6.14") <= 0) ||
+		(v.CompareTo("3.7.0") >= 0 && v.CompareTo("3.7.12") <= 0)
 }

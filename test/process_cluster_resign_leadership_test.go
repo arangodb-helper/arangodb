@@ -30,6 +30,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arangodb-helper/arangodb/service"
+
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb/go-driver"
 	"github.com/pkg/errors"
@@ -80,13 +82,21 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
+	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+
+	if version, err := coordinatorClient.Version(context.Background()); err != nil {
+		t.Fatal(err.Error())
+	} else {
+		t.Log("Found version: ", version.Version)
+		if service.IsSpecialUpgradeFrom3614(version.Version) {
+			t.Skipf("ResignLeadership wont work in case when Maintenance is enabled")
+		}
+	}
+
 	databaseName := "_system"
 	collectionName := "test"
 
-	WaitUntilServiceReadyAPI(t, coordinatorClient, func(t *testing.T, ctx context.Context, c driver.Client) error {
-		_, err := coordinatorClient.Database(context.Background(), databaseName)
-		return err
-	}).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckDatabase(databaseName)).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
 
 	database, err := coordinatorClient.Database(context.Background(), databaseName)
 	if err != nil {

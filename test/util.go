@@ -265,6 +265,22 @@ func WaitUntilServiceReady(t *testing.T, c driver.Client, checkFunc ServiceReady
 	}
 }
 
+// ServiceReadyCheckVersion checks if version can be fetched
+func ServiceReadyCheckVersion() ServiceReadyCheckFunc {
+	return func(t *testing.T, ctx context.Context, c driver.Client) error {
+		_, err := c.Version(ctx)
+		return err
+	}
+}
+
+// ServiceReadyCheckDatabase checks if database info can be fetched
+func ServiceReadyCheckDatabase(databaseName string) ServiceReadyCheckFunc {
+	return func(t *testing.T, ctx context.Context, c driver.Client) error {
+		_, err := c.Database(ctx, databaseName)
+		return err
+	}
+}
+
 func WaitForHttpPortClosed(log Logger, throttle Throttle, url string) TimeoutFunc {
 	return func() error {
 		_, err := http.Get(url)
