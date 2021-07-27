@@ -29,7 +29,7 @@ REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.13.6
+GOVERSION := 1.16.6
 GOIMAGE ?= golang:$(GOVERSION)
 
 GOOS ?= linux
@@ -135,12 +135,14 @@ binaries: $(GHRELEASE)
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
 
 binaries-test: $(GHRELEASE)
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
 
 $(BIN): $(GOBUILDDIR) $(SOURCES)
