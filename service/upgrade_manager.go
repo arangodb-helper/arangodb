@@ -1002,8 +1002,15 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 			if firstEntry.WithoutResign {
 				fmt.Printf("Without resign")
 			}
-			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServerNoResign); err != nil {
-				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
+
+			isClusterHealthy := func() error {
+				return m.isClusterHealthy(ctx)
+			}
+
+			// The cluster must be healthy before supervision is disabled.
+			if err := retry(ctx, isClusterHealthy, time.Second * 30); err != nil {
+				return recordFailure(errors.Wrap(err,
+					"Cluster is not healthy in time so supervision can not be disabled"))
 			}
 
 			m.log.Info().Msg("Disabling supervision")
@@ -1018,6 +1025,18 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 					recordFailure(errors.Wrap(err, "Failed to enable supervision"))
 				}
 			}()
+
+			// The supervision was disabled but the cluster must be still healthy as it was before
+			// disabling the supervision.
+			if err := retry(ctx, isClusterHealthy, time.Second * 30); err != nil {
+				// It is not healthy so the server can not be restarted.
+				return recordFailure(errors.Wrap(err, "Cluster is not healthy but is was before disabling the supervision"))
+			}
+
+			// The cluster is healthy and supervision is disabled so the server can be restarted.
+			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServerNoResign); err != nil {
+				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
+			}
 
 			// Wait until dbserver restarted
 			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
