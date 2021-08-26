@@ -1006,27 +1006,20 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
 			}
 
-			m.log.Info().Msg("Disabling supervision")
-			if err := m.disableSupervision(ctx); err != nil {
-				return recordFailure(errors.Wrap(err, "Failed to disable supervision"))
-			}
-			m.log.Info().Msg("Disabled supervision")
-
-			defer func() {
-				m.log.Info().Msg("Enabling supervision")
-				if err := m.enableSupervision(ctx); err != nil {
-					recordFailure(errors.Wrap(err, "Failed to enable supervision"))
+			if err := m.withMaintenance(ctx, recordFailure)(func() error {
+				// Wait until dbserver restarted
+				if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
+					return recordFailure(errors.Wrap(err, "DBServer restart in upgrade mode did not succeed"))
 				}
-			}()
 
-			// Wait until dbserver restarted
-			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-				return recordFailure(errors.Wrap(err, "DBServer restart in upgrade mode did not succeed"))
-			}
+				// Wait until all dbservers respond
+				if err := m.waitUntil(ctx, m.areDBServersResponding, "DBServers are not yet all responding: %v"); err != nil {
+					return recordFailure(errors.Wrap(err, "Not all DBServers are responding in time"))
+				}
 
-			// Wait until all dbservers respond
-			if err := m.waitUntil(ctx, m.areDBServersResponding, "DBServers are not yet all responding: %v"); err != nil {
-				return recordFailure(errors.Wrap(err, "Not all DBServers are responding in time"))
+				return nil
+			}); err != nil {
+				return err
 			}
 
 			// Wait until cluster healthy
@@ -1074,28 +1067,22 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 				return recordFailure(errors.Wrap(err, "Failed to restart single server"))
 			}
 
-			m.log.Info().Msg("Disabling supervision")
-			if err := m.disableSupervision(ctx); err != nil {
-				return recordFailure(errors.Wrap(err, "Failed to disable supervision"))
-			}
-
-			m.log.Info().Msg("Disabled supervision")
-			defer func() {
-				m.log.Info().Msg("Enabling supervision")
-				if err := m.enableSupervision(ctx); err != nil {
-					recordFailure(errors.Wrap(err, "Failed to enable supervision"))
+			if err := m.withMaintenance(ctx, recordFailure)(func() error {
+				// Wait until single server restarted
+				if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
+					return recordFailure(errors.Wrap(err, "Single server restart in upgrade mode did not succeed"))
 				}
-			}()
 
-			// Wait until single server restarted
-			if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-				return recordFailure(errors.Wrap(err, "Single server restart in upgrade mode did not succeed"))
+				// Wait until all single servers respond
+				if err := m.waitUntil(ctx, m.areSingleServersResponding, "Active failover single server is not yet responding: %v"); err != nil {
+					return recordFailure(errors.Wrap(err, "Not all single servers are responding in time"))
+				}
+
+				return nil
+			}); err != nil {
+				return err
 			}
 
-			// Wait until all single servers respond
-			if err := m.waitUntil(ctx, m.areSingleServersResponding, "Active failover single server is not yet responding: %v"); err != nil {
-				return recordFailure(errors.Wrap(err, "Not all single servers are responding in time"))
-			}
 			return nil
 		}
 		if err := upgrade(); err != nil {
@@ -1158,6 +1145,26 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		return maskAny(err)
 	}
 	return nil
+}
+
+// withMaintenance wraps upgrade action with maintenance steps
+func (m *upgradeManager) withMaintenance(ctx context.Context, recordFailure func(err error) error) func(func() error) error {
+	return func(f func() error) error {
+		m.log.Info().Msg("Disabling supervision")
+		if err := m.disableSupervision(ctx); err != nil {
+			return recordFailure(errors.Wrap(err, "Failed to disable supervision"))
+		}
+
+		m.log.Info().Msg("Disabled supervision")
+		defer func() {
+			m.log.Info().Msg("Enabling supervision")
+			if err := m.enableSupervision(ctx); err != nil {
+				recordFailure(errors.Wrap(err, "Failed to enable supervision"))
+			}
+		}()
+
+		return f()
+	}
 }
 
 // finishUpgradePlan is called at the end of the upgrade process.
