@@ -210,7 +210,6 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			optionPair{"--agency.size", strconv.Itoa(clusterConfig.AgencySize)},
 			optionPair{"--agency.supervision", "true"},
 			optionPair{"--foxx.queues", "false"},
-			optionPair{"--server.statistics", "false"},
 		)
 		for _, p := range clusterConfig.AllAgents() {
 			if p.ID != myPeerID {
@@ -229,24 +228,20 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "PRIMARY"},
 			optionPair{"--foxx.queues", "false"},
-			optionPair{"--server.statistics", "true"},
 		)
 	case definitions.ServerTypeCoordinator:
 		opts = append(opts,
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "COORDINATOR"},
 			optionPair{"--foxx.queues", "true"},
-			optionPair{"--server.statistics", "true"},
 		)
 	case definitions.ServerTypeSingle:
 		opts = append(opts,
 			optionPair{"--foxx.queues", "true"},
-			optionPair{"--server.statistics", "true"},
 		)
 	case definitions.ServerTypeResilientSingle:
 		opts = append(opts,
 			optionPair{"--foxx.queues", "true"},
-			optionPair{"--server.statistics", "true"},
 			optionPair{"--replication.automatic-failover", "true"},
 			optionPair{"--cluster.my-address", myTCPURL},
 			optionPair{"--cluster.my-role", "SINGLE"},
