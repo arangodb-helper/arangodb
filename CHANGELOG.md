@@ -2,6 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [0.15.2](https://github.com/arangodb-helper/arangodb/tree/0.15.2) (2021-09-03)
+- Disable Maintenance Mode after upgrade, before health check
+
 ## [0.15.1](https://github.com/arangodb-helper/arangodb/tree/0.15.1) (2021-07-29)
 - Allow to pass environment variables to processes and standardize argument pass (--envs.<group>.<ENV>=<VALUE> and --args.<group>.<ARG>=<VALUE>)
 - Extend JWT Generator functionality by additional fields
