@@ -24,6 +24,7 @@ package actions
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -32,7 +33,15 @@ import (
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
-var actions map[string]Action
+// Registry allows to register new actions.
+type Registry struct {
+	// mutex protects the internal fields of this structure.
+	mutex sync.RWMutex
+	// actions holds already registered actions.
+	actions map[string]Action
+}
+
+var registry Registry
 
 // ActionTypes is the list of ActionType
 type ActionTypes []ActionType
@@ -98,11 +107,22 @@ func RegisterAction(action Action) {
 		return
 	}
 
-	if actions == nil {
-		actions = make(map[string]Action)
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+
+	if registry.actions == nil {
+		registry.actions = make(map[string]Action)
 	}
 
-	actions[action.Name()] = action
+	registry.actions[action.Name()] = action
+}
+
+// GetActions returns actions which are already registered.
+func (r *Registry) GetActions() map[string]Action {
+	registry.mutex.RLock()
+	defer registry.mutex.RUnlock()
+
+	return registry.actions
 }
 
 // StartAction starts actions based on type if actionType is on the limit list
@@ -136,7 +156,7 @@ func StartPreStopActions(logger zerolog.Logger, serverType definitions.ServerTyp
 		}
 	}
 
-	for _, anyAction := range actions {
+	for _, anyAction := range registry.GetActions() {
 		preStopAction, ok := anyAction.(ActionPreStop)
 		if !ok {
 			continue
