@@ -61,17 +61,13 @@ func NewConfigurationType() ConfigurationType {
 func (p *Configuration) ArgsForServerType(serverType definitions.ServerType) map[string][]string {
 	m := map[string][]string{}
 
-	z := p.ByServerType(serverType)
+	z := p.ByProcessType(serverType)
 
 	for k, v := range z.Args {
 		m[k] = stringListCopy(*v)
 	}
 
-	if len(m) > 0 {
-		return m
-	}
-
-	z = p.ByProcessType(serverType)
+	z = p.ByServerType(serverType)
 
 	for k, v := range z.Args {
 		m[k] = stringListCopy(*v)

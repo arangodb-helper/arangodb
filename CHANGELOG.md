@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix use of --args.all together with --args.<group> (<group> will override all flags in all)
 
 ## [0.15.2](https://github.com/arangodb-helper/arangodb/tree/0.15.2) (2021-09-03)
 - Disable Maintenance Mode after upgrade, before health check
