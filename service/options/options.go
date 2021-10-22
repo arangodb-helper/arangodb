@@ -73,6 +73,22 @@ func (p *Configuration) ArgsForServerType(serverType definitions.ServerType) map
 		m[k] = append(m[k], stringListCopy(*v)...)
 	}
 
+	for k := range m {
+		dedup := map[string]bool{}
+		var args []string
+
+		for _, v := range m[k] {
+			if _, ok := dedup[v]; ok {
+				continue
+			}
+
+			dedup[v] = true
+			args = append(args, v)
+		}
+
+		m[k] = args
+	}
+
 	return m
 }
 
