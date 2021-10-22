@@ -70,7 +70,7 @@ func (p *Configuration) ArgsForServerType(serverType definitions.ServerType) map
 	z = p.ByServerType(serverType)
 
 	for k, v := range z.Args {
-		m[k] = stringListCopy(*v)
+		m[k] = append(m[k], stringListCopy(*v)...)
 	}
 
 	return m
