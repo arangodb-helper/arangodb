@@ -25,6 +25,8 @@ package options
 import (
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/stretchr/testify/require"
 )
@@ -37,6 +39,14 @@ func Test_Args(t *testing.T) {
 			},
 			FieldSelector: func(p *Configuration, key string) *[]string {
 				return p.ArgByProcessTypeAndName(definitions.ServerTypeAgent, key)
+			},
+		},
+		"args.dbservers": {
+			Usage: func(arg, key string) string {
+				return "usage"
+			},
+			FieldSelector: func(p *Configuration, key string) *[]string {
+				return p.ArgByServerTypeAndName(definitions.ServerTypeDBServer, key)
 			},
 		},
 		"envs.all": {
@@ -54,6 +64,90 @@ func Test_Args(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, c)
 		require.Len(t, p, 0)
+	})
+
+	t.Run("With multi args", func(t *testing.T) {
+		args := []string{"--args.all.zzz=1", "--args.dbservers.zzz=2"}
+
+		c, p, err := prefixes.Parse(args...)
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		require.Len(t, p, 2)
+
+		cmd := &cobra.Command{}
+
+		f := cmd.Flags()
+
+		for _, flag := range p {
+			f.StringSliceVar(flag.Value, flag.CleanKey, nil, flag.Usage)
+		}
+
+		cmd.SetArgs(args)
+
+		require.NoError(t, cmd.Execute())
+
+		parsedArgs := c.ArgsForServerType(definitions.ServerTypeDBServer)
+
+		require.Len(t, parsedArgs, 1)
+		require.Len(t, parsedArgs["zzz"], 2)
+		require.Equal(t, parsedArgs["zzz"][0], "1")
+		require.Equal(t, parsedArgs["zzz"][1], "2")
+	})
+
+	t.Run("With multi args - reorder", func(t *testing.T) {
+		args := []string{"--args.dbservers.zzz=2", "--args.all.zzz=1"}
+
+		c, p, err := prefixes.Parse(args...)
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		require.Len(t, p, 2)
+
+		cmd := &cobra.Command{}
+
+		f := cmd.Flags()
+
+		for _, flag := range p {
+			f.StringSliceVar(flag.Value, flag.CleanKey, nil, flag.Usage)
+		}
+
+		cmd.SetArgs(args)
+
+		require.NoError(t, cmd.Execute())
+
+		parsedArgs := c.ArgsForServerType(definitions.ServerTypeDBServer)
+
+		require.Len(t, parsedArgs, 1)
+		require.Len(t, parsedArgs["zzz"], 2)
+		require.Equal(t, parsedArgs["zzz"][0], "1")
+		require.Equal(t, parsedArgs["zzz"][1], "2")
+	})
+
+	t.Run("With multi args - deduplicate", func(t *testing.T) {
+		args := []string{"--args.dbservers.zzz=2", "--args.all.zzz=1", "--args.all.zzz=1"}
+
+		c, p, err := prefixes.Parse(args...)
+		require.NoError(t, err)
+		require.NotNil(t, c)
+		require.Len(t, p, 2)
+
+		cmd := &cobra.Command{}
+
+		f := cmd.Flags()
+
+		for _, flag := range p {
+			f.StringSliceVar(flag.Value, flag.CleanKey, nil, flag.Usage)
+		}
+
+		cmd.SetArgs(args)
+
+		require.NoError(t, cmd.Execute())
+
+		parsedArgs := c.ArgsForServerType(definitions.ServerTypeDBServer)
+
+		require.Len(t, parsedArgs, 1)
+		require.Len(t, parsedArgs["zzz"], 2)
+		require.Equal(t, parsedArgs["zzz"][0], "1")
+		require.Equal(t, parsedArgs["zzz"][1], "2")
 	})
 
 	t.Run("With args", func(t *testing.T) {

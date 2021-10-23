@@ -61,20 +61,32 @@ func NewConfigurationType() ConfigurationType {
 func (p *Configuration) ArgsForServerType(serverType definitions.ServerType) map[string][]string {
 	m := map[string][]string{}
 
-	z := p.ByServerType(serverType)
+	z := p.ByProcessType(serverType)
 
 	for k, v := range z.Args {
 		m[k] = stringListCopy(*v)
 	}
 
-	if len(m) > 0 {
-		return m
-	}
-
-	z = p.ByProcessType(serverType)
+	z = p.ByServerType(serverType)
 
 	for k, v := range z.Args {
-		m[k] = stringListCopy(*v)
+		m[k] = append(m[k], stringListCopy(*v)...)
+	}
+
+	for k := range m {
+		dedup := map[string]bool{}
+		var args []string
+
+		for _, v := range m[k] {
+			if _, ok := dedup[v]; ok {
+				continue
+			}
+
+			dedup[v] = true
+			args = append(args, v)
+		}
+
+		m[k] = args
 	}
 
 	return m
