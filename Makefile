@@ -75,7 +75,7 @@ GHRELEASE_BIN := $(GHRELEASE)
 DOCKER_CMD :=
 
 pre:
-	@if ! go version | grep -q "go1.13"; then echo "GO in Version 1.13 required"; exit 1; fi
+	@if ! go version | grep -q "go$(GOVERSION)"; then echo "GO in Version $(GOVERSION) required"; exit 1; fi
 
 deps: pre
 

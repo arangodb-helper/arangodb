@@ -2,7 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Use github.com/golang-jwt/jwt
-- Use Go 1.17.5
+- Upgrade Go version to 1.13 for TLS 1.3 support
 
 ## [0.15.3](https://github.com/arangodb-helper/arangodb/tree/0.15.3) (2021-10-25)
 - Fix use of --args.all together with --args.<group> (<group> will override all flags in all)
