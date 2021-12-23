@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Use github.com/golang-jwt/jwt
+- Upgrade Go version to 1.17.5
 
 ## [0.15.3](https://github.com/arangodb-helper/arangodb/tree/0.15.3) (2021-10-25)
 - Fix use of --args.all together with --args.<group> (<group> will override all flags in all)
