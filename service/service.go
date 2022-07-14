@@ -42,19 +42,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/service/options"
-
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
 	"github.com/arangodb/go-driver/jwt"
-	"github.com/pkg/errors"
-	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
 const (
@@ -630,7 +629,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 				return "", -3, maskAny(err)
 			}
 			if resp.StatusCode() != 200 {
-				return "", resp.StatusCode(), maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+				return "", resp.StatusCode(), maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode()))
 			}
 			versionResponse := struct {
 				Version string `json:"version"`
@@ -752,7 +751,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 				return false, nil
 			}
 
-			return false, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+			return false, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode()))
 		}
 
 		checkInstanceOnce := func() bool {

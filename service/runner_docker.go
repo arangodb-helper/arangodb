@@ -35,11 +35,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 const (
@@ -419,7 +419,7 @@ func (r *dockerRunner) Cleanup() error {
 			Force:         true,
 			RemoveVolumes: true,
 		}); err != nil && !isNoSuchContainer(err) {
-			r.log.Warn().Err(err).Msgf("Failed to remove container %s: %#v", id)
+			r.log.Warn().Err(err).Msgf("Failed to remove container %s", id)
 		}
 	}
 	r.containerIDs = make(map[string]time.Time)

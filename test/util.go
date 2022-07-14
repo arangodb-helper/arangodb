@@ -38,15 +38,15 @@ import (
 	"testing"
 	"time"
 
+	shell "github.com/kballard/go-shellquote"
+	"github.com/pkg/errors"
+
 	"github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/client"
-	shell "github.com/kballard/go-shellquote"
-	"github.com/pkg/errors"
 )
 
 const (
-	ctrlC                                         = "\u0003"
 	whatCluster                                   = "cluster"
 	whatSingle                                    = "single server"
 	whatResilientSingle                           = "resilient single server"
@@ -321,7 +321,6 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 	time.Sleep(time.Second)
 	for _, starter := range starters {
 		starter.SendIntr()
-		//starter.Send(ctrlC)
 	}
 	g.Wait()
 	return result

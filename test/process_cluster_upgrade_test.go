@@ -28,8 +28,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/client"
 )
 
 // TestProcessClusterUpgrade starts a master starter, followed by 2 slave starters.

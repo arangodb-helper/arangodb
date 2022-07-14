@@ -273,7 +273,7 @@ func (s *runtimeServerManager) rotateLogFile(ctx context.Context, log zerolog.Lo
 			if i == filesToKeep {
 				// Remove file
 				if err := os.Remove(logPathX); err != nil {
-					log.Error().Err(err).Msgf("Failed to remove %s: %s", logPathX)
+					log.Error().Err(err).Msgf("Failed to remove %s", logPathX)
 				} else {
 					log.Debug().Msgf("Removed old log file: %s", logPathX)
 				}

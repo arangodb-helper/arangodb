@@ -40,9 +40,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 type optionPair struct {

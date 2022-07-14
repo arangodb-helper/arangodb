@@ -36,11 +36,12 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/rs/zerolog"
+
+	driver "github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/client"
-	driver "github.com/arangodb/go-driver"
-	"github.com/rs/zerolog"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 var (

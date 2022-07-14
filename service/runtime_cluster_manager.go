@@ -32,8 +32,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb/go-driver/agency"
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb/go-driver/agency"
 )
 
 const (

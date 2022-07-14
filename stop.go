@@ -28,8 +28,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/client"
 	"github.com/spf13/cobra"
+
+	"github.com/arangodb-helper/arangodb/client"
 )
 
 var (

@@ -32,11 +32,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
-	"github.com/arangodb-helper/arangodb/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 var (

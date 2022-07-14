@@ -20,6 +20,7 @@
 // Author Adam Janikowski
 //
 
+//go:build windows
 // +build windows
 
 package service

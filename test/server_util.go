@@ -33,10 +33,11 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/arangodb-helper/arangodb/client"
-	"github.com/arangodb-helper/arangodb/service"
 	"github.com/arangodb/go-driver"
 	driverhttp "github.com/arangodb/go-driver/http"
+
+	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/service"
 )
 
 const (

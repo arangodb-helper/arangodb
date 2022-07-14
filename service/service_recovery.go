@@ -37,9 +37,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	driver "github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 const (

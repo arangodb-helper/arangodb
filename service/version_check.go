@@ -29,10 +29,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/dchest/uniuri"
 
 	driver "github.com/arangodb/go-driver"
-	"github.com/dchest/uniuri"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // DatabaseVersion returns the version of the `arangod` binary that is being

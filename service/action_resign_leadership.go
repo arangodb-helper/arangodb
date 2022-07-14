@@ -29,9 +29,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/arangodb/go-driver"
+
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/service/actions"
-	"github.com/arangodb/go-driver"
 )
 
 // ActionResignLeadership describes action for the leadership resignation.

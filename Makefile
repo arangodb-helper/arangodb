@@ -53,15 +53,11 @@ TESTNAME := test$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
 TESTBIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(TESTNAME)
 RELEASE := $(GOBUILDDIR)/bin/release
-GHRELEASE := $(GOBUILDDIR)/bin/github-release
 
 GO_IGNORED:=vendor .gobuild
 
 GO_SOURCES_QUERY := find $(SRCDIR) -name '*.go' -type f $(foreach IGNORED,$(GO_IGNORED),-not -path '$(SRCDIR)/$(IGNORED)/*' )
 GO_SOURCES := $(shell $(GO_SOURCES_QUERY) | sort | uniq)
-GO_SOURCES_PACKAGES := $(shell $(GO_SOURCES_QUERY) -exec dirname {} \; | sort | uniq)
-
-SOURCES := $(shell find $(SRCDIR) -name '*.go' -not -path './test/*')
 TEST_SOURCES := $(shell find $(SRCDIR)/test -name '*.go')
 
 DOCKER_IMAGE := $(GOIMAGE)
@@ -70,7 +66,6 @@ ifeq ($(DOCKERCLI),)
 BUILD_BIN := $(BIN)
 TEST_BIN := $(TESTBIN)
 RELEASE_BIN := $(RELEASE)
-GHRELEASE_BIN := $(GHRELEASE)
 
 DOCKER_CMD :=
 
@@ -92,7 +87,6 @@ else
 BUILD_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME)
 TEST_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(TESTNAME)
 RELEASE_BIN := /usr/code/.gobuild/bin/release
-GHRELEASE_BIN := /usr/code/.gobuild/bin/github-release
 
 DOCKER_CMD = $(DOCKERCLI) run \
                 --rm \
@@ -131,21 +125,25 @@ build: vendor $(BIN)
 
 build-test: vendor $(TESTBIN)
 
-binaries: $(GHRELEASE)
+binaries:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
 
-binaries-test: $(GHRELEASE)
+binaries-test:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
 
-$(BIN): $(GOBUILDDIR) $(SOURCES)
+$(BIN): $(GOBUILDDIR) $(GO_SOURCES)
+	@mkdir -p $(BINDIR)
+	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
+
+build-bug: $(GOBUILDDIR) $(GO_SOURCES)
 	@mkdir -p $(BINDIR)
 	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
 
@@ -172,11 +170,8 @@ docker-push-version: docker
 	docker push arangodb/arangodb-starter:$(VERSION_MAJOR)
 	docker push arangodb/arangodb-starter:latest
 
-$(RELEASE): $(GOBUILDDIR) $(SOURCES) $(GHRELEASE)
+$(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
 	$(DOCKER_CMD) go build -o "$(RELEASE_BIN)" $(REPOPATH)/tools/release
-
-$(GHRELEASE): $(GOBUILDDIR) 
-	$(DOCKER_CMD) go build -o "$(GHRELEASE_BIN)" github.com/aktau/github-release
 
 release-patch: $(RELEASE)
 	$(RELEASE) -type=patch
@@ -188,6 +183,14 @@ release-major: $(RELEASE)
 	$(RELEASE) -type=major
 
 TESTCONTAINER := arangodb-starter-test
+
+# Run all unit tests
+run-unit-tests: $(GO_SOURCES)
+	go test --count=1 \
+		$(REPOPATH) \
+		$(REPOPATH)/pkg/... \
+		$(REPOPATH)/service/... \
+		$(REPOPATH)/client/...
 
 # Run all integration tests
 run-tests: run-tests-local-process run-tests-docker
@@ -220,49 +223,50 @@ run-tests-local: _run-tests
 $(GOBUILDDIR):
 	@mkdir -p "$(GOBUILDDIR)"
 
-## LINT
-
-GOLANGCI_ENABLED=deadcode gocyclo golint varcheck structcheck maligned errcheck \
-                 ineffassign interfacer unconvert goconst \
-                 megacheck
-
 .PHONY: tools
 tools:
+	@echo ">> Fetching golangci-lint linter"
+	@GOBIN=$(GOPATH)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.46.2
+	@echo ">> Fetching gci"
+	@GOBIN=$(GOPATH)/bin go install github.com/daixiang0/gci@v0.3.0
 	@echo ">> Fetching goimports"
-	@go get -u golang.org/x/tools/cmd/goimports
+	@GOBIN=$(GOPATH)/bin go install golang.org/x/tools/cmd/goimports@0bb7e5c47b1a31f85d4f173edc878a8e049764a5
 	@echo ">> Fetching license check"
-	@go get -u github.com/google/addlicense
+	@GOBIN=$(GOPATH)/bin go install github.com/google/addlicense@6d92264d717064f28b32464f0f9693a5b4ef0239
 	@echo ">> Fetching github release"
-	@go get -u github.com/aktau/github-release
-
+	@GOBIN=$(GOPATH)/bin go install github.com/aktau/github-release@v0.8.1
 
 .PHONY: license
 license:
 	@echo ">> Verify license of files"
-	@go run github.com/google/addlicense -f "./LICENSE.BOILERPLATE" $(GO_SOURCES)
+	@$(GOPATH)/bin/addlicense -f "./LICENSE.BOILERPLATE" $(GO_SOURCES)
 
 .PHONY: license-verify
 license-verify:
 	@echo ">> Ensuring license of files"
-	@go run github.com/google/addlicense -f "./LICENSE.BOILERPLATE" -check $(GO_SOURCES)
+	@$(GOPATH)/bin/addlicense -f "./LICENSE.BOILERPLATE" -check $(GO_SOURCES)
 
 .PHONY: fmt
 fmt:
 	@echo ">> Ensuring style of files"
-	@goimports -w $(GO_SOURCES)
+	@$(GOPATH)/bin/goimports -w $(GO_SOURCES)
+	@$(GOPATH)/bin/gci write -s "standard" -s "default" -s "prefix(github.com/arangodb)" -s "prefix(github.com/arangodb-helper/arangodb)" $(GO_SOURCES)
 
 .PHONY: fmt-verify
 fmt-verify: license-verify
 	@echo ">> Verify files style"
-	@if [ X"$$(go goimports -l $(GO_SOURCES) | wc -l)" != X"0" ]; then echo ">> Style errors"; go goimports -l $(GO_SOURCES); exit 1; fi
+	@if [ X"$$($(GOPATH)/bin/goimports -l $(GO_SOURCES) | wc -l)" != X"0" ]; then echo ">> Style errors"; $(GOPATH)/bin/goimports -l $(GO_SOURCES); exit 1; fi
 
 .PHONY: linter
 linter: fmt
-	@golangci-lint run --no-config --issues-exit-code=1 --deadline=30m --disable-all \
-	                  $(foreach MODE,$(GOLANGCI_ENABLED),--enable $(MODE) ) \
-	                  --exclude-use-default=false \
-	                  $(GO_SOURCES_PACKAGES)
+	$(GOPATH)/bin/golangci-lint run ./...
 
 .PHONY: vendor
 vendor:
 	@go mod vendor
+
+.PHONY: init
+init: vendor tools
+
+.PHONY: check
+check: license-verify fmt-verify linter run-unit-tests

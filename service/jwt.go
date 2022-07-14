@@ -31,10 +31,11 @@ import (
 	"os"
 	"path"
 
+	"github.com/pkg/errors"
+
 	"github.com/arangodb-helper/arangodb/pkg/api"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	rotateClient "github.com/arangodb-helper/arangodb/service/clients"
-	"github.com/pkg/errors"
 )
 
 func newJWTManager(d string) jwtManager {

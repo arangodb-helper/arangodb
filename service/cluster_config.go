@@ -32,12 +32,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
 	"github.com/arangodb/go-driver/jwt"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // ClusterConfig contains all the informtion of a cluster from a starter's point of view.

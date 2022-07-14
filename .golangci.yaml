@@ -1,0 +1,23 @@
+---
+
+run:
+  timeout: 30m
+  skip-dirs:
+    - vendor
+    - .gobuild
+
+linters:
+  disable-all: true
+  enable:
+    - varcheck
+    - structcheck
+    - unconvert
+    - gci
+
+linters-settings:
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/arangodb)
+      - prefix(github.com/arangodb-helper/arangodb)

@@ -43,12 +43,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/arangodb-helper/arangodb/service/options"
+	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
-	"github.com/pkg/errors"
-
-	"github.com/rs/zerolog"
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
 // createArangoClusterSecretFile creates an arangod.jwtsecret file in the given host directory if it does not yet exists.
