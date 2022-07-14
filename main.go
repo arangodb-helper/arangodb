@@ -622,7 +622,9 @@ func main() {
 	arangodJSPath = findJSDir(arangodPath, isBuild)
 	arangoSyncPath, _ = findExecutable("arangosync", defaultArangoSyncPath)
 
-	cmdMain.Execute()
+	if err := cmdMain.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
 
 // Cobra run function using the usage of the given command
