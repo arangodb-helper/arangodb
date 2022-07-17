@@ -5,6 +5,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/0.15.4) (2022-03-22)
 - Use github.com/golang-jwt/jwt
+- Add pass-through options usage hint
 - Upgrade Go version to 1.17.5
 
 ## [0.15.3](https://github.com/arangodb-helper/arangodb/tree/0.15.3) (2021-10-25)
