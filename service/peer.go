@@ -29,9 +29,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	driver "github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // Peer contains all persistent settings of a starter.
@@ -115,7 +115,7 @@ func (p Peer) CreateDBServerAPI(clientBuilder ClientBuilder) (driver.Client, err
 }
 
 func (p Peer) CreateClient(clientBuilder ClientBuilder, t definitions.ServerType) (driver.Client, error) {
-	port := p.Port + p.PortOffset + definitions.ServerType(t).PortOffset()
+	port := p.Port + p.PortOffset + t.PortOffset()
 	scheme := NewURLSchemes(p.IsSecure).Browser
 	ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
 	c, err := clientBuilder.CreateClient([]string{ep}, ConnectionTypeDatabase, t)

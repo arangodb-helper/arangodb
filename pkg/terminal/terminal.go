@@ -24,6 +24,7 @@
 // Author Ewout Prangsma
 //
 
+//go:build !windows
 // +build !windows
 
 package terminal

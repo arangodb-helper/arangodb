@@ -31,16 +31,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
-	"github.com/arangodb/go-driver"
-	"github.com/arangodb/go-driver/agency"
-	upgraderules "github.com/arangodb/go-upgrade-rules"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
 
+	"github.com/arangodb/go-driver"
+	"github.com/arangodb/go-driver/agency"
+	upgraderules "github.com/arangodb/go-upgrade-rules"
+
 	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/pkg/trigger"
 )
 
@@ -112,7 +112,6 @@ const (
 	upgradeManagerLockTTL       = time.Minute * 5
 	superVisionMaintenanceTTL   = time.Hour
 	superVisionStateMaintenance = "Maintenance"
-	superVisionStateNormal      = "Normal"
 )
 
 // UpgradePlan is the JSON structure that describes a plan to upgrade
@@ -207,7 +206,7 @@ func (e UpgradePlanEntry) CreateStatusServer(upgradeManagerContext UpgradeManage
 	if !found {
 		return nil, maskAny(fmt.Errorf("Unknown entry peer ID '%s'", e.PeerID))
 	}
-	port := peer.Port + peer.PortOffset + definitions.ServerType(serverType).PortOffset()
+	port := peer.Port + peer.PortOffset + serverType.PortOffset()
 	return &client.UpgradeStatusServer{
 		Type:    client.ServerType(serverType),
 		Address: peer.Address,
@@ -1418,7 +1417,7 @@ func (m *upgradeManager) isSuperVisionMaintenanceSupported(ctx context.Context) 
 		if err != nil {
 			return false, maskAny(err)
 		}
-		version := driver.Version(info.Version)
+		version := info.Version
 		if version.Major() < 3 {
 			return false, nil
 		}

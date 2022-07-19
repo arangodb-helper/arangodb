@@ -36,12 +36,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-	"github.com/arangodb-helper/arangodb/service/options"
-
-	"github.com/arangodb-helper/arangodb/pkg/features"
-
-	driver "github.com/arangodb/go-driver"
 	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
@@ -49,11 +43,16 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	driver "github.com/arangodb/go-driver"
+
 	_ "github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/pkg/features"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
 	"github.com/arangodb-helper/arangodb/pkg/net"
 	"github.com/arangodb-helper/arangodb/pkg/terminal"
 	service "github.com/arangodb-helper/arangodb/service"
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
 // Configuration data with defaults:

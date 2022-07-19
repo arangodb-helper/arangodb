@@ -23,8 +23,9 @@
 package service
 
 import (
-	"github.com/arangodb-helper/arangodb/pkg/features"
 	driver "github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/pkg/features"
 )
 
 // DatabaseFeatures provides information about the features provided by the

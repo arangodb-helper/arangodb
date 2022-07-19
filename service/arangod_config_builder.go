@@ -42,11 +42,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/arangodb-helper/arangodb/service/options"
+	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
-	"github.com/rs/zerolog"
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
 var (

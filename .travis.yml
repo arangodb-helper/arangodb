@@ -18,7 +18,17 @@ env:
 #  - VERBOSE=1 TEST_SUITE=run-tests-local-process GOIMAGE=gcr.io/gcr-for-testing/golang:1.17.5 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,activefailover" ON_PR=1
 #  - VERBOSE=1 TEST_SUITE=run-tests-docker        GOIMAGE=gcr.io/gcr-for-testing/golang:1.17.5 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb-preview:latest STARTER_MODES="single,cluster,activefailover" ON_PR=1
 
-script: 'if ([ "$TRAVIS_PULL_REQUEST" != "false" ] && [ "$ON_PR" != "" ]) || ([ "$TRAVIS_PULL_REQUEST" == "false" ] && [ "$ON_PR" == "" ]) ; then env; make $TEST_SUITE; fi'
+install:
+  - make init
+
+script:
+  - |
+    if ([ "$TRAVIS_PULL_REQUEST" != "false" ] && [ "$ON_PR" != "" ]) || ([ "$TRAVIS_PULL_REQUEST" == "false" ] && [ "$ON_PR" == "" ]) ; then
+      env
+      make license-verify fmt-verify linter
+      make run-unit-tests
+      make $TEST_SUITE
+    fi
 
 ## Install Docker CE
 #before_install:

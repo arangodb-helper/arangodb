@@ -26,9 +26,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/arangodb-helper/arangodb/pkg/api"
-
 	driver "github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/pkg/api"
 )
 
 var _ API = &client{}

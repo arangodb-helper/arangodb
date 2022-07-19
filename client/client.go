@@ -31,10 +31,11 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/api"
+	"github.com/pkg/errors"
 
 	driver "github.com/arangodb/go-driver"
-	"github.com/pkg/errors"
+
+	"github.com/arangodb-helper/arangodb/pkg/api"
 )
 
 // NewArangoStarterClient creates a new client implementation.
@@ -146,10 +147,6 @@ func (c *client) Inventory(ctx context.Context) (api.Inventory, error) {
 
 	return result, nil
 }
-
-const (
-	contentTypeJSON = "application/json"
-)
 
 // ID requests the starters ID.
 func (c *client) ID(ctx context.Context) (IDInfo, error) {

@@ -23,9 +23,10 @@
 package api
 
 import (
+	"github.com/arangodb/go-driver"
+
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	client "github.com/arangodb-helper/arangodb/service/clients"
-	"github.com/arangodb/go-driver"
 )
 
 type ClusterInventory struct {

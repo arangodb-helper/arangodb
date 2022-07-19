@@ -25,8 +25,9 @@ package features
 import (
 	"fmt"
 
-	"github.com/arangodb/go-driver"
 	flag "github.com/spf13/pflag"
+
+	"github.com/arangodb/go-driver"
 )
 
 type Version struct {

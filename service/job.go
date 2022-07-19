@@ -27,10 +27,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/service/actions"
+	"github.com/pkg/errors"
 
 	"github.com/arangodb/go-driver/agency"
-	"github.com/pkg/errors"
+
+	"github.com/arangodb-helper/arangodb/service/actions"
 )
 
 type JobState string

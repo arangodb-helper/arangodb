@@ -36,9 +36,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // NewProcessRunner creates a runner that starts processes on the local OS.

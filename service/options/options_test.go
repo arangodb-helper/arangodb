@@ -26,9 +26,9 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
-	"github.com/stretchr/testify/require"
 )
 
 func Test_Args(t *testing.T) {

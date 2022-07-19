@@ -29,10 +29,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/features"
-
 	"github.com/arangodb-helper/arangodb/pkg/api"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/pkg/features"
 	client "github.com/arangodb-helper/arangodb/service/clients"
 )
 
