@@ -64,13 +64,13 @@ func getLockFilePath(serverDir string) string {
 	return filepath.Join(serverDir, "data", "LOCK")
 }
 
-func (p *process) WaitCh() <-chan struct{} {
-	c := make(chan struct{})
+func (p *process) WaitCh() <-chan int {
+	c := make(chan int)
 
 	go func() {
 		defer close(c)
 
-		p.Wait()
+		c <- p.Wait()
 	}()
 
 	return c

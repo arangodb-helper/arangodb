@@ -55,6 +55,8 @@ import (
 	"github.com/arangodb-helper/arangodb/service/options"
 )
 
+//go:generate go run internal/generate-exit-codes/main.go
+
 // Configuration data with defaults:
 
 const (

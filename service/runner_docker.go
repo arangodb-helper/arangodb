@@ -107,13 +107,13 @@ func (r *dockerRunner) GetContainerDir(hostDir, defaultContainerDir string) stri
 	return defaultContainerDir
 }
 
-func (p *dockerContainer) WaitCh() <-chan struct{} {
-	c := make(chan struct{})
+func (p *dockerContainer) WaitCh() <-chan int {
+	c := make(chan int)
 
 	go func() {
 		defer close(c)
 
-		p.Wait()
+		c <- p.Wait()
 	}()
 
 	return c

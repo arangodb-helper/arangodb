@@ -119,6 +119,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 	}()
 	restart := 0
 	recentFailures := 0
+	exitCode := -1
 
 	close(startedCh)
 
@@ -223,17 +224,16 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			procC := proc.WaitCh()
 
 			select {
-			case <-procC:
-				logProcess.Info().Msgf("Terminated %s", p.serverType)
+			case exitCode = <-procC:
+				logProcess.Info().Msgf("Terminated %s. Exit code: %d (%s)", p.serverType, exitCode, definitions.GetExitCodeReason(exitCode))
 				break
 			case <-p.stopping:
+				var initialTimeout time.Duration
 				if p.s.stopping {
-					// Starter is being closed
-					terminateProcessWithActions(logProcess, p.proc, p.serverType, time.Second, time.Minute)
-				} else {
-					// Process restart
-					terminateProcessWithActions(logProcess, p.proc, p.serverType, 0, time.Minute)
+					// Starter is being closed, so we add timeout
+					initialTimeout = time.Second
 				}
+				exitCode = terminateProcessWithActions(logProcess, p.proc, p.serverType, initialTimeout, time.Minute)
 				break
 			}
 			cancel()
@@ -260,8 +260,12 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 						p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 					}
 				}
-				if recentFailures >= definitions.MaxRecentFailures {
-					logProcess.Error().Msgf("%s has failed %d times, giving up", p.serverType, recentFailures)
+				retryingWillNotHelp := !definitions.ExitCodeIsRecoverable(p.serverType.ProcessType(), exitCode)
+				if retryingWillNotHelp || recentFailures >= definitions.MaxRecentFailures {
+					logProcess.Error().Msgf(
+						"%s has failed %d times, giving up. Recent exit code: %d (%s)",
+						p.serverType, recentFailures, exitCode, definitions.GetExitCodeReason(exitCode),
+					)
 					p.runtimeContext.Stop()
 					p.s.stopping = true
 					break

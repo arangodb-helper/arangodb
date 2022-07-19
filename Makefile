@@ -236,6 +236,10 @@ tools:
 	@echo ">> Fetching github release"
 	@GOBIN=$(GOPATH)/bin go install github.com/aktau/github-release@v0.8.1
 
+.PHONY: generate
+generate:
+	go generate
+
 .PHONY: license
 license:
 	@echo ">> Verify license of files"

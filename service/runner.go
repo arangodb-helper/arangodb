@@ -69,10 +69,10 @@ type Process interface {
 	// HostPort returns the port on the host that is used to access the given port of the process.
 	HostPort(containerPort int) (int, error)
 
-	// Wait until the process has terminated
+	// Wait until the process has terminated and return exit code
 	Wait() int
-	// WaitCh returns channel when process is terminated
-	WaitCh() <-chan struct{}
+	// WaitCh returns unbuffered channel which will send exit code when process is terminated
+	WaitCh() <-chan int
 	// Terminate performs a graceful termination of the process
 	Terminate() error
 	// Kill performs a hard termination of the process
@@ -80,7 +80,7 @@ type Process interface {
 	// Hup sends a SIGHUP to the process
 	Hup() error
 
-	// Remove all traces of this process
+	// Cleanup Removes all traces of this process
 	Cleanup() error
 
 	// GetLogger creates a new logger for the process.
@@ -89,7 +89,8 @@ type Process interface {
 
 // terminateProcessWithActions tries to terminate the given process gracefully.
 // When the process has not terminated after given timeout it is killed.
-func terminateProcessWithActions(log zerolog.Logger, p Process, serverType definitions.ServerType, initialTimeout time.Duration, killTimeout time.Duration, actionTypes ...actions.ActionType) {
+// Returns process exit code
+func terminateProcessWithActions(log zerolog.Logger, p Process, serverType definitions.ServerType, initialTimeout time.Duration, killTimeout time.Duration, actionTypes ...actions.ActionType) int {
 	name := serverType.GetName()
 
 	logTerminate := log.With().Str("type", serverType.String()).Logger()
@@ -99,17 +100,15 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 		// Kill process
 		logTerminate.Warn().Msgf("Killing %s...", name)
 		p.Kill()
-		p.Wait()
-
-		return
+		return p.Wait()
 	} else if initialTimeout > 0 {
 		logTerminate.Info().Msgf("Wait for process termination without sending signal %s...", name)
 		stopCh := p.WaitCh()
 
 		select {
-		case <-stopCh:
-			logTerminate.Info().Msgf("Terminated %s...", name)
-			return
+		case exitCode := <-stopCh:
+			logTerminate.Info().Msgf("Terminated %s with exit code: %d (%s)...", name, exitCode, definitions.GetExitCodeReason(exitCode))
+			return exitCode
 		case <-time.After(initialTimeout):
 			// Kill the process
 			logTerminate.Info().Msgf("Continue signal termination process %s...", name)
@@ -125,13 +124,15 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 		logTerminate.Warn().Err(err).Msgf("Failed to terminate %s", name)
 	}
 
+	var exitCode = -1
 	select {
-	case <-stopCh:
-		logTerminate.Info().Msgf("Terminated %s...", name)
+	case exitCode = <-stopCh:
+		logTerminate.Info().Msgf("Terminated %s with exit code: %d (%s)...", name, exitCode, definitions.GetExitCodeReason(exitCode))
 	case <-time.After(killTimeout):
 		// Kill the process
 		logTerminate.Warn().Msgf("Killing %s...", name)
 		p.Kill()
-		p.Wait()
+		exitCode = p.Wait()
 	}
+	return exitCode
 }
