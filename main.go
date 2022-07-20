@@ -263,7 +263,7 @@ func init() {
 	passthroughtPrefixesNew := options.ConfigurationPrefixes{
 		// Old methods
 		"all": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all server instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -272,7 +272,7 @@ func init() {
 			Deprecated: true,
 		},
 		"coordinators": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all coordinator instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -281,7 +281,7 @@ func init() {
 			Deprecated: true,
 		},
 		"dbservers": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all dbserver instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -290,7 +290,7 @@ func init() {
 			Deprecated: true,
 		},
 		"agents": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all agent instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -299,7 +299,7 @@ func init() {
 			Deprecated: true,
 		},
 		"sync": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all sync instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -308,7 +308,7 @@ func init() {
 			Deprecated: true,
 		},
 		"syncmasters": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -317,7 +317,7 @@ func init() {
 			Deprecated: true,
 		},
 		"syncworkers": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -327,7 +327,7 @@ func init() {
 		},
 		// New methods for args
 		"args.all": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all server instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -335,7 +335,7 @@ func init() {
 			},
 		},
 		"args.coordinators": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all coordinator instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -343,7 +343,7 @@ func init() {
 			},
 		},
 		"args.dbservers": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all dbserver instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -351,7 +351,7 @@ func init() {
 			},
 		},
 		"args.agents": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all agent instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -359,7 +359,7 @@ func init() {
 			},
 		},
 		"args.sync": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all sync instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -367,7 +367,7 @@ func init() {
 			},
 		},
 		"args.syncmasters": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -375,16 +375,16 @@ func init() {
 			},
 		},
 		"args.syncworkers": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
 			},
 		},
-		// New methods for args
+		// New methods for envs
 		"envs.all": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Env passed to all server instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -392,7 +392,7 @@ func init() {
 			},
 		},
 		"envs.coordinators": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Env passed to all coordinator instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -400,7 +400,7 @@ func init() {
 			},
 		},
 		"envs.dbservers": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Env passed to all dbserver instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -408,7 +408,7 @@ func init() {
 			},
 		},
 		"envs.agents": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Env passed to all agent instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -416,7 +416,7 @@ func init() {
 			},
 		},
 		"envs.sync": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Env passed to all sync instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -424,7 +424,7 @@ func init() {
 			},
 		},
 		"envs.syncmasters": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Env passed to all sync master instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -432,7 +432,7 @@ func init() {
 			},
 		},
 		"envs.syncworkers": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return fmt.Sprintf("Env passed to all sync master instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
@@ -462,6 +462,30 @@ func init() {
 
 	cmdStart.Flags().AddFlagSet(f)
 	cmdStop.Flags().AddFlagSet(f)
+
+	passthroughUsageHelp := passthroughtPrefixesNew.UsageHint()
+	decorateUsageOutputWithPassthroughHint(passthroughUsageHelp, cmdMain)
+	decorateUsageOutputWithPassthroughHint(passthroughUsageHelp, cmdStart)
+	decorateUsageOutputWithPassthroughHint(passthroughUsageHelp, cmdStop)
+}
+
+// decorateUsageOutputWithPassthroughHint enriches command usage output with info on
+func decorateUsageOutputWithPassthroughHint(passthroughUsageHelp string, cmd *cobra.Command) {
+	oldUsageFn := cmd.UsageFunc()
+	cmd.SetUsageFunc(func(c *cobra.Command) error {
+		err := oldUsageFn(c)
+		if err != nil {
+			return err
+		}
+
+		if c.Name() == cmd.Name() {
+			_, err = c.OutOrStderr().Write([]byte("\n" + passthroughUsageHelp))
+		}
+		if err != nil {
+			c.Println(err)
+		}
+		return err
+	})
 }
 
 // setFlagValuesFromEnv sets defaults from environment variables

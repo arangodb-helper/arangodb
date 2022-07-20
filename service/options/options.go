@@ -24,6 +24,7 @@ package options
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -248,7 +249,7 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 				Key:        arg,
 				CleanKey:   ckey,
 				Extension:  targ,
-				Usage:      prefix.Usage(arg, targ),
+				Usage:      prefix.Usage(targ),
 				Value:      prefix.FieldSelector(&config, targ),
 				Deprecated: prefix.Deprecated,
 			})
@@ -259,8 +260,35 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 	return &config, f, nil
 }
 
+func (c ConfigurationPrefixes) UsageHint() string {
+	maxNameLen := 0
+	for n, prefix := range c {
+		if !prefix.Deprecated {
+			if len(n) > maxNameLen {
+				maxNameLen = len(n)
+			}
+		}
+	}
+
+	parts := make([]string, 0)
+	for n, prefix := range c {
+		if !prefix.Deprecated {
+			postfix := "<xxx>=<value>"
+			pad := maxNameLen - len(n) + len(postfix) + 8
+			parts = append(parts,
+				fmt.Sprintf("%s--%s.%-*s%s", strings.Repeat(" ", 6), n, pad, postfix, prefix.Usage(postfix)),
+			)
+		}
+	}
+
+	sort.Strings(parts)
+	passthroughUsageHelp := "Passing through other database options:\n"
+	passthroughUsageHelp += strings.Join(parts, "\n")
+	return passthroughUsageHelp
+}
+
 type ConfigurationPrefix struct {
-	Usage         func(arg, key string) string
+	Usage         func(key string) string
 	FieldSelector func(p *Configuration, key string) *[]string
 	Deprecated    bool
 }
