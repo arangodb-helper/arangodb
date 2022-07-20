@@ -186,7 +186,7 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
-	writeCommand(log, filepath.Join(myHostDir, processType.CommandFileName()), config.serverExecutable(processType), args)
+	writeCommandFile(log, filepath.Join(myHostDir, processType.CommandFileName()), args)
 	// Collect volumes
 	vols := addVolume(confVolumes, myHostDir, myContainerDir, false)
 	// Start process/container

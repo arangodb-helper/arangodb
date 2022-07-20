@@ -34,7 +34,7 @@ import (
 func Test_Args(t *testing.T) {
 	prefixes := ConfigurationPrefixes{
 		"args.all": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return "usage"
 			},
 			FieldSelector: func(p *Configuration, key string) *[]string {
@@ -42,7 +42,7 @@ func Test_Args(t *testing.T) {
 			},
 		},
 		"args.dbservers": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return "usage"
 			},
 			FieldSelector: func(p *Configuration, key string) *[]string {
@@ -50,7 +50,7 @@ func Test_Args(t *testing.T) {
 			},
 		},
 		"envs.all": {
-			Usage: func(arg, key string) string {
+			Usage: func(key string) string {
 				return "usage"
 			},
 			FieldSelector: func(p *Configuration, key string) *[]string {

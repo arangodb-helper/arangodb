@@ -35,10 +35,7 @@ package service
 //
 
 import (
-	"io/ioutil"
-	"os"
 	"runtime"
-	"strings"
 
 	"github.com/rs/zerolog"
 
@@ -85,16 +82,6 @@ func createServerArgs(log zerolog.Logger, config Config, clusterConfig ClusterCo
 		return createArangoSyncArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, clusterJWTSecretFile, features)
 	default:
 		return nil, nil
-	}
-}
-
-// writeCommand writes the command used to start a server in a file with given path.
-func writeCommand(log zerolog.Logger, filename string, executable string, args []string) {
-	content := strings.Join(args, " \\\n") + "\n"
-	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		if err := ioutil.WriteFile(filename, []byte(content), 0755); err != nil {
-			log.Error().Err(err).Msgf("Failed to write command to %s", filename)
-		}
 	}
 }
 
