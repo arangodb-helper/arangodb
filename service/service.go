@@ -552,21 +552,6 @@ func (s *Service) serverContainerLogFile(serverType definitions.ServerType) (str
 	return filepath.Join(containerDir, serverType.ProcessType().LogFileName(suffix)), nil
 }
 
-// serverExecutable returns the path of the server's executable.
-func (c *Config) serverExecutable(processType definitions.ProcessType) string {
-	switch processType {
-	case definitions.ProcessTypeArangod:
-		if c.RrPath != "" {
-			return c.RrPath
-		}
-		return c.ArangodPath
-	case definitions.ProcessTypeArangoSync:
-		return c.ArangoSyncPath
-	default:
-		return ""
-	}
-}
-
 // UpgradeManager returns the upgrade manager service.
 func (s *Service) UpgradeManager() UpgradeManager {
 	return s.upgradeManager
