@@ -143,10 +143,6 @@ $(BIN): $(GOBUILDDIR) $(GO_SOURCES)
 	@mkdir -p $(BINDIR)
 	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
 
-build-bug: $(GOBUILDDIR) $(GO_SOURCES)
-	@mkdir -p $(BINDIR)
-	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
-
 $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	@mkdir -p $(BINDIR)
 	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" ./test
