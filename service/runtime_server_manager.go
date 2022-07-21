@@ -28,6 +28,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -98,7 +99,7 @@ type runtimeServerManagerContext interface {
 
 // startServer starts a single Arangod/Arangosync server of the given type.
 func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
-	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int) (Process, bool, error) {
+	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -196,7 +197,7 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	}
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, myPeer.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
-	p, err = runner.Start(ctx, processType, args[0], args[1:], createEnvs(config, serverType), vols, ports, containerName, myHostDir, nil)
+	p, err = runner.Start(ctx, processType, args[0], args[1:], createEnvs(config, serverType), vols, ports, containerName, myHostDir, output)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}

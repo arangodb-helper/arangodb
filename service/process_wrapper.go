@@ -24,13 +24,17 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/pkg/utils"
 )
 
 func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
@@ -129,7 +133,9 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		myHostAddress := p.myPeer.Address
 		startTime := time.Now()
 		features := p.runtimeContext.DatabaseFeatures()
-		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart)
+		output := utils.NewLimitedBuffer(80 * 100)
+
+		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output)
 		if err != nil {
 			logProcess.Error().Err(err).Msgf("Error while starting %s", p.serverType)
 			if !portInUse {
@@ -164,6 +170,8 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 						}
 						if statusItem.Duration > showLogDuration {
 							showLogDuration = statusItem.Duration + time.Second*30
+
+							p.showProcessOutput(logProcess, output, p.serverType)
 							p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 						}
 					}
@@ -256,7 +264,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 				if !portInUse {
 					logProcess.Info().Msgf("%s has terminated quickly, in %s (recent failures: %d)", p.serverType, uptime, recentFailures)
 					if recentFailures >= definitions.MinRecentFailuresForLog {
-						// Show logs of the server
+						p.showProcessOutput(logProcess, output, p.serverType)
 						p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 					}
 				}
@@ -273,7 +281,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			} else {
 				logProcess.Info().Msgf("%s has terminated", p.serverType)
 				if p.config.DebugCluster && !p.s.stopping {
-					// Show logs of the server
+					p.showProcessOutput(logProcess, output, p.serverType)
 					p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 				}
 			}
@@ -289,4 +297,15 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		logProcess.Info().Msgf("restarting %s", p.serverType)
 		restart++
 	}
+}
+
+func (p *processWrapper) showProcessOutput(log zerolog.Logger, b *utils.LimitedBuffer, serverType definitions.ServerType) {
+	result := &bytes.Buffer{}
+	result.WriteString(fmt.Sprintf("## Start of %s output:\n", serverType))
+	for _, line := range strings.Split(b.String(), "\n") {
+		result.WriteString("\t" + line + "\n")
+	}
+	result.WriteString(fmt.Sprintf("## End of %s output.", serverType))
+
+	log.Info().Msg(result.String())
 }

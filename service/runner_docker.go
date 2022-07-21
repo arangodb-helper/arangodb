@@ -300,6 +300,7 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 		waiter, err = r.client.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
 			Container:    c.ID,
 			OutputStream: output,
+			ErrorStream:  output,
 			Logs:         true,
 			Stdout:       true,
 			Stderr:       true,

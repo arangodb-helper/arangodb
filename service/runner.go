@@ -80,7 +80,7 @@ type Process interface {
 	// Hup sends a SIGHUP to the process
 	Hup() error
 
-	// Cleanup Removes all traces of this process
+	// Cleanup removes all traces of this process
 	Cleanup() error
 
 	// GetLogger creates a new logger for the process.
