@@ -2,11 +2,11 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Fix project CI: linter, tests, build, release
-- Add documentation header to generated command files
+- Add pass-through options usage hint
+- Return correct exit code when wrong CLI params supplied
 
 ## [0.15.4](https://github.com/arangodb-helper/arangodb/tree/0.15.4) (2022-03-22)
 - Use github.com/golang-jwt/jwt
-- Add pass-through options usage hint
 - Upgrade Go version to 1.17.5
 
 ## [0.15.3](https://github.com/arangodb-helper/arangodb/tree/0.15.3) (2021-10-25)
