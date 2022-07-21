@@ -83,7 +83,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 30*time.Second, 500*time.Millisecond)
 
 	if version, err := coordinatorClient.Version(context.Background()); err != nil {
 		t.Fatal(err.Error())
@@ -149,6 +149,8 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 			if err != nil {
 				t.Fatal(err.Error())
 			}
+			WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckDatabase(databaseName)).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+
 			database, err = coordinatorClient.Database(context.Background(), databaseName)
 			if err != nil {
 				t.Fatal(err.Error())

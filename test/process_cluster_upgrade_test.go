@@ -27,10 +27,6 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	"github.com/arangodb/go-driver"
-
-	"github.com/arangodb-helper/arangodb/client"
 )
 
 // TestProcessClusterUpgrade starts a master starter, followed by 2 slave starters.
@@ -78,18 +74,9 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 	ctx := context.Background()
 
 	waitForStarter(t, c)
-
-	auth := driver.BasicAuthentication("root", "")
-	starterEndpointForCoordinator := insecureStarterEndpoint(1 * portIncrement)
-	coordinatorClient, err := CreateClient(t, starterEndpointForCoordinator, client.ServerTypeCoordinator, auth)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-
-	WaitUntilServiceReadyAPI(t, coordinatorClient, func(t *testing.T, ctx context.Context, c driver.Client) error {
-		_, err := coordinatorClient.Database(context.Background(), "_system")
-		return err
-	}).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(0*portIncrement))
+	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(1*portIncrement))
+	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(2*portIncrement))
 
 	if err := c.StartDatabaseUpgrade(ctx, false); err != nil {
 		t.Fatalf("StartDatabaseUpgrade failed: %v", err)
