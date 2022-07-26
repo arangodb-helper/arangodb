@@ -27,6 +27,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -39,6 +40,7 @@ const (
 )
 
 type exitCode struct {
+	name        string
 	code        int
 	reason      string
 	description string
@@ -77,7 +79,7 @@ func main() {
 	fmt.Printf("ArangoD exit codes consts generated. Total %d codes found\n", len(exitCodes))
 }
 
-func generateExitCodesGoSource(exitCodes map[string]exitCode, root string, err error) error {
+func generateExitCodesGoSource(exitCodes []exitCode, root string, err error) error {
 	header, err := getLicenseHeader(root)
 	if err != nil {
 		return err
@@ -92,17 +94,17 @@ package definitions
 
 const (
 `)
-	for name, code := range exitCodes {
-		buf.WriteString(fmt.Sprintf("	// %s\n", name))
+	for _, code := range exitCodes {
+		buf.WriteString(fmt.Sprintf("	// %s\n", code.name))
 		buf.WriteString(fmt.Sprintf(`	%s = %d // %s
-`, getConstName(name), code.code, code.description))
+`, getConstName(code.name), code.code, code.description))
 	}
 	buf.WriteString(")\n\n")
 
 	buf.WriteString("var arangoDExitReason = map[int]string{\n")
-	for name, code := range exitCodes {
-		buf.WriteString(fmt.Sprintf("	// %s\n", name))
-		buf.WriteString(fmt.Sprintf("	%s: \"%s\",\n", getConstName(name), code.reason))
+	for _, code := range exitCodes {
+		buf.WriteString(fmt.Sprintf("	// %s\n", code.name))
+		buf.WriteString(fmt.Sprintf("	%s: \"%s\",\n", getConstName(code.name), code.reason))
 	}
 	buf.WriteString("}\n")
 
@@ -138,7 +140,7 @@ func downloadArangodExitCodesDat() ([]byte, error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func parseArangoDExitCodes(dat string) (map[string]exitCode, error) {
+func parseArangoDExitCodes(dat string) ([]exitCode, error) {
 	// omit comments
 	lines := strings.Split(dat, "\n")
 	dat = ""
@@ -155,7 +157,7 @@ func parseArangoDExitCodes(dat string) (map[string]exitCode, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make(map[string]exitCode, len(records))
+	result := make([]exitCode, 0, len(records))
 	for _, r := range records {
 		if len(r) < 4 {
 			return nil, fmt.Errorf("expected at least 4 fields, got: %+v", r)
@@ -164,12 +166,18 @@ func parseArangoDExitCodes(dat string) (map[string]exitCode, error) {
 		if err != nil {
 			return nil, errors.Wrapf(err, "while converting %s", r[1])
 		}
-		result[r[0]] = exitCode{
+		result = append(result, exitCode{
+			name:        r[0],
 			code:        code,
 			reason:      r[2],
 			description: r[3],
-		}
+		})
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].code < result[j].code
+	})
+
 	return result, nil
 }
 
