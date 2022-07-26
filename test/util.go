@@ -299,8 +299,9 @@ func ServiceReadyCheckDatabase(databaseName string) ServiceReadyCheckFunc {
 
 func WaitForHttpPortClosed(log Logger, throttle Throttle, url string) TimeoutFunc {
 	return func() error {
-		_, err := http.Get(url)
+		resp, err := http.Get(url)
 		if err == nil {
+			resp.Body.Close()
 			throttle.Execute(func() {
 				log.Log("Got empty response")
 			})
