@@ -7,6 +7,7 @@
 - Upgrade Go version to 1.17.8
 - Cleanup Travis config and make it use the list of actual ArangoD versions
 - Add documentation header to generated command files
+- Add support for ArangoD exit codes. Do not try to restart instance if exit code is unrecoverable
 
 ## [0.15.4](https://github.com/arangodb-helper/arangodb/tree/0.15.4) (2022-03-22)
 - Use github.com/golang-jwt/jwt
