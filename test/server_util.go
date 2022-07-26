@@ -274,8 +274,9 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess, timeout time.Du
 	start := time.Now()
 	for {
 		url := fmt.Sprintf("%s://%s:%d/_api/version", scheme, sp.IP, sp.Port)
-		_, err := httpClient.Get(url)
+		resp, err := httpClient.Get(url)
 		if err == nil {
+			resp.Body.Close()
 			return
 		}
 		if timeout == 0 || time.Since(start) > timeout {
@@ -297,8 +298,9 @@ func testArangoSyncReachable(t *testing.T, sp client.ServerProcess, timeout time
 			t.Fatalf("NewRequest failed: %s", describe(err))
 		}
 		req.Header.Set("Authorization", "bearer "+syncMonitoringToken)
-		_, err = httpClient.Do(req)
+		resp, err := httpClient.Do(req)
 		if err == nil {
+			resp.Body.Close()
 			return
 		}
 		if timeout == 0 || time.Since(start) > timeout {
