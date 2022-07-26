@@ -265,6 +265,22 @@ func WaitUntilServiceReady(t *testing.T, c driver.Client, checkFunc ServiceReady
 	}
 }
 
+// WaitUntilCoordinatorReadyAPI creates client with default root/password and waits until good response.
+// Returns client
+func WaitUntilCoordinatorReadyAPI(t *testing.T, endpoint string) driver.Client {
+	if isVerbose {
+		t.Logf("Waiting coordinator at %s is ready", endpoint)
+	}
+	auth := driver.BasicAuthentication("root", "")
+	coordinatorClient, err := CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 30*time.Second, 500*time.Millisecond)
+	return coordinatorClient
+}
+
 // ServiceReadyCheckVersion checks if version can be fetched
 func ServiceReadyCheckVersion() ServiceReadyCheckFunc {
 	return func(t *testing.T, ctx context.Context, c driver.Client) error {

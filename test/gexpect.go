@@ -201,9 +201,10 @@ func (sp *SubProcess) ExpectTimeout(ctx context.Context, timeout time.Duration, 
 
 		stdoutMutex.Lock()
 		defer stdoutMutex.Unlock()
-		fmt.Printf("Timeout while waiting for '%s' in %s\nOutput so far:\n", re, id)
+		errMsg := fmt.Sprintf("Timeout while waiting for '%s' in %s", re, id)
+		fmt.Printf("%s\nOutput so far:\n", errMsg)
 		os.Stdout.Write(output)
-		return errors.New("Timeout")
+		return errors.New(errMsg)
 	case <-found:
 		// Success
 		return nil
