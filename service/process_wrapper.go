@@ -263,10 +263,8 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			if isRecentFailure && !p.s.stopping {
 				if !portInUse {
 					logProcess.Info().Msgf("%s has terminated quickly, in %s (recent failures: %d)", p.serverType, uptime, recentFailures)
-					if recentFailures >= definitions.MinRecentFailuresForLog {
-						p.showProcessOutput(logProcess, output, p.serverType)
-						p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
-					}
+					p.showProcessOutput(logProcess, output, p.serverType)
+					p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 				}
 				retryingWillNotHelp := !definitions.ExitCodeIsRecoverable(p.serverType.ProcessType(), exitCode)
 				if retryingWillNotHelp || recentFailures >= definitions.MaxRecentFailures {
