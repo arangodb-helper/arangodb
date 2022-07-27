@@ -36,7 +36,9 @@ import (
 )
 
 const (
-	exitCodesDat = "https://raw.githubusercontent.com/arangodb/arangodb/main/lib/Basics/exitcodes.dat"
+	// to support non-released version we have to use a version branch, not the main:
+	arangoDVersion       = "3.10"
+	exitCodesDatTemplate = "https://raw.githubusercontent.com/arangodb/arangodb/%s/lib/Basics/exitcodes.dat"
 )
 
 type exitCode struct {
@@ -131,7 +133,8 @@ func getConstName(n string) string {
 }
 
 func downloadArangodExitCodesDat() ([]byte, error) {
-	resp, err := http.Get(exitCodesDat)
+	url := fmt.Sprintf(exitCodesDatTemplate, arangoDVersion)
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
