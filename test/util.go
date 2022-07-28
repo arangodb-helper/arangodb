@@ -196,8 +196,8 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		}
 	}
 
-	if failed <= requiredGoodResults {
-		GetLogger(t).Log("Starter Started")
+	if failed < requiredGoodResults || requiredGoodResults == 0 {
+		GetLogger(t).Log("%d starters started", len(starters)-failed)
 		return true
 	}
 
