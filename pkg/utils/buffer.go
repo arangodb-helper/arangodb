@@ -26,6 +26,7 @@ type LimitedBuffer struct {
 	limit int
 }
 
+// NewLimitedBuffer returns new LimitedBuffer
 func NewLimitedBuffer(limit int) *LimitedBuffer {
 	return &LimitedBuffer{
 		buf:   make([]byte, 0, limit),
@@ -33,10 +34,14 @@ func NewLimitedBuffer(limit int) *LimitedBuffer {
 	}
 }
 
+// String returns string representation of buffer.
 func (b *LimitedBuffer) String() string {
 	return string(b.buf)
 }
 
+// Write writes len(p) bytes from p to the buffer,
+// pushing out previously written bytes if they don't fit into buffer.
+// Always returns len(p).
 func (b *LimitedBuffer) Write(p []byte) (n int, err error) {
 	gotLen := len(p)
 	if gotLen >= b.limit {
