@@ -116,6 +116,7 @@ func (r *processRunner) Start(ctx context.Context, processType definitions.Proce
 	c := exec.Command(command, args...)
 	if output != nil {
 		c.Stdout = output
+		c.Stderr = output
 	}
 
 	c.SysProcAttr = getSysProcAttr()

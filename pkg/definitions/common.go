@@ -34,8 +34,7 @@ const (
 )
 
 const (
-	MinRecentFailuresForLog = 2   // Number of recent failures needed before a log file is shown.
-	MaxRecentFailures       = 100 // Maximum number of recent failures before the starter gives up.
+	MaxRecentFailures = 100 // Maximum number of recent failures before the starter gives up.
 )
 
 const (
