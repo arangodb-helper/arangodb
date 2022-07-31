@@ -30,10 +30,14 @@ const (
 	ArangoDExitFailed = 1 // Will be returned when a general error occurred.
 	// EXIT_CODE_RESOLVING_FAILED
 	ArangoDExitCodeResolvingFailed = 2 // unspecified exit code
+	// EXIT_INVALID_OPTION_NAME
+	ArangoDExitInvalidOptionName = 3 // invalid/unknown startup option name was used
+	// EXIT_INVALID_OPTION_VALUE
+	ArangoDExitInvalidOptionValue = 4 // invalid startup option value was used
 	// EXIT_BINARY_NOT_FOUND
 	ArangoDExitBinaryNotFound = 5 // Will be returned if a referenced binary was not found
 	// EXIT_CONFIG_NOT_FOUND
-	ArangoDExitConfigNotFound = 6 // Will be returned if no valid configuration was found
+	ArangoDExitConfigNotFound = 6 // Will be returned if no valid configuration was found or its contents are structurally invalid
 	// EXIT_UPGRADE_FAILED
 	ArangoDExitUpgradeFailed = 10 // Will be returned when the database upgrade failed
 	// EXIT_UPGRADE_REQUIRED
@@ -69,10 +73,14 @@ var arangoDExitReason = map[int]string{
 	ArangoDExitFailed: "exit with error",
 	// EXIT_CODE_RESOLVING_FAILED
 	ArangoDExitCodeResolvingFailed: "exit code resolving failed",
+	// EXIT_INVALID_OPTION_NAME
+	ArangoDExitInvalidOptionName: "invalid startup option name",
+	// EXIT_INVALID_OPTION_VALUE
+	ArangoDExitInvalidOptionValue: "invalid startup option value",
 	// EXIT_BINARY_NOT_FOUND
 	ArangoDExitBinaryNotFound: "binary not found",
 	// EXIT_CONFIG_NOT_FOUND
-	ArangoDExitConfigNotFound: "config not found",
+	ArangoDExitConfigNotFound: "config not found or invalid",
 	// EXIT_UPGRADE_FAILED
 	ArangoDExitUpgradeFailed: "upgrade failed",
 	// EXIT_UPGRADE_REQUIRED
