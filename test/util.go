@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -40,6 +41,7 @@ import (
 
 	shell "github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 
 	"github.com/arangodb/go-driver"
 
@@ -164,6 +166,24 @@ func SetUniqueDataDir(t *testing.T) string {
 	}
 	os.Setenv("DATA_DIR", dataDir)
 	return dataDir
+}
+
+// WaitUntilStarterExit waits until given starter process will finish and checks for exit code
+func WaitUntilStarterExit(t *testing.T, timeout time.Duration, exitCode int, starter *SubProcess) {
+	err := starter.WaitTimeout(timeout)
+	if exitCode == 0 {
+		require.NoError(t, err)
+		return
+	}
+
+	require.Error(t, err)
+	err = errors.Cause(err)
+	require.Error(t, err)
+
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok, "Expected ExitError, got %+v", err)
+
+	require.Equalf(t, exitCode, exitErr.ExitCode(), "starter should have failed")
 }
 
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"

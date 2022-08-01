@@ -212,6 +212,21 @@ type ConfigurationFlag struct {
 
 type ConfigurationPrefixes map[string]ConfigurationPrefix
 
+func (c ConfigurationPrefixes) Lookup(key string) (*ConfigurationPrefix, string, error) {
+	for n, prefix := range c {
+		p := fmt.Sprintf("%s.", n)
+		if strings.HasPrefix(key, p) {
+			targ := strings.TrimPrefix(key, p)
+			if forbiddenOptions.IsForbidden(targ) {
+				return nil, "", fmt.Errorf("option --%s is essential to the starters behavior and cannot be overwritten", targ)
+			}
+			prefix := prefix
+			return &prefix, targ, nil
+		}
+	}
+	return nil, "", nil
+}
+
 func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []ConfigurationFlag, error) {
 	var f []ConfigurationFlag
 	config := NewConfiguration()
@@ -220,41 +235,33 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 
 	for _, arg := range args {
 		arg = strings.SplitN(arg, "=", 2)[0]
-
 		if !strings.HasPrefix(arg, "--") {
 			continue
 		}
 
 		ckey := strings.TrimPrefix(arg, "--")
-
-		for n, prefix := range c {
-			p := fmt.Sprintf("%s.", n)
-			if !strings.HasPrefix(ckey, p) {
-				continue
-			}
-
-			targ := strings.TrimPrefix(ckey, p)
-
-			if forbiddenOptions.IsForbidden(targ) {
-				return nil, nil, fmt.Errorf("option --%s is essential to the starters behavior and cannot be overwritten", targ)
-			}
-
-			if _, ok := flags[arg]; ok {
-				break
-			} else {
-				flags[arg] = true
-			}
-
-			f = append(f, ConfigurationFlag{
-				Key:        arg,
-				CleanKey:   ckey,
-				Extension:  targ,
-				Usage:      prefix.Usage(targ),
-				Value:      prefix.FieldSelector(&config, targ),
-				Deprecated: prefix.Deprecated,
-			})
-			break
+		prefix, targ, err := c.Lookup(ckey)
+		if err != nil {
+			return nil, nil, err
 		}
+		if prefix == nil {
+			continue
+		}
+
+		if _, ok := flags[arg]; ok {
+			continue
+		} else {
+			flags[arg] = true
+		}
+
+		f = append(f, ConfigurationFlag{
+			Key:        arg,
+			CleanKey:   ckey,
+			Extension:  targ,
+			Usage:      prefix.Usage(targ),
+			Value:      prefix.FieldSelector(&config, targ),
+			Deprecated: prefix.Deprecated,
+		})
 	}
 
 	return &config, f, nil
