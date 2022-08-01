@@ -96,12 +96,9 @@ var (
 
 	showVersion bool
 
-	opts            starterOptions
-	passthroughOpts *options.Configuration
-
+	opts                starterOptions
+	passthroughOpts     *options.Configuration
 	passthroughPrefixes = preparePassthroughPrefixes()
-
-	maskAny = errors.WithStack
 )
 
 func init() {
