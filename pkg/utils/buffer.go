@@ -20,10 +20,13 @@
 
 package utils
 
+import "sync"
+
 // LimitedBuffer stores only last 'limit' bytes written to it
 type LimitedBuffer struct {
-	buf   []byte
-	limit int
+	buf        []byte
+	limit      int
+	writeMutex sync.Mutex
 }
 
 // NewLimitedBuffer returns new LimitedBuffer
@@ -43,6 +46,9 @@ func (b *LimitedBuffer) String() string {
 // pushing out previously written bytes if they don't fit into buffer.
 // Always returns len(p).
 func (b *LimitedBuffer) Write(p []byte) (n int, err error) {
+	b.writeMutex.Lock()
+	defer b.writeMutex.Unlock()
+
 	gotLen := len(p)
 	if gotLen >= b.limit {
 		b.buf = p[gotLen-b.limit:]
