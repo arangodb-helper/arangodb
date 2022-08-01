@@ -46,7 +46,6 @@ import (
 	driver "github.com/arangodb/go-driver"
 
 	_ "github.com/arangodb-helper/arangodb/client"
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/pkg/features"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
 	"github.com/arangodb-helper/arangodb/pkg/net"
@@ -92,74 +91,14 @@ var (
 		Short: "Show ArangoDB version",
 		Run:   cmdShowVersionRun,
 	}
-	log                 zerolog.Logger
-	logService          logging.Service
-	showVersion         bool
-	id                  string
-	advertisedEndpoint  string
-	agencySize          int
-	arangodPath         string
-	arangodJSPath       string
-	arangoSyncPath      string
-	masterPort          int
-	rrPath              string
-	startAgent          []bool
-	startDBserver       []bool
-	startCoordinator    []bool
-	startActiveFailover []bool
-	startSyncMaster     []bool
-	startSyncWorker     []bool
-	startLocalSlaves    bool
-	mode                string
-	dataDir             string
-	logDir              string // Custom log directory (default "")
-	logOutput           struct {
-		Color      bool
-		Console    bool
-		File       bool
-		TimeFormat string
-	}
-	ownAddress               string
-	bindAddress              string
-	masterAddresses          []string
-	verbose                  bool
-	serverThreads            int
-	serverStorageEngine      string
-	allPortOffsetsUnique     bool
-	jwtSecretFile            string
-	sslKeyFile               string
-	sslAutoKeyFile           bool
-	sslAutoServerName        string
-	sslAutoOrganization      string
-	sslCAFile                string
-	rocksDBEncryptionKeyFile string
-	disableIPv6              bool
-	logRotateFilesToKeep     int
-	logRotateInterval        time.Duration
-	dockerEndpoint           string
-	dockerArangodImage       string
-	dockerArangoSyncImage    string
-	dockerImagePullPolicy    string
-	dockerStarterImage       = defaultDockerStarterImage
-	dockerUser               string
-	dockerContainerName      string
-	dockerGCDelay            time.Duration
-	dockerNetHost            bool // Deprecated
-	dockerNetworkMode        string
-	dockerPrivileged         bool
-	dockerTTY                bool
-	debugCluster             bool
-	enableSync               bool
-	instanceUpTimeout        time.Duration
-	syncMonitoringToken      string
-	syncMasterKeyFile        string // TLS keyfile of local sync master
-	syncMasterClientCAFile   string // CA Certificate used for client certificate verification
-	syncMasterJWTSecretFile  string // File containing JWT secret used to access the Sync Master (from Sync Worker)
-	syncMQType               string // MQ type used to Sync Master
+	log        zerolog.Logger
+	logService logging.Service
 
-	configuration *options.Configuration
+	showVersion bool
 
-	maskAny = errors.WithStack
+	opts                starterOptions
+	passthroughOpts     *options.Configuration
+	passthroughPrefixes = preparePassthroughPrefixes()
 )
 
 func init() {
@@ -186,264 +125,85 @@ func init() {
 	cmdMain.AddCommand(cmdVersion)
 
 	pf := cmdMain.PersistentFlags()
-	f := cmdMain.Flags()
-
 	pf.BoolVar(&showVersion, "version", false, "If set, show version and exit")
 
-	f.StringSliceVar(&masterAddresses, "starter.join", nil, "join a cluster with master at given address")
-	f.StringVar(&mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|activefailover)")
-	f.BoolVar(&startLocalSlaves, "starter.local", false, "If set, local slaves will be started to create a machine local (test) cluster")
-	f.StringVar(&ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
-	f.StringVar(&bindAddress, "starter.host", "0.0.0.0", "address used to bind the starter to")
-	f.StringVar(&id, "starter.id", "", "Unique identifier of this peer")
-	f.IntVar(&masterPort, "starter.port", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
-	f.BoolVar(&allPortOffsetsUnique, "starter.unique-port-offsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
-	f.StringVar(&dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
-	f.BoolVar(&debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
-	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
-	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
-	f.DurationVar(&instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
+	pf.BoolVar(&opts.log.verbose, "log.verbose", false, "Turn on debug logging")
+	pf.BoolVar(&opts.log.console, "log.console", true, "Send log output to console")
+	pf.BoolVar(&opts.log.file, "log.file", true, "Send log output to file")
+	pf.BoolVar(&opts.log.color, "log.color", defaultLogColor, "Colorize the log output")
+	pf.StringVar(&opts.log.timeFormat, "log.time-format", "local-datestring",
+		"Time format to use in logs. Possible values: 'local-datestring' (default), 'utc-datestring'")
+	pf.StringVar(&opts.log.dir, "log.dir", getEnvVar("LOG_DIR", ""), "Custom log file directory.")
+
+	f := cmdMain.Flags()
+	f.StringSliceVar(&opts.starter.masterAddresses, "starter.join", nil, "join a cluster with master at given address")
+	f.StringVar(&opts.starter.mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|activefailover)")
+	f.BoolVar(&opts.starter.startLocalSlaves, "starter.local", false, "If set, local slaves will be started to create a machine local (test) cluster")
+	f.StringVar(&opts.starter.ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
+	f.StringVar(&opts.starter.bindAddress, "starter.host", "0.0.0.0", "address used to bind the starter to")
+	f.StringVar(&opts.starter.id, "starter.id", "", "Unique identifier of this peer")
+	f.IntVar(&opts.starter.masterPort, "starter.port", service.DefaultMasterPort, "Port to listen on for other arangodb's to join")
+	f.BoolVar(&opts.starter.allPortOffsetsUnique, "starter.unique-port-offsets", false, "If set, all peers will get a unique port offset. If false (default) only portOffset+peerAddress pairs will be unique.")
+	f.StringVar(&opts.starter.dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
+	f.BoolVar(&opts.starter.debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
+	f.BoolVar(&opts.starter.disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
+	f.BoolVar(&opts.starter.enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
+	f.DurationVar(&opts.starter.instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
 	if err := features.JWTRotation().RegisterDeprecated(f); err != nil {
 		panic(err)
 	}
 
-	pf.BoolVar(&verbose, "log.verbose", false, "Turn on debug logging")
-	pf.BoolVar(&logOutput.Console, "log.console", true, "Send log output to console")
-	pf.BoolVar(&logOutput.File, "log.file", true, "Send log output to file")
-	pf.BoolVar(&logOutput.Color, "log.color", defaultLogColor, "Colorize the log output")
-	pf.StringVar(&logOutput.TimeFormat, "log.time-format", "local-datestring",
-		"Time format to use in logs. Possible values: 'local-datestring' (default), 'utc-datestring'")
-	pf.StringVar(&logDir, "log.dir", getEnvVar("LOG_DIR", ""), "Custom log file directory.")
-	f.IntVar(&logRotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
-	f.DurationVar(&logRotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
-	f.StringVar(&advertisedEndpoint, "cluster.advertised-endpoint", "", "An external endpoint for the servers started by this Starter")
-	f.IntVar(&agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
-	f.BoolSliceVar(&startAgent, "cluster.start-agent", nil, "should an agent instance be started")
-	f.BoolSliceVar(&startDBserver, "cluster.start-dbserver", nil, "should a dbserver instance be started")
-	f.BoolSliceVar(&startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
-	f.BoolSliceVar(&startActiveFailover, "cluster.start-single", nil, "should an active-failover single server instance be started")
+	f.IntVar(&opts.log.rotateFilesToKeep, "log.rotate-files-to-keep", defaultLogRotateFilesToKeep, "Number of files to keep when rotating log files")
+	f.DurationVar(&opts.log.rotateInterval, "log.rotate-interval", defaultLogRotateInterval, "Time between log rotations (0 disables log rotation)")
 
-	f.StringVar(&arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
-	f.StringVar(&arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
-	f.StringVar(&arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
-	f.StringVar(&rrPath, "server.rr", "", "Path of rr")
-	f.IntVar(&serverThreads, "server.threads", 0, "Adjust server.threads of each server")
-	f.StringVar(&serverStorageEngine, "server.storage-engine", "", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")
-	f.StringVar(&rocksDBEncryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
+	f.StringVar(&opts.cluster.advertisedEndpoint, "cluster.advertised-endpoint", "", "An external endpoint for the servers started by this Starter")
+	f.IntVar(&opts.cluster.agencySize, "cluster.agency-size", 3, "Number of agents in the cluster")
+	f.BoolSliceVar(&opts.cluster.startAgent, "cluster.start-agent", nil, "should an agent instance be started")
+	f.BoolSliceVar(&opts.cluster.startDBServer, "cluster.start-dbserver", nil, "should a dbserver instance be started")
+	f.BoolSliceVar(&opts.cluster.startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
+	f.BoolSliceVar(&opts.cluster.startActiveFailover, "cluster.start-single", nil, "should an active-failover single server instance be started")
 
-	f.StringVar(&dockerEndpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
-	f.StringVar(&dockerArangodImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
-	f.StringVar(&dockerArangoSyncImage, "docker.sync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
-	f.StringVar(&dockerImagePullPolicy, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
-	f.StringVar(&dockerUser, "docker.user", "", "use the given name as user to run the Docker container")
-	f.StringVar(&dockerContainerName, "docker.container", "", "name of the docker container that is running this process")
-	f.DurationVar(&dockerGCDelay, "docker.gc-delay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
-	f.BoolVar(&dockerNetHost, "docker.net-host", false, "Run containers with --net=host")
+	f.StringVar(&opts.server.arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
+	f.StringVar(&opts.server.arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
+	f.StringVar(&opts.server.arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
+	f.StringVar(&opts.server.rrPath, "server.rr", "", "Path of rr")
+	f.IntVar(&opts.server.threads, "server.threads", 0, "Adjust server.threads of each server")
+	f.StringVar(&opts.server.storageEngine, "server.storage-engine", "", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")
+
+	f.StringVar(&opts.rocksDB.encryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
+
+	f.StringVar(&opts.docker.endpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
+	f.StringVar(&opts.docker.arangodImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&opts.docker.arangoSyncImage, "docker.sync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
+	f.StringVar(&opts.docker.imagePullPolicy, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
+	f.StringVar(&opts.docker.user, "docker.user", "", "use the given name as user to run the Docker container")
+	f.StringVar(&opts.docker.containerName, "docker.container", "", "name of the docker container that is running this process")
+	f.DurationVar(&opts.docker.gcDelay, "docker.gc-delay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
+	f.BoolVar(&opts.docker.netHost, "docker.net-host", false, "Run containers with --net=host")
 	f.Lookup("docker.net-host").Deprecated = "use --docker.net-mode=host instead"
-	f.StringVar(&dockerNetworkMode, "docker.net-mode", "", "Run containers with --net=<value>")
-	f.BoolVar(&dockerPrivileged, "docker.privileged", false, "Run containers with --privileged")
-	f.BoolVar(&dockerTTY, "docker.tty", true, "Run containers with TTY enabled")
+	f.StringVar(&opts.docker.networkMode, "docker.net-mode", "", "Run containers with --net=<value>")
+	f.BoolVar(&opts.docker.privileged, "docker.privileged", false, "Run containers with --privileged")
+	f.BoolVar(&opts.docker.tty, "docker.tty", true, "Run containers with TTY enabled")
 
-	f.StringVar(&jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
+	f.StringVar(&opts.auth.jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
 
-	f.StringVar(&sslKeyFile, "ssl.keyfile", "", "path of a PEM encoded file containing a server certificate + private key")
-	f.StringVar(&sslCAFile, "ssl.cafile", "", "path of a PEM encoded file containing a CA certificate used for client authentication")
-	f.BoolVar(&sslAutoKeyFile, "ssl.auto-key", false, "If set, a self-signed certificate will be created and used as --ssl.keyfile")
-	f.StringVar(&sslAutoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
-	f.StringVar(&sslAutoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
+	f.StringVar(&opts.ssl.keyFile, "ssl.keyfile", "", "path of a PEM encoded file containing a server certificate + private key")
+	f.StringVar(&opts.ssl.caFile, "ssl.cafile", "", "path of a PEM encoded file containing a CA certificate used for client authentication")
+	f.BoolVar(&opts.ssl.autoKeyFile, "ssl.auto-key", false, "If set, a self-signed certificate will be created and used as --ssl.keyfile")
+	f.StringVar(&opts.ssl.autoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
+	f.StringVar(&opts.ssl.autoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
 
-	f.BoolSliceVar(&startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
-	f.BoolSliceVar(&startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
-	f.StringVar(&syncMonitoringToken, "sync.monitoring.token", "", "Bearer token used to access ArangoSync monitoring endpoints")
-	f.StringVar(&syncMasterJWTSecretFile, "sync.master.jwt-secret", "", "File containing JWT secret used to access the Sync Master (from Sync Worker)")
-	f.StringVar(&syncMQType, "sync.mq.type", "direct", "Type of message queue used by the Sync Master")
-	f.StringVar(&syncMasterKeyFile, "sync.server.keyfile", "", "TLS keyfile of local sync master")
-	f.StringVar(&syncMasterClientCAFile, "sync.server.client-cafile", "", "CA Certificate used for client certificate verification")
+	f.BoolSliceVar(&opts.sync.startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
+	f.BoolSliceVar(&opts.sync.startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
+	f.StringVar(&opts.sync.monitoring.token, "sync.monitoring.token", "", "Bearer token used to access ArangoSync monitoring endpoints")
+	f.StringVar(&opts.sync.master.jwtSecretFile, "sync.master.jwt-secret", "", "File containing JWT secret used to access the Sync Master (from Sync Worker)")
+	f.StringVar(&opts.sync.mq.Type, "sync.mq.type", "direct", "Type of message queue used by the Sync Master")
+	f.StringVar(&opts.sync.server.keyFile, "sync.server.keyfile", "", "TLS keyfile of local sync master")
+	f.StringVar(&opts.sync.server.clientCAFile, "sync.server.client-cafile", "", "CA Certificate used for client certificate verification")
 
 	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
-	passthroughtPrefixesNew := options.ConfigurationPrefixes{
-		// Old methods
-		"all": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all server instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByProcessTypeAndName(definitions.ServerTypeAgent, key)
-			},
-			Deprecated: true,
-		},
-		"coordinators": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all coordinator instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeCoordinator, key)
-			},
-			Deprecated: true,
-		},
-		"dbservers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all dbserver instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeDBServer, key)
-			},
-			Deprecated: true,
-		},
-		"agents": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all agent instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeAgent, key)
-			},
-			Deprecated: true,
-		},
-		"sync": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-			Deprecated: true,
-		},
-		"syncmasters": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-			Deprecated: true,
-		},
-		"syncworkers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
-			},
-			Deprecated: true,
-		},
-		// New methods for args
-		"args.all": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all server instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByProcessTypeAndName(definitions.ServerTypeAgent, key)
-			},
-		},
-		"args.coordinators": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all coordinator instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeCoordinator, key)
-			},
-		},
-		"args.dbservers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all dbserver instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeDBServer, key)
-			},
-		},
-		"args.agents": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all agent instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeAgent, key)
-			},
-		},
-		"args.sync": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-		},
-		"args.syncmasters": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-		},
-		"args.syncworkers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
-			},
-		},
-		// New methods for envs
-		"envs.all": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all server instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByProcessTypeAndName(definitions.ServerTypeAgent, key)
-			},
-		},
-		"envs.coordinators": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all coordinator instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByServerTypeAndName(definitions.ServerTypeCoordinator, key)
-			},
-		},
-		"envs.dbservers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all dbserver instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByServerTypeAndName(definitions.ServerTypeDBServer, key)
-			},
-		},
-		"envs.agents": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all agent instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByServerTypeAndName(definitions.ServerTypeAgent, key)
-			},
-		},
-		"envs.sync": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all sync instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-		},
-		"envs.syncmasters": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all sync master instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-		},
-		"envs.syncworkers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all sync master instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
-			},
-		},
-	}
-
-	config, flags, err := passthroughtPrefixesNew.Parse(os.Args...)
+	config, flags, err := passthroughPrefixes.Parse(os.Args...)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("Unable to parse arguments")
 	}
@@ -460,12 +220,12 @@ func init() {
 		}
 	}
 
-	configuration = config
+	passthroughOpts = config
 
 	cmdStart.Flags().AddFlagSet(f)
 	cmdStop.Flags().AddFlagSet(f)
 
-	passthroughUsageHelp := passthroughtPrefixesNew.UsageHint()
+	passthroughUsageHelp := passthroughPrefixes.UsageHint()
 	decorateUsageOutputWithPassthroughHint(passthroughUsageHelp, cmdMain)
 	decorateUsageOutputWithPassthroughHint(passthroughUsageHelp, cmdStart)
 	decorateUsageOutputWithPassthroughHint(passthroughUsageHelp, cmdStop)
@@ -644,9 +404,9 @@ func findJSDir(executablePath string, isBuild bool) (jsPath string) {
 func main() {
 	// Find executable and jsdir default in a platform dependent way:
 	var isBuild bool
-	arangodPath, isBuild = findExecutable("arangod", defaultArangodPath)
-	arangodJSPath = findJSDir(arangodPath, isBuild)
-	arangoSyncPath, _ = findExecutable("arangosync", defaultArangoSyncPath)
+	opts.server.arangodPath, isBuild = findExecutable("arangod", defaultArangodPath)
+	opts.server.arangodJSPath = findJSDir(opts.server.arangodPath, isBuild)
+	opts.server.arangoSyncPath, _ = findExecutable("arangosync", defaultArangoSyncPath)
 
 	if err := cmdMain.Execute(); err != nil {
 		os.Exit(1)
@@ -668,8 +428,7 @@ func cmdShowVersionRun(cmd *cobra.Command, args []string) {
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
 	// Setup log level
-	consoleOnly := false
-	configureLogging(consoleOnly)
+	configureLogging(false)
 
 	log.Info().Msgf("Starting %s version %s, build %s", projectName, projectVersion, projectBuild)
 
@@ -693,7 +452,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Read setup.json (if exists)
-	bsCfg, peers, relaunch, _ := service.ReadSetupConfig(log, dataDir, bsCfg)
+	bsCfg, peers, relaunch, _ := service.ReadSetupConfig(log, opts.starter.dataDir, bsCfg)
 
 	// Run the service
 	if err := svc.Run(rootCtx, bsCfg, peers, relaunch); err != nil {
@@ -704,20 +463,20 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 // configureLogging configures the log object according to command line arguments.
 func configureLogging(consoleOnly bool) {
 	logOpts := logging.LoggerOutputOptions{
-		Stderr:     logOutput.Console,
-		Color:      logOutput.Color,
+		Stderr:     opts.log.console,
+		Color:      opts.log.color,
 		TimeFormat: logging.TimeFormatLocal,
 	}
 
-	if logOutput.TimeFormat == "utc-datestring" {
+	if opts.log.timeFormat == "utc-datestring" {
 		logOpts.TimeFormat = logging.TimeFormatUTC
 	}
 
-	if logOutput.File && !consoleOnly {
-		if logDir != "" {
-			logOpts.LogFile = filepath.Join(logDir, logFileName)
+	if opts.log.file && !consoleOnly {
+		if opts.log.dir != "" {
+			logOpts.LogFile = filepath.Join(opts.log.dir, logFileName)
 		} else {
-			logOpts.LogFile = filepath.Join(dataDir, logFileName)
+			logOpts.LogFile = filepath.Join(opts.starter.dataDir, logFileName)
 		}
 		logFileDir := filepath.Dir(logOpts.LogFile)
 		if err := os.MkdirAll(logFileDir, 0755); err != nil {
@@ -725,7 +484,7 @@ func configureLogging(consoleOnly bool) {
 		}
 	}
 	defaultLevel := "INFO"
-	if verbose {
+	if opts.log.verbose {
 		defaultLevel = "DEBUG"
 	}
 	var err error
@@ -740,17 +499,18 @@ func configureLogging(consoleOnly bool) {
 // creating & checking settings where needed.
 func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.BootstrapConfig) {
 	// Auto detect docker container ID (if needed)
+	dockerStarterImage := defaultDockerStarterImage
 	runningInDocker := false
 	if isRunningInDocker() {
 		runningInDocker = true
-		info, err := findDockerContainerInfo(dockerEndpoint)
+		info, err := findDockerContainerInfo(opts.docker.endpoint)
 		if err != nil {
-			if dockerContainerName == "" {
+			if opts.docker.containerName == "" {
 				showDockerContainerNameMissingHelp()
 			}
 		} else {
-			if dockerContainerName == "" {
-				dockerContainerName = info.Name
+			if opts.docker.containerName == "" {
+				opts.docker.containerName = info.Name
 			}
 			if info.ImageName != "" {
 				dockerStarterImage = info.ImageName
@@ -759,207 +519,205 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 
 	// Some plausibility checks:
-	if agencySize%2 == 0 || agencySize <= 0 {
+	if opts.cluster.agencySize%2 == 0 || opts.cluster.agencySize <= 0 {
 		showClusterAgencySizeInvalidHelp()
 	}
-	if agencySize == 1 && ownAddress == "" {
+	if opts.cluster.agencySize == 1 && opts.starter.ownAddress == "" {
 		showClusterAgencySize1WithoutAddressHelp()
 	}
-	if dockerArangodImage != "" && rrPath != "" {
+	if opts.docker.arangodImage != "" && opts.server.rrPath != "" {
 		showDockerImageWithRRIsNotAllowedHelp()
 	}
-	if dockerNetHost {
-		if dockerNetworkMode == "" {
-			dockerNetworkMode = "host"
-		} else if dockerNetworkMode != "host" {
+	if opts.docker.netHost {
+		if opts.docker.networkMode == "" {
+			opts.docker.networkMode = "host"
+		} else if opts.docker.networkMode != "host" {
 			showDockerNetHostAndNotModeNotBothAllowedHelp()
 		}
 	}
-	imagePullPolicy, err := service.ParseImagePullPolicy(dockerImagePullPolicy, dockerArangodImage)
+	imagePullPolicy, err := service.ParseImagePullPolicy(opts.docker.imagePullPolicy, opts.docker.arangodImage)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("Unsupport image pull policy '%s'", dockerImagePullPolicy)
+		log.Fatal().Err(err).Msgf("Unsupported image pull policy '%s'", opts.docker.imagePullPolicy)
 	}
 
 	// Sanity checking URL scheme on advertised endpoints
-	if _, err := url.Parse(advertisedEndpoint); err != nil {
-		log.Fatal().Err(err).Msgf("Advertised cluster endpoint %s does not meet URL standards", advertisedEndpoint)
+	if _, err := url.Parse(opts.cluster.advertisedEndpoint); err != nil {
+		log.Fatal().Err(err).Msgf("Advertised cluster endpoint %s does not meet URL standards", opts.cluster.advertisedEndpoint)
 	}
 
 	// Expand home-dis (~) in paths
-	arangodPath = mustExpand(arangodPath)
-	arangodJSPath = mustExpand(arangodJSPath)
-	arangoSyncPath = mustExpand(arangoSyncPath)
-	rrPath = mustExpand(rrPath)
-	dataDir = mustExpand(dataDir)
-	jwtSecretFile = mustExpand(jwtSecretFile)
-	sslKeyFile = mustExpand(sslKeyFile)
-	sslCAFile = mustExpand(sslCAFile)
-	rocksDBEncryptionKeyFile = mustExpand(rocksDBEncryptionKeyFile)
+	opts.server.arangodPath = mustExpand(opts.server.arangodPath)
+	opts.server.arangodJSPath = mustExpand(opts.server.arangodJSPath)
+	opts.server.arangoSyncPath = mustExpand(opts.server.arangoSyncPath)
+	opts.server.rrPath = mustExpand(opts.server.rrPath)
+	opts.starter.dataDir = mustExpand(opts.starter.dataDir)
+	opts.auth.jwtSecretFile = mustExpand(opts.auth.jwtSecretFile)
+	opts.ssl.keyFile = mustExpand(opts.ssl.keyFile)
+	opts.ssl.caFile = mustExpand(opts.ssl.caFile)
+	opts.rocksDB.encryptionKeyFile = mustExpand(opts.rocksDB.encryptionKeyFile)
 
 	// Check database executable
 	if !runningInDocker {
-		if _, err := os.Stat(arangodPath); os.IsNotExist(err) {
-			showArangodExecutableNotFoundHelp(arangodPath)
+		if _, err := os.Stat(opts.server.arangodPath); os.IsNotExist(err) {
+			showArangodExecutableNotFoundHelp(opts.server.arangodPath)
 		}
-		log.Debug().Msgf("Using %s as default arangod executable.", arangodPath)
-		log.Debug().Msgf("Using %s as default JS dir.", arangodJSPath)
+		log.Debug().Msgf("Using %s as default arangod executable.", opts.server.arangodPath)
+		log.Debug().Msgf("Using %s as default JS dir.", opts.server.arangodJSPath)
 	}
 
 	// Sort out work directory:
-	if len(dataDir) == 0 {
-		dataDir = "."
+	if len(opts.starter.dataDir) == 0 {
+		opts.starter.dataDir = "."
 	}
-	dataDir, _ = filepath.Abs(dataDir)
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		log.Fatal().Err(err).Msgf("Cannot create data directory %s, giving up.", dataDir)
+	opts.starter.dataDir, _ = filepath.Abs(opts.starter.dataDir)
+	if err := os.MkdirAll(opts.starter.dataDir, 0755); err != nil {
+		log.Fatal().Err(err).Msgf("Cannot create data directory %s, giving up.", opts.starter.dataDir)
 	}
 
 	// Make custom log directory absolute
-	if logDir != "" {
-		logDir, _ = filepath.Abs(logDir)
-		if err := os.MkdirAll(logDir, 0755); err != nil {
-			log.Fatal().Err(err).Msgf("Cannot create custom log directory %s, giving up.", logDir)
+	if opts.log.dir != "" {
+		opts.log.dir, _ = filepath.Abs(opts.log.dir)
+		if err := os.MkdirAll(opts.log.dir, 0755); err != nil {
+			log.Fatal().Err(err).Msgf("Cannot create custom log directory %s, giving up.", opts.log.dir)
 		}
 	}
 
 	var jwtSecret string
-	if jwtSecretFile != "" {
-		content, err := ioutil.ReadFile(jwtSecretFile)
+	if opts.auth.jwtSecretFile != "" {
+		content, err := ioutil.ReadFile(opts.auth.jwtSecretFile)
 		if err != nil {
-			log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", jwtSecretFile)
+			log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", opts.auth.jwtSecretFile)
 		}
 		jwtSecret = strings.TrimSpace(string(content))
 	}
 
 	// Auto create key file (if needed)
-	if sslAutoKeyFile && generateAutoKeyFile {
-		if sslKeyFile != "" {
+	if opts.ssl.autoKeyFile && generateAutoKeyFile {
+		if opts.ssl.keyFile != "" {
 			showSslAutoKeyAndKeyFileNotBothAllowedHelp()
 		}
 		hosts := []string{"arangod.server"}
-		if sslAutoServerName != "" {
-			hosts = []string{sslAutoServerName}
+		if opts.ssl.autoServerName != "" {
+			hosts = []string{opts.ssl.autoServerName}
 		}
-		if ownAddress != "" {
-			hosts = append(hosts, ownAddress)
+		if opts.starter.ownAddress != "" {
+			hosts = append(hosts, opts.starter.ownAddress)
 		}
 		keyFile, err := service.CreateCertificate(service.CreateCertificateOptions{
 			Hosts:        hosts,
-			Organization: sslAutoOrganization,
-		}, dataDir)
+			Organization: opts.ssl.autoOrganization,
+		}, opts.starter.dataDir)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to create keyfile")
 		}
-		sslKeyFile = keyFile
-		log.Info().Msgf("Using self-signed certificate: %s", sslKeyFile)
+		opts.ssl.keyFile = keyFile
+		log.Info().Msgf("Using self-signed certificate: %s", opts.ssl.keyFile)
 	}
 
 	// Check sync settings
-	if enableSync {
+	if opts.starter.enableSync {
 		// Check mode
-		if !service.ServiceMode(mode).SupportsArangoSync() {
-			showArangoSyncNotAllowedWithModeHelp(mode)
+		if !service.ServiceMode(opts.starter.mode).SupportsArangoSync() {
+			showArangoSyncNotAllowedWithModeHelp(opts.starter.mode)
 		}
 		if !runningInDocker {
 			// Check arangosync executable
-			if _, err := os.Stat(arangoSyncPath); os.IsNotExist(err) {
-				showArangoSyncExecutableNotFoundHelp(arangoSyncPath)
+			if _, err := os.Stat(opts.server.arangoSyncPath); os.IsNotExist(err) {
+				showArangoSyncExecutableNotFoundHelp(opts.server.arangoSyncPath)
 			}
-			log.Debug().Msgf("Using %s as default arangosync executable.", arangoSyncPath)
+			log.Debug().Msgf("Using %s as default arangosync executable.", opts.server.arangoSyncPath)
 		} else {
 			// Check arangosync docker image
-			if dockerArangoSyncImage == "" {
+			if opts.docker.arangoSyncImage == "" {
 				// Default to arangod docker image
-				dockerArangoSyncImage = dockerArangodImage
+				opts.docker.arangoSyncImage = opts.docker.arangodImage
 			}
 		}
-		if startMaster := optionalBool(startSyncMaster, true); startMaster {
-			if syncMasterKeyFile == "" {
+		if startMaster := optionalBool(opts.sync.startSyncMaster, true); startMaster {
+			if opts.sync.server.keyFile == "" {
 				showSyncMasterServerKeyfileMissingHelp()
 			}
-			if syncMasterClientCAFile == "" {
+			if opts.sync.server.clientCAFile == "" {
 				showSyncMasterClientCAFileMissingHelp()
 			}
 		}
-		/*		if startWorker := optionalBool(startSyncWorker, true); startWorker {
-				}*/
-		if syncMasterJWTSecretFile == "" {
-			if jwtSecretFile != "" {
+		if opts.sync.master.jwtSecretFile == "" {
+			if opts.auth.jwtSecretFile != "" {
 				// Use cluster JWT secret
-				syncMasterJWTSecretFile = jwtSecretFile
+				opts.sync.master.jwtSecretFile = opts.auth.jwtSecretFile
 			} else {
 				showSyncMasterJWTSecretMissingHelp()
 			}
 		}
-		if syncMonitoringToken == "" {
-			syncMonitoringToken = uniuri.New()
+		if opts.sync.monitoring.token == "" {
+			opts.sync.monitoring.token = uniuri.New()
 		}
 	} else {
-		startSyncMaster = []bool{false}
-		startSyncWorker = []bool{false}
+		opts.sync.startSyncMaster = []bool{false}
+		opts.sync.startSyncWorker = []bool{false}
 	}
 
 	// Create service
 	bsCfg := service.BootstrapConfig{
-		ID:                       id,
-		Mode:                     service.ServiceMode(mode),
-		DataDir:                  dataDir,
-		AgencySize:               agencySize,
-		StartLocalSlaves:         startLocalSlaves,
-		StartAgent:               mustGetOptionalBoolRef("cluster.start-agent", startAgent),
-		StartDBserver:            mustGetOptionalBoolRef("cluster.start-dbserver", startDBserver),
-		StartCoordinator:         mustGetOptionalBoolRef("cluster.start-coordinator", startCoordinator),
-		StartResilientSingle:     mustGetOptionalBoolRef("cluster.start-single", startActiveFailover),
-		StartSyncMaster:          mustGetOptionalBoolRef("sync.start-master", startSyncMaster),
-		StartSyncWorker:          mustGetOptionalBoolRef("sync.start-worker", startSyncWorker),
-		ServerStorageEngine:      serverStorageEngine,
+		ID:                       opts.starter.id,
+		Mode:                     service.ServiceMode(opts.starter.mode),
+		DataDir:                  opts.starter.dataDir,
+		AgencySize:               opts.cluster.agencySize,
+		StartLocalSlaves:         opts.starter.startLocalSlaves,
+		StartAgent:               mustGetOptionalBoolRef("cluster.start-agent", opts.cluster.startAgent),
+		StartDBserver:            mustGetOptionalBoolRef("cluster.start-dbserver", opts.cluster.startDBServer),
+		StartCoordinator:         mustGetOptionalBoolRef("cluster.start-coordinator", opts.cluster.startCoordinator),
+		StartResilientSingle:     mustGetOptionalBoolRef("cluster.start-single", opts.cluster.startActiveFailover),
+		StartSyncMaster:          mustGetOptionalBoolRef("sync.start-master", opts.sync.startSyncMaster),
+		StartSyncWorker:          mustGetOptionalBoolRef("sync.start-worker", opts.sync.startSyncWorker),
+		ServerStorageEngine:      opts.server.storageEngine,
 		JwtSecret:                jwtSecret,
-		SslKeyFile:               sslKeyFile,
-		SslCAFile:                sslCAFile,
-		RocksDBEncryptionKeyFile: rocksDBEncryptionKeyFile,
-		DisableIPv6:              disableIPv6,
+		SslKeyFile:               opts.ssl.keyFile,
+		SslCAFile:                opts.ssl.caFile,
+		RocksDBEncryptionKeyFile: opts.rocksDB.encryptionKeyFile,
+		DisableIPv6:              opts.starter.disableIPv6,
 	}
 	bsCfg.Initialize()
 	serviceConfig := service.Config{
-		ArangodPath:             arangodPath,
-		ArangoSyncPath:          arangoSyncPath,
-		ArangodJSPath:           arangodJSPath,
-		AdvertisedEndpoint:      advertisedEndpoint,
-		MasterPort:              masterPort,
-		RrPath:                  rrPath,
-		DataDir:                 dataDir,
-		LogDir:                  logDir,
-		OwnAddress:              ownAddress,
-		BindAddress:             bindAddress,
-		MasterAddresses:         masterAddresses,
-		Verbose:                 verbose,
-		ServerThreads:           serverThreads,
-		AllPortOffsetsUnique:    allPortOffsetsUnique,
-		LogRotateFilesToKeep:    logRotateFilesToKeep,
-		LogRotateInterval:       logRotateInterval,
-		InstanceUpTimeout:       instanceUpTimeout,
+		ArangodPath:             opts.server.arangodPath,
+		ArangoSyncPath:          opts.server.arangoSyncPath,
+		ArangodJSPath:           opts.server.arangodJSPath,
+		AdvertisedEndpoint:      opts.cluster.advertisedEndpoint,
+		MasterPort:              opts.starter.masterPort,
+		RrPath:                  opts.server.rrPath,
+		DataDir:                 opts.starter.dataDir,
+		LogDir:                  opts.log.dir,
+		OwnAddress:              opts.starter.ownAddress,
+		BindAddress:             opts.starter.bindAddress,
+		MasterAddresses:         opts.starter.masterAddresses,
+		Verbose:                 opts.log.verbose,
+		ServerThreads:           opts.server.threads,
+		AllPortOffsetsUnique:    opts.starter.allPortOffsetsUnique,
+		LogRotateFilesToKeep:    opts.log.rotateFilesToKeep,
+		LogRotateInterval:       opts.log.rotateInterval,
+		InstanceUpTimeout:       opts.starter.instanceUpTimeout,
 		RunningInDocker:         isRunningInDocker(),
-		DockerContainerName:     dockerContainerName,
-		DockerEndpoint:          dockerEndpoint,
-		DockerArangodImage:      dockerArangodImage,
-		DockerArangoSyncImage:   dockerArangoSyncImage,
+		DockerContainerName:     opts.docker.containerName,
+		DockerEndpoint:          opts.docker.endpoint,
+		DockerArangodImage:      opts.docker.arangodImage,
+		DockerArangoSyncImage:   opts.docker.arangoSyncImage,
 		DockerImagePullPolicy:   imagePullPolicy,
 		DockerStarterImage:      dockerStarterImage,
-		DockerUser:              dockerUser,
-		DockerGCDelay:           dockerGCDelay,
-		DockerNetworkMode:       dockerNetworkMode,
-		DockerPrivileged:        dockerPrivileged,
-		DockerTTY:               dockerTTY,
+		DockerUser:              opts.docker.user,
+		DockerGCDelay:           opts.docker.gcDelay,
+		DockerNetworkMode:       opts.docker.networkMode,
+		DockerPrivileged:        opts.docker.privileged,
+		DockerTTY:               opts.docker.tty,
 		ProjectVersion:          projectVersion,
 		ProjectBuild:            projectBuild,
-		DebugCluster:            debugCluster,
-		SyncEnabled:             enableSync,
-		SyncMonitoringToken:     syncMonitoringToken,
-		SyncMasterKeyFile:       syncMasterKeyFile,
-		SyncMasterClientCAFile:  syncMasterClientCAFile,
-		SyncMasterJWTSecretFile: syncMasterJWTSecretFile,
-		SyncMQType:              syncMQType,
-		Configuration:           configuration,
+		DebugCluster:            opts.starter.debugCluster,
+		SyncEnabled:             opts.starter.enableSync,
+		SyncMonitoringToken:     opts.sync.monitoring.token,
+		SyncMasterKeyFile:       opts.sync.server.keyFile,
+		SyncMasterClientCAFile:  opts.sync.server.clientCAFile,
+		SyncMasterJWTSecretFile: opts.sync.master.jwtSecretFile,
+		SyncMQType:              opts.sync.mq.Type,
+		Configuration:           passthroughOpts,
 	}
 	service := service.NewService(context.Background(), log, logService, serviceConfig, bsCfg, false)
 

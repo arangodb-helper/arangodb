@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	docker "github.com/fsouza/go-dockerclient"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -57,7 +58,7 @@ func findDockerContainerInfo(dockerEndpoint string) (containerInfo, error) {
 	findID := func() (string, error) {
 		raw, err := ioutil.ReadFile("/proc/self/cgroup")
 		if err != nil {
-			return "", maskAny(err)
+			return "", errors.WithStack(err)
 		}
 		lines := strings.Split(string(raw), "\n")
 		for _, line := range lines {
@@ -74,12 +75,12 @@ func findDockerContainerInfo(dockerEndpoint string) (containerInfo, error) {
 				}
 			}
 		}
-		return "", maskAny(fmt.Errorf("Cannot find docker marker"))
+		return "", errors.WithStack(fmt.Errorf("Cannot find docker marker"))
 	}
 
 	id, err := findID()
 	if err != nil {
-		return containerInfo{}, maskAny(err)
+		return containerInfo{}, errors.WithStack(err)
 	}
 	info := containerInfo{Name: id}
 
