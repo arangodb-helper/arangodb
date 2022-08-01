@@ -322,7 +322,7 @@ func CreateClient(t *testing.T, starterEndpoint string, serverType client.Server
 
 	sp, ok := processes.ServerByType(serverType)
 	if !ok {
-		return nil, errors.Errorf("failed to server of type %s", string(serverType))
+		return nil, errors.Errorf("failed to find server of type %s", string(serverType))
 	}
 
 	config := driverhttp.ConnectionConfig{

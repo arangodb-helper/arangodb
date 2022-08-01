@@ -65,6 +65,7 @@ const (
 	defaultDockerStarterImage       = "arangodb/arangodb-starter"
 	defaultArangodPath              = "/usr/sbin/arangod"
 	defaultArangoSyncPath           = "/usr/sbin/arangosync"
+	defaultConfigFilePath           = "arangodb-starter.conf"
 	defaultLogRotateFilesToKeep     = 5
 	defaultLogRotateInterval        = time.Minute * 60 * 24
 	defaultInstanceUpTimeoutLinux   = time.Second * 300
@@ -94,10 +95,11 @@ var (
 	log        zerolog.Logger
 	logService logging.Service
 
-	showVersion bool
+	showVersion    bool
+	configFilePath string
 
-	opts            starterOptions
-	passthroughOpts *options.Configuration
+	opts                starterOptions
+	passthroughOpts     *options.Configuration
 	passthroughPrefixes = preparePassthroughPrefixes()
 )
 
@@ -126,6 +128,7 @@ func init() {
 
 	pf := cmdMain.PersistentFlags()
 	pf.BoolVar(&showVersion, "version", false, "If set, show version and exit")
+	pf.StringVar(&configFilePath, "config", defaultConfigFilePath, "Config file path")
 
 	pf.BoolVar(&opts.log.verbose, "log.verbose", false, "Turn on debug logging")
 	pf.BoolVar(&opts.log.console, "log.console", true, "Send log output to console")
@@ -427,6 +430,8 @@ func cmdShowVersionRun(cmd *cobra.Command, args []string) {
 }
 
 func cmdMainRun(cmd *cobra.Command, args []string) {
+	loadFlagValuesFromConfig(configFilePath, cmd.Flags(), cmd.PersistentFlags())
+
 	// Setup log level
 	configureLogging(false)
 

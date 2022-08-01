@@ -79,6 +79,56 @@ starter default port.
 
 Additional servers can be added in the same way.
 
+## Using the config file to provide CLI options
+
+Starter looks for `arangodb-starter.conf` in working directory by default.
+You can specify the config file path using `--config` CLI option:
+```bash
+arangodb --config=/etc/arangodb-starter.conf
+```
+
+`.conf` files for ArangoDB Starter are in a simple key-value pair format. 
+Each option is specified on a separate line in the form:
+```
+key = value
+```
+
+It may look like this:
+```
+starter.id = my-starter-1
+starter.endpoint = http://127.0.0.1:8528
+```
+
+Alternatively, a header section can be specified and options pertaining to
+that section can be specified in a shorter form:
+```
+[starter]
+id = my-starter-1
+endpoint = http://127.0.0.1:8528
+sync = true
+
+[sync]
+start-master = true
+start-worker = true
+monitoring.token = 8cd07f3a5ff98f2a78cfc366c13fb123eb8d29c1ca37c79df190425d5b9e424d
+```
+
+So you see, a command line option `‑‑section.param value` can be easily translated
+to an option in a configuration file:
+```
+[section]
+param = value
+```
+
+You also can use the config file to provide passthrough options:
+```
+starter.mode = cluster
+
+[args]
+all.default-language = es_419
+dbservers.rocksdb.enable-statistics = true
+```
+
 ## More usage info
 
 See the [ArangoDB Starter Tutorial](https://www.arangodb.com/docs/stable/tutorials-starter.html).
