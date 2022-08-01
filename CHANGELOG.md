@@ -9,6 +9,7 @@
 - Add documentation header to generated command files
 - Add support for ArangoD exit codes. Do not try to restart instance if exit code is unrecoverable
 - Show process output in case there was an error during process startup
+- Deprecate --feature.jwt.rotation CLI option
 
 ## [0.15.4](https://github.com/arangodb-helper/arangodb/tree/0.15.4) (2022-03-22)
 - Use github.com/golang-jwt/jwt

@@ -203,7 +203,7 @@ func init() {
 	f.BoolVar(&disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 	f.BoolVar(&enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
 	f.DurationVar(&instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
-	if err := features.JWTRotation().Register(f); err != nil {
+	if err := features.JWTRotation().RegisterDeprecated(f); err != nil {
 		panic(err)
 	}
 
