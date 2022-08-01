@@ -35,6 +35,8 @@ func ExitCodeIsRecoverable(pType ProcessType, code int) bool {
 	switch code {
 	case ArangoDExitBinaryNotFound,
 		ArangoDExitConfigNotFound,
+		ArangoDExitInvalidOptionName,
+		ArangoDExitInvalidOptionValue,
 		ArangoDExitIcuInitializationFailed,
 		ArangoDExitTzdataInitializationFailed,
 		ArangoDExitResourcesTooLow,
