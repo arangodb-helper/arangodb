@@ -42,12 +42,13 @@ const commandFileHeaderTmpl = `# This is the startup command used by the ArangoD
 
 func createCommandFileHeader() string {
 	type info struct {
-		DateTime time.Time
+		DateTime string
 	}
 
 	t := template.Must(template.New("header").Parse(commandFileHeaderTmpl))
 	var buf bytes.Buffer
-	err := t.Execute(&buf, info{DateTime: time.Now()})
+
+	err := t.Execute(&buf, info{DateTime: time.Now().Format(time.RFC3339)})
 	if err != nil {
 		panic(err)
 	}
