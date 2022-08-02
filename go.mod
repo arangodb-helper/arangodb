@@ -23,6 +23,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.5.1
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	gopkg.in/ini.v1 v1.66.6
 )
 
 require (
