@@ -57,8 +57,8 @@ func (b *LimitedBuffer) Write(p []byte) (n int, err error) {
 		if newLength <= b.limit {
 			b.buf = append(b.buf, p...)
 		} else {
-			truncateIndex := newLength - b.limit - 1
-			b.buf = append(b.buf[truncateIndex-1:], p...)
+			truncateIndex := newLength - b.limit
+			b.buf = append(b.buf[truncateIndex:], p...)
 		}
 	}
 	return gotLen, nil
