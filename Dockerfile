@@ -1,4 +1,4 @@
-ARG IMAGE=alpine:3.11
+ARG IMAGE=alpine:3.16
 FROM ${IMAGE}
 MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
