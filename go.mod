@@ -1,6 +1,6 @@
 module github.com/arangodb-helper/arangodb
 
-go 1.17
+go 1.18
 
 replace golang.org/x/sys => golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a
 
