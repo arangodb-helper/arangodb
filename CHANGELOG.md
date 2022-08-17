@@ -11,7 +11,7 @@
 - Show process output in case there was an error during process startup
 - Deprecate --feature.jwt.rotation CLI option
 - Add support for config file
-- Switch to Go 1.18.5 and alpine3.16 for build image
+- Switch to Go 1.17.13 and alpine3.16 for build image
 
 ## [0.15.4](https://github.com/arangodb-helper/arangodb/tree/0.15.4) (2022-03-22)
 - Use github.com/golang-jwt/jwt
