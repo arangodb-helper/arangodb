@@ -21,6 +21,7 @@ GOBUILDDIR := $(BUILDDIR)/.gobuild
 SRCDIR := $(SCRIPTDIR)
 CACHEVOL := $(PROJECT)-gocache
 BINDIR := $(BUILDDIR)/bin
+RELEASEDIR:=$(BUILDDIR)/bin/release/$(VERSION)
 
 ORGPATH := github.com/arangodb-helper
 ORGDIR := $(GOBUILDDIR)/src/$(ORGPATH)
@@ -51,6 +52,7 @@ TEST_TIMEOUT := 1h
 BINNAME := arangodb$(GOEXE)
 TESTNAME := test$(GOEXE)
 BIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(BINNAME)
+RELEASEBIN:=$(RELEASEDIR)/arangodb-$(GOOS)-$(GOARCH)$(GOEXE)
 TESTBIN := $(BINDIR)/$(GOOS)/$(GOARCH)/$(TESTNAME)
 RELEASE := $(GOBUILDDIR)/bin/release
 
@@ -121,6 +123,12 @@ endif
 build-local: build
 	@ln -sf "$(BIN)" "$(ROOTDIR)/arangodb"
 
+release: $(RELEASEBIN)
+
+$(RELEASEBIN): vendor $(BIN)
+	@mkdir -p "$(RELEASEDIR)"
+	@cp "$(BIN)" "$(RELEASEBIN)"
+
 build: vendor $(BIN)
 
 build-test: vendor $(TESTBIN)
@@ -131,6 +139,14 @@ binaries:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
+
+releases:
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 release
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 release
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 release
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 release
+	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 release
+	@(cd "$(RELEASEDIR)"; sha256sum arangodb-* > SHA256SUMS; cat SHA256SUMS | sha256sum -c)
 
 binaries-test:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
@@ -270,3 +286,6 @@ init: vendor tools
 
 .PHONY: check
 check: license-verify fmt-verify linter run-unit-tests
+
+local-release:
+	@mkdir 
