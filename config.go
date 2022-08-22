@@ -23,6 +23,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/pflag"
@@ -89,8 +90,13 @@ func trySetFlagFromConfig(flagName string, k *ini.Key, flagSets ...*pflag.FlagSe
 
 // loadFlagValuesFromConfig loads config and assigns its values to flag set (only if flag value wasn't changed before)
 func loadFlagValuesFromConfig(cfgFilePath string, fs, persistentFs *pflag.FlagSet) {
+	if strings.ToLower(cfgFilePath) == "none" {
+		// Skip loading: special value to ignore config
+		return
+	}
+
 	configFile, err := loadCfgFromFile(cfgFilePath)
-	if err != nil || configFile == nil && configFilePath != defaultConfigFilePath {
+	if err != nil || configFile == nil && cfgFilePath != defaultConfigFilePath {
 		log.Fatal().Err(err).Msgf("Could not load config file %s", cfgFilePath)
 		return
 	}

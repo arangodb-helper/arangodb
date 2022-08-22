@@ -82,9 +82,9 @@ Additional servers can be added in the same way.
 ## Using the config file to provide CLI options
 
 Starter looks for `arangodb-starter.conf` in working directory by default.
-You can specify the config file path using `--config` CLI option:
+You can specify the config file path using `--configuration` (`-c`)  CLI option:
 ```bash
-arangodb --config=/etc/arangodb-starter.conf
+arangodb --configuration=/etc/arangodb-starter.conf
 ```
 
 `.conf` files for ArangoDB Starter are in a simple key-value pair format. 

@@ -42,7 +42,7 @@ func TestProcessConfigFileLoading(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --config=test/testdata/thisfiledoesnoexist.conf")
+		child := Spawn(t, "${STARTER} --configuration=test/testdata/thisfiledoesnoexist.conf")
 		defer child.Close()
 
 		WaitUntilStarterExit(t, 15*time.Second, 1, child)
@@ -52,7 +52,7 @@ func TestProcessConfigFileLoading(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --config=test/testdata/invalidkeys.conf")
+		child := Spawn(t, "${STARTER} --configuration=test/testdata/invalidkeys.conf")
 		defer child.Close()
 
 		WaitUntilStarterExit(t, 15*time.Second, 1, child)
@@ -62,17 +62,28 @@ func TestProcessConfigFileLoading(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --config=test/testdata/invalidvalues.conf")
+		child := Spawn(t, "${STARTER} --configuration=test/testdata/invalidvalues.conf")
 		defer child.Close()
 
 		WaitUntilStarterExit(t, 15*time.Second, 1, child)
+	})
+
+	t.Run("none", func(t *testing.T) {
+		dataDir := SetUniqueDataDir(t)
+		defer os.RemoveAll(dataDir)
+
+		child := Spawn(t, "${STARTER} --configuration=noNe --starter.mode=single")
+		defer child.Close()
+
+		require.True(t, WaitUntilStarterReady(t, whatSingle, 1, child))
+		SendIntrAndWait(t, child)
 	})
 
 	t.Run("plain", func(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --config=test/testdata/single.conf")
+		child := Spawn(t, "${STARTER} --configuration=test/testdata/single.conf")
 		defer child.Close()
 
 		require.True(t, WaitUntilStarterReady(t, whatSingle, 1, child))
@@ -83,7 +94,7 @@ func TestProcessConfigFileLoading(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --starter.mode=single --config=test/testdata/activefailover.conf")
+		child := Spawn(t, "${STARTER} --starter.mode=single --configuration=test/testdata/activefailover.conf")
 		defer child.Close()
 
 		require.True(t, WaitUntilStarterReady(t, whatSingle, 1, child))
@@ -94,7 +105,7 @@ func TestProcessConfigFileLoading(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --config=test/testdata/single-sections.conf")
+		child := Spawn(t, "${STARTER} --configuration=test/testdata/single-sections.conf")
 		defer child.Close()
 
 		require.True(t, WaitUntilStarterReady(t, whatSingle, 1, child))
