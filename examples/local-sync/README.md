@@ -85,3 +85,13 @@ arangosync get status \
     --auth.keyfile=${CERTDIR}/client-auth-ca.keyfile \
     --verbose
 ```
+
+## Step 5: Check the status of synchronization for each shard
+
+Target DC endpoint should be specified:
+```
+arangosync check sync \
+    --master.endpoint=https://${IP}:9542 \
+    --auth.keyfile=${CERTDIR}/client-auth-ca.keyfile \
+    --verbose
+```
