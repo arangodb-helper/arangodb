@@ -275,7 +275,7 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 			dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
 			opts.Config.ExposedPorts[dockerPort] = struct{}{}
 			opts.HostConfig.PortBindings[dockerPort] = []docker.PortBinding{
-				docker.PortBinding{
+				{
 					HostIP:   "0.0.0.0",
 					HostPort: strconv.Itoa(p),
 				},
