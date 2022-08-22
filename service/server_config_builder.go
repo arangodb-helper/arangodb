@@ -89,7 +89,7 @@ func createServerArgs(log zerolog.Logger, config Config, clusterConfig ClusterCo
 func addVolume(configVolumes []Volume, hostPath, containerPath string, readOnly bool) []Volume {
 	if runtime.GOOS == "linux" {
 		return []Volume{
-			Volume{
+			{
 				HostPath:      hostPath,
 				ContainerPath: containerPath,
 				ReadOnly:      readOnly,
