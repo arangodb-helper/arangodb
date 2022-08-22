@@ -128,7 +128,7 @@ func init() {
 
 	pf := cmdMain.PersistentFlags()
 	pf.BoolVar(&showVersion, "version", false, "If set, show version and exit")
-	pf.StringVar(&configFilePath, "config", defaultConfigFilePath, "Config file path")
+	pf.StringVarP(&configFilePath, "config", "c", defaultConfigFilePath, "Config file path")
 
 	pf.BoolVar(&opts.log.verbose, "log.verbose", false, "Turn on debug logging")
 	pf.BoolVar(&opts.log.console, "log.console", true, "Send log output to console")

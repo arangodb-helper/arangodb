@@ -105,7 +105,7 @@ func TestProcessConfigFileLoading(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --args.all.default-language=es_419 --config=test/testdata/single-passthrough.conf")
+		child := Spawn(t, "${STARTER} --args.all.default-language=es_419 -c test/testdata/single-passthrough.conf")
 		defer child.Close()
 
 		require.True(t, WaitUntilStarterReady(t, whatSingle, 1, child))
