@@ -11,6 +11,7 @@
 - Deprecate --feature.jwt.rotation CLI option
 - Add support for config file
 - Upgrade to Go 1.17.13 and alpine3.16 for build image
+- Unpin x/sys pkg and upgrade dependencies to mitigate CVEs
 
 ## [0.15.4](https://github.com/arangodb-helper/arangodb/tree/0.15.4) (2022-03-22)
 - Use github.com/golang-jwt/jwt
