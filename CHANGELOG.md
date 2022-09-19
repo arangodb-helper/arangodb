@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [0.15.5](https://github.com/arangodb-helper/arangodb/tree/0.15.5) (2022-09-19)
 - Fix project CI: linter, tests, build, release
 - Add pass-through options usage hint
 - Return correct exit code when wrong CLI params supplied
