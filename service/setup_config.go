@@ -81,8 +81,10 @@ func (s *Service) saveSetup() error {
 // Returns true on relaunch or false to continue with a fresh start.
 func ReadSetupConfig(log zerolog.Logger, dataDir string, bsCfg BootstrapConfig) (BootstrapConfig, ClusterConfig, bool, error) {
 	// Is this a new start or a restart?
-	setupContent, err := ioutil.ReadFile(filepath.Join(dataDir, setupFileName))
+	confFile := filepath.Join(dataDir, setupFileName)
+	setupContent, err := ioutil.ReadFile(confFile)
 	if err != nil {
+		log.Info().Err(err).Msgf("Failed to read configuration file \"%s\"", confFile)
 		return bsCfg, ClusterConfig{}, false, nil
 	}
 	// Could read file
