@@ -16,6 +16,7 @@ install:
 
 script:
   - |
+    set -e
     make license-verify fmt-verify linter
     make run-unit-tests
     if [ "$TRAVIS_PULL_REQUEST" != "false" ] || [ ! -z "$ALWAYS" ]; then
