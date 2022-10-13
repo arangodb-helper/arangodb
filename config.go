@@ -26,6 +26,7 @@ func loadCfgFromFile(cfgFilePath string) (*ini.File, error) {
 	return f, nil
 }
 
+//TODO: this line will be reverted
 // findFlagByName searches for a flag in provided flag sets
 func findFlagByName(n string, flagSets ...*pflag.FlagSet) *pflag.Flag {
 	for _, fs := range flagSets {
