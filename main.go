@@ -46,6 +46,7 @@ import (
 	driver "github.com/arangodb/go-driver"
 
 	_ "github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/docker"
 	"github.com/arangodb-helper/arangodb/pkg/features"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
 	"github.com/arangodb-helper/arangodb/pkg/net"
@@ -523,10 +524,11 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	// Auto detect docker container ID (if needed)
 	dockerStarterImage := defaultDockerStarterImage
 	runningInDocker := false
-	if isRunningInDocker() {
+	if docker.IsRunningInDocker() {
 		runningInDocker = true
-		info, err := findDockerContainerInfo(opts.docker.endpoint)
+		info, err := docker.FindDockerContainerInfo(opts.docker.endpoint)
 		if err != nil {
+			log.Warn().Err(err).Msgf("could not find docker container info")
 			if opts.docker.containerName == "" {
 				showDockerContainerNameMissingHelp()
 			}
@@ -720,7 +722,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		LogRotateFilesToKeep:    opts.log.rotateFilesToKeep,
 		LogRotateInterval:       opts.log.rotateInterval,
 		InstanceUpTimeout:       opts.starter.instanceUpTimeout,
-		RunningInDocker:         isRunningInDocker(),
+		RunningInDocker:         docker.IsRunningInDocker(),
 		DockerContainerName:     opts.docker.containerName,
 		DockerEndpoint:          opts.docker.endpoint,
 		DockerArangodImage:      opts.docker.arangodImage,
