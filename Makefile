@@ -10,9 +10,7 @@ VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
 MAKEFILE := $(ROOTDIR)/Makefile
 
-ifndef MULTIARCH
-MULTIARCH:=1
-endif
+MULTIARCH ?= 1
 
 ALPINE_IMAGE ?= alpine:3.11
 
@@ -170,16 +168,15 @@ $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	@mkdir -p $(BINDIR)
 	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" ./test
 
-ifndef MULTIARCH
+ifneq ($(MULTIARCH),1)
 docker: build
 	$(DOCKERCLI) build -t arangodb/arangodb-starter --build-arg "IMAGE=$(ALPINE_IMAGE)" .
 else
 docker: binaries
-	$(DOCKERCLI) buildx build -f "$(ROOTDIR)/Dockerfile.ma" --build-arg "IMAGE=$(ALPINE_IMAGE)" \
-			--platform linux/amd64,linux/arm64 -t arangodb/arangodb-starter .
+	$(DOCKERMACLI) -t arangodb/arangodb-starter .
 endif
 
-ifndef MULTIARCH
+ifneq ($(MULTIARCH),1)
 docker-push: docker
 ifneq ($(DOCKERNAMESPACE), arangodb)
 	docker tag arangodb/arangodb-starter $(DOCKERNAMESPACE)/arangodb-starter
@@ -190,7 +187,7 @@ docker-push: docker
 	$(DOCKERMACLI) --push -t $(DOCKERNAMESPACE)/arangodb-starter .
 endif
 
-ifndef MULTIARCH
+ifneq ($(MULTIARCH),1)
 docker-push-version: docker
 	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
 	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)

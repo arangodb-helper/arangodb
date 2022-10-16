@@ -13,6 +13,7 @@ env:
 
 install:
   - make init
+  - docker buildx create --use --name=arangodb_starter_buildx || echo "buildx already exists?"
 
 script:
   - |
