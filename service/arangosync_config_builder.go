@@ -41,6 +41,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
@@ -216,7 +217,13 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 
 		// Append all values
 		for _, value := range values {
-			args = append(args, options.FormattedOptionName(key), value)
+			// arangosync uses this spf13/pflag pkg which allows passing boolean flags only in key=value notation:
+			_, err := strconv.ParseBool(value)
+			if err == nil {
+				args = append(args, fmt.Sprintf("%s=%s", options.FormattedOptionName(key), value))
+			} else {
+				args = append(args, options.FormattedOptionName(key), value)
+			}
 		}
 	}
 
