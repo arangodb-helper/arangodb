@@ -46,52 +46,30 @@ func TestProcessClusterSync(t *testing.T) {
 
 	start := time.Now()
 
-	master := Spawn(t, strings.Join([]string{
+	starterArgs := []string{
 		"${STARTER}",
 		"--starter.address=" + ip,
 		"--server.storage-engine=rocksdb",
+		"--auth.jwt-secret=" + certs.ClusterSecret,
 		"--starter.sync",
 		"--sync.server.keyfile=" + certs.TLS.DCA.Keyfile,
 		"--sync.server.client-cafile=" + certs.ClientAuth.CACertificate,
 		"--sync.master.jwt-secret=" + certs.MasterSecret,
-		"--auth.jwt-secret=" + certs.ClusterSecret,
 		"--sync.monitoring.token=" + syncMonitoringToken,
 		createEnvironmentStarterOptions(),
-	}, " "))
+	}
+
+	master := Spawn(t, strings.Join(starterArgs, " "))
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, strings.Join([]string{
-		"${STARTER}",
-		"--starter.join=" + ip,
-		"--starter.address=" + ip,
-		"--server.storage-engine=rocksdb",
-		"--starter.sync",
-		"--sync.server.keyfile=" + certs.TLS.DCA.Keyfile,
-		"--sync.server.client-cafile=" + certs.ClientAuth.CACertificate,
-		"--sync.master.jwt-secret=" + certs.MasterSecret,
-		"--auth.jwt-secret=" + certs.ClusterSecret,
-		"--sync.monitoring.token=" + syncMonitoringToken,
-		createEnvironmentStarterOptions(),
-	}, " "))
+	slave1 := Spawn(t, strings.Join(append(starterArgs, "--starter.join="+ip), " "))
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, strings.Join([]string{
-		"${STARTER}",
-		"--starter.join=" + ip,
-		"--starter.address=" + ip,
-		"--server.storage-engine=rocksdb",
-		"--starter.sync",
-		"--sync.server.keyfile=" + certs.TLS.DCA.Keyfile,
-		"--sync.server.client-cafile=" + certs.ClientAuth.CACertificate,
-		"--sync.master.jwt-secret=" + certs.MasterSecret,
-		"--auth.jwt-secret=" + certs.ClusterSecret,
-		"--sync.monitoring.token=" + syncMonitoringToken,
-		createEnvironmentStarterOptions(),
-	}, " "))
+	slave2 := Spawn(t, strings.Join(append(starterArgs, "--starter.join="+ip), " "))
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
@@ -101,8 +79,6 @@ func TestProcessClusterSync(t *testing.T) {
 		testClusterWithSync(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
+	logVerbose(t, "Waiting for termination")
 	SendIntrAndWait(t, master, slave1, slave2)
 }

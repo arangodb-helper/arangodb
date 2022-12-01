@@ -97,6 +97,12 @@ func init() {
 	}
 }
 
+func logVerbose(t *testing.T, format string, args ...interface{}) {
+	if isVerbose || testing.Verbose() {
+		t.Logf(format, args...)
+	}
+}
+
 func needTestMode(t *testing.T, testMode string) {
 	for _, x := range testModes {
 		if x == testMode {

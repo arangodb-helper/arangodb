@@ -30,7 +30,25 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
+
+// createDockerVolumes creates docker volume for each provided prefix and returns the list of volume ids and cleanup function
+func createDockerVolumes(t *testing.T, prefixes ...string) ([]string, func()) {
+	ids := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		id := createDockerID(prefix)
+		ids = append(ids, id)
+		createDockerVolume(t, id)
+	}
+	require.Len(t, ids, len(prefixes))
+	return ids, func() {
+		for _, id := range ids {
+			removeDockerVolume(t, id)
+		}
+	}
+}
 
 func createDockerVolume(t *testing.T, id string) {
 	c := Spawn(t, fmt.Sprintf("docker volume create %s", id))

@@ -44,17 +44,12 @@ func TestDockerClusterSync(t *testing.T) {
 	// Create certificates
 	certs := createSyncCertificates(t, ip, true)
 
-	volID1 := createDockerID("vol-starter-test-cluster-sync1-")
-	createDockerVolume(t, volID1)
-	defer removeDockerVolume(t, volID1)
-
-	volID2 := createDockerID("vol-starter-test-cluster-sync2-")
-	createDockerVolume(t, volID2)
-	defer removeDockerVolume(t, volID2)
-
-	volID3 := createDockerID("vol-starter-test-cluster-sync3-")
-	createDockerVolume(t, volID3)
-	defer removeDockerVolume(t, volID3)
+	volumeIDs, cleanVolumes := createDockerVolumes(t,
+		"vol-starter-test-cluster-sync1-",
+		"vol-starter-test-cluster-sync2-",
+		"vol-starter-test-cluster-sync3-",
+	)
+	defer cleanVolumes()
 
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
@@ -62,83 +57,54 @@ func TestDockerClusterSync(t *testing.T) {
 
 	start := time.Now()
 
-	cID1 := createDockerID("starter-test-cluster-sync1-")
-	dockerRun1 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID1,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort, basePort),
-		fmt.Sprintf("-v %s:/data", volID1),
-		fmt.Sprintf("-v %s:/certs", certs.Dir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID1,
+	baseStarterArgs := []string{
 		"--starter.address=$IP",
 		"--server.storage-engine=rocksdb",
+		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
+		createEnvironmentStarterOptions(),
+	}
+	syncArgs := []string{
 		"--starter.sync",
 		"--sync.server.keyfile=/certs/" + filepath.Base(certs.TLS.DCA.Keyfile),
 		"--sync.server.client-cafile=/certs/" + filepath.Base(certs.ClientAuth.CACertificate),
 		"--sync.master.jwt-secret=/certs/" + filepath.Base(certs.MasterSecret),
-		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
 		"--sync.monitoring.token=" + syncMonitoringToken,
-		createEnvironmentStarterOptions(),
-	}, " "))
+	}
+	prepareStarterContainerArgs := func(master bool, containerName, volumeID string, exposedPort int, moreArgs ...string) []string {
+		args := []string{
+			"docker run -i",
+			"--label starter-test=true",
+			"--name=" + containerName,
+			"--rm",
+			createLicenseKeyOption(),
+			fmt.Sprintf("-p %d:%d", exposedPort, basePort),
+			fmt.Sprintf("-v %s:/data", volumeID),
+			fmt.Sprintf("-v %s:/certs", certs.Dir),
+			"-v /var/run/docker.sock:/var/run/docker.sock",
+			"arangodb/arangodb-starter",
+			"--docker.container=" + containerName,
+		}
+		if !master {
+			args = append(args, fmt.Sprintf("--starter.join=$IP:%d", basePort))
+		}
+		return append(args, moreArgs...)
+	}
+
+	cID1 := createDockerID("starter-test-cluster-sync1-")
+	args1 := append(prepareStarterContainerArgs(true, cID1, volumeIDs[0], basePort, baseStarterArgs...), syncArgs...)
+	dockerRun1 := Spawn(t, strings.Join(args1, " "))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
 	cID2 := createDockerID("starter-test-cluster-sync2-")
-	dockerRun2 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID2,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+(1*portIncrement), basePort),
-		fmt.Sprintf("-v %s:/data", volID2),
-		fmt.Sprintf("-v %s:/certs", certs.Dir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID2,
-		"--starter.address=$IP",
-		"--server.storage-engine=rocksdb",
-		"--starter.sync",
-		"--sync.server.keyfile=/certs/" + filepath.Base(certs.TLS.DCA.Keyfile),
-		"--sync.server.client-cafile=/certs/" + filepath.Base(certs.ClientAuth.CACertificate),
-		"--sync.master.jwt-secret=/certs/" + filepath.Base(certs.MasterSecret),
-		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
-		"--sync.monitoring.token=" + syncMonitoringToken,
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	args2 := append(prepareStarterContainerArgs(false, cID2, volumeIDs[1], basePort+(1*portIncrement), baseStarterArgs...), syncArgs...)
+	dockerRun2 := Spawn(t, strings.Join(args2, " "))
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
 
 	cID3 := createDockerID("starter-test-cluster-sync3-")
-	dockerRun3 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID3,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+(2*portIncrement), basePort),
-		fmt.Sprintf("-v %s:/data", volID3),
-		fmt.Sprintf("-v %s:/certs", certs.Dir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID3,
-		"--starter.address=$IP",
-		"--server.storage-engine=rocksdb",
-		"--starter.sync",
-		"--sync.server.keyfile=/certs/" + filepath.Base(certs.TLS.DCA.Keyfile),
-		"--sync.server.client-cafile=/certs/" + filepath.Base(certs.ClientAuth.CACertificate),
-		"--sync.master.jwt-secret=/certs/" + filepath.Base(certs.MasterSecret),
-		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
-		"--sync.monitoring.token=" + syncMonitoringToken,
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	args3 := append(prepareStarterContainerArgs(false, cID3, volumeIDs[2], basePort+(2*portIncrement), baseStarterArgs...), syncArgs...)
+	dockerRun3 := Spawn(t, strings.Join(args3, " "))
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
