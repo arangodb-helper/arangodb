@@ -23,12 +23,11 @@
 package test
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestDockerClusterSync runs 3 arangodb starters in docker with arangosync enabled.
@@ -37,9 +36,11 @@ func TestDockerClusterSync(t *testing.T) {
 	needStarterMode(t, starterModeCluster)
 	needEnterprise(t)
 	ip := os.Getenv("IP")
-	if ip == "" {
-		t.Fatal("IP envvar must be set to IP address of this machine")
-	}
+	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
+
+	// Cleanup of left over tests
+	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
 
 	// Create certificates
 	certs := createSyncCertificates(t, ip, true)
@@ -51,72 +52,20 @@ func TestDockerClusterSync(t *testing.T) {
 	)
 	defer cleanVolumes()
 
-	// Cleanup of left over tests
-	removeDockerContainersByLabel(t, "starter-test=true")
-	removeStarterCreatedDockerContainers(t)
-
-	start := time.Now()
-
-	baseStarterArgs := []string{
+	starterArgs := []string{
 		"--starter.address=$IP",
 		"--server.storage-engine=rocksdb",
 		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
-		createEnvironmentStarterOptions(),
-	}
-	syncArgs := []string{
 		"--starter.sync",
 		"--sync.server.keyfile=/certs/" + filepath.Base(certs.TLS.DCA.Keyfile),
 		"--sync.server.client-cafile=/certs/" + filepath.Base(certs.ClientAuth.CACertificate),
 		"--sync.master.jwt-secret=/certs/" + filepath.Base(certs.MasterSecret),
 		"--sync.monitoring.token=" + syncMonitoringToken,
-	}
-	prepareStarterContainerArgs := func(master bool, containerName, volumeID string, exposedPort int, moreArgs ...string) []string {
-		args := []string{
-			"docker run -i",
-			"--label starter-test=true",
-			"--name=" + containerName,
-			"--rm",
-			createLicenseKeyOption(),
-			fmt.Sprintf("-p %d:%d", exposedPort, basePort),
-			fmt.Sprintf("-v %s:/data", volumeID),
-			fmt.Sprintf("-v %s:/certs", certs.Dir),
-			"-v /var/run/docker.sock:/var/run/docker.sock",
-			"arangodb/arangodb-starter",
-			"--docker.container=" + containerName,
-		}
-		if !master {
-			args = append(args, fmt.Sprintf("--starter.join=$IP:%d", basePort))
-		}
-		return append(args, moreArgs...)
+		createEnvironmentStarterOptions(),
 	}
 
-	cID1 := createDockerID("starter-test-cluster-sync1-")
-	args1 := append(prepareStarterContainerArgs(true, cID1, volumeIDs[0], basePort, baseStarterArgs...), syncArgs...)
-	dockerRun1 := Spawn(t, strings.Join(args1, " "))
-	defer dockerRun1.Close()
-	defer removeDockerContainer(t, cID1)
+	procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+	defer cleanup()
 
-	cID2 := createDockerID("starter-test-cluster-sync2-")
-	args2 := append(prepareStarterContainerArgs(false, cID2, volumeIDs[1], basePort+(1*portIncrement), baseStarterArgs...), syncArgs...)
-	dockerRun2 := Spawn(t, strings.Join(args2, " "))
-	defer dockerRun2.Close()
-	defer removeDockerContainer(t, cID2)
-
-	cID3 := createDockerID("starter-test-cluster-sync3-")
-	args3 := append(prepareStarterContainerArgs(false, cID3, volumeIDs[2], basePort+(2*portIncrement), baseStarterArgs...), syncArgs...)
-	dockerRun3 := Spawn(t, strings.Join(args3, " "))
-	defer dockerRun3.Close()
-	defer removeDockerContainer(t, cID3)
-
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, dockerRun1, dockerRun2, dockerRun3); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testClusterWithSync(t, insecureStarterEndpoint(0*portIncrement), false)
-		testClusterWithSync(t, insecureStarterEndpoint(1*portIncrement), false)
-		testClusterWithSync(t, insecureStarterEndpoint(2*portIncrement), false)
-	}
-
-	waitForCallFunction(t,
-		ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)),
-		ShutdownStarterCall(insecureStarterEndpoint(1*portIncrement)),
-		ShutdownStarterCall(insecureStarterEndpoint(2*portIncrement)))
+	waitForClusterReadinessAndFinish(t, true, false, procs...)
 }

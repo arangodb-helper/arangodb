@@ -86,11 +86,6 @@ func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API
 	return testClusterPeer(t, starterEndpoint, isSecure, false, 0)
 }
 
-// testClusterWithSync runs a series of tests to verify a good cluster with synchronization enabled.
-func testClusterWithSync(t *testing.T, starterEndpoint string, isSecure bool) client.API {
-	return testClusterPeer(t, starterEndpoint, isSecure, true, time.Minute)
-}
-
 // testClusterPeer runs a series of tests to verify a cluster peer.
 func testClusterPeer(t *testing.T, starterEndpoint string, isSecure, syncEnabled bool, reachableTimeout time.Duration) client.API {
 	c := NewStarterClient(t, starterEndpoint)
@@ -372,15 +367,57 @@ func startCluster(t *testing.T, ip string, args []string, peerDirs []string) ([]
 	}
 }
 
+// startClusterInDocker runs starter instance using Docker for each entry in volumeIDs slice.
+func startClusterInDocker(t *testing.T, certsDir string, args []string, volumeIDs []string) ([]*SubProcess, func()) {
+	var procs []*SubProcess
+	var containers []string
+	for i, v := range volumeIDs {
+		cID := createDockerID(fmt.Sprintf("starter-test-cluster-sync%d-", i))
+		baseArgs := []string{
+			"docker run -i",
+			"--label starter-test=true",
+			"--name=" + cID,
+			"--rm",
+			createLicenseKeyOption(),
+			fmt.Sprintf("-p %d:%d", basePort+(i*portIncrement), basePort),
+			fmt.Sprintf("-v %s:/data", v),
+			fmt.Sprintf("-v %s:/certs", certsDir),
+			"-v /var/run/docker.sock:/var/run/docker.sock",
+			"arangodb/arangodb-starter",
+			"--docker.container=" + cID,
+		}
+		if i > 0 {
+			// start slave
+			baseArgs = append(baseArgs, fmt.Sprintf("--starter.join=$IP:%d", basePort))
+		}
+		baseArgs = append(baseArgs, args...)
+		procs = append(procs, Spawn(t, strings.Join(baseArgs, " ")))
+		containers = append(containers, cID)
+	}
+	return procs, func() {
+		for _, p := range procs {
+			p.Close()
+		}
+		for _, c := range containers {
+			removeDockerContainer(t, c)
+		}
+	}
+}
+
+// waitForClusterReadinessAndFinish waits until cluster will become available, runs tests against it and then terminates it.
 func waitForClusterReadinessAndFinish(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
-	WaitUntilStarterReady(t, whatCluster, 3, procs...)
+	WaitUntilStarterReady(t, whatCluster, len(procs), procs...)
 	var timeout time.Duration
+	if syncEnabled {
+		timeout = time.Minute
+	}
 	if isRelaunch {
 		timeout = time.Second * 5
 	}
-	testClusterPeer(t, insecureStarterEndpoint(0*portIncrement), false, syncEnabled, timeout)
-	testClusterPeer(t, insecureStarterEndpoint(1*portIncrement), false, syncEnabled, timeout)
-	testClusterPeer(t, insecureStarterEndpoint(2*portIncrement), false, syncEnabled, timeout)
+
+	for i := range procs {
+		testClusterPeer(t, insecureStarterEndpoint(i*portIncrement), false, syncEnabled, timeout)
+	}
 
 	logVerbose(t, "Waiting for termination")
 	SendIntrAndWait(t, procs...)
