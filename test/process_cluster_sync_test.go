@@ -24,9 +24,7 @@ package test
 
 import (
 	"os"
-	"strings"
 	"testing"
-	"time"
 )
 
 // TestProcessClusterSync starts a master starter, followed by 2 slave starters,
@@ -41,15 +39,16 @@ func TestProcessClusterSync(t *testing.T) {
 	ip := "127.0.0.1"
 	certs := createSyncCertificates(t, ip, false)
 
-	dataDirMaster := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirMaster)
-
-	start := time.Now()
+	peerDirs := []string{SetUniqueDataDir(t), SetUniqueDataDir(t), SetUniqueDataDir(t)}
+	defer func() {
+		for _, d := range peerDirs {
+			os.RemoveAll(d)
+		}
+	}()
 
 	starterArgs := []string{
 		"${STARTER}",
 		"--starter.address=" + ip,
-		"--server.storage-engine=rocksdb",
 		"--auth.jwt-secret=" + certs.ClusterSecret,
 		"--starter.sync",
 		"--sync.server.keyfile=" + certs.TLS.DCA.Keyfile,
@@ -58,27 +57,8 @@ func TestProcessClusterSync(t *testing.T) {
 		"--sync.monitoring.token=" + syncMonitoringToken,
 		createEnvironmentStarterOptions(),
 	}
+	procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
+	defer cleanup()
 
-	master := Spawn(t, strings.Join(starterArgs, " "))
-	defer master.Close()
-
-	dataDirSlave1 := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, strings.Join(append(starterArgs, "--starter.join="+ip), " "))
-	defer slave1.Close()
-
-	dataDirSlave2 := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, strings.Join(append(starterArgs, "--starter.join="+ip), " "))
-	defer slave2.Close()
-
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testClusterWithSync(t, insecureStarterEndpoint(0*portIncrement), false)
-		testClusterWithSync(t, insecureStarterEndpoint(1*portIncrement), false)
-		testClusterWithSync(t, insecureStarterEndpoint(2*portIncrement), false)
-	}
-
-	logVerbose(t, "Waiting for termination")
-	SendIntrAndWait(t, master, slave1, slave2)
+	waitForClusterReadinessAndFinish(t, true, false, procs...)
 }

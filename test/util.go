@@ -164,9 +164,7 @@ func SpawnWithExpand(t *testing.T, command string, expand bool) *SubProcess {
 // SetUniqueDataDir creates a temp dir and sets the DATA_DIR environment variable to it.
 func SetUniqueDataDir(t *testing.T) string {
 	dataDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatal(describe(err))
-	}
+	require.NoError(t, err)
 	os.Setenv("DATA_DIR", dataDir)
 	return dataDir
 }
