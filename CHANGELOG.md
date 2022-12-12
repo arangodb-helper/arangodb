@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix restarting cluster with arangosync enabled
 
 ## [0.15.5](https://github.com/arangodb-helper/arangodb/tree/0.15.5) (2022-09-19)
 - Fix project CI: linter, tests, build, release

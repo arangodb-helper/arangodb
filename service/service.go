@@ -1230,7 +1230,7 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 }
 
 // Run runs the service in either master or slave mode.
-func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers ClusterConfig, shouldRelaunch bool) error {
+func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterConfig ClusterConfig, shouldRelaunch bool) error {
 	// Prepare a context that is cancelled when we need to stop
 	s.stopPeer.ctx, s.stopPeer.trigger = context.WithCancel(rootCtx)
 
@@ -1303,7 +1303,8 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 
 	// Is this a new start or a restart?
 	if shouldRelaunch {
-		s.myPeers = myPeers
+		clusterConfig = s.adjustClusterConfigForRelaunch(clusterConfig, bsCfg)
+		s.myPeers = clusterConfig
 		s.log.Info().Msgf("Relaunching service with id '%s' on %s:%d...", s.id, s.cfg.OwnAddress, s.announcePort)
 		storageEngine, err := s.readActualStorageEngine()
 		if err != nil {
@@ -1315,7 +1316,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 		s.startHTTPServer(s.cfg)
 		wg := &sync.WaitGroup{}
 		if bsCfg.StartLocalSlaves {
-			s.startLocalSlaves(wg, s.cfg, bsCfg, myPeers.AllPeers)
+			s.startLocalSlaves(wg, s.cfg, bsCfg, clusterConfig.AllPeers)
 		}
 		s.startRunning(runner, s.cfg, bsCfg)
 		wg.Wait()
@@ -1336,4 +1337,15 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	}
 
 	return nil
+}
+
+func (s *Service) adjustClusterConfigForRelaunch(clusterConfig ClusterConfig, bsCfg BootstrapConfig) ClusterConfig {
+	if s.cfg.SyncEnabled {
+		clusterConfig.ForEachPeer(func(p Peer) Peer {
+			p.HasSyncMasterFlag = bsCfg.StartSyncMaster == nil || *bsCfg.StartSyncMaster
+			p.HasSyncWorkerFlag = bsCfg.StartSyncWorker == nil || *bsCfg.StartSyncWorker
+			return p
+		})
+	}
+	return clusterConfig
 }

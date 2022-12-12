@@ -69,7 +69,7 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		os.MkdirAll(p.DataDir, 0755)
 
 		// Read existing setup.json (if any)
-		slaveBsCfg, myPeers, relaunch, _ := ReadSetupConfig(slaveLog, p.DataDir, slaveBsCfg)
+		slaveBsCfg, clusterConfig, relaunch, _ := ReadSetupConfig(slaveLog, p.DataDir, slaveBsCfg)
 		slaveConfig := config // Create copy
 		slaveConfig.DataDir = p.DataDir
 		slaveConfig.MasterAddresses = []string{masterAddr}
@@ -77,7 +77,7 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := slaveService.Run(s.stopPeer.ctx, slaveBsCfg, myPeers, relaunch); err != nil {
+			if err := slaveService.Run(s.stopPeer.ctx, slaveBsCfg, clusterConfig, relaunch); err != nil {
 				s.log.Error().Str("peer", p.ID).Err(err).Msg("Unable to start one of peers")
 			}
 		}()

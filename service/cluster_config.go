@@ -103,6 +103,13 @@ func (p *ClusterConfig) UpdatePeerByID(update Peer) bool {
 	return false
 }
 
+// ForEachPeer updates all peers using predicate
+func (p *ClusterConfig) ForEachPeer(updateFunc func(p Peer) Peer) {
+	for i, peer := range p.AllPeers {
+		p.AllPeers[i] = updateFunc(peer)
+	}
+}
+
 // AddPeer adds the given peer to the list of all peers, only if the id is not yet one of the peers.
 // Returns true of success, false otherwise
 func (p *ClusterConfig) AddPeer(newPeer Peer) bool {
