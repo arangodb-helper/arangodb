@@ -24,9 +24,7 @@ package test
 
 import (
 	"os"
-	"strings"
 	"testing"
-	"time"
 )
 
 // TestProcessClusterSync starts a master starter, followed by 2 slave starters,
@@ -41,68 +39,26 @@ func TestProcessClusterSync(t *testing.T) {
 	ip := "127.0.0.1"
 	certs := createSyncCertificates(t, ip, false)
 
-	dataDirMaster := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirMaster)
+	peerDirs := []string{SetUniqueDataDir(t), SetUniqueDataDir(t), SetUniqueDataDir(t)}
+	defer func() {
+		for _, d := range peerDirs {
+			os.RemoveAll(d)
+		}
+	}()
 
-	start := time.Now()
-
-	master := Spawn(t, strings.Join([]string{
+	starterArgs := []string{
 		"${STARTER}",
 		"--starter.address=" + ip,
-		"--server.storage-engine=rocksdb",
+		"--auth.jwt-secret=" + certs.ClusterSecret,
 		"--starter.sync",
 		"--sync.server.keyfile=" + certs.TLS.DCA.Keyfile,
 		"--sync.server.client-cafile=" + certs.ClientAuth.CACertificate,
 		"--sync.master.jwt-secret=" + certs.MasterSecret,
-		"--auth.jwt-secret=" + certs.ClusterSecret,
 		"--sync.monitoring.token=" + syncMonitoringToken,
 		createEnvironmentStarterOptions(),
-	}, " "))
-	defer master.Close()
-
-	dataDirSlave1 := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, strings.Join([]string{
-		"${STARTER}",
-		"--starter.join=" + ip,
-		"--starter.address=" + ip,
-		"--server.storage-engine=rocksdb",
-		"--starter.sync",
-		"--sync.server.keyfile=" + certs.TLS.DCA.Keyfile,
-		"--sync.server.client-cafile=" + certs.ClientAuth.CACertificate,
-		"--sync.master.jwt-secret=" + certs.MasterSecret,
-		"--auth.jwt-secret=" + certs.ClusterSecret,
-		"--sync.monitoring.token=" + syncMonitoringToken,
-		createEnvironmentStarterOptions(),
-	}, " "))
-	defer slave1.Close()
-
-	dataDirSlave2 := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, strings.Join([]string{
-		"${STARTER}",
-		"--starter.join=" + ip,
-		"--starter.address=" + ip,
-		"--server.storage-engine=rocksdb",
-		"--starter.sync",
-		"--sync.server.keyfile=" + certs.TLS.DCA.Keyfile,
-		"--sync.server.client-cafile=" + certs.ClientAuth.CACertificate,
-		"--sync.master.jwt-secret=" + certs.MasterSecret,
-		"--auth.jwt-secret=" + certs.ClusterSecret,
-		"--sync.monitoring.token=" + syncMonitoringToken,
-		createEnvironmentStarterOptions(),
-	}, " "))
-	defer slave2.Close()
-
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
-		t.Logf("Cluster start took %s", time.Since(start))
-		testClusterWithSync(t, insecureStarterEndpoint(0*portIncrement), false)
-		testClusterWithSync(t, insecureStarterEndpoint(1*portIncrement), false)
-		testClusterWithSync(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
+	procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
+	defer cleanup()
 
-	if isVerbose {
-		t.Log("Waiting for termination")
-	}
-	SendIntrAndWait(t, master, slave1, slave2)
+	waitForClusterReadinessAndFinish(t, true, false, procs...)
 }

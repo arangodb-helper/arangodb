@@ -97,6 +97,12 @@ func init() {
 	}
 }
 
+func logVerbose(t *testing.T, format string, args ...interface{}) {
+	if isVerbose || testing.Verbose() {
+		t.Logf(format, args...)
+	}
+}
+
 func needTestMode(t *testing.T, testMode string) {
 	for _, x := range testModes {
 		if x == testMode {
@@ -128,24 +134,21 @@ func needEnterprise(t *testing.T) {
 	t.Skip("Enterprise is not available")
 }
 
-// Spawn a command an return its process and expand envs.
+// Spawn spawns a command and returns its process with optionally expanded envs.
 func Spawn(t *testing.T, command string) *SubProcess {
 	return SpawnWithExpand(t, command, true)
 }
 
-// Spawn a command an return its process with optionally expanded envs.
+// SpawnWithExpand spawns a command and returns its process with optionally expanded envs.
 func SpawnWithExpand(t *testing.T, command string, expand bool) *SubProcess {
 	command = strings.TrimSpace(command)
 	if expand {
 		command = os.ExpandEnv(command)
 	}
-	t.Logf("Executing command: %s", command)
+	logVerbose(t, "Executing command: %s", command)
 	args, err := shell.Split(command)
 	if err != nil {
 		t.Fatal(describe(err))
-	}
-	if isVerbose {
-		t.Log(args, len(args))
 	}
 	p, err := NewSubProcess(args[0], args[1:]...)
 	if err != nil {
@@ -161,9 +164,7 @@ func SpawnWithExpand(t *testing.T, command string, expand bool) *SubProcess {
 // SetUniqueDataDir creates a temp dir and sets the DATA_DIR environment variable to it.
 func SetUniqueDataDir(t *testing.T) string {
 	dataDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatal(describe(err))
-	}
+	require.NoError(t, err)
 	os.Setenv("DATA_DIR", dataDir)
 	return dataDir
 }

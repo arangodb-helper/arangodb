@@ -41,7 +41,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
@@ -168,15 +167,11 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 			optionPair{"--mq.type", config.SyncMQType},
 		)
 		if clusterJWTSecretFile != "" {
-			if !features.GetJWTFolderOption() {
-				opts = append(opts,
-					optionPair{"--cluster.jwt-secret", clusterJWTSecretFile},
-				)
-			} else {
-				opts = append(opts,
-					optionPair{"--cluster.jwt-secret", path.Join(clusterJWTSecretFile, definitions.ArangodJWTSecretActive)},
-				)
+			jwtSecretPath := clusterJWTSecretFile
+			if features.GetJWTFolderOption() {
+				jwtSecretPath = path.Join(clusterJWTSecretFile, definitions.ArangodJWTSecretActive)
 			}
+			opts = append(opts, optionPair{"--cluster.jwt-secret", jwtSecretPath})
 		}
 		if clusterEPs, err := clusterConfig.GetCoordinatorEndpoints(); err == nil {
 			if len(clusterEPs) == 0 {
@@ -197,8 +192,7 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 				return nil, maskAny(fmt.Errorf("No sync masters found"))
 			}
 			for _, ep := range syncMasterEPs {
-				opts = append(opts,
-					optionPair{"--master.endpoint", ep})
+				opts = append(opts, optionPair{"--master.endpoint", ep})
 			}
 		} else {
 			log.Error().Err(err).Msg("Cannot find sync master endpoints")
@@ -227,15 +221,4 @@ func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig Clust
 	}
 
 	return args, nil
-}
-
-func isOptionSuitableForArangoSyncServer(serverType definitions.ServerType, optionName string) bool {
-	switch serverType {
-	case definitions.ServerTypeSyncMaster:
-	case definitions.ServerTypeSyncWorker:
-		if strings.HasPrefix(optionName, "mq.") || strings.HasPrefix(optionName, "cluster.") {
-			return false
-		}
-	}
-	return true
 }

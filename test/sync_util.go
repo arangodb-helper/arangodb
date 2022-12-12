@@ -54,7 +54,7 @@ type syncCertificates struct {
 	MasterSecret  string // Path of JWT secret file used for worker->master authentication
 }
 
-// TestDockerClusterSync runs 3 arangodb starters in docker with arangosync enabled.
+// createSyncCertificates creates certificates required for running dc2dc sync
 func createSyncCertificates(t *testing.T, ip string, useDocker bool) syncCertificates {
 	image := os.Getenv("ARANGODB")
 	if image == "" && useDocker {

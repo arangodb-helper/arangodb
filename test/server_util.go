@@ -28,10 +28,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 
 	"github.com/arangodb/go-driver"
 	driverhttp "github.com/arangodb/go-driver/http"
@@ -80,15 +83,13 @@ func secureStarterEndpoint(portOffset int) string {
 
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
-	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, false, 0, 0)
-	return c
+	return testClusterPeer(t, starterEndpoint, isSecure, false, 0)
 }
 
-// testClusterWithSync runs a series of tests to verify a good cluster with synchronization enabled.
-func testClusterWithSync(t *testing.T, starterEndpoint string, isSecure bool) client.API {
+// testClusterPeer runs a series of tests to verify a cluster peer.
+func testClusterPeer(t *testing.T, starterEndpoint string, isSecure, syncEnabled bool, reachableTimeout time.Duration) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, 0, time.Minute*5)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, syncEnabled, 0, reachableTimeout)
 	return c
 }
 
@@ -280,7 +281,7 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess, timeout time.Du
 			return
 		}
 		if timeout == 0 || time.Since(start) > timeout {
-			t.Errorf("Failed to reach arangod at %s:%d %s", sp.IP, sp.Port, describe(err))
+			t.Errorf("Failed to reach arangod %s at %s:%d %s", sp.Type, sp.IP, sp.Port, describe(err))
 			return
 		}
 		time.Sleep(time.Second)
@@ -345,4 +346,79 @@ func CreateClient(t *testing.T, starterEndpoint string, serverType client.Server
 		return nil, errors.Wrap(err, "failed to create a new client")
 	}
 	return client, nil
+}
+
+// startCluster runs starter instance for each entry in peerDirs slice.
+func startCluster(t *testing.T, ip string, args []string, peerDirs []string) ([]*SubProcess, func()) {
+	var procs []*SubProcess
+	for i, p := range peerDirs {
+		require.NoError(t, os.Setenv("DATA_DIR", p))
+		args := args
+		if i > 0 {
+			// run slaves
+			args = append(args, "--starter.join="+ip)
+		}
+		procs = append(procs, Spawn(t, strings.Join(args, " ")))
+	}
+	return procs, func() {
+		for _, p := range procs {
+			p.Close()
+		}
+	}
+}
+
+// startClusterInDocker runs starter instance using Docker for each entry in volumeIDs slice.
+func startClusterInDocker(t *testing.T, certsDir string, args []string, volumeIDs []string) ([]*SubProcess, func()) {
+	var procs []*SubProcess
+	var containers []string
+	for i, v := range volumeIDs {
+		cID := createDockerID(fmt.Sprintf("starter-test-cluster-sync%d-", i))
+		baseArgs := []string{
+			"docker run -i",
+			"--label starter-test=true",
+			"--name=" + cID,
+			"--rm",
+			createLicenseKeyOption(),
+			fmt.Sprintf("-p %d:%d", basePort+(i*portIncrement), basePort),
+			fmt.Sprintf("-v %s:/data", v),
+			fmt.Sprintf("-v %s:/certs", certsDir),
+			"-v /var/run/docker.sock:/var/run/docker.sock",
+			"arangodb/arangodb-starter",
+			"--docker.container=" + cID,
+		}
+		if i > 0 {
+			// start slave
+			baseArgs = append(baseArgs, fmt.Sprintf("--starter.join=$IP:%d", basePort))
+		}
+		baseArgs = append(baseArgs, args...)
+		procs = append(procs, Spawn(t, strings.Join(baseArgs, " ")))
+		containers = append(containers, cID)
+	}
+	return procs, func() {
+		for _, p := range procs {
+			p.Close()
+		}
+		for _, c := range containers {
+			removeDockerContainer(t, c)
+		}
+	}
+}
+
+// waitForClusterReadinessAndFinish waits until cluster will become available, runs tests against it and then terminates it.
+func waitForClusterReadinessAndFinish(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
+	WaitUntilStarterReady(t, whatCluster, len(procs), procs...)
+	var timeout time.Duration
+	if syncEnabled {
+		timeout = time.Minute
+	}
+	if isRelaunch {
+		timeout = time.Second * 5
+	}
+
+	for i := range procs {
+		testClusterPeer(t, insecureStarterEndpoint(i*portIncrement), false, syncEnabled, timeout)
+	}
+
+	logVerbose(t, "Waiting for termination")
+	SendIntrAndWait(t, procs...)
 }
