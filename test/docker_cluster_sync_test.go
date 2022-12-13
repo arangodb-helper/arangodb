@@ -69,3 +69,107 @@ func TestDockerClusterSync(t *testing.T) {
 
 	waitForClusterReadinessAndFinish(t, true, false, procs...)
 }
+
+func TestDockerClusterRestartWithSyncOnAndOff(t *testing.T) {
+	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeCluster)
+	needEnterprise(t)
+	ip := os.Getenv("IP")
+	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
+
+	// Cleanup of left over tests
+	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	// Create certificates
+	certs := createSyncCertificates(t, ip, true)
+
+	volumeIDs, cleanVolumes := createDockerVolumes(t,
+		"vol-starter-test-cluster-sync1-",
+		"vol-starter-test-cluster-sync2-",
+		"vol-starter-test-cluster-sync3-",
+	)
+	defer cleanVolumes()
+
+	starterArgs := []string{
+		"--starter.address=$IP",
+		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
+		createEnvironmentStarterOptions(),
+	}
+	{
+		logVerbose(t, "Starting cluster with sync disabled")
+		procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+		defer cleanup()
+		waitForClusterReadinessAndFinish(t, false, false, procs...)
+	}
+	{
+		syncArgs := []string{
+			"--starter.sync",
+			"--sync.server.keyfile=/certs/" + filepath.Base(certs.TLS.DCA.Keyfile),
+			"--sync.server.client-cafile=/certs/" + filepath.Base(certs.ClientAuth.CACertificate),
+			"--sync.master.jwt-secret=/certs/" + filepath.Base(certs.MasterSecret),
+			"--sync.monitoring.token=" + syncMonitoringToken,
+		}
+		logVerbose(t, "Starting cluster with sync enabled")
+		procs, cleanup := startClusterInDocker(t, certs.Dir, append(starterArgs, syncArgs...), volumeIDs)
+		defer cleanup()
+		waitForClusterReadinessAndFinish(t, true, true, procs...)
+	}
+	{
+		logVerbose(t, "Starting cluster again with sync disabled")
+		procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+		defer cleanup()
+		waitForClusterReadinessAndFinish(t, false, true, procs...)
+	}
+}
+
+func TestDockerLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
+	needTestMode(t, testModeDocker)
+	needStarterMode(t, starterModeCluster)
+	needEnterprise(t)
+	ip := os.Getenv("IP")
+	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
+
+	// Cleanup of left over tests
+	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	// Create certificates
+	certs := createSyncCertificates(t, ip, true)
+
+	volumeIDs, cleanVolumes := createDockerVolumes(t, "vol-starter-test-cluster-sync-")
+	defer cleanVolumes()
+
+	starterArgs := []string{
+		"--starter.local",
+		"--starter.address=$IP",
+		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
+		createEnvironmentStarterOptions(),
+	}
+	{
+		logVerbose(t, "Starting cluster with sync disabled")
+		procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+		defer cleanup()
+		waitForClusterReadinessAndFinish(t, false, false, procs...)
+	}
+	{
+		syncArgs := []string{
+			"--starter.sync",
+			"--sync.server.keyfile=/certs/" + filepath.Base(certs.TLS.DCA.Keyfile),
+			"--sync.server.client-cafile=/certs/" + filepath.Base(certs.ClientAuth.CACertificate),
+			"--sync.master.jwt-secret=/certs/" + filepath.Base(certs.MasterSecret),
+			"--sync.monitoring.token=" + syncMonitoringToken,
+		}
+		logVerbose(t, "Starting cluster with sync enabled")
+		procs, cleanup := startClusterInDocker(t, certs.Dir, append(starterArgs, syncArgs...), volumeIDs)
+		defer cleanup()
+
+		waitForClusterReadinessAndFinish(t, true, true, procs...)
+	}
+	{
+		logVerbose(t, "Starting cluster again with sync disabled")
+		procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+		defer cleanup()
+		waitForClusterReadinessAndFinish(t, false, true, procs...)
+	}
+}

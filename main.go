@@ -457,10 +457,10 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Read setup.json (if exists)
-	bsCfg, peers, relaunch, _ := service.ReadSetupConfig(log, opts.starter.dataDir, bsCfg)
+	bsCfg, clusterConfig, relaunch, _ := service.ReadSetupConfig(log, opts.starter.dataDir, bsCfg)
 
 	// Run the service
-	if err := svc.Run(rootCtx, bsCfg, peers, relaunch); err != nil {
+	if err := svc.Run(rootCtx, bsCfg, clusterConfig, relaunch); err != nil {
 		log.Fatal().Err(err).Msg("Failed to run service")
 	}
 }
