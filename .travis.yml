@@ -6,10 +6,10 @@ services:
 language: go
 
 go:
-  - "1.17.x"
+  - "1.18.x"
 
 env:
-  - VERBOSE=1 MULTIARCH=0 GOIMAGE=gcr.io/gcr-for-testing/golang:1.17.13 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb:3.9.2 STARTER_MODES="single,cluster,activefailover"
+  - VERBOSE=1 MULTIARCH=0 GOIMAGE=gcr.io/gcr-for-testing/golang:1.18.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.11 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb:3.9.2 STARTER_MODES="single,cluster,activefailover"
 
 install:
   - make init

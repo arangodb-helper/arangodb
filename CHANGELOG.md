@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Fix restarting cluster with arangosync enabled
+- Upgrade Go to v1.18.6 to fix CVEs
 
 ## [0.15.5](https://github.com/arangodb-helper/arangodb/tree/0.15.5) (2022-09-19)
 - Fix project CI: linter, tests, build, release
