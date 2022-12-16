@@ -264,7 +264,7 @@ func getShardsForCollection(client driver.Client, database driver.Database,
 	return nil, errors.Errorf("there are no shards for the collection %s", collectionName)
 }
 
-//getServerIDLeaderForFirstShard returns server ID of the leader shard.
+// getServerIDLeaderForFirstShard returns server ID of the leader shard.
 func getServerIDLeaderForFirstShard(client driver.Client, database driver.Database,
 	collectionName string) (driver.ServerID, error) {
 	newShards, err := getShardsForCollection(client, database, collectionName)
