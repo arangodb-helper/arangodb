@@ -155,6 +155,7 @@ func TestProcessLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 			"--sync.server.client-cafile=" + certs.ClientAuth.CACertificate,
 			"--sync.master.jwt-secret=" + certs.MasterSecret,
 			"--sync.monitoring.token=" + syncMonitoringToken,
+			"--args.syncmasters.debug.profile=true",
 		}
 		starterArgsWithSync := append(starterArgs, syncArgs...)
 		master := Spawn(t, strings.Join(starterArgsWithSync, " "))

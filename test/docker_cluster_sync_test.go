@@ -159,6 +159,7 @@ func TestDockerLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 			"--sync.server.client-cafile=/certs/" + filepath.Base(certs.ClientAuth.CACertificate),
 			"--sync.master.jwt-secret=/certs/" + filepath.Base(certs.MasterSecret),
 			"--sync.monitoring.token=" + syncMonitoringToken,
+			"--args.syncmasters.debug.profile=true",
 		}
 		logVerbose(t, "Starting cluster with sync enabled")
 		procs, cleanup := startClusterInDocker(t, certs.Dir, append(starterArgs, syncArgs...), volumeIDs)
