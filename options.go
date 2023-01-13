@@ -174,7 +174,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 		},
 		"syncworkers": {
 			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
+				return fmt.Sprintf("Passed through to all sync workers instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
@@ -232,7 +232,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 		},
 		"args.syncworkers": {
 			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
+				return fmt.Sprintf("Passed through to all sync workers instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
