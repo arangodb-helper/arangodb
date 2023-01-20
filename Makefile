@@ -199,10 +199,10 @@ docker-push-version: docker
 	docker push arangodb/arangodb-starter:latest
 else
 docker-push-version: docker
-	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION)
-	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
-	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION_MAJOR)
-	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:latest
+	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION) .
+	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR) .
+	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION_MAJOR) .
+	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:latest .
 endif
 
 $(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
