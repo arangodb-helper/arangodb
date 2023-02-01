@@ -207,7 +207,7 @@ type ConfigurationFlag struct {
 	Usage     string
 	Value     *[]string
 
-	Deprecated bool
+	DeprecatedHint string
 }
 
 type ConfigurationPrefixes map[string]ConfigurationPrefix
@@ -255,12 +255,12 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 		}
 
 		f = append(f, ConfigurationFlag{
-			Key:        arg,
-			CleanKey:   ckey,
-			Extension:  targ,
-			Usage:      prefix.Usage(targ),
-			Value:      prefix.FieldSelector(&config, targ),
-			Deprecated: prefix.Deprecated,
+			Key:            arg,
+			CleanKey:       ckey,
+			Extension:      targ,
+			Usage:          prefix.Usage(targ),
+			Value:          prefix.FieldSelector(&config, targ),
+			DeprecatedHint: prefix.GetDeprecatedHint(targ),
 		})
 	}
 
@@ -270,7 +270,7 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 func (c ConfigurationPrefixes) UsageHint() string {
 	maxNameLen := 0
 	for n, prefix := range c {
-		if !prefix.Deprecated {
+		if prefix.GetDeprecatedHint(n) == "" {
 			if len(n) > maxNameLen {
 				maxNameLen = len(n)
 			}
@@ -279,7 +279,7 @@ func (c ConfigurationPrefixes) UsageHint() string {
 
 	parts := make([]string, 0)
 	for n, prefix := range c {
-		if !prefix.Deprecated {
+		if prefix.GetDeprecatedHint(n) == "" {
 			postfix := "<xxx>=<value>"
 			pad := maxNameLen - len(n) + len(postfix) + 8
 			parts = append(parts,
@@ -295,9 +295,16 @@ func (c ConfigurationPrefixes) UsageHint() string {
 }
 
 type ConfigurationPrefix struct {
-	Usage         func(key string) string
-	FieldSelector func(p *Configuration, key string) *[]string
-	Deprecated    bool
+	Usage                func(key string) string
+	FieldSelector        func(p *Configuration, key string) *[]string
+	DeprecatedHintFormat string
+}
+
+func (p ConfigurationPrefix) GetDeprecatedHint(key string) string {
+	if p.DeprecatedHintFormat == "" {
+		return ""
+	}
+	return fmt.Sprintf(p.DeprecatedHintFormat, key)
 }
 
 func stringListCopy(a []string) []string {

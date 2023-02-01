@@ -218,8 +218,8 @@ func init() {
 		}
 
 		f.StringSliceVar(flag.Value, flag.CleanKey, nil, flag.Usage)
-		if flag.Deprecated {
-			f.MarkDeprecated(flag.CleanKey, "Deprecated")
+		if flag.DeprecatedHint != "" {
+			f.MarkDeprecated(flag.CleanKey, flag.DeprecatedHint)
 		}
 	}
 

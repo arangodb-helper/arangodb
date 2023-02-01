@@ -125,7 +125,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByProcessTypeAndName(definitions.ServerTypeAgent, key)
 			},
-			Deprecated: true,
+			DeprecatedHintFormat: "use --args.all.%s instead",
 		},
 		"coordinators": {
 			Usage: func(key string) string {
@@ -134,7 +134,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeCoordinator, key)
 			},
-			Deprecated: true,
+			DeprecatedHintFormat: "use --args.coordinators.%s instead",
 		},
 		"dbservers": {
 			Usage: func(key string) string {
@@ -143,7 +143,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeDBServer, key)
 			},
-			Deprecated: true,
+			DeprecatedHintFormat: "use --args.dbservers.%s instead",
 		},
 		"agents": {
 			Usage: func(key string) string {
@@ -152,7 +152,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeAgent, key)
 			},
-			Deprecated: true,
+			DeprecatedHintFormat: "use --args.agents.%s instead",
 		},
 		"sync": {
 			Usage: func(key string) string {
@@ -161,7 +161,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
 			},
-			Deprecated: true,
+			DeprecatedHintFormat: "use --args.sync.%s instead",
 		},
 		"syncmasters": {
 			Usage: func(key string) string {
@@ -170,7 +170,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
 			},
-			Deprecated: true,
+			DeprecatedHintFormat: "use --args.syncmasters.%s instead",
 		},
 		"syncworkers": {
 			Usage: func(key string) string {
@@ -179,7 +179,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
 			},
-			Deprecated: true,
+			DeprecatedHintFormat: "use --args.syncworkers.%s instead",
 		},
 		// New methods for args
 		"args.all": {
