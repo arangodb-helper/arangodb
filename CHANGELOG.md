@@ -1,10 +1,12 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Improve deprecated notice for old passthrough flags
+
+## [0.15.6](https://github.com/arangodb-helper/arangodb/tree/0.15.6) (2023-01-20)
 - Fix restarting cluster with arangosync enabled
 - Upgrade Go to v1.19.4 to fix CVEs
 - Fix passing-through boolean flags to arangosync
-- Improve deprecated notice for old passthrough flags
 
 ## [0.15.5](https://github.com/arangodb-helper/arangodb/tree/0.15.5) (2022-09-19)
 - Fix project CI: linter, tests, build, release
