@@ -132,6 +132,15 @@ func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myC
 		}
 		config = append(config, rocksdbSection)
 	}
+	if bsCfg.RocksDBEncryptionKeyGenerator != "" {
+		rocksdbSection := &configSection{
+			Name: "rocksdb",
+			Settings: map[string]string{
+				"encryption-key-generator": bsCfg.RocksDBEncryptionKeyGenerator,
+			},
+		}
+		config = append(config, rocksdbSection)
+	}
 
 	out, err := os.Create(hostConfFileName)
 	if err != nil {

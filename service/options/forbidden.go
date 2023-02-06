@@ -35,7 +35,7 @@ func (f forbidden) IsForbidden(key string) bool {
 }
 
 var (
-	// forbiddenOptions holds a list of options that are not allowed to be overriden.
+	// forbiddenOptions holds a list of options that are not allowed to be overridden.
 	forbiddenOptions = forbidden{
 		// Arangod
 		"agency.activate",

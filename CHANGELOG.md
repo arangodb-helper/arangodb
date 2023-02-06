@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Improve deprecated notice for old passthrough flags
+- Add `rocksdb.encryption-key-generator` CLI option
 
 ## [0.15.6](https://github.com/arangodb-helper/arangodb/tree/0.15.6) (2023-01-20)
 - Fix restarting cluster with arangosync enabled
