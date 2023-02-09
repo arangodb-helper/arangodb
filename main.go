@@ -336,6 +336,16 @@ func slasher(s string) string {
 func findExecutable(processName, defaultPath string) (executablePath string, isBuild bool) {
 	var pathList = make([]string, 0, 10)
 	pathList = append(pathList, "build/bin/"+processName)
+	// Add local folder to search path
+	if exePath, err := os.Executable(); err == nil {
+		folder := filepath.Dir(exePath)
+		pathList = append(pathList, filepath.Join(folder, processName+filepath.Ext(exePath)))
+
+		// Also try searching in ../sbin in case if we are running from local installation
+		if runtime.GOOS != "windows" {
+			pathList = append(pathList, filepath.Join(folder, "../sbin", processName+filepath.Ext(exePath)))
+		}
+	}
 	switch runtime.GOOS {
 	case "windows":
 		// Look in the default installation location:
@@ -375,13 +385,7 @@ func findExecutable(processName, defaultPath string) (executablePath string, isB
 			"/usr/local/sbin/"+processName,
 		)
 	}
-	// Add local folder to search path
-	if exePath, err := os.Executable(); err == nil {
-		folder := filepath.Dir(exePath)
-		pathList = append(pathList, filepath.Join(folder, processName+filepath.Ext(exePath)))
-	}
-
-	// Search to search path for the first path that exists.
+	// Search for the first path that exists.
 	for _, p := range pathList {
 		if _, e := os.Stat(filepath.Clean(filepath.FromSlash(p))); e == nil || !os.IsNotExist(e) {
 			executablePath, _ = filepath.Abs(filepath.FromSlash(p))
