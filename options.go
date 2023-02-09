@@ -38,6 +38,7 @@ type starterOptions struct {
 		startActiveFailover []bool
 	}
 	server struct {
+		useLocalBin    bool
 		arangodPath    string
 		arangodJSPath  string
 		arangoSyncPath string
