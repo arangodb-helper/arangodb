@@ -166,6 +166,7 @@ func init() {
 	f.BoolSliceVar(&opts.cluster.startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
 	f.BoolSliceVar(&opts.cluster.startActiveFailover, "cluster.start-single", nil, "should an active-failover single server instance be started")
 
+	f.BoolVar(&opts.server.useLocalBin, "server.use-local-bin", false, "If true, starter will try searching for binaries in local directory first")
 	f.StringVar(&opts.server.arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
 	f.StringVar(&opts.server.arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
 	f.StringVar(&opts.server.arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
@@ -334,18 +335,18 @@ func slasher(s string) string {
 // findExecutable uses a platform dependent approach to find an executable
 // with given process name.
 func findExecutable(processName, defaultPath string) (executablePath string, isBuild bool) {
-	var pathList = make([]string, 0, 10)
-	pathList = append(pathList, "build/bin/"+processName)
-	// Add local folder to search path
+	var localPaths []string
 	if exePath, err := os.Executable(); err == nil {
 		folder := filepath.Dir(exePath)
-		pathList = append(pathList, filepath.Join(folder, processName+filepath.Ext(exePath)))
+		localPaths = append(localPaths, filepath.Join(folder, processName+filepath.Ext(exePath)))
 
 		// Also try searching in ../sbin in case if we are running from local installation
 		if runtime.GOOS != "windows" {
-			pathList = append(pathList, filepath.Join(folder, "../sbin", processName+filepath.Ext(exePath)))
+			localPaths = append(localPaths, filepath.Join(folder, "../sbin", processName+filepath.Ext(exePath)))
 		}
 	}
+
+	var pathList []string
 	switch runtime.GOOS {
 	case "windows":
 		// Look in the default installation location:
@@ -385,11 +386,22 @@ func findExecutable(processName, defaultPath string) (executablePath string, isB
 			"/usr/local/sbin/"+processName,
 		)
 	}
+
+	if opts.server.useLocalBin {
+		pathList = append(localPaths, pathList...)
+	} else {
+		pathList = append(pathList, localPaths...)
+	}
+
+	// buildPath should be always first on the list
+	buildPath := "build/bin/" + processName
+	pathList = append([]string{buildPath}, pathList...)
+
 	// Search for the first path that exists.
 	for _, p := range pathList {
 		if _, e := os.Stat(filepath.Clean(filepath.FromSlash(p))); e == nil || !os.IsNotExist(e) {
 			executablePath, _ = filepath.Abs(filepath.FromSlash(p))
-			isBuild = p == "build/bin/arangod"
+			isBuild = p == buildPath
 			return
 		}
 	}
