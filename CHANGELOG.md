@@ -3,6 +3,7 @@
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Improve deprecated notice for old passthrough flags
 - Improve detection of arangod binary when running local installation (use --server.use-local-bin)
+- Upgrade base Alpine image and Go dependencies to fix CVEs
 
 ## [0.15.6](https://github.com/arangodb-helper/arangodb/tree/0.15.6) (2023-01-20)
 - Fix restarting cluster with arangosync enabled
