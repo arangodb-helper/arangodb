@@ -12,7 +12,7 @@ MAKEFILE := $(ROOTDIR)/Makefile
 
 MULTIARCH ?= 1
 
-ALPINE_IMAGE ?= alpine:3.11
+ALPINE_IMAGE ?= alpine:3.16
 
 DOCKERCLI ?= $(shell which docker)
 GOBUILDLINKTARGET := ../../../..
