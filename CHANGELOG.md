@@ -6,6 +6,7 @@
 - Upgrade base Alpine image and Go dependencies to fix CVEs
 - Remove `netgo` build tag for Windows to disable new Go resolver behaviour: https://github.com/golang/go/issues/57757
 - Add `rocksdb.encryption-key-generator` CLI option
+- Add docker container name auto-detection when running under cgroups v2 unified hierarchy mode
 
 ## [0.15.6](https://github.com/arangodb-helper/arangodb/tree/0.15.6) (2023-01-20)
 - Fix restarting cluster with arangosync enabled
