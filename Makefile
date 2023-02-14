@@ -162,7 +162,11 @@ binaries-test:
 
 $(BIN): $(GOBUILDDIR) $(GO_SOURCES)
 	@mkdir -p $(BINDIR)
+ifeq ($(GOOS),windows)
+	$(DOCKER_CMD) go build -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
+else
 	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
+endif
 
 $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	@mkdir -p $(BINDIR)
