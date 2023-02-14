@@ -175,6 +175,7 @@ func init() {
 	f.StringVar(&opts.server.storageEngine, "server.storage-engine", "", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")
 
 	f.StringVar(&opts.rocksDB.encryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
+	f.StringVar(&opts.rocksDB.encryptionKeyGenerator, "rocksdb.encryption-key-generator", "", "Path to program. The output of this program will be used as key for RocksDB encryption. (Enterprise Edition)")
 
 	f.StringVar(&opts.docker.endpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&opts.docker.arangodImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
@@ -576,6 +577,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	opts.ssl.keyFile = mustExpand(opts.ssl.keyFile)
 	opts.ssl.caFile = mustExpand(opts.ssl.caFile)
 	opts.rocksDB.encryptionKeyFile = mustExpand(opts.rocksDB.encryptionKeyFile)
+	opts.rocksDB.encryptionKeyGenerator = mustExpand(opts.rocksDB.encryptionKeyGenerator)
 
 	// Check database executable
 	if !runningInDocker {
@@ -680,23 +682,24 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 
 	// Create service
 	bsCfg := service.BootstrapConfig{
-		ID:                       opts.starter.id,
-		Mode:                     service.ServiceMode(opts.starter.mode),
-		DataDir:                  opts.starter.dataDir,
-		AgencySize:               opts.cluster.agencySize,
-		StartLocalSlaves:         opts.starter.startLocalSlaves,
-		StartAgent:               mustGetOptionalBoolRef("cluster.start-agent", opts.cluster.startAgent),
-		StartDBserver:            mustGetOptionalBoolRef("cluster.start-dbserver", opts.cluster.startDBServer),
-		StartCoordinator:         mustGetOptionalBoolRef("cluster.start-coordinator", opts.cluster.startCoordinator),
-		StartResilientSingle:     mustGetOptionalBoolRef("cluster.start-single", opts.cluster.startActiveFailover),
-		StartSyncMaster:          mustGetOptionalBoolRef("sync.start-master", opts.sync.startSyncMaster),
-		StartSyncWorker:          mustGetOptionalBoolRef("sync.start-worker", opts.sync.startSyncWorker),
-		ServerStorageEngine:      opts.server.storageEngine,
-		JwtSecret:                jwtSecret,
-		SslKeyFile:               opts.ssl.keyFile,
-		SslCAFile:                opts.ssl.caFile,
-		RocksDBEncryptionKeyFile: opts.rocksDB.encryptionKeyFile,
-		DisableIPv6:              opts.starter.disableIPv6,
+		ID:                            opts.starter.id,
+		Mode:                          service.ServiceMode(opts.starter.mode),
+		DataDir:                       opts.starter.dataDir,
+		AgencySize:                    opts.cluster.agencySize,
+		StartLocalSlaves:              opts.starter.startLocalSlaves,
+		StartAgent:                    mustGetOptionalBoolRef("cluster.start-agent", opts.cluster.startAgent),
+		StartDBserver:                 mustGetOptionalBoolRef("cluster.start-dbserver", opts.cluster.startDBServer),
+		StartCoordinator:              mustGetOptionalBoolRef("cluster.start-coordinator", opts.cluster.startCoordinator),
+		StartResilientSingle:          mustGetOptionalBoolRef("cluster.start-single", opts.cluster.startActiveFailover),
+		StartSyncMaster:               mustGetOptionalBoolRef("sync.start-master", opts.sync.startSyncMaster),
+		StartSyncWorker:               mustGetOptionalBoolRef("sync.start-worker", opts.sync.startSyncWorker),
+		ServerStorageEngine:           opts.server.storageEngine,
+		JwtSecret:                     jwtSecret,
+		SslKeyFile:                    opts.ssl.keyFile,
+		SslCAFile:                     opts.ssl.caFile,
+		RocksDBEncryptionKeyFile:      opts.rocksDB.encryptionKeyFile,
+		RocksDBEncryptionKeyGenerator: opts.rocksDB.encryptionKeyGenerator,
+		DisableIPv6:                   opts.starter.disableIPv6,
 	}
 	bsCfg.Initialize()
 	serviceConfig := service.Config{

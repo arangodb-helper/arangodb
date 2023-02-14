@@ -82,7 +82,8 @@ type starterOptions struct {
 		caFile           string
 	}
 	rocksDB struct {
-		encryptionKeyFile string
+		encryptionKeyFile      string
+		encryptionKeyGenerator string
 	}
 	docker struct {
 		endpoint        string
