@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [0.15.7](https://github.com/arangodb-helper/arangodb/tree/0.15.7) (2023-02-17)
 - Improve deprecated notice for old passthrough flags
 - Improve detection of arangod binary when running local installation (use --server.use-local-bin)
 - Upgrade base Alpine image and Go dependencies to fix CVEs
