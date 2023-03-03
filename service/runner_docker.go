@@ -233,6 +233,7 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 	for k, v := range envs {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
+	env = append(env, fmt.Sprintf("ARANGODB_SERVER_DIR=%s", serverDir))
 
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
