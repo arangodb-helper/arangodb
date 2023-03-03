@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Update containerd package
 
 ## [0.15.7](https://github.com/arangodb-helper/arangodb/tree/0.15.7) (2023-02-17)
 - Improve deprecated notice for old passthrough flags
