@@ -26,9 +26,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/dchest/uniuri"
 	"strings"
 	"time"
+
+	"github.com/dchest/uniuri"
 
 	"github.com/arangodb/go-driver"
 
