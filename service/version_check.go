@@ -26,39 +26,40 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/dchest/uniuri"
 	"strings"
 	"time"
 
-	"github.com/dchest/uniuri"
-
-	driver "github.com/arangodb/go-driver"
+	"github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // DatabaseVersion returns the version of the `arangod` binary that is being
 // used by this starter.
-
 func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, bool, error) {
-	for i := 0; i < 25; i++ {
-		d, enterprise, err := s.databaseVersion(ctx)
-		if err != nil {
-			s.log.Warn().Err(err).Msg("Error while getting version")
-			time.Sleep(time.Second)
-			continue
+	retries := 25
+	var err error
+	for i := 0; i < retries; i++ {
+		var v driver.Version
+		var enterprise bool
+		v, enterprise, err = s.databaseVersion(ctx)
+		if err == nil {
+			return v, enterprise, nil
 		}
 
-		return d, enterprise, nil
+		s.log.Warn().Err(err).Msgf("Error while getting version. Attempt %d of %d", i+1, retries)
+		time.Sleep(time.Second)
 	}
 
-	return "", false, fmt.Errorf("Unable to get version")
+	return "", false, fmt.Errorf("unable to get version: %s", err.Error())
 }
 
 func (s *Service) databaseVersion(ctx context.Context) (driver.Version, bool, error) {
 	// Start process to print version info
 	output := &bytes.Buffer{}
 	containerName := "arangodb-versioncheck-" + strings.ToLower(uniuri.NewLen(6))
-	p, err := s.runner.Start(ctx, definitions.ProcessTypeArangod, s.cfg.ArangodPath, []string{"--version"}, nil, nil, nil, containerName, ".", output)
+	p, err := s.runner.Start(ctx, definitions.ProcessTypeArangod, s.cfg.ArangodPath, []string{"--version", "--log.force-direct=true"}, nil, nil, nil, containerName, ".", output)
 	if err != nil {
 		return "", false, maskAny(err)
 	}
