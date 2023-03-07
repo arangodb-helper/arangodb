@@ -49,6 +49,10 @@ func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, bool, er
 			return v, enterprise, nil
 		}
 
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", false, ctxErr
+		}
+
 		s.log.Warn().Err(err).Msgf("Error while getting version. Attempt %d of %d", i+1, retries)
 		time.Sleep(time.Second)
 	}
