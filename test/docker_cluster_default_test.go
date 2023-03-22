@@ -114,6 +114,7 @@ func TestDockerClusterDefault(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID3,
 		"--starter.address=$IP",
+		"--args.all.temp.path=@ARANGODB_SERVER_DIR@/temp",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))

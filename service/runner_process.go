@@ -126,6 +126,7 @@ func (r *processRunner) Start(ctx context.Context, processType definitions.Proce
 	for k, v := range envs {
 		c.Env = append(c.Env, fmt.Sprintf("%s=%s", k, v))
 	}
+	c.Env = append(c.Env, fmt.Sprintf("ARANGODB_SERVER_DIR=%s", serverDir))
 
 	if err := c.Start(); err != nil {
 		return nil, maskAny(err)
