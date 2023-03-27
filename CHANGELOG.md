@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Add passing ARANGODB_SERVER_DIR env variable when starting arangod instances
 - Update containerd package
 
 ## [0.15.7](https://github.com/arangodb-helper/arangodb/tree/0.15.7) (2023-02-17)
