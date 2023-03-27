@@ -48,7 +48,7 @@ func TestProcessClusterDefault(t *testing.T) {
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 --args.all.temp.path=@ARANGODB_SERVER_DIR@/temp "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
