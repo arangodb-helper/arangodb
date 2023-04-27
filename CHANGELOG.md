@@ -4,6 +4,7 @@
 - Add passing ARANGODB_SERVER_DIR env variable when starting arangod instances
 - Improve ArangoDB version detection
 - Update containerd package
+- Update go to 1.20.3, add vulncheck to pipeline
 
 ## [0.15.7](https://github.com/arangodb-helper/arangodb/tree/0.15.7) (2023-02-17)
 - Improve deprecated notice for old passthrough flags
