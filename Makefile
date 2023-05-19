@@ -35,7 +35,7 @@ REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.19.4
+GOVERSION := 1.20.3
 GOIMAGE ?= golang:$(GOVERSION)-alpine3.17
 
 GOOS ?= linux
@@ -265,7 +265,7 @@ $(GOBUILDDIR):
 .PHONY: tools
 tools:
 	@echo ">> Fetching golangci-lint linter"
-	@GOBIN=$(GOPATH)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.46.2
+	@GOBIN=$(GOPATH)/bin go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.52.2
 	@echo ">> Fetching gci"
 	@GOBIN=$(GOPATH)/bin go install github.com/daixiang0/gci@v0.3.0
 	@echo ">> Fetching goimports"
@@ -274,6 +274,8 @@ tools:
 	@GOBIN=$(GOPATH)/bin go install github.com/google/addlicense@6d92264d717064f28b32464f0f9693a5b4ef0239
 	@echo ">> Fetching github release"
 	@GOBIN=$(GOPATH)/bin go install github.com/aktau/github-release@v0.8.1
+	@echo ">> Fetching govulncheck"
+	@GOBIN=$(GOPATH)/bin go install golang.org/x/vuln/cmd/govulncheck@v0.1.0
 
 .PHONY: generate
 generate:
@@ -303,6 +305,10 @@ fmt-verify: license-verify
 .PHONY: linter
 linter: fmt
 	$(GOPATH)/bin/golangci-lint run ./...
+
+.PHONY: vulncheck
+vulncheck:
+	$(GOPATH)/bin/govulncheck ./...
 
 .PHONY: vendor
 vendor:
