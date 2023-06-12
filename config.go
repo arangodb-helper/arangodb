@@ -119,3 +119,23 @@ func loadFlagValuesFromConfig(cfgFilePath string, fs, persistentFs *pflag.FlagSe
 		}
 	}
 }
+
+// sanityCheckPassThroughArgs will print a warning if user does not specify value for option,
+// example: --args.all.log.line-number --args.all.log.performance=true
+func sanityCheckPassThroughArgs(fs, persistentFs *pflag.FlagSet) {
+	sanityCheck := func(flag *pflag.Flag) {
+		if found, _, _ := passthroughPrefixes.Lookup(flag.Name); found != nil {
+			if flag.Value == nil {
+				return
+			}
+			if sliceVal, ok := flag.Value.(pflag.SliceValue); ok {
+				slice := sliceVal.GetSlice()
+				if len(slice) > 0 && strings.HasPrefix(slice[0], "--") {
+					log.Warn().Msgf("Possible wrong usage of pass-through argument --%s: its value %s looks like separate argument.", flag.Name, slice[0])
+				}
+			}
+		}
+	}
+	fs.Visit(sanityCheck)
+	persistentFs.Visit(sanityCheck)
+}
