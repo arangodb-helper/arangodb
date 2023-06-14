@@ -91,6 +91,7 @@ type Config struct {
 	DockerUser            string
 	DockerGCDelay         time.Duration
 	DockerNetworkMode     string
+	DockerForceBindPorts  bool
 	DockerPrivileged      bool
 	DockerTTY             bool
 	RunningInDocker       bool
@@ -164,7 +165,7 @@ func (c Config) CreateRunner(log zerolog.Logger) (Runner, Config, bool) {
 	if c.UseDockerRunner() {
 		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerArangodImage, c.DockerArangoSyncImage,
 			c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
-			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
+			c.DockerGCDelay, c.DockerNetworkMode, c.DockerForceBindPorts, c.DockerPrivileged, c.DockerTTY)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to create docker runner")
 		}

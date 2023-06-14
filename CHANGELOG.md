@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Add --docker.force-bind-ports option to add ports for custom networks
 
 ## [0.15.8](https://github.com/arangodb-helper/arangodb/tree/0.15.8) (2023-06-02)
 - Add passing ARANGODB_SERVER_DIR env variable when starting arangod instances

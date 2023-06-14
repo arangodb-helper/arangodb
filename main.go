@@ -188,6 +188,7 @@ func init() {
 	f.BoolVar(&opts.docker.netHost, "docker.net-host", false, "Run containers with --net=host")
 	f.Lookup("docker.net-host").Deprecated = "use --docker.net-mode=host instead"
 	f.StringVar(&opts.docker.networkMode, "docker.net-mode", "", "Run containers with --net=<value>")
+	f.BoolVar(&opts.docker.forceBindPorts, "docker.force-bind-ports", false, "If true, container will publish ports even on custom Docker network")
 	f.BoolVar(&opts.docker.privileged, "docker.privileged", false, "Run containers with --privileged")
 	f.BoolVar(&opts.docker.tty, "docker.tty", true, "Run containers with TTY enabled")
 
@@ -732,6 +733,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		DockerUser:              opts.docker.user,
 		DockerGCDelay:           opts.docker.gcDelay,
 		DockerNetworkMode:       opts.docker.networkMode,
+		DockerForceBindPorts:    opts.docker.forceBindPorts,
 		DockerPrivileged:        opts.docker.privileged,
 		DockerTTY:               opts.docker.tty,
 		ProjectVersion:          projectVersion,
