@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2021-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Adam Janikowski
 //
 
 package options
@@ -41,6 +39,8 @@ type Configuration struct {
 	AllSync      ConfigurationType
 	SyncMasters  ConfigurationType
 	SyncWorkers  ConfigurationType
+
+	PersistentOptions PersistentOptions
 }
 
 func NewConfiguration() Configuration {
@@ -212,19 +212,19 @@ type ConfigurationFlag struct {
 
 type ConfigurationPrefixes map[string]ConfigurationPrefix
 
-func (c ConfigurationPrefixes) Lookup(key string) (*ConfigurationPrefix, string, error) {
+func (c ConfigurationPrefixes) Lookup(key string) (string, *ConfigurationPrefix, string, error) {
 	for n, prefix := range c {
 		p := fmt.Sprintf("%s.", n)
 		if strings.HasPrefix(key, p) {
 			targ := strings.TrimPrefix(key, p)
 			if forbiddenOptions.IsForbidden(targ) {
-				return nil, "", fmt.Errorf("option --%s is essential to the starters behavior and cannot be overwritten", targ)
+				return n, nil, "", fmt.Errorf("option --%s is essential to the starters behavior and cannot be overwritten", targ)
 			}
 			prefix := prefix
-			return &prefix, targ, nil
+			return n, &prefix, targ, nil
 		}
 	}
-	return nil, "", nil
+	return "", nil, "", nil
 }
 
 func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []ConfigurationFlag, error) {
@@ -239,12 +239,12 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 			continue
 		}
 
-		ckey := strings.TrimPrefix(arg, "--")
-		prefix, targ, err := c.Lookup(ckey)
+		cleanKey := strings.TrimPrefix(arg, "--")
+		prefix, confPrefix, targ, err := c.Lookup(cleanKey)
 		if err != nil {
 			return nil, nil, err
 		}
-		if prefix == nil {
+		if confPrefix == nil {
 			continue
 		}
 
@@ -254,14 +254,19 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 			flags[arg] = true
 		}
 
+		val := confPrefix.FieldSelector(&config, targ)
 		f = append(f, ConfigurationFlag{
 			Key:            arg,
-			CleanKey:       ckey,
+			CleanKey:       cleanKey,
 			Extension:      targ,
-			Usage:          prefix.Usage(targ),
-			Value:          prefix.FieldSelector(&config, targ),
-			DeprecatedHint: prefix.GetDeprecatedHint(targ),
+			Usage:          confPrefix.Usage(targ),
+			Value:          val,
+			DeprecatedHint: confPrefix.GetDeprecatedHint(targ),
 		})
+
+		if IsPersistentOption(targ) {
+			config.PersistentOptions.Add(prefix, targ, val)
+		}
 	}
 
 	return &config, f, nil

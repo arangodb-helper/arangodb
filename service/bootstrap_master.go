@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -58,12 +56,10 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	hasResilientSingle := boolFromRef(bsCfg.StartResilientSingle, s.mode.IsActiveFailoverMode())
 	hasSyncMaster := boolFromRef(bsCfg.StartSyncMaster, true) && config.SyncEnabled
 	hasSyncWorker := boolFromRef(bsCfg.StartSyncWorker, true) && config.SyncEnabled
-	s.myPeers.Initialize(
-		NewPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir,
-			hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
-			hasSyncMaster, hasSyncWorker,
-			s.IsSecure()),
-		bsCfg.AgencySize, storageEngine)
+	me := NewPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir,
+		hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
+		hasSyncMaster, hasSyncWorker, s.IsSecure())
+	s.myPeers.Initialize(me, bsCfg.AgencySize, storageEngine, s.cfg.Configuration.PersistentOptions)
 	s.learnOwnAddress = config.OwnAddress == ""
 
 	// Start HTTP listener
