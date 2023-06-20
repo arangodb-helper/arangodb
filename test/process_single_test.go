@@ -151,7 +151,7 @@ func TestOldProcessSingleAutoKeyFile(t *testing.T) {
 }
 
 // TestProcessSingleCheckPersistentOptions runs arangodb in single mode and
-// checks that overriding an persistent option results in an error message
+// checks that overriding a persistent option results in an error message
 func TestProcessSingleCheckPersistentOptions(t *testing.T) {
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
@@ -231,12 +231,11 @@ func TestProcessSingleCheckPersistentOptions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dataDir := SetUniqueDataDir(t)
 			defer os.RemoveAll(dataDir)
+
 			// first start
-			start := time.Now()
 			child := Spawn(t, "${STARTER} --starter.mode=single "+createEnvironmentStarterOptions()+" "+tc.oldOption)
 			defer child.Close()
 			if ok := WaitUntilStarterReady(t, whatSingle, 1, child); ok {
-				t.Logf("Single server start took %s", time.Since(start))
 				testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 			}
 			err = child.EnsureNoMatches(context.Background(), time.Second*3, re, t.Name())
@@ -244,11 +243,9 @@ func TestProcessSingleCheckPersistentOptions(t *testing.T) {
 			SendIntrAndWait(t, child)
 
 			// second start
-			start = time.Now()
 			child = Spawn(t, "${STARTER} --starter.mode=single "+createEnvironmentStarterOptions()+" "+tc.newOption)
 			defer child.Close()
 			if ok := WaitUntilStarterReady(t, whatSingle, 1, child); ok {
-				t.Logf("Single server start took %s", time.Since(start))
 				testSingle(t, insecureStarterEndpoint(0*portIncrement), false)
 			}
 
