@@ -5,6 +5,7 @@
 - Fix printing --starter.instance-up-timeout instead of hardcoded value
 - Fix context handling in WaitUntilStarterReady for tests
 - Show error when user tries to change value of "persistent" option
+- Proper leader election without using observe and TTL features
 
 ## [0.15.8](https://github.com/arangodb-helper/arangodb/tree/0.15.8) (2023-06-02)
 - Add passing ARANGODB_SERVER_DIR env variable when starting arangod instances

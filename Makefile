@@ -105,6 +105,7 @@ DOCKER_CMD = $(DOCKERCLI) run \
                 -e GOARCH=$(GOARCH) \
                 -e CGO_ENABLED=0 \
                 -e TRAVIS=$(TRAVIS) \
+                -e VERBOSE=$(VERBOSE) \
                 $(DOCKER_PARAMS) \
                 -w /usr/code/ \
                 $(DOCKER_IMAGE)

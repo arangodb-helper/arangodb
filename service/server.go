@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
-// Author Tomasz Mielech
 //
 
 package service
@@ -110,9 +107,6 @@ type httpServerContext interface {
 	// from the cluster and alters the cluster configuration, removing the peer.
 	HandleGoodbye(id string, force bool) (peerRemoved bool, err error)
 
-	// Called by an agency callback
-	MasterChangedCallback()
-
 	// DatabaseVersion returns the version of the `arangod` binary that is being
 	// used by this starter.
 	DatabaseVersion(context.Context) (driver.Version, bool, error)
@@ -180,7 +174,6 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/shutdown", s.shutdownHandler)
 		mux.HandleFunc("/database-auto-upgrade", s.databaseAutoUpgradeHandler)
 		// Agency callback
-		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
 		mux.HandleFunc("/cb/upgradePlanChanged", s.cbUpgradePlanChanged)
 
 		// JWT Rotation
@@ -749,20 +742,6 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-}
-
-// cbMasterChanged is a callback called by the agency when the master URL is modified.
-func (s *httpServer) cbMasterChanged(w http.ResponseWriter, r *http.Request) {
-	s.log.Debug().Msgf("Master changed callback from %s", r.RemoteAddr)
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Interrupt runtime cluster manager
-	s.context.MasterChangedCallback()
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
 }
 
 // cbUpgradePlanChanged is a callback called by the agency when the upgrade plan is modified.

@@ -1105,16 +1105,6 @@ func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
 	}
 }
 
-// MasterChangedCallback interrupts the runtime cluster manager
-func (s *Service) MasterChangedCallback() {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if s.state == stateRunningSlave {
-		go s.runtimeClusterManager.Interrupt()
-	}
-}
-
 // RotateLogFiles rotates the log files of all servers
 func (s *Service) RotateLogFiles(ctx context.Context) {
 	s.runtimeServerManager.RotateLogFiles(ctx, s.log, s.logService, s, s.cfg)
