@@ -215,8 +215,9 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		}
 	}
 
-	if failed < requiredGoodResults || requiredGoodResults == 0 {
-		GetLogger(t).Log("%d starters started", len(starters)-failed)
+	readyStarters := len(starters) - failed
+	if readyStarters >= requiredGoodResults || requiredGoodResults == 0 {
+		GetLogger(t).Log("%d starters ready", readyStarters)
 		return true
 	}
 
@@ -228,7 +229,9 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		}
 	}
 	for _, msg := range results {
-		t.Error(msg)
+		if msg != nil {
+			t.Error(msg)
+		}
 	}
 
 	return false
