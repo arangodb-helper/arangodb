@@ -201,9 +201,7 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 	for id, starter := range starters {
 		go func(i int, s *SubProcess) {
 			defer wg.Done()
-			defer cancel()
 			id := fmt.Sprintf("starter-%d", i+1)
-
 			results[i] = s.ExpectTimeout(ctx, time.Minute*3, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id)
 		}(id, starter)
 	}
@@ -217,8 +215,9 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		}
 	}
 
-	if failed < requiredGoodResults || requiredGoodResults == 0 {
-		GetLogger(t).Log("%d starters started", len(starters)-failed)
+	readyStarters := len(starters) - failed
+	if readyStarters >= requiredGoodResults || requiredGoodResults == 0 {
+		GetLogger(t).Log("%d starters ready", readyStarters)
 		return true
 	}
 
@@ -230,7 +229,9 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		}
 	}
 	for _, msg := range results {
-		t.Error(msg)
+		if msg != nil {
+			t.Error(msg)
+		}
 	}
 
 	return false
