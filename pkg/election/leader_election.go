@@ -24,13 +24,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 )
 
-func NewLeaderElectionCell[T comparable](c agency.Agency, key []string, ttl time.Duration) *LeaderElectionCell[T] {
+func NewLeaderElectionCell[T comparable](l zerolog.Logger, c agency.Agency, key []string, ttl time.Duration) *LeaderElectionCell[T] {
 	return &LeaderElectionCell[T]{
 		agency:  c,
+		log:     l,
 		lastTTL: 0,
 		leading: false,
 		key:     key,
@@ -40,6 +43,7 @@ func NewLeaderElectionCell[T comparable](c agency.Agency, key []string, ttl time
 
 type LeaderElectionCell[T comparable] struct {
 	agency  agency.Agency
+	log     zerolog.Logger
 	lastTTL int64
 	leading bool
 	key     []string
@@ -102,6 +106,7 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, value T) (T, bool, t
 				assumeEmpty = true
 				goto tryLeaderElection
 			}
+			l.log.Warn().Err(err).Msg("Error while reading leader election key")
 			assumeEmpty = false
 		}
 
@@ -120,7 +125,7 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, value T) (T, bool, t
 				// some new leader has been established
 				l.lastTTL = result.TTL
 				l.leading = false
-				return result.Data, false, time.Duration(l.lastTTL - now.Unix()), nil
+				return result.Data, false, time.Unix(l.lastTTL, 0).Sub(now), nil
 			}
 		}
 

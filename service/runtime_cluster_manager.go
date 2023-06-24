@@ -108,7 +108,7 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 }
 
 func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, agencyClient agency.Agency, myURL string) {
-	le := election.NewLeaderElectionCell[string](agencyClient, masterURLKey, masterURLTTL)
+	le := election.NewLeaderElectionCell[string](s.log, agencyClient, masterURLKey, masterURLTTL)
 
 	var err error
 	var delay time.Duration
@@ -191,6 +191,8 @@ func (s *runtimeClusterManager) updateMasterURL(masterURL string, isMaster bool)
 	if oldMasterURL != masterURL {
 		if isMaster {
 			s.log.Info().Str("new_master_url", masterURL).Msg("Just became master")
+		} else {
+			s.log.Info().Str("old_master_url", oldMasterURL).Str("new_master_url", masterURL).Msg("Master changed")
 		}
 		// trigger main loop so config will be updated sooner
 		s.interrupt()

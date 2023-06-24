@@ -78,6 +78,7 @@ func TestDockerClusterUpgrade(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID1,
 		"--starter.address=$IP",
+		"--log.verbose=true",
 		createEnvironmentStarterOptions(),
 	}, " "))
 	defer dockerRun1.Close()
@@ -96,6 +97,7 @@ func TestDockerClusterUpgrade(t *testing.T) {
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID2,
 		"--starter.address=$IP",
+		"--log.verbose=true",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
 	}, " "))
@@ -114,6 +116,7 @@ func TestDockerClusterUpgrade(t *testing.T) {
 		"-v /var/run/docker.sock:/var/run/docker.sock",
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID3,
+		"--log.verbose=true",
 		"--starter.address=$IP",
 		createEnvironmentStarterOptions(),
 		fmt.Sprintf("--starter.join=$IP:%d", basePort),
@@ -128,6 +131,7 @@ func TestDockerClusterUpgrade(t *testing.T) {
 		testCluster(t, insecureStarterEndpoint(2*portIncrement), false)
 	}
 
+	t.Logf("STARTING UPGRADE PROCESS________________________________________________________________")
 	testUpgradeProcess(t, insecureStarterEndpoint(0*portIncrement))
 
 	waitForCallFunction(t,
