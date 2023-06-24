@@ -27,6 +27,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -73,9 +74,6 @@ type UpgradeManager interface {
 
 	// RunWatchUpgradePlan keeps watching the upgrade plan until the given context is canceled.
 	RunWatchUpgradePlan(context.Context)
-
-	// UpgradePlanChangedCallback is an agency callback to notify about changes in the upgrade plan
-	UpgradePlanChangedCallback()
 }
 
 // UpgradeManagerContext holds methods used by the upgrade manager to control its context.
@@ -153,6 +151,11 @@ func (p *UpgradePlan) ResetFailures() {
 		e.Failures = 0
 		e.Reason = ""
 	}
+}
+
+// Equals returns true if other plan is the same
+func (p UpgradePlan) Equals(other UpgradePlan) bool {
+	return reflect.DeepEqual(p, other)
 }
 
 // UpgradeEntryType is a strongly typed upgrade plan item
@@ -823,39 +826,74 @@ func (m *upgradeManager) removeUpgradePlan(ctx context.Context) error {
 	return nil
 }
 
+// waitForPlanChanges returns unbuffered channel on which updated UpgradePlan will be delivered.
+// Closing channel means that there will be no more changes.
+func (m *upgradeManager) waitForPlanChanges(ctx context.Context) chan *UpgradePlan {
+	ch := make(chan *UpgradePlan)
+
+	go func() {
+		defer close(ch)
+		var oldPlan UpgradePlan
+		for {
+			delay := time.Second * 3
+			plan, err := m.readUpgradePlan(ctx)
+			if agency.IsKeyNotFound(err) || plan.IsEmpty() {
+				// Just try later
+			} else if err != nil {
+				// Failed to read plan
+				m.log.Info().Err(err).Msg("Failed to read upgrade plan")
+			} else if !oldPlan.Equals(plan) {
+				ch <- &plan
+				oldPlan = plan
+				delay = time.Second
+			}
+
+			timer := time.NewTimer(delay)
+			select {
+			case <-timer.C:
+				// Continue
+			case <-ctx.Done():
+				// Context canceled
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return
+			}
+		}
+	}()
+
+	return ch
+}
+
 // RunWatchUpgradePlan keeps watching the upgrade plan in the agency.
 // Once it detects that this starter has to act, it does.
 func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
-	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
-	ownURL := myPeer.CreateStarterURL("/")
+	_, _, mode := m.upgradeManagerContext.ClusterConfig()
 	if !mode.HasAgency() {
 		// Nothing to do here without an agency
 		return
 	}
-	registeredCallback := false
-	defer func() {
-		if registeredCallback {
-			m.unregisterUpgradePlanChangedCallback(ctx, ownURL)
-		}
-	}()
+
+	planChanges := m.waitForPlanChanges(ctx)
 	for {
-		delay := time.Minute
-		if !registeredCallback {
-			m.log.Debug().Msg("Registering upgrade plan changed callback...")
-			if err := m.registerUpgradePlanChangedCallback(ctx, ownURL); err != nil {
-				m.log.Info().Err(err).Msg("Failed to register upgrade plan changed callback")
-			} else {
-				registeredCallback = true
-			}
+		var newPlan *UpgradePlan
+		select {
+		case newPlan = <-planChanges:
+			// Plan changed
+		case <-ctx.Done():
+			// Context canceled
+			m.log.Info().Msg("Stopping watching for plan changes: context canceled")
+			return
 		}
-		plan, err := m.readUpgradePlan(ctx)
-		if agency.IsKeyNotFound(err) || plan.IsEmpty() {
-			// Just try later
-		} else if err != nil {
-			// Failed to read plan
-			m.log.Info().Err(err).Msg("Failed to read upgrade plan")
-		} else if plan.IsReady() {
-			// Plan entries have aal been processes
+		if newPlan == nil {
+			// channel was closed
+			m.log.Info().Msg("Stopping watching for plan changes")
+			return
+		}
+
+		plan := *newPlan
+		if plan.IsReady() {
+			// Plan entries have been processed
 			if !plan.Finished {
 				// Let's show the user that we're done
 				if err := m.finishUpgradePlan(ctx, plan); err != nil {
@@ -869,64 +907,8 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 			if err := m.processUpgradePlan(ctx, plan); err != nil {
 				m.log.Error().Err(err).Msg("Failed to process upgrade plan entry")
 			}
-			delay = time.Second
-		}
-
-		select {
-		case <-time.After(delay):
-			// Continue
-		case <-m.cbTrigger.Done():
-			// Continue
-		case <-ctx.Done():
-			// Context canceled
-			return
 		}
 	}
-}
-
-// UpgradePlanChangedCallback is an agency callback to notify about changes in the upgrade plan
-func (m *upgradeManager) UpgradePlanChangedCallback() {
-	m.cbTrigger.Trigger()
-}
-
-// registerUpgradePlanChangedCallback registers our callback URL with the agency
-func (m *upgradeManager) registerUpgradePlanChangedCallback(ctx context.Context, ownURL string) error {
-	// Get api client
-	api, err := m.createAgencyAPI()
-	if err != nil {
-		return maskAny(err)
-	}
-	// Register callback
-	cbURL, err := getURLWithPath(ownURL, "/cb/upgradePlanChanged")
-	if err != nil {
-		return maskAny(err)
-	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-	defer cancel()
-	if err := api.RegisterChangeCallback(ctx, upgradePlanKey, cbURL); err != nil {
-		return maskAny(err)
-	}
-	return nil
-}
-
-// unregisterUpgradePlanChangedCallback removes our callback URL from the agency
-func (m *upgradeManager) unregisterUpgradePlanChangedCallback(ctx context.Context, ownURL string) error {
-	// Get api client
-	api, err := m.createAgencyAPI()
-	if err != nil {
-		return maskAny(err)
-	}
-	// Register callback
-	cbURL, err := getURLWithPath(ownURL, "/cb/upgradePlanChanged")
-	if err != nil {
-		return maskAny(err)
-	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
-	defer cancel()
-	if err := api.UnregisterChangeCallback(ctx, upgradePlanKey, cbURL); err != nil {
-		return maskAny(err)
-	}
-	return nil
 }
 
 // processUpgradePlan inspects the first entry of the given plan and acts upon
