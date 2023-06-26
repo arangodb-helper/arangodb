@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
-// Author Tomasz Mielech
 //
 
 package service
@@ -66,9 +63,9 @@ type UpgradeManager interface {
 	IsServerUpgradeInProgress(serverType definitions.ServerType) bool
 
 	// ServerDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
-	ServerDatabaseAutoUpgrade(serverType definitions.ServerType) bool
+	ServerDatabaseAutoUpgrade(serverType definitions.ServerType, lastExitCode int) bool
 
-	// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been be started with --database.auto-upgrade
+	// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been started with --database.auto-upgrade
 	ServerDatabaseAutoUpgradeStarter(serverType definitions.ServerType)
 
 	// RunWatchUpgradePlan keeps watching the upgrade plan until the given context is canceled.
@@ -754,8 +751,8 @@ func (m *upgradeManager) IsServerUpgradeInProgress(serverType definitions.Server
 }
 
 // serverDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
-func (m *upgradeManager) ServerDatabaseAutoUpgrade(serverType definitions.ServerType) bool {
-	return m.updateNeeded && m.upgradeServerType == serverType
+func (m *upgradeManager) ServerDatabaseAutoUpgrade(serverType definitions.ServerType, lastExitCode int) bool {
+	return m.updateNeeded && m.upgradeServerType == serverType || lastExitCode == definitions.ArangoDExitUpgradeRequired
 }
 
 // serverDatabaseAutoUpgradeStarter is called when a server of given type has been be started with --database.auto-upgrade

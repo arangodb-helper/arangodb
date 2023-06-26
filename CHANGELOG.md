@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Fix context handling in WaitUntilStarterReady for tests
+- Retry server upgrade if requested by exit code (EXIT_UPGRADE_REQUIRED)
 
 ## [0.15.8](https://github.com/arangodb-helper/arangodb/tree/0.15.8) (2023-06-02)
 - Add passing ARANGODB_SERVER_DIR env variable when starting arangod instances

@@ -99,7 +99,7 @@ type runtimeServerManagerContext interface {
 
 // startServer starts a single Arangod/Arangosync server of the given type.
 func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
-	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer) (Process, bool, error) {
+	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer, lastExitCode int) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -181,12 +181,13 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	// Create server command line arguments
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
 	upgradeManager := runtimeContext.UpgradeManager()
-	databaseAutoUpgrade := upgradeManager.ServerDatabaseAutoUpgrade(serverType)
+	databaseAutoUpgrade := upgradeManager.ServerDatabaseAutoUpgrade(serverType, lastExitCode)
 	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig,
 		containerSecretFileName, bsCfg.RecoveryAgentID, databaseAutoUpgrade, features)
 	if err != nil {
 		return nil, false, maskAny(err)
 	}
+	log.Debug().Msgf("%s at %d args: %+v", serverType, myPort, args)
 	writeCommandFile(log, filepath.Join(myHostDir, processType.CommandFileName()), args)
 	// Collect volumes
 	vols := addVolume(confVolumes, myHostDir, myContainerDir, false)
