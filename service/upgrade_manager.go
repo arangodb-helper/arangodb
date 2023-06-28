@@ -42,6 +42,7 @@ import (
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/pkg/election"
 	"github.com/arangodb-helper/arangodb/pkg/trigger"
 )
 
@@ -303,7 +304,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		return maskAny(err)
 	}
 	m.log.Debug().Msg("Creating lock")
-	lock, err := agency.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	lock, err := election.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
 	if err != nil {
 		return maskAny(err)
 	}
@@ -546,7 +547,7 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 		return maskAny(err)
 	}
 	m.log.Debug().Msg("Creating lock")
-	lock, err := agency.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	lock, err := election.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
 	if err != nil {
 		return maskAny(err)
 	}

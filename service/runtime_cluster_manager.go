@@ -108,7 +108,7 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 }
 
 func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, agencyClient agency.Agency, myURL string) {
-	le := election.NewLeaderElectionCell[string](s.log, agencyClient, masterURLKey, masterURLTTL)
+	le := election.NewLeaderElectionCell[string](agencyClient, masterURLKey, masterURLTTL)
 
 	var err error
 	var delay time.Duration
