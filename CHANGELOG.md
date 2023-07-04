@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Add sanity check for pass-through args usage
 - Fix printing --starter.instance-up-timeout instead of hardcoded value
 - Fix context handling in WaitUntilStarterReady for tests
 

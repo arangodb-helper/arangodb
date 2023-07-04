@@ -459,6 +459,8 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		log.Fatal().Msgf("Expected no arguments, got %q", args)
 	}
 
+	sanityCheckPassThroughArgs(cmd.Flags(), cmd.PersistentFlags())
+
 	// Create service
 	svc, bsCfg := mustPrepareService(true)
 
