@@ -31,9 +31,8 @@ import (
 	"github.com/cenkalti/backoff"
 	"github.com/rs/zerolog"
 
+	"github.com/arangodb-helper/go-helper/pkg/arangod/agency/election"
 	"github.com/arangodb/go-driver/agency"
-
-	"github.com/arangodb-helper/arangodb/pkg/election"
 )
 
 const (

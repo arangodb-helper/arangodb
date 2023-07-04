@@ -175,7 +175,7 @@ $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 
 ifneq ($(MULTIARCH),1)
 docker: build
-	$(DOCKERCLI) build -t arangodb/arangodb-starter --build-arg "IMAGE=$(ALPINE_IMAGE)" .
+	$(DOCKERCLI) build -t arangodb/arangodb-starter --build-arg "IMAGE=$(ALPINE_IMAGE)" --load .
 else
 docker: binaries
 	$(DOCKERMACLI) -t arangodb/arangodb-starter .

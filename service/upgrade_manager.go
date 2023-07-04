@@ -36,13 +36,13 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
 
+	"github.com/arangodb-helper/go-helper/pkg/arangod/agency/election"
 	"github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	upgraderules "github.com/arangodb/go-upgrade-rules"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
-	"github.com/arangodb-helper/arangodb/pkg/election"
 	"github.com/arangodb-helper/arangodb/pkg/trigger"
 )
 
