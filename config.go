@@ -129,7 +129,7 @@ func loadFlagValuesFromConfig(cfgFilePath string, fs, persistentFs *pflag.FlagSe
 // example: --args.all.log.line-number --args.all.log.performance=true
 func sanityCheckPassThroughArgs(fs, persistentFs *pflag.FlagSet) {
 	sanityCheck := func(flag *pflag.Flag) {
-		if found, _, _ := passthroughPrefixes.Lookup(flag.Name); found != nil {
+		if _, found, _, _ := passthroughPrefixes.Lookup(flag.Name); found != nil {
 			if flag.Value == nil {
 				return
 			}
