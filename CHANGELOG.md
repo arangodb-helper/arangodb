@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix printing --starter.instance-up-timeout instead of hardcoded value
 - Fix context handling in WaitUntilStarterReady for tests
 
 ## [0.15.8](https://github.com/arangodb-helper/arangodb/tree/0.15.8) (2023-06-02)
