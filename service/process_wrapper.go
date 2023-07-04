@@ -221,7 +221,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 							}
 						}
 					} else if !up {
-						logProcess.Warn().Msgf("%s not ready after 5min!: Status trail: %#v", p.serverType, statusTrail)
+						logProcess.Warn().Msgf("%s not ready after %s! Status trail: %#v", p.config.InstanceUpTimeout, p.serverType, statusTrail)
 					} else if !correctRole {
 						expectedRole, expectedMode := p.serverType.ExpectedServerRole()
 						logProcess.Warn().Msgf("%s does not have the expected role of '%s,%s' (but '%s,%s'): Status trail: %#v", p.serverType, expectedRole, expectedMode, role, mode, statusTrail)
