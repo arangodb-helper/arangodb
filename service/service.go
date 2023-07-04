@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
-// Author Tomasz Mielech
 //
 
 package service
@@ -216,7 +213,7 @@ type Service struct {
 	tlsConfig             *tls.Config // Server side TLS config (if any)
 	isNetHost             bool        // Is this process running in a container with `--net=host` or running outside a container?
 	mutex                 sync.Mutex  // Mutex used to protect access to this datastructure
-	allowSameDataDir      bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
+	allowSameDataDir      bool        // If set, multiple arangodb instances are allowed to have the same dataDir (docker case)
 	isLocalSlave          bool
 	learnOwnAddress       bool   // If set, the HTTP server will update my peer with address information gathered from a /hello request.
 	recoveryFile          string // Path of RECOVERY file (if any)

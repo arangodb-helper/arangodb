@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
-// Author Tomasz Mielech
 //
 
 package service
@@ -38,16 +35,18 @@ import (
 	"github.com/arangodb/go-driver/jwt"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
-// ClusterConfig contains all the informtion of a cluster from a starter's point of view.
+// ClusterConfig contains all the information of a cluster from a starter's point of view.
 // When this type (or any of the types used in here) is changed, increase `SetupConfigVersion`.
 type ClusterConfig struct {
-	AllPeers            []Peer     `json:"Peers"` // All peers
-	AgencySize          int        // Number of agents
-	LastModified        *time.Time `json:"LastModified,omitempty"`        // Time of last modification
-	PortOffsetIncrement int        `json:"PortOffsetIncrement,omitempty"` // Increment of port offsets for peers on same address
-	ServerStorageEngine string     `json:ServerStorageEngine,omitempty"`  // Storage engine being used
+	AllPeers            []Peer                    `json:"Peers"` // All peers
+	AgencySize          int                       // Number of agents
+	LastModified        *time.Time                `json:"LastModified,omitempty"`        // Time of last modification
+	PortOffsetIncrement int                       `json:"PortOffsetIncrement,omitempty"` // Increment of port offsets for peers on same address
+	ServerStorageEngine string                    `json:"ServerStorageEngine,omitempty"` // Storage engine being used
+	PersistentOptions   options.PersistentOptions `json:"PersistentOptions,omitempty"`   // Options which were used during first start of DB and can't be changed anymore
 }
 
 // PeerByID returns a peer with given id & true, or false if not found.
@@ -83,11 +82,12 @@ func (p ClusterConfig) AllAgents() []Peer {
 }
 
 // Initialize a new cluster configuration
-func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int, storageEngine string) {
+func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int, storageEngine string, persistentOptions options.PersistentOptions) {
 	p.AllPeers = []Peer{initialPeer}
 	p.AgencySize = agencySize
 	p.PortOffsetIncrement = definitions.PortOffsetIncrementNew
 	p.ServerStorageEngine = storageEngine
+	p.PersistentOptions = persistentOptions
 	p.updateLastModified()
 }
 

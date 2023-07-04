@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -54,11 +52,11 @@ type BootstrapConfig struct {
 	RecoveryAgentID               string `json:"-"` // ID of the agent. Only set during recovery
 }
 
-func (bsCfg BootstrapConfig) JWTFolderDir() string {
+func (bsCfg *BootstrapConfig) JWTFolderDir() string {
 	return path.Join(bsCfg.DataDir, definitions.ArangodJWTSecretFolderName)
 }
 
-func (bsCfg BootstrapConfig) JWTFolderDirFile(f string) string {
+func (bsCfg *BootstrapConfig) JWTFolderDirFile(f string) string {
 	return path.Join(bsCfg.DataDir, definitions.ArangodJWTSecretFolderName, f)
 }
 
@@ -76,7 +74,7 @@ func (bsCfg *BootstrapConfig) Initialize() error {
 }
 
 // CreateTLSConfig creates a TLS config based on given bootstrap config
-func (bsCfg BootstrapConfig) CreateTLSConfig() (*tls.Config, error) {
+func (bsCfg *BootstrapConfig) CreateTLSConfig() (*tls.Config, error) {
 	if bsCfg.SslKeyFile == "" {
 		return nil, nil
 	}
@@ -90,7 +88,7 @@ func (bsCfg BootstrapConfig) CreateTLSConfig() (*tls.Config, error) {
 }
 
 // PeersNeeded returns the minimum number of peers needed for the given config.
-func (bsCfg BootstrapConfig) PeersNeeded() int {
+func (bsCfg *BootstrapConfig) PeersNeeded() int {
 	minServers := 1
 	switch {
 	case bsCfg.Mode.IsClusterMode():
@@ -104,4 +102,21 @@ func (bsCfg BootstrapConfig) PeersNeeded() int {
 		minServers = bsCfg.AgencySize
 	}
 	return minServers
+}
+
+// LoadFromSetupConfig loads important values from setup config file
+func (bsCfg *BootstrapConfig) LoadFromSetupConfig(cfg SetupConfigFile) {
+	// Reload data from config
+	bsCfg.ID = cfg.ID
+	if cfg.Mode != "" {
+		bsCfg.Mode = cfg.Mode
+	}
+	bsCfg.StartLocalSlaves = cfg.StartLocalSlaves
+	if cfg.SslKeyFile != "" {
+		bsCfg.SslKeyFile = cfg.SslKeyFile
+	}
+	if cfg.JwtSecret != "" {
+		bsCfg.JwtSecret = cfg.JwtSecret
+	}
+	bsCfg.AgencySize = cfg.Peers.AgencySize
 }
