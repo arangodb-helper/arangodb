@@ -160,7 +160,7 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, agencyCli
 		masterURL, isMaster, delay, err = le.Update(ctx, myURL)
 		if err != nil {
 			delay = 5 * time.Second
-			s.log.Err(err).Msgf("Update leader election failed. Retrying in %s", delay)
+			s.log.Error().Err(err).Msgf("Update leader election failed. Retrying in %s", delay)
 			continue
 		}
 		if isMaster && masterURL != myURL {
