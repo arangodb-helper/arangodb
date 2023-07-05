@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
-	github.com/arangodb-helper/go-helper v0.2.0
+	github.com/arangodb-helper/go-helper v0.2.1
 	github.com/arangodb/go-driver v1.6.0
 	github.com/arangodb/go-upgrade-rules v0.0.0-20200605091205-439fb1ee86e7
 	github.com/cenkalti/backoff v2.2.1+incompatible
