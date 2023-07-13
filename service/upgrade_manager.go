@@ -304,14 +304,14 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		return maskAny(err)
 	}
 	m.log.Debug().Msg("Creating lock")
-	lock, err := election.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	lock, err := election.NewLock(m, upgradeManagerLockKey, "", upgradeManagerLockTTL)
 	if err != nil {
 		return maskAny(err)
 	}
 
 	// Claim the upgrade lock
 	m.log.Debug().Msg("Locking lock")
-	if err := lock.Lock(ctx); err != nil {
+	if err := lock.Lock(ctx, api); err != nil {
 		m.log.Debug().Err(err).Msg("Lock failed")
 		return maskAny(err)
 	}
@@ -319,7 +319,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	// Close agency lock when we're done
 	defer func() {
 		m.log.Debug().Msg("Unlocking lock")
-		lock.Unlock(context.Background())
+		lock.Unlock(context.Background(), api)
 	}()
 
 	m.log.Debug().Msg("Reading upgrade plan...")
@@ -547,14 +547,14 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 		return maskAny(err)
 	}
 	m.log.Debug().Msg("Creating lock")
-	lock, err := election.NewLock(m, api, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	lock, err := election.NewLock(m, upgradeManagerLockKey, "", upgradeManagerLockTTL)
 	if err != nil {
 		return maskAny(err)
 	}
 
 	// Claim the upgrade lock
 	m.log.Debug().Msg("Locking lock")
-	if err := lock.Lock(ctx); err != nil {
+	if err := lock.Lock(ctx, api); err != nil {
 		m.log.Debug().Err(err).Msg("Lock failed")
 		return maskAny(err)
 	}
@@ -562,7 +562,7 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	// Close agency lock when we're done
 	defer func() {
 		m.log.Debug().Msg("Unlocking lock")
-		lock.Unlock(context.Background())
+		lock.Unlock(context.Background(), api)
 	}()
 
 	// Check plan

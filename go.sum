@@ -15,6 +15,12 @@ github.com/arangodb-helper/go-helper v0.2.0 h1:rpkX0msiMVorxPJygR2R5s67RjQdFEIGm
 github.com/arangodb-helper/go-helper v0.2.0/go.mod h1:RHgEwQTFWdJ9wFDGUCgUZzaz9NLaFUskSsHgOPM5XR4=
 github.com/arangodb-helper/go-helper v0.2.1 h1:hwh/Nbkce3FHtegKYKzfGIhlGI5bRaDMpjQCRKMG55A=
 github.com/arangodb-helper/go-helper v0.2.1/go.mod h1:RHgEwQTFWdJ9wFDGUCgUZzaz9NLaFUskSsHgOPM5XR4=
+github.com/arangodb-helper/go-helper v0.4.1-0.20230713102015-83a33422c87a h1:TsR6WxBzhwTJyYXyWedrzUdmLL/MnIw18wJVPT8V0HI=
+github.com/arangodb-helper/go-helper v0.4.1-0.20230713102015-83a33422c87a/go.mod h1:RHgEwQTFWdJ9wFDGUCgUZzaz9NLaFUskSsHgOPM5XR4=
+github.com/arangodb-helper/go-helper v0.4.1-0.20230713105633-bc4e0cf3a627 h1:gmZ3WBqiQGPvRtKBUoWvFSwb2eXIg+X1MaNMoSG+CwY=
+github.com/arangodb-helper/go-helper v0.4.1-0.20230713105633-bc4e0cf3a627/go.mod h1:RHgEwQTFWdJ9wFDGUCgUZzaz9NLaFUskSsHgOPM5XR4=
+github.com/arangodb-helper/go-helper v0.4.1 h1:yO4Bu5AhuvenDe5AmSWRo/ya/GI1lmVA+BYrRT9umsI=
+github.com/arangodb-helper/go-helper v0.4.1/go.mod h1:RHgEwQTFWdJ9wFDGUCgUZzaz9NLaFUskSsHgOPM5XR4=
 github.com/arangodb/go-driver v1.6.0 h1:NFWj/idqXZxhFVueihMSI2R9NotNIsgvNfM/xmpekb4=
 github.com/arangodb/go-driver v1.6.0/go.mod h1:HQmdGkvNMVBTE3SIPSQ8T/ZddC6iwNsfMR+dDJQxIsI=
 github.com/arangodb/go-upgrade-rules v0.0.0-20200605091205-439fb1ee86e7 h1:zCY5fsv5apos+oAdd1bLr1UEFOHeIUDZCItbwU/u6XE=
