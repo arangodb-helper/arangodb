@@ -9,7 +9,7 @@ go:
   - "1.20.x"
 
 env:
-  - VERBOSE=1 MULTIARCH=0 GOIMAGE=gcr.io/gcr-for-testing/cicd/golang:1.20.6-linux-amd64 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.17 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb:3.9.2 STARTER_MODES="single,cluster,activefailover"
+  - VERBOSE=1 MULTIARCH=0 GOIMAGE=gcr.io/gcr-for-testing/cicd/golang:1.20.6 ALPINE_IMAGE=gcr.io/gcr-for-testing/alpine:3.17 ARANGODB=gcr.io/gcr-for-testing/arangodb/arangodb:3.9.2 STARTER_MODES="single,cluster,activefailover"
 
 install:
   - make init
