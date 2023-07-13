@@ -106,18 +106,17 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 	return nil
 }
 
-func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, agencyClient agency.Agency, myURL string) {
-	le := election.NewLeaderElectionCell[string](agencyClient, masterURLKey, masterURLTTL)
+func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL string) {
+	le := election.NewLeaderElectionCell[string](masterURLKey, masterURLTTL)
 
-	var err error
-	var delay time.Duration
+	delay := time.Microsecond
 	resignErrBackoff := backoff.NewExponentialBackOff()
 	for {
 		timer := time.NewTimer(delay)
 		// Wait a bit
 		select {
 		case <-timer.C:
-		// Delay over, just continue
+			// Delay over, just continue
 		case <-ctx.Done():
 			// We're asked to stop
 			if !timer.Stop() {
@@ -126,11 +125,18 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, agencyCli
 			return
 		}
 
+		agencyClient, err := s.createAgencyAPI()
+		if err != nil {
+			delay = time.Second
+			s.log.Debug().Err(err).Msgf("could not create agency client. Retrying in %s", delay)
+			continue
+		}
+
 		oldMasterURL := s.GetMasterURL()
 		if s.avoidBeingMaster {
 			if oldMasterURL == "" {
 				s.log.Debug().Msg("Initializing master URL before resigning")
-				currMasterURL, err := le.Read(ctx)
+				currMasterURL, err := le.Read(ctx, agencyClient)
 				if err != nil {
 					delay = 5 * time.Second
 					s.log.Err(err).Msgf("Failed to read current value before resigning. Retrying in %s", delay)
@@ -140,7 +146,7 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, agencyCli
 			}
 
 			s.log.Debug().Str("master_url", myURL).Msgf("Resigning leadership")
-			err = le.Resign(ctx)
+			err = le.Resign(ctx, agencyClient)
 			if err != nil {
 				delay = resignErrBackoff.NextBackOff()
 				s.log.Err(err).Msgf("Resigning leadership failed. Retrying in %s", delay)
@@ -157,7 +163,7 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, agencyCli
 		s.log.Debug().
 			Str("master_url", myURL).
 			Msg("Updating leadership")
-		masterURL, isMaster, delay, err = le.Update(ctx, myURL)
+		masterURL, isMaster, delay, err = le.Update(ctx, agencyClient, myURL)
 		if err != nil {
 			delay = 5 * time.Second
 			s.log.Error().Err(err).Msgf("Update leader election failed. Retrying in %s", delay)
@@ -166,16 +172,15 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, agencyCli
 		if isMaster && masterURL != myURL {
 			s.log.Error().Msgf("Unexpected error: this peer is a master but URL differs. Should be %s got %s", myURL, masterURL)
 		}
+		if !isMaster && masterURL == myURL {
+			s.log.Error().Msgf("Unexpected error: this peer is not a master but URL in agency is mine")
+		}
 
 		s.updateMasterURL(masterURL, isMaster)
 	}
 }
 
 func (s *runtimeClusterManager) updateMasterURL(masterURL string, isMaster bool) {
-	s.log.Debug().
-		Str("new_master_url", masterURL).
-		Bool("is_master", isMaster).
-		Msg("Leadership updated")
 	newState := stateRunningSlave
 	if isMaster {
 		newState = stateRunningMaster
@@ -215,16 +220,11 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 		return
 	}
 
-	agencyClient, err := s.createAgencyAPI()
-	if err != nil {
-		log.Error().Msg("Could not create agency API client")
-		return
-	}
 	ownURL := myPeer.CreateStarterURL("/")
-	go s.runLeaderElection(ctx, agencyClient, ownURL)
+	go s.runLeaderElection(ctx, ownURL)
 
 	for {
-		var delay time.Duration
+		delay := time.Microsecond
 		// Loop until stopping
 		if ctx.Err() != nil {
 			// Stop requested
@@ -243,7 +243,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 				delay = time.Second * 15
 			}
 		} else {
-			// we are still leading, check again later
+			// we are still leading or not initialized, check again later
 			delay = time.Second * 5
 		}
 
