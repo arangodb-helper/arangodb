@@ -40,7 +40,7 @@ const (
 )
 
 var (
-	masterURLKey = []string{"arangodb-helper", "arangodb", "master"}
+	masterURLKey = []string{"arangodb-helper", "arangodb", "leader"}
 )
 
 // runtimeClusterManager keeps the cluster configuration up to date during a running state.
