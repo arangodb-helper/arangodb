@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package main
 
@@ -33,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/coreos/go-semver/semver"
 )
@@ -188,6 +187,9 @@ func githubCreateRelease(version string) {
 	if err := run(ghRelease, args...); err != nil {
 		log.Fatalf("Failed to create github release: %v\n", err)
 	}
+	// Ensure release created (sometimes there is a delay between creation request and it's availability for assets upload)
+	ensureReleaseCreated(version)
+
 	// Upload binaries
 	assets := map[string]string{
 		"SHA256SUMS": "SHA256SUMS",
@@ -218,6 +220,31 @@ func githubCreateRelease(version string) {
 	if err := run(ghRelease, args...); err != nil {
 		log.Fatalf("Failed to finalize github release: %v\n", err)
 	}
+}
+
+func ensureReleaseCreated(tagName string) {
+	const attemptsCount = 5
+	var interval = time.Second
+	var err error
+
+	for i := 1; i <= attemptsCount; i++ {
+		time.Sleep(interval)
+		interval *= 2
+
+		args := []string{
+			"info",
+			"--user", ghUser,
+			"--repo", ghRepo,
+			"--tag", tagName,
+		}
+		err = run(ghRelease, args...)
+		if err == nil {
+			return
+		}
+		log.Printf("attempt #%d to get release info for tag %s failed. Retry in %s...", i, tagName, interval.String())
+	}
+
+	log.Fatalf("failed to get release info for tag %s", tagName)
 }
 
 func run(cmd string, args ...string) error {
