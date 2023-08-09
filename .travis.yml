@@ -1,10 +1,9 @@
+dist: focal
 sudo: required
-
 services:
   - docker
 
 language: go
-
 go:
   - "1.20.7"
 
@@ -18,4 +17,8 @@ script:
   - |
     set -e
     make check
+    if [ "$TRAVIS_PULL_REQUEST" != "false" ] || [ ! -z "$ALWAYS" ]; then
+      make run-tests
+    fi
+    make binaries
     make vulncheck
