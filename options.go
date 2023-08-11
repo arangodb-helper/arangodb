@@ -95,6 +95,7 @@ type starterOptions struct {
 		gcDelay         time.Duration
 		netHost         bool // Deprecated
 		networkMode     string
+		forceBindPorts  bool
 		privileged      bool
 		tty             bool
 	}

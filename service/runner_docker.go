@@ -52,7 +52,7 @@ const (
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
 func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
-	networkMode string, privileged, tty bool) (Runner, error) {
+	networkMode string, forceBindPorts, privileged, tty bool) (Runner, error) {
 
 	os.Setenv("DOCKER_HOST", endpoint)
 	client, err := docker.NewClientFromEnv()
@@ -70,6 +70,7 @@ func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage
 		containerIDs:    make(map[string]time.Time),
 		gcDelay:         gcDelay,
 		networkMode:     networkMode,
+		forceBindPorts:  forceBindPorts,
 		privileged:      privileged,
 		tty:             tty,
 	}, nil
@@ -89,6 +90,7 @@ type dockerRunner struct {
 	gcOnce          sync.Once
 	gcDelay         time.Duration
 	networkMode     string
+	forceBindPorts  bool
 	privileged      bool
 	tty             bool
 }
@@ -271,17 +273,11 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 	}
 	if r.networkMode != "" && r.networkMode != "default" {
 		opts.HostConfig.NetworkMode = r.networkMode
-	} else {
-		for _, p := range ports {
-			dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
-			opts.Config.ExposedPorts[dockerPort] = struct{}{}
-			opts.HostConfig.PortBindings[dockerPort] = []docker.PortBinding{
-				{
-					HostIP:   "0.0.0.0",
-					HostPort: strconv.Itoa(p),
-				},
-			}
+		if r.forceBindPorts {
+			r.addPortBindings(ports, &opts)
 		}
+	} else {
+		r.addPortBindings(ports, &opts)
 	}
 	r.log.Debug().Msgf("Creating container %s", containerName)
 	c, err := r.client.CreateContainer(opts)
@@ -333,6 +329,19 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 		client:    r.client,
 		container: c,
 	}, nil
+}
+
+func (r *dockerRunner) addPortBindings(ports []int, opts *docker.CreateContainerOptions) {
+	for _, p := range ports {
+		dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
+		opts.Config.ExposedPorts[dockerPort] = struct{}{}
+		opts.HostConfig.PortBindings[dockerPort] = []docker.PortBinding{
+			{
+				HostIP:   "0.0.0.0",
+				HostPort: strconv.Itoa(p),
+			},
+		}
+	}
 }
 
 // imageExists looks for a local image and returns true it it exists, false otherwise.
