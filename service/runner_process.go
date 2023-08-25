@@ -176,6 +176,8 @@ func (p *process) ContainerIP() string {
 	return ""
 }
 
+// TODO: |ERROR| Unexpected error: this peer is not a master but URL in agency is mine component=arangodb
+
 // HostPort returns the port on the host that is used to access the given port of the process.
 func (p *process) HostPort(containerPort int) (int, error) {
 	return containerPort, nil

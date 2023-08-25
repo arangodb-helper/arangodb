@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix possible deadlock and goroutine leak while waiting for child process termination
 
 ## [1.16.0](https://github.com/arangodb-helper/arangodb/tree/1.16.0) (2023-07-21)
 - Add sanity check for pass-through args usage
