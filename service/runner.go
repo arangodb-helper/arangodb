@@ -96,6 +96,7 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 	logTerminate := log.With().Str("type", serverType.String()).Logger()
 	logTerminate = p.GetLogger(logTerminate)
 
+	var stopCh <-chan int
 	if killTimeout == 0 {
 		// Kill process
 		logTerminate.Warn().Msgf("Killing %s...", name)
@@ -103,7 +104,7 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 		return p.Wait()
 	} else if initialTimeout > 0 {
 		logTerminate.Info().Msgf("Wait for process termination without sending signal %s...", name)
-		stopCh := p.WaitCh()
+		stopCh = p.WaitCh()
 
 		select {
 		case exitCode := <-stopCh:
@@ -112,13 +113,13 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 		case <-time.After(initialTimeout):
 			// Kill the process
 			logTerminate.Info().Msgf("Continue signal termination process %s...", name)
-			// ensure we read from stopCh channel
-			<-stopCh
 		}
 	}
 
 	logTerminate.Info().Msgf("Terminating %s...", name)
-	stopCh := p.WaitCh()
+	if stopCh == nil {
+		stopCh = p.WaitCh()
+	}
 
 	actions.StartLimitedAction(logTerminate, actions.ActionTypePreStop, serverType, actionTypes)
 
