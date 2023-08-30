@@ -116,17 +116,20 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 		}
 	}
 
-	logTerminate.Info().Msgf("Terminating %s...", name)
 	if stopCh == nil {
 		stopCh = p.WaitCh()
 	}
+	logTerminate.Info().Msgf("Terminating %s...", name)
 
+	logTerminate.Debug().Msgf("Triggering PreStop action if needed. Action types: %+v", actionTypes)
 	actions.StartLimitedAction(logTerminate, actions.ActionTypePreStop, serverType, actionTypes)
 
+	logTerminate.Debug().Msgf("Calling Process to terminate")
 	if err := p.Terminate(); err != nil {
 		logTerminate.Warn().Err(err).Msgf("Failed to terminate %s", name)
 	}
 
+	logTerminate.Debug().Msgf("Waiting for child to exit. Timeout: %s", killTimeout.String())
 	var exitCode = -1
 	select {
 	case exitCode = <-stopCh:
