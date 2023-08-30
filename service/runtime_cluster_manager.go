@@ -172,9 +172,6 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL str
 		if isMaster && masterURL != myURL {
 			s.log.Error().Msgf("Unexpected error: this peer is a master but URL differs. Should be %s got %s", myURL, masterURL)
 		}
-		if !isMaster && masterURL == myURL {
-			s.log.Error().Msgf("Unexpected error: this peer is not a master but URL in agency is mine")
-		}
 
 		s.updateMasterURL(masterURL, isMaster)
 	}

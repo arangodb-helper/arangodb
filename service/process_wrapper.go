@@ -242,6 +242,9 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 					initialTimeout = time.Second
 				}
 				exitCode = terminateProcessWithActions(logProcess, p.proc, p.serverType, initialTimeout, time.Minute)
+
+				// ensure we read from procC channel
+				<-procC
 				break
 			}
 			cancel()

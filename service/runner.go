@@ -96,6 +96,7 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 	logTerminate := log.With().Str("type", serverType.String()).Logger()
 	logTerminate = p.GetLogger(logTerminate)
 
+	var stopCh <-chan int
 	if killTimeout == 0 {
 		// Kill process
 		logTerminate.Warn().Msgf("Killing %s...", name)
@@ -103,7 +104,7 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 		return p.Wait()
 	} else if initialTimeout > 0 {
 		logTerminate.Info().Msgf("Wait for process termination without sending signal %s...", name)
-		stopCh := p.WaitCh()
+		stopCh = p.WaitCh()
 
 		select {
 		case exitCode := <-stopCh:
@@ -115,15 +116,20 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 		}
 	}
 
+	if stopCh == nil {
+		stopCh = p.WaitCh()
+	}
 	logTerminate.Info().Msgf("Terminating %s...", name)
-	stopCh := p.WaitCh()
 
+	logTerminate.Debug().Msgf("Triggering PreStop action if needed. Action types: %+v", actionTypes)
 	actions.StartLimitedAction(logTerminate, actions.ActionTypePreStop, serverType, actionTypes)
 
+	logTerminate.Debug().Msgf("Calling Process to terminate")
 	if err := p.Terminate(); err != nil {
 		logTerminate.Warn().Err(err).Msgf("Failed to terminate %s", name)
 	}
 
+	logTerminate.Debug().Msgf("Waiting for child to exit. Timeout: %s", killTimeout.String())
 	var exitCode = -1
 	select {
 	case exitCode = <-stopCh:
@@ -133,6 +139,11 @@ func terminateProcessWithActions(log zerolog.Logger, p Process, serverType defin
 		logTerminate.Warn().Msgf("Killing %s...", name)
 		p.Kill()
 		exitCode = p.Wait()
+		// ensure we read from stopCh channel
+		firstExitCode := <-stopCh
+		if exitCode == -1 && firstExitCode != exitCode {
+			exitCode = firstExitCode
+		}
 	}
 	return exitCode
 }
