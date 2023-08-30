@@ -373,25 +373,12 @@ func startClusterInDocker(t *testing.T, certsDir string, args []string, volumeID
 	var containers []string
 	for i, v := range volumeIDs {
 		cID := createDockerID(fmt.Sprintf("starter-test-cluster-sync%d-", i))
-		baseArgs := []string{
-			"docker run -i",
-			"--label starter-test=true",
-			"--name=" + cID,
-			"--rm",
-			createLicenseKeyOption(),
-			fmt.Sprintf("-p %d:%d", basePort+(i*portIncrement), basePort),
-			fmt.Sprintf("-v %s:/data", v),
-			fmt.Sprintf("-v %s:/certs", certsDir),
-			"-v /var/run/docker.sock:/var/run/docker.sock",
-			"arangodb/arangodb-starter",
-			"--docker.container=" + cID,
+		mounts := map[string]string{
+			"/data":  v,
+			"/certs": certsDir,
 		}
-		if i > 0 {
-			// start slave
-			baseArgs = append(baseArgs, fmt.Sprintf("--starter.join=$IP:%d", basePort))
-		}
-		baseArgs = append(baseArgs, args...)
-		procs = append(procs, Spawn(t, strings.Join(baseArgs, " ")))
+		proc := runStarterInContainer(t, i > 0, cID, basePort+(i*portIncrement), mounts, args)
+		procs = append(procs, proc)
 		containers = append(containers, cID)
 	}
 	return procs, func() {
@@ -402,6 +389,31 @@ func startClusterInDocker(t *testing.T, certsDir string, args []string, volumeID
 			removeDockerContainer(t, c)
 		}
 	}
+}
+
+// runStarterInContainer runs starter instance using Docker
+func runStarterInContainer(t *testing.T, isSlave bool, cID string, port int, mounts map[string]string, args []string) *SubProcess {
+	baseArgs := []string{
+		"docker run -i",
+		"--label starter-test=true",
+		"--name=" + cID,
+		"--rm",
+		createLicenseKeyOption(),
+		fmt.Sprintf("-p %d:%d", port, basePort),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+	}
+	for dst, src := range mounts {
+		baseArgs = append(baseArgs, fmt.Sprintf("-v %s:%s", src, dst))
+	}
+	baseArgs = append(baseArgs,
+		"arangodb/arangodb-starter",
+		"--docker.container="+cID,
+	)
+	if isSlave {
+		baseArgs = append(baseArgs, fmt.Sprintf("--starter.join=$IP:%d", basePort))
+	}
+	baseArgs = append(baseArgs, args...)
+	return Spawn(t, strings.Join(baseArgs, " "))
 }
 
 // waitForClusterReadinessAndFinish waits until cluster will become available, runs tests against it and then terminates it.

@@ -88,7 +88,7 @@ func (j jwtManager) add(d []byte) error {
 	return nil
 }
 
-func (j jwtManager) remove(i *api.ClusterInventory, p *Peer, s string, d []byte) error {
+func (j jwtManager) remove(i *api.ClusterInventory, p *Peer, hash string, token []byte) error {
 	if i.Error != nil {
 		return errors.Errorf("Unable to remove token if member is failed: %s", i.Error.Error)
 	}
@@ -99,13 +99,13 @@ func (j jwtManager) remove(i *api.ClusterInventory, p *Peer, s string, d []byte)
 				return errors.Errorf("Unable to get hashes - probably not supported by server")
 			}
 
-			if n.Hashes.JWT.Active.GetSHA().Checksum() == Sha256sum(d) {
-				return errors.Errorf("JWT token %s is active on peer %s and member %s", Sha256sum(d), pname, mname)
+			if n.Hashes.JWT.Active.GetSHA().Checksum() == Sha256sum(token) {
+				return errors.Errorf("JWT token %s is active on peer %s and member %s", Sha256sum(token), pname, mname)
 			}
 		}
 	}
 
-	return os.Remove(path.Join(j.dir, s))
+	return os.Remove(path.Join(j.dir, hash))
 }
 
 type tokens map[string][]byte
@@ -201,9 +201,9 @@ func (s *httpServer) jwtActivateE(r *http.Request) (int, error) {
 
 	switch r.Method {
 	case http.MethodPost:
-		s.log.Info().Msgf("Received JWT Refresh call")
+		s.log.Info().Msgf("Received JWT Activate call")
 		if err := s.synchronizeJWTOnMembers(i, token); err != nil {
-			s.log.Warn().Err(err).Msgf("JWT Refresh call failed")
+			s.log.Warn().Err(err).Msgf("JWT Activate call failed")
 			return 0, err
 		}
 		s.log.Info().Msgf("JWT Refresh call done")
@@ -284,7 +284,6 @@ func (s *httpServer) synchronizeJWTOnMembers(ci *api.ClusterInventory, active st
 		}
 
 		f := newJWTManager(path.Join(d, definitions.ArangodJWTSecretFolderName))
-
 		fTokens, err := f.tokens()
 		if err != nil {
 			return err
@@ -313,7 +312,6 @@ func (s *httpServer) synchronizeJWTOnMembers(ci *api.ClusterInventory, active st
 		}
 
 		cActive, ok := fTokens[definitions.ArangodJWTSecretActive]
-
 		if !ok {
 			_, d, ok := fTokens.getAny()
 			if !ok {
@@ -335,7 +333,7 @@ func (s *httpServer) synchronizeJWTOnMembers(ci *api.ClusterInventory, active st
 		if active != "" && active != Sha256sum(cActive) {
 			eActive, ok := fTokens[active]
 			if !ok {
-				return errors.Errorf("Unable to find key which needs to be activated")
+				return errors.Errorf("Unable to find key which needs to be activated on peer %s and member %s", p.ID, t)
 			}
 
 			if err := f.setActive(ci, Sha256sum(eActive)); err != nil {
@@ -370,13 +368,13 @@ func (s *httpServer) synchronizeJWTOnMembers(ci *api.ClusterInventory, active st
 			return errors.Errorf("Invalid tokens length")
 		}
 
-		for t := range fTokens {
-			if t == definitions.ArangodJWTSecretActive {
+		for tok := range fTokens {
+			if tok == definitions.ArangodJWTSecretActive {
 				continue
 			}
 
-			if !jwt.Result.Passive.ContainsSha(t) {
-				return errors.Errorf("Checksum %s not found on server", t)
+			if !jwt.Result.Passive.ContainsSha(tok) {
+				return errors.Errorf("Checksum %s not found on peer %s and member %s", tok, p.ID, t)
 			}
 		}
 

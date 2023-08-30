@@ -459,6 +459,8 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 		log.Fatal().Msgf("Expected no arguments, got %q", args)
 	}
 
+	sanityCheckPassThroughArgs(cmd.Flags(), cmd.PersistentFlags())
+
 	// Create service
 	svc, bsCfg := mustPrepareService(true)
 
@@ -475,10 +477,19 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	}
 
 	// Read setup.json (if exists)
-	bsCfg, clusterConfig, relaunch, _ := service.ReadSetupConfig(log, opts.starter.dataDir, bsCfg)
+	setupConfig, relaunch, _ := service.ReadSetupConfig(log, opts.starter.dataDir)
+	if relaunch {
+		oldOpts := setupConfig.Peers.PersistentOptions
+		newOpts := passthroughOpts.PersistentOptions
+		if err := oldOpts.ValidateCompatibility(&newOpts); err != nil {
+			log.Error().Err(err).Msg("Please check pass-through options")
+		}
+
+		bsCfg.LoadFromSetupConfig(setupConfig)
+	}
 
 	// Run the service
-	if err := svc.Run(rootCtx, bsCfg, clusterConfig, relaunch); err != nil {
+	if err := svc.Run(rootCtx, bsCfg, setupConfig.Peers, relaunch); err != nil {
 		log.Fatal().Err(err).Msg("Failed to run service")
 	}
 }

@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2022 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,6 +28,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/pflag"
 	"gopkg.in/ini.v1"
+
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
 // loadCfgFromFile returns config loaded from file if file exists, nil otherwise
@@ -72,16 +74,19 @@ func trySetFlagFromConfig(flagName string, k *ini.Key, flagSets ...*pflag.FlagSe
 		return nil
 	}
 
-	prefix, targ, err := passthroughPrefixes.Lookup(flagName)
+	prefix, confPrefix, targ, err := passthroughPrefixes.Lookup(flagName)
 	if err != nil {
 		return errors.Wrapf(err, "invalid key %s", flagName)
 	}
-	if prefix != nil {
-		valuePtr := prefix.FieldSelector(passthroughOpts, targ)
+	if confPrefix != nil {
+		valuePtr := confPrefix.FieldSelector(passthroughOpts, targ)
 		if *valuePtr == nil {
 			*valuePtr = k.ValueWithShadows()
 		} else {
 			*valuePtr = append(*valuePtr, k.ValueWithShadows()...)
+		}
+		if options.IsPersistentOption(targ) {
+			passthroughOpts.PersistentOptions.Add(prefix, targ, valuePtr)
 		}
 		return nil
 	}
@@ -118,4 +123,24 @@ func loadFlagValuesFromConfig(cfgFilePath string, fs, persistentFs *pflag.FlagSe
 			}
 		}
 	}
+}
+
+// sanityCheckPassThroughArgs will print a warning if user does not specify value for option,
+// example: --args.all.log.line-number --args.all.log.performance=true
+func sanityCheckPassThroughArgs(fs, persistentFs *pflag.FlagSet) {
+	sanityCheck := func(flag *pflag.Flag) {
+		if _, found, _, _ := passthroughPrefixes.Lookup(flag.Name); found != nil {
+			if flag.Value == nil {
+				return
+			}
+			if sliceVal, ok := flag.Value.(pflag.SliceValue); ok {
+				slice := sliceVal.GetSlice()
+				if len(slice) > 0 && strings.HasPrefix(slice[0], "--") {
+					log.Warn().Msgf("Possible wrong usage of pass-through argument --%s: its value %s looks like separate argument.", flag.Name, slice[0])
+				}
+			}
+		}
+	}
+	fs.Visit(sanityCheck)
+	persistentFs.Visit(sanityCheck)
 }

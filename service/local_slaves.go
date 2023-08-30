@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -69,7 +67,17 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		os.MkdirAll(p.DataDir, 0755)
 
 		// Read existing setup.json (if any)
-		slaveBsCfg, clusterConfig, relaunch, _ := ReadSetupConfig(slaveLog, p.DataDir, slaveBsCfg)
+		setupConfig, relaunch, _ := ReadSetupConfig(slaveLog, p.DataDir)
+		if relaunch {
+			oldOpts := setupConfig.Peers.PersistentOptions
+			newOpts := config.Configuration.PersistentOptions
+			if err := oldOpts.ValidateCompatibility(&newOpts); err != nil {
+				s.log.Error().Err(err).Msg("Please check pass-through options")
+			}
+
+			slaveBsCfg.LoadFromSetupConfig(setupConfig)
+		}
+
 		slaveConfig := config // Create copy
 		slaveConfig.DataDir = p.DataDir
 		slaveConfig.MasterAddresses = []string{masterAddr}
@@ -77,7 +85,7 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := slaveService.Run(s.stopPeer.ctx, slaveBsCfg, clusterConfig, relaunch); err != nil {
+			if err := slaveService.Run(s.stopPeer.ctx, slaveBsCfg, setupConfig.Peers, relaunch); err != nil {
 				s.log.Error().Str("peer", p.ID).Err(err).Msg("Unable to start one of peers")
 			}
 		}()

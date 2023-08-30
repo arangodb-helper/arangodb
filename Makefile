@@ -35,7 +35,7 @@ REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.20.3
+GOVERSION := 1.20.7
 GOIMAGE ?= golang:$(GOVERSION)-alpine3.17
 
 GOOS ?= linux
@@ -105,6 +105,7 @@ DOCKER_CMD = $(DOCKERCLI) run \
                 -e GOARCH=$(GOARCH) \
                 -e CGO_ENABLED=0 \
                 -e TRAVIS=$(TRAVIS) \
+                -e VERBOSE=$(VERBOSE) \
                 $(DOCKER_PARAMS) \
                 -w /usr/code/ \
                 $(DOCKER_IMAGE)

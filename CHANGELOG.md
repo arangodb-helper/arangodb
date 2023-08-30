@@ -1,8 +1,14 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
-- Fix context handling in WaitUntilStarterReady for tests
 - Retry server upgrade if requested by exit code (EXIT_UPGRADE_REQUIRED)
+
+## [1.16.0](https://github.com/arangodb-helper/arangodb/tree/1.16.0) (2023-07-21)
+- Add sanity check for pass-through args usage
+- Fix printing --starter.instance-up-timeout instead of hardcoded value
+- Fix context handling in WaitUntilStarterReady for tests
+- Show error when user tries to change value of "persistent" option
+- Proper leader election and cluster upgrade without using observe and TTL features
 
 ## [0.15.8](https://github.com/arangodb-helper/arangodb/tree/0.15.8) (2023-06-02)
 - Add passing ARANGODB_SERVER_DIR env variable when starting arangod instances
