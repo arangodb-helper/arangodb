@@ -135,7 +135,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		features := p.runtimeContext.DatabaseFeatures()
 		output := utils.NewLimitedBuffer(80 * 100)
 
-		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output)
+		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output, exitCode)
 		if err != nil {
 			logProcess.Error().Err(err).Msgf("Error while starting %s", p.serverType)
 			if !portInUse {
