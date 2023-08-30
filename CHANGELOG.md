@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Retry server upgrade if requested by exit code (EXIT_UPGRADE_REQUIRED)
 
 ## [1.16.0](https://github.com/arangodb-helper/arangodb/tree/1.16.0) (2023-07-21)
 - Add sanity check for pass-through args usage
