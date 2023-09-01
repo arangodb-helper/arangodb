@@ -113,7 +113,8 @@ func pushDockerImages() {
 	if dryRun {
 		log.Printf("Skipping pushing docker images to registry")
 	} else {
-		make("docker-push-version")
+		// temporary disabled because I don't have access to push
+		// make("docker-push-version")
 	}
 }
 
