@@ -105,7 +105,7 @@ func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
 	}
 	if err := p.Signal(syscall.Signal(0)); err != nil {
 		// Process does not seem to exist anymore
-		r.log.Debug().Msgf("Cannot signal process %d", pid)
+		r.log.Debug().Msgf("Cannot signal(0) to process %d", pid)
 		return nil, nil
 	}
 	// Apparently we still have a server.
@@ -194,7 +194,12 @@ func (p *process) Wait() int {
 			} else {
 				if ps.ExitCode() != 0 {
 					if ws, ok := ps.Sys().(syscall.WaitStatus); ok {
-						l := p.log.Info()
+						logLevel := zerolog.WarnLevel
+						if ws.CoreDump() || ws.Signaled() && !ws.Stopped() && !ws.Continued() {
+							logLevel = zerolog.ErrorLevel
+						}
+						l := p.log.WithLevel(logLevel)
+
 						if ws.Exited() {
 							l = l.Int("exit-status", ws.ExitStatus())
 						}
@@ -215,9 +220,13 @@ func (p *process) Wait() int {
 							l = l.Bool("core-dump", true)
 						}
 
-						l.Int("trap-cause", ws.TrapCause()).Msgf("Wait on %d returned", proc.Pid)
+						if ws.TrapCause() >= 0 {
+							l = l.Int("trap-cause", ws.TrapCause())
+						}
+
+						l.Msgf("Wait on %d returned", proc.Pid)
 					} else {
-						p.log.Info().Int("exitcode", ps.ExitCode()).Msgf("Wait on %d returned", proc.Pid)
+						p.log.Warn().Int("exitcode", ps.ExitCode()).Msgf("Wait on %d returned", proc.Pid)
 					}
 				}
 
