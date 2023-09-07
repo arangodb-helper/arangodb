@@ -1,11 +1,17 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+
+## [0.17.1](https://github.com/arangodb-helper/arangodb/tree/0.17.1) (2023-09-07)
 - Retry server upgrade if requested by exit code (EXIT_UPGRADE_REQUIRED)
 - Fix possible deadlock and goroutine leak while waiting for child process termination
 - Change INF level to WRN or ERR when child process terminated with non-zero
 
-## [0.16.0](https://github.com/arangodb-helper/arangodb/tree/1.16.0) (2023-07-21)
+## [0.17.0](https://github.com/arangodb-helper/arangodb/tree/0.17.0) (2023-08-07)
+- Update go to 1.20.7 to fix known CVEs
+
+## [0.16.0](https://github.com/arangodb-helper/arangodb/tree/0.16.0) (2023-07-21)
 - Add sanity check for pass-through args usage
 - Fix printing --starter.instance-up-timeout instead of hardcoded value
 - Fix context handling in WaitUntilStarterReady for tests
