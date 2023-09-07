@@ -222,6 +222,15 @@ release-minor: $(RELEASE)
 release-major: $(RELEASE)
 	$(RELEASE) -type=major
 
+prerelease-patch: $(RELEASE)
+	$(RELEASE) -type=patch -prerelease
+
+prerelease-minor: $(RELEASE)
+	$(RELEASE) -type=minor -prerelease
+
+prerelease-major: $(RELEASE)
+	$(RELEASE) -type=major -prerelease
+
 TESTCONTAINER := arangodb-starter-test
 
 # Run all unit tests
