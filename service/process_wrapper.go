@@ -66,7 +66,10 @@ func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog
 }
 
 type ProcessWrapper interface {
+	// Wait blocks until process terminates
+	// Returns true if process was already terminated or it has terminated in time
 	Wait(timeout time.Duration) bool
+
 	Process() Process
 }
 
@@ -109,8 +112,10 @@ func (p *processWrapper) stop() {
 
 	select {
 	case <-p.stopping:
+		p.log.Debug().Msg("stopping channel already closed")
 		break
 	default:
+		p.log.Debug().Msg("closing stopping channel")
 		close(p.stopping)
 	}
 }
