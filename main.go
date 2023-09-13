@@ -321,6 +321,7 @@ func handleSignal(sigChannel chan os.Signal, cancel context.CancelFunc, rotateLo
 		} else {
 			signalCount++
 			fmt.Println("Received signal:", s)
+			log.Debug().Msgf("Received signal: %s", s.String())
 			if signalCount > 1 {
 				os.Exit(1)
 			}
