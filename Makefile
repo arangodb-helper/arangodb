@@ -48,9 +48,7 @@ endif
 ARANGODB ?= arangodb/arangodb:latest
 DOCKERNAMESPACE ?= arangodb
 
-ifdef TRAVIS
-	IP := $(shell hostname -I | cut -d ' ' -f 1)
-endif
+IP ?= $(shell hostname -I | cut -d ' ' -f 1)
 
 TEST_TIMEOUT := 1h
 
@@ -88,7 +86,6 @@ build: pre
 %: export GOOS := $(GOOS)
 %: export GOPATH := $(GOPATH)
 %: export GOCACHE := $(GOPATH)/.cache
-%: export GO111MODULE := off
 
 else
 BUILD_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME)
@@ -104,7 +101,6 @@ DOCKER_CMD = $(DOCKERCLI) run \
                 -e GOOS=$(GOOS) \
                 -e GOARCH=$(GOARCH) \
                 -e CGO_ENABLED=0 \
-                -e TRAVIS=$(TRAVIS) \
                 -e VERBOSE=$(VERBOSE) \
                 $(DOCKER_PARAMS) \
                 -w /usr/code/ \
@@ -254,13 +250,6 @@ run-tests-local-process-run:
 
 _run-tests: build-test build
 	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.failfast -test.v $(TESTOPTIONS)
-
-ifdef TRAVIS
-run-tests-docker-pre: docker
-	@$(DOCKERCLI) pull $(ARANGODB)
-
-run-tests-docker: run-tests-docker-pre
-endif
 
 run-tests-docker: TEST_MODES=docker
 run-tests-docker: docker _run-tests
