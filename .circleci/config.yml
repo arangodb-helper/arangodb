@@ -30,6 +30,7 @@ jobs:
       - setup_remote_docker:
           docker_layer_caching: true
       - checkout
+      - run: make init
       - run: make check
       - run: make binaries
       - run: make vulncheck
