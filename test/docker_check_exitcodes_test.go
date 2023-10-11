@@ -70,7 +70,7 @@ func TestDockerErrExitCodeHandler(t *testing.T) {
 	defer removeDockerContainer(t, cID)
 
 	re := regexp.MustCompile("has failed 1 times, giving up")
-	require.Error(t, dockerRun.ExpectTimeout(context.Background(), time.Second*20, re, ""))
+	require.NoError(t, dockerRun.ExpectTimeout(context.Background(), time.Second*20, re, ""))
 
 	require.NoError(t, dockerRun.WaitTimeout(time.Second*10), "Starter is not stopped in time")
 
