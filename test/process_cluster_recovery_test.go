@@ -36,8 +36,6 @@ import (
 // TestProcessClusterRecovery starts a master starter, followed by 2 slave starters.
 // Once started, it destroys one of the starters and attempts a recovery.
 func TestProcessClusterRecovery(t *testing.T) {
-	SkipOnTravis(t, "Test does not work on TRAVIS VM") // TODO: Fix needed
-
 	removeArangodProcesses(t)
 	needTestMode(t, testModeProcess)
 	needStarterMode(t, starterModeCluster)
