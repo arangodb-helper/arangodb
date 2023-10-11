@@ -104,6 +104,8 @@ var (
 	passthroughPrefixes = preparePassthroughPrefixes()
 )
 
+var unusedVar = 3
+
 func init() {
 	// Setup error functions in go-driver
 	driver.WithStack = errors.WithStack
