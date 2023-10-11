@@ -88,7 +88,6 @@ build: pre
 %: export GOOS := $(GOOS)
 %: export GOPATH := $(GOPATH)
 %: export GOCACHE := $(GOPATH)/.cache
-%: export GO111MODULE := off
 
 else
 BUILD_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(BINNAME)
