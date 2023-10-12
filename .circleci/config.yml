@@ -46,7 +46,7 @@ jobs:
               echo "This is not a pull request. Skipping..."
               exit 0
             fi
-            make run-tests
+             make run-tests
     environment:
       ARANGODB: << pipeline.parameters.arangodbImage >>
       GOIMAGE: << pipeline.parameters.goImage >>
