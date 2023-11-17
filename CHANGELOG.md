@@ -1,7 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
-- Bump Go version (1.21.3) and dependencies for CVE fixes
+- Bump Go version (1.21.4) and dependencies for CVE fixes
 
 ## [0.17.1](https://github.com/arangodb-helper/arangodb/tree/0.17.1) (2023-09-07)
 - Retry server upgrade if requested by exit code (EXIT_UPGRADE_REQUIRED)
