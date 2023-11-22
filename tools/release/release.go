@@ -76,12 +76,13 @@ func main() {
 	ensureGithubToken()
 	checkCleanRepo()
 	version := bumpVersionInFile(releaseType)
+	tagName := fmt.Sprintf("v%s", version)
 	make("clean")
 	make("binaries")
 	createSHA256Sums()
 	pushDockerImages()
-	gitTag(version)
-	githubCreateRelease(version)
+	gitTag(version, tagName) // push both old and new tags for backward compatibility
+	githubCreateRelease(tagName)
 	bumpVersionInFile("devel")
 }
 
@@ -224,14 +225,16 @@ func gitCommitAll(message string) {
 	}
 }
 
-func gitTag(version string) {
+func gitTag(tags ...string) {
 	if dryRun {
-		log.Printf("Skipping git tag with name '%s'", version)
+		log.Printf("Skipping git tag with '%+v'", tags)
 		return
 	}
 
-	if err := run("git", "tag", version); err != nil {
-		log.Fatalf("Failed to tag: %v\n", err)
+	for _, t := range tags {
+		if err := run("git", "tag", t); err != nil {
+			log.Fatalf("Failed to tag: %v\n", err)
+		}
 	}
 	if err := run("git", "push", "--tags"); err != nil {
 		log.Fatalf("Failed to push tags: %v\n", err)

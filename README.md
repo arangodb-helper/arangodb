@@ -14,7 +14,7 @@ Note: `arangodb` is also included in all current distributions of ArangoDB.
 If you want to compile `arangodb` yourselves just do:
 
 ```bash
-go get -u github.com/arangodb-helper/arangodb
+go install github.com/arangodb-helper/arangodb@latest
 ```
 
 This will result in a binary at `$GOPATH/bin/arangodb`.
