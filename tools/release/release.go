@@ -142,7 +142,7 @@ func bumpVersionInFile(action string) string {
 		}
 	}
 
-	gitCommitAll(fmt.Sprintf("Updated to %s", version))
+	gitCommitAll(fmt.Sprintf("Updated to v%s", version))
 	log.Printf("Updated '%s' to '%s'\n", versionFile, string(contents))
 
 	return version.String()
