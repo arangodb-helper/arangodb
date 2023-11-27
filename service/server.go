@@ -35,6 +35,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/arangodb-helper/arangodb/pkg/logging"
 	driver "github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/client"
@@ -124,7 +125,9 @@ func newHTTPServer(log zerolog.Logger, context httpServerContext, runtimeServerM
 	return &httpServer{
 		log:     log,
 		context: context,
-		server:  &http.Server{},
+		server: &http.Server{
+			ErrorLog: logging.NewAdapter(log.With().Str("logger", "http-server").Logger()),
+		},
 		idInfo: client.IDInfo{
 			ID: serverID,
 		},

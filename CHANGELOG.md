@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Redirect HTTP server warnings into log file, skip TLS handshake errors
 
 ## [v0.17.2](https://github.com/arangodb-helper/arangodb/tree/0.17.2) (2023-11-23)
 - Bump Go version (1.21.4) and dependencies for CVE fixes
