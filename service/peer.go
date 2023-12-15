@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,9 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-// Author Tomasz Mielech
-//
 
 package service
 
@@ -34,43 +31,57 @@ import (
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
-// Peer contains all persistent settings of a starter.
-type Peer struct {
-	ID                     string // Unique of of the peer
-	Address                string // IP address of arangodb peer server
-	Port                   int    // Port number of arangodb peer server
-	PortOffset             int    // Offset to add to base ports for the various servers (agent, coordinator, dbserver)
-	DataDir                string // Directory holding my data
-	HasAgentFlag           bool   `json:"HasAgent"`                     // If set, this peer is running an agent
-	HasDBServerFlag        *bool  `json:"HasDBServer,omitempty"`        // If set or is nil, this peer is running a dbserver
-	HasCoordinatorFlag     *bool  `json:"HasCoordinator,omitempty"`     // If set or is nil, this peer is running a coordinator
-	HasResilientSingleFlag bool   `json:"HasResilientSingle,omitempty"` // If set, this peer is running a resilient single server
-	HasSyncMasterFlag      bool   `json:"HasSyncMaster,omitempty"`      // If set, this peer is running a sync master
-	HasSyncWorkerFlag      bool   `json:"HasSyncWorker,omitempty"`      // If set, this peer is running a sync worker
-	IsSecure               bool   // If set, servers started by this peer are using an SSL connection
+// peerServers
+type peerServers struct {
+	HasAgentFlag           bool  `json:"HasAgent"`                     // If set, this peer is running an agent
+	HasDBServerFlag        *bool `json:"HasDBServer,omitempty"`        // If set or is nil, this peer is running a dbserver
+	HasCoordinatorFlag     *bool `json:"HasCoordinator,omitempty"`     // If set or is nil, this peer is running a coordinator
+	HasResilientSingleFlag bool  `json:"HasResilientSingle,omitempty"` // If set, this peer is running a resilient single server
+	HasSyncMasterFlag      bool  `json:"HasSyncMaster,omitempty"`      // If set, this peer is running a sync master
+	HasSyncWorkerFlag      bool  `json:"HasSyncWorker,omitempty"`      // If set, this peer is running a sync worker
 }
 
-// NewPeer initializes a new Peer instance with given values.
-func NewPeer(id, address string, port, portOffset int, dataDir string, hasAgent, hasDBServer, hasCoordinator, hasResilientSingle, hasSyncMaster, hasSyncWorker, isSecure bool) Peer {
-	p := Peer{
-		ID:                     id,
-		Address:                address,
-		Port:                   port,
-		PortOffset:             portOffset,
-		DataDir:                dataDir,
-		HasAgentFlag:           hasAgent,
-		IsSecure:               isSecure,
-		HasResilientSingleFlag: hasResilientSingle,
-		HasSyncMasterFlag:      hasSyncMaster,
-		HasSyncWorkerFlag:      hasSyncWorker,
+// Peer contains all persistent settings of a starter.
+type Peer struct {
+	ID          string // Unique ID of the peer
+	Address     string // IP address of arangodb peer server
+	Port        int    // Port number of arangodb peer server
+	PortOffset  int    // Offset to add to base ports for the various servers (agent, coordinator, dbserver)
+	DataDir     string // Directory holding my data
+	peerServers `json:",inline"`
+	IsSecure    bool // If set, servers started by this peer are using an SSL connection
+}
+
+func preparePeerServers(mode ServiceMode, bsCfg BootstrapConfig, config Config) peerServers {
+	var hasDBServer *bool
+	if !boolFromRef(bsCfg.StartDBserver, true) {
+		hasDBServer = boolRef(false)
 	}
-	if !hasDBServer {
-		p.HasDBServerFlag = boolRef(false)
+	var hasCoordinator *bool
+	if !boolFromRef(bsCfg.StartCoordinator, true) {
+		hasCoordinator = boolRef(false)
 	}
-	if !hasCoordinator {
-		p.HasCoordinatorFlag = boolRef(false)
+	return peerServers{
+		HasAgentFlag:           boolFromRef(bsCfg.StartAgent, !mode.IsSingleMode()),
+		HasDBServerFlag:        hasDBServer,
+		HasCoordinatorFlag:     hasCoordinator,
+		HasResilientSingleFlag: boolFromRef(bsCfg.StartResilientSingle, mode.IsActiveFailoverMode()),
+		HasSyncMasterFlag:      boolFromRef(bsCfg.StartSyncMaster, true) && config.SyncEnabled,
+		HasSyncWorkerFlag:      boolFromRef(bsCfg.StartSyncWorker, true) && config.SyncEnabled,
 	}
-	return p
+}
+
+// newPeer initializes a new Peer instance with given values.
+func newPeer(id, address string, port, portOffset int, dataDir string, servers peerServers, isSecure bool) Peer {
+	return Peer{
+		ID:          id,
+		Address:     address,
+		Port:        port,
+		PortOffset:  portOffset,
+		DataDir:     dataDir,
+		IsSecure:    isSecure,
+		peerServers: servers,
+	}
 }
 
 // HasAgent returns true if this peer is running an agent

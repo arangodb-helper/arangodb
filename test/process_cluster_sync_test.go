@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
@@ -26,6 +24,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
+
+	"github.com/arangodb-helper/arangodb/service"
 )
 
 // TestProcessClusterSync starts a master starter, followed by 2 slave starters,
@@ -169,5 +173,75 @@ func TestProcessLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 		defer master.Close()
 
 		waitForClusterReadinessAndFinish(t, false, true, master)
+	}
+}
+
+// TestProcessClusterRestartWithSyncDisabledThenUpgrade scenario:
+// - start with sync enabled
+// - restart with sync disabled
+// - run upgrade
+func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
+	removeArangodProcesses(t)
+	needTestMode(t, testModeProcess)
+	needStarterMode(t, starterModeCluster)
+	needEnterprise(t)
+
+	// Create certificates
+	ip := "127.0.0.1"
+	certs := createSyncCertificates(t, ip, false)
+
+	peerDirs := []string{SetUniqueDataDir(t), SetUniqueDataDir(t), SetUniqueDataDir(t)}
+	defer func() {
+		for _, d := range peerDirs {
+			os.RemoveAll(d)
+		}
+	}()
+
+	starterArgs := []string{
+		"${STARTER}",
+		"--starter.address=" + ip,
+		"--auth.jwt-secret=" + certs.ClusterSecret,
+		createEnvironmentStarterOptions(),
+	}
+	{
+		logVerbose(t, "Starting with sync enabled")
+		syncArgs := []string{
+			"--starter.sync",
+			"--sync.server.keyfile=" + certs.TLS.DCA.Keyfile,
+			"--sync.server.client-cafile=" + certs.ClientAuth.CACertificate,
+			"--sync.master.jwt-secret=" + certs.MasterSecret,
+			"--sync.monitoring.token=" + syncMonitoringToken,
+		}
+		starterArgsWithSync := append(starterArgs, syncArgs...)
+		procs, cleanup := startCluster(t, ip, starterArgsWithSync, peerDirs)
+		defer cleanup()
+
+		waitForClusterReadinessAndFinish(t, true, true, procs...)
+	}
+	{
+		logVerbose(t, "Starting cluster again with sync disabled")
+		procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
+		defer cleanup()
+		waitForClusterReadiness(t, false, true, procs...)
+
+		time.Sleep(time.Minute * 15) // ensure slaves got updated configuration from master
+
+		// check flags are updated in config
+		for _, dir := range peerDirs {
+			config, _, err := service.ReadSetupConfig(zerolog.Logger{}, dir)
+			require.NoError(t, err)
+
+			for _, peer := range config.Peers.AllPeers {
+				logVerbose(t, "checking dir %s, peer %s:", dir, peer.ID)
+				require.False(t, peer.HasSyncMaster(), "dir %s", dir)
+				require.False(t, peer.HasSyncWorker(), "dir %s", dir)
+				logVerbose(t, "ok!")
+			}
+		}
+
+		waitForClusterHealthy(t, insecureStarterEndpoint(0*portIncrement), time.Second*15)
+
+		testUpgradeProcess(t, insecureStarterEndpoint(0*portIncrement))
+		waitForClusterReadinessAndFinish(t, false, true, procs...)
 	}
 }

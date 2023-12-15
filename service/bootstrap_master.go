@@ -50,15 +50,9 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	s.log.Info().Msgf("Using storage engine '%s'", bsCfg.ServerStorageEngine)
 
 	// Create initial cluster configuration
-	hasAgent := boolFromRef(bsCfg.StartAgent, !s.mode.IsSingleMode())
-	hasDBServer := boolFromRef(bsCfg.StartDBserver, true)
-	hasCoordinator := boolFromRef(bsCfg.StartCoordinator, true)
-	hasResilientSingle := boolFromRef(bsCfg.StartResilientSingle, s.mode.IsActiveFailoverMode())
-	hasSyncMaster := boolFromRef(bsCfg.StartSyncMaster, true) && config.SyncEnabled
-	hasSyncWorker := boolFromRef(bsCfg.StartSyncWorker, true) && config.SyncEnabled
-	me := NewPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir,
-		hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
-		hasSyncMaster, hasSyncWorker, s.IsSecure())
+	servers := preparePeerServers(s.mode, bsCfg, config)
+
+	me := newPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir, servers, s.IsSecure())
 	s.myPeers.Initialize(me, bsCfg.AgencySize, storageEngine, s.cfg.Configuration.PersistentOptions)
 	s.learnOwnAddress = config.OwnAddress == ""
 
