@@ -1300,15 +1300,10 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 	// Is this a new start or a restart?
 	if shouldRelaunch {
 		s.myPeers = clusterConfig
-		s.log.Warn().Msgf("Relaunching! Cluster: %+v, bsCfg: %+v", clusterConfig, bsCfg)
 
 		s.adjustClusterConfigForRelaunch(bsCfg)
 		s.saveSetup()
 
-		p, _ := clusterConfig.PeerByID(bsCfg.ID)
-		s.log.Warn().Msgf("After Adjustment: %+v", p.peerServers)
-
-		s.log.Info().Msgf("Relaunching service with id '%s' on %s:%d...", s.id, s.cfg.OwnAddress, s.announcePort)
 		storageEngine, err := s.readActualStorageEngine()
 		if err != nil {
 			return maskAny(err)
