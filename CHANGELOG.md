@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Redirect HTTP server warnings into log file, skip TLS handshake errors
+- Bump Go version (1.21.5) and dependencies for CVE fixes
 - Update setup.json config on relaunch with current enumeration of running servers
 
 ## [v0.17.2](https://github.com/arangodb-helper/arangodb/tree/0.17.2) (2023-11-23)
