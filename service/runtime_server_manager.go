@@ -513,25 +513,41 @@ func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType defi
 
 	switch serverType {
 	case definitions.ServerTypeAgent:
-		p = s.agentProc.Process()
+		if w := s.agentProc; w != nil {
+			p = w.Process()
+		}
 	case definitions.ServerTypeDBServer:
-		p = s.dbserverProc.Process()
+		if w := s.dbserverProc; w != nil {
+			p = w.Process()
+		}
 	case definitions.ServerTypeDBServerNoResign:
-		p = s.dbserverProc.Process()
+		if w := s.dbserverProc; w != nil {
+			p = w.Process()
+		}
 	case definitions.ServerTypeCoordinator:
-		p = s.coordinatorProc.Process()
+		if w := s.coordinatorProc; w != nil {
+			p = w.Process()
+		}
 	case definitions.ServerTypeSingle, definitions.ServerTypeResilientSingle:
-		p = s.singleProc.Process()
+		if w := s.singleProc; w != nil {
+			p = w.Process()
+		}
 	case definitions.ServerTypeSyncMaster:
-		p = s.syncMasterProc.Process()
+		if w := s.syncMasterProc; w != nil {
+			p = w.Process()
+		}
 	case definitions.ServerTypeSyncWorker:
-		p = s.syncWorkerProc.Process()
+		if w := s.syncWorkerProc; w != nil {
+			p = w.Process()
+		}
 	default:
 		return maskAny(fmt.Errorf("Unknown server type '%s'", serverType))
 	}
 
 	if p != nil {
 		terminateProcessWithActions(log, p, serverType, 0, time.Minute, actions.ActionTypeAll)
+	} else {
+		log.Warn().Msgf("Was asked to restart %s but no such process exists", serverType)
 	}
 	return nil
 }

@@ -416,8 +416,7 @@ func runStarterInContainer(t *testing.T, isSlave bool, cID string, port int, mou
 	return Spawn(t, strings.Join(baseArgs, " "))
 }
 
-// waitForClusterReadinessAndFinish waits until cluster will become available, runs tests against it and then terminates it.
-func waitForClusterReadinessAndFinish(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
+func waitForClusterReadiness(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
 	WaitUntilStarterReady(t, whatCluster, len(procs), procs...)
 	var timeout time.Duration
 	if syncEnabled {
@@ -430,7 +429,53 @@ func waitForClusterReadinessAndFinish(t *testing.T, syncEnabled, isRelaunch bool
 	for i := range procs {
 		testClusterPeer(t, insecureStarterEndpoint(i*portIncrement), false, syncEnabled, timeout)
 	}
+}
+
+// waitForClusterReadinessAndFinish waits until cluster will become available, runs tests against it and then terminates it.
+func waitForClusterReadinessAndFinish(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
+	waitForClusterReadiness(t, syncEnabled, isRelaunch, procs...)
 
 	logVerbose(t, "Waiting for termination")
 	SendIntrAndWait(t, procs...)
+}
+
+func waitForClusterHealthy(t *testing.T, endpoint string, timeout time.Duration) {
+	auth := driver.BasicAuthentication("root", "")
+	client, err := CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	clusterClient, err := client.Cluster(ctx)
+	require.NoError(t, err)
+
+	logVerbose(t, "Starting wait for cluster healthy")
+	start := time.Now()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		h := getHealth(t, ctx, clusterClient)
+		allHealthy := true
+		for serverID, sh := range h.Health {
+			statusGood := sh.Status == driver.ServerStatusGood
+			if !statusGood && time.Since(start) > timeout {
+				t.Fatalf("Cluster unhealthy after %s: server %s status is %s", timeout.String(), serverID, sh.Status)
+				return
+			}
+			allHealthy = allHealthy && statusGood
+		}
+		if allHealthy {
+			logVerbose(t, "Cluster is healthy!")
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func getHealth(t *testing.T, ctx context.Context, client driver.Cluster) driver.ClusterHealth {
+	reqCtx, cancel := context.WithTimeout(ctx, time.Second*2)
+	defer cancel()
+	h, err := client.Health(reqCtx)
+	require.NoError(t, err)
+	return h
 }

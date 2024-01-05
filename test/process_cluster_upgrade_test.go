@@ -69,7 +69,6 @@ func TestProcessClusterUpgrade(t *testing.T) {
 }
 
 func testUpgradeProcess(t *testing.T, endpoint string) {
-	t.Log("Starting database upgrade")
 	c := NewStarterClient(t, endpoint)
 	ctx := context.Background()
 
@@ -77,6 +76,8 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(0*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(1*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(2*portIncrement))
+
+	t.Log("Starting database upgrade")
 
 	if err := c.StartDatabaseUpgrade(ctx, false); err != nil {
 		t.Fatalf("StartDatabaseUpgrade failed: %v", err)

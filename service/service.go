@@ -42,6 +42,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 
+	"github.com/arangodb-helper/arangodb/pkg/utils"
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
@@ -896,8 +897,9 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			// ID already found, update peer data
 			for i, p := range s.myPeers.AllPeers {
 				if p.ID == req.SlaveID {
+					peer := &s.myPeers.AllPeers[i]
 					if s.cfg.AllPortOffsetsUnique {
-						s.myPeers.AllPeers[i].Address = slaveAddr
+						peer.Address = slaveAddr
 					} else {
 						// Need to check if this particular address does appear in
 						// another peer, if so, we forbid to change the address:
@@ -913,14 +915,21 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 							return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot change slave address while using an existing ID."))
 						}
 						// We accept the new address (it might be the old one):
-						s.myPeers.AllPeers[i].Address = slaveAddr
+						peer.Address = slaveAddr
 						// However, since we also accept the port, we must set the
 						// port ofset of that replaced peer to 0 such that the AllPeers
 						// information actually contains the right port.
-						s.myPeers.AllPeers[i].PortOffset = 0
+						peer.PortOffset = 0
 					}
-					s.myPeers.AllPeers[i].Port = req.SlavePort
-					s.myPeers.AllPeers[i].DataDir = req.DataDir
+					peer.Port = req.SlavePort
+					peer.DataDir = req.DataDir
+
+					peer.HasAgentFlag = boolFromRef(req.Agent, peer.HasAgentFlag)
+					peer.HasCoordinatorFlag = utils.NotNilDefault(req.Coordinator, peer.HasCoordinatorFlag)
+					peer.HasDBServerFlag = utils.NotNilDefault(req.DBServer, peer.HasDBServerFlag)
+					peer.HasResilientSingleFlag = boolFromRef(req.ResilientSingle, peer.HasResilientSingleFlag)
+					peer.HasSyncMasterFlag = boolFromRef(req.SyncMaster, peer.HasSyncMasterFlag)
+					peer.HasSyncWorkerFlag = boolFromRef(req.SyncWorker, peer.HasSyncWorkerFlag)
 				}
 			}
 		} else {
@@ -932,39 +941,39 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			// ID not yet found, add it
 			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, slavePort, s.cfg.AllPortOffsetsUnique)
 			s.log.Debug().Msgf("Set slave port offset to %d, got slaveAddr=%s, slavePort=%d", portOffset, slaveAddr, slavePort)
-			hasAgent := !s.myPeers.HaveEnoughAgents()
+
+			servers := peerServers{
+				HasAgentFlag:           !s.myPeers.HaveEnoughAgents(),
+				HasDBServerFlag:        nil,
+				HasCoordinatorFlag:     nil,
+				HasResilientSingleFlag: s.mode.IsActiveFailoverMode(),
+				HasSyncMasterFlag:      s.mode.SupportsArangoSync() && s.cfg.SyncEnabled,
+				HasSyncWorkerFlag:      s.mode.SupportsArangoSync() && s.cfg.SyncEnabled,
+			}
 			if req.Agent != nil {
-				hasAgent = *req.Agent
+				servers.HasAgentFlag = *req.Agent
 			}
-			hasDBServer := true
-			if req.DBServer != nil {
-				hasDBServer = *req.DBServer
+			if req.DBServer != nil && *req.DBServer != true {
+				servers.HasDBServerFlag = req.DBServer
 			}
-			hasCoordinator := true
-			if req.Coordinator != nil {
-				hasCoordinator = *req.Coordinator
+			if req.Coordinator != nil && *req.Coordinator != true {
+				servers.HasCoordinatorFlag = req.Coordinator
 			}
-			hasResilientSingle := s.mode.IsActiveFailoverMode()
 			if req.ResilientSingle != nil {
-				hasResilientSingle = *req.ResilientSingle
+				servers.HasResilientSingleFlag = *req.ResilientSingle
 			}
-			hasSyncMaster := s.mode.SupportsArangoSync() && s.cfg.SyncEnabled
 			if req.SyncMaster != nil {
-				hasSyncMaster = *req.SyncMaster
+				servers.HasSyncMasterFlag = *req.SyncMaster
 			}
-			hasSyncWorker := s.mode.SupportsArangoSync() && s.cfg.SyncEnabled
 			if req.SyncWorker != nil {
-				hasSyncWorker = *req.SyncWorker
+				servers.HasSyncWorkerFlag = *req.SyncWorker
 			}
-			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir,
-				hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
-				hasSyncMaster, hasSyncWorker,
-				req.IsSecure)
+			newPeer := newPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, servers, req.IsSecure)
 			s.myPeers.AddPeer(newPeer)
 			s.log.Info().Msgf("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
 		}
 
-		// Start the running the servers if we have enough agents
+		// Start running if we have enough agents
 		if s.myPeers.HaveEnoughAgents() {
 			// Save updated configuration
 			s.saveSetup()
@@ -1290,9 +1299,11 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 
 	// Is this a new start or a restart?
 	if shouldRelaunch {
-		clusterConfig = s.adjustClusterConfigForRelaunch(clusterConfig, bsCfg)
 		s.myPeers = clusterConfig
-		s.log.Info().Msgf("Relaunching service with id '%s' on %s:%d...", s.id, s.cfg.OwnAddress, s.announcePort)
+
+		s.adjustClusterConfigForRelaunch(bsCfg)
+		s.saveSetup()
+
 		storageEngine, err := s.readActualStorageEngine()
 		if err != nil {
 			return maskAny(err)
@@ -1326,13 +1337,13 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 	return nil
 }
 
-func (s *Service) adjustClusterConfigForRelaunch(clusterConfig ClusterConfig, bsCfg BootstrapConfig) ClusterConfig {
-	if s.cfg.SyncEnabled {
-		clusterConfig.ForEachPeer(func(p Peer) Peer {
-			p.HasSyncMasterFlag = bsCfg.StartSyncMaster == nil || *bsCfg.StartSyncMaster
-			p.HasSyncWorkerFlag = bsCfg.StartSyncWorker == nil || *bsCfg.StartSyncWorker
-			return p
-		})
+func (s *Service) adjustClusterConfigForRelaunch(bsCfg BootstrapConfig) {
+	if !s.mode.IsClusterMode() {
+		return
 	}
-	return clusterConfig
+
+	s.myPeers.ForEachPeer(func(p Peer) Peer {
+		p.peerServers = preparePeerServers(s.mode, bsCfg, s.cfg)
+		return p
+	})
 }
