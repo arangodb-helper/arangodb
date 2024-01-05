@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package main
@@ -141,7 +139,7 @@ func init() {
 
 	f := cmdMain.Flags()
 	f.StringSliceVar(&opts.starter.masterAddresses, "starter.join", nil, "join a cluster with master at given address")
-	f.StringVar(&opts.starter.mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|activefailover)")
+	f.StringVar(&opts.starter.mode, "starter.mode", "cluster", "Set the mode of operation to use (cluster|single|activefailover). Note that 'activefailover' is deprecated and will be removed in future releases")
 	f.BoolVar(&opts.starter.startLocalSlaves, "starter.local", false, "If set, local slaves will be started to create a machine local (test) cluster")
 	f.StringVar(&opts.starter.ownAddress, "starter.address", "", "address under which this server is reachable, needed for running in docker or in single mode")
 	f.StringVar(&opts.starter.bindAddress, "starter.host", "0.0.0.0", "address used to bind the starter to")
@@ -166,6 +164,7 @@ func init() {
 	f.BoolSliceVar(&opts.cluster.startDBServer, "cluster.start-dbserver", nil, "should a dbserver instance be started")
 	f.BoolSliceVar(&opts.cluster.startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
 	f.BoolSliceVar(&opts.cluster.startActiveFailover, "cluster.start-single", nil, "should an active-failover single server instance be started")
+	f.MarkDeprecated("cluster.start-single", "Active-Failover (resilient-single) mode is deprecated and will be removed in coming releases")
 
 	f.BoolVar(&opts.server.useLocalBin, "server.use-local-bin", false, "If true, starter will try searching for binaries in local directory first")
 	f.StringVar(&opts.server.arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
@@ -651,10 +650,15 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		log.Info().Msgf("Using self-signed certificate: %s", opts.ssl.keyFile)
 	}
 
+	serviceMode := service.ServiceMode(opts.starter.mode)
+	if serviceMode.IsActiveFailoverMode() || optionalBool(opts.cluster.startActiveFailover, false) {
+		log.Warn().Msgf("Active-Failover (resilient-single) mode is deprecated and will be removed in coming releases")
+	}
+
 	// Check sync settings
 	if opts.starter.enableSync {
 		// Check mode
-		if !service.ServiceMode(opts.starter.mode).SupportsArangoSync() {
+		if !serviceMode.SupportsArangoSync() {
 			showArangoSyncNotAllowedWithModeHelp(opts.starter.mode)
 		}
 		if !runningInDocker {
@@ -697,7 +701,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	// Create service
 	bsCfg := service.BootstrapConfig{
 		ID:                            opts.starter.id,
-		Mode:                          service.ServiceMode(opts.starter.mode),
+		Mode:                          serviceMode,
 		DataDir:                       opts.starter.dataDir,
 		AgencySize:                    opts.cluster.agencySize,
 		StartLocalSlaves:              opts.starter.startLocalSlaves,

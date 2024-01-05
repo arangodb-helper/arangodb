@@ -243,13 +243,13 @@ run-tests: run-tests-local-process run-tests-docker
 run-tests-local-process: build-test build run-tests-local-process-run
 run-tests-local-process-run: export TEST_MODES=localprocess
 run-tests-local-process-run: export DOCKER_IMAGE=$(ARANGODB)
-run-tests-local-process-run: export DOCKER_PARAMS:=-e "TEST_MODES=$(TEST_MODES)" -e "STARTER_MODES=$(STARTER_MODES)" -e "STARTER=/usr/code/bin/linux/amd64/arangodb" -e "ENTERPRISE=$(ENTERPRISE)"
+run-tests-local-process-run: export DOCKER_PARAMS:=-e "TEST_MODES=$(TEST_MODES)" -e "STARTER_MODES=$(STARTER_MODES)" -e "STARTER=/usr/code/bin/linux/amd64/arangodb"
 run-tests-local-process-run:
 	@-$(DOCKERCLI) rm -f -v $(TESTCONTAINER) &> /dev/null
 	$(DOCKER_CMD) /usr/code/bin/linux/amd64/test -test.timeout $(TEST_TIMEOUT) -test.v $(TESTOPTIONS)
 
 _run-tests: build-test build
-	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) ENTERPRISE=$(ENTERPRISE) IP=$(IP) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.failfast -test.v $(TESTOPTIONS)
+	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) IP=$(IP) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.failfast -test.v $(TESTOPTIONS)
 
 run-tests-docker: TEST_MODES=docker
 run-tests-docker: docker _run-tests

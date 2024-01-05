@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -83,7 +83,7 @@ type Config struct {
 	DockerContainerName   string // Name of the container running this process
 	DockerEndpoint        string // Where to reach the docker daemon
 	DockerArangodImage    string // Name of Arangodb docker image
-	DockerArangoSyncImage string // Name of Arangodb docker image
+	DockerArangoSyncImage string // Name of Arangosync docker image
 	DockerImagePullPolicy ImagePullPolicy
 	DockerStarterImage    string
 	DockerUser            string
@@ -1269,6 +1269,12 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 	ctx := context.Background()
 	if err := s.detectDatabaseFeatures(ctx); err != nil {
 		return errors.Wrap(err, "Failed to detect database features")
+	}
+
+	if !s.DatabaseFeatures().SupportsActiveFailover() {
+		if bsCfg.Mode.IsActiveFailoverMode() || boolFromRef(bsCfg.StartResilientSingle, false) {
+			return fmt.Errorf("This ArangoDB version does not support running in Active-Failover (resilient-single) mode")
+		}
 	}
 
 	if s.jwtSecret != "" {
