@@ -33,8 +33,7 @@ import (
 // TestDockerClusterMultipleJoins creates a cluster by starting 3 starters with all 3
 // starter addresses as join argument.
 func TestDockerClusterMultipleJoins(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeDocker, starterModeCluster, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

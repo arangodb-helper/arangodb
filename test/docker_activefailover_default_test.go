@@ -36,8 +36,7 @@ func TestDockerActiveFailoverDefault(t *testing.T) {
 	log := GetLogger(t)
 	defer log.Clean()
 
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeDocker, starterModeActiveFailover, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -144,8 +143,7 @@ func TestDockerActiveFailoverDefault(t *testing.T) {
 // TestDockerActiveFailover2Instance runs 3 arangodb starters in docker with mode=activefailover
 // and only 2 servers should start a single server instance.
 func TestDockerActiveFailover2Instance(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeDocker, starterModeActiveFailover, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

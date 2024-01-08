@@ -33,8 +33,7 @@ import (
 
 func TestProcessClusterDifferentLogDir(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -91,8 +90,7 @@ func TestProcessClusterDifferentLogDir(t *testing.T) {
 
 func TestProcessClusterDifferentLogDirNoLog2File(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 

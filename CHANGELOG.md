@@ -7,6 +7,7 @@
 - Mark activefailover mode as deprecated
 - Do not allow starting ArangoDB v3.12+ in active-failover mode
 - Do not allow upgrade of active-failover mode if the new version is 3.12 or newer
+- Adjust tests to skip active-failover mode for 3.12
 
 ## [v0.17.2](https://github.com/arangodb-helper/arangodb/tree/0.17.2) (2023-11-23)
 - Bump Go version (1.21.4) and dependencies for CVE fixes

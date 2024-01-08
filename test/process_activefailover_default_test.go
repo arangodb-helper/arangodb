@@ -32,8 +32,7 @@ import (
 // All are started in activefailover mode.
 func TestProcessActiveFailoverDefault(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeProcess, starterModeActiveFailover, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -69,8 +68,7 @@ func TestProcessActiveFailoverDefault(t *testing.T) {
 // All are started in activefailover mode.
 func TestProcessActiveFailoverDefaultShutdownViaAPI(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeProcess, starterModeActiveFailover, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 

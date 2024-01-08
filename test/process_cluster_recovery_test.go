@@ -37,8 +37,7 @@ import (
 // Once started, it destroys one of the starters and attempts a recovery.
 func TestProcessClusterRecovery(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 

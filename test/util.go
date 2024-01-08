@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package test
@@ -72,14 +70,12 @@ func (e EnvironmentVariable) Lookup() (string, bool) {
 
 var (
 	isVerbose    bool
-	isEnterprise bool
 	testModes    []string
 	starterModes []string
 )
 
 func init() {
 	isVerbose = strings.TrimSpace(os.Getenv("VERBOSE")) != ""
-	isEnterprise = strings.TrimSpace(os.Getenv("ENTERPRISE")) != ""
 	testModes = strings.Split(strings.TrimSpace(os.Getenv("TEST_MODES")), ",")
 	if len(testModes) == 1 && testModes[0] == "" {
 		testModes = nil
@@ -96,7 +92,7 @@ func logVerbose(t *testing.T, format string, args ...interface{}) {
 	}
 }
 
-func needTestMode(t *testing.T, testMode string) {
+func needTestMode(t *testing.T, testMode string, needEnterprise bool) {
 	for _, x := range testModes {
 		if x == testMode {
 			return
@@ -106,25 +102,48 @@ func needTestMode(t *testing.T, testMode string) {
 		return
 	}
 	t.Skipf("Test mode '%s' not set", testMode)
+
+	if needEnterprise {
+		f := getSupportedDatabaseFeatures(t, testMode)
+		if f.Enterprise {
+			return
+		}
+		t.Skip("Enterprise is not available")
+	}
 }
 
-func needStarterMode(t *testing.T, starterMode string) {
+func testMatch(t *testing.T, testMode, starterMode string, needEnterprise bool) {
+	needTestMode(t, testMode, needEnterprise)
+	needStarterMode(t, testMode, starterMode)
+}
+
+func needStarterMode(t *testing.T, testMode, starterMode string) {
 	for _, x := range starterModes {
 		if x == starterMode {
+			needModeSupportedByVersion(t, testMode, starterMode)
 			return
 		}
 	}
 	if len(starterModes) == 0 {
+		needModeSupportedByVersion(t, testMode, starterMode)
 		return
 	}
 	t.Skipf("Starter mode '%s' not set, have %v", starterMode, starterModes)
 }
 
-func needEnterprise(t *testing.T) {
-	if isEnterprise {
-		return
+func needModeSupportedByVersion(t *testing.T, testMode, starterMode string) {
+	if !isModeSupportedByVersion(t, testMode, starterMode) {
+		t.Skipf("Starter mode '%s' is not supported by provided ArangoDB version", starterMode)
 	}
-	t.Skip("Enterprise is not available")
+}
+
+func isModeSupportedByVersion(t *testing.T, testMode, starterMode string) bool {
+	if starterMode != starterModeActiveFailover {
+		return true
+	}
+
+	f := getSupportedDatabaseFeatures(t, testMode)
+	return f.SupportsActiveFailover()
 }
 
 // Spawn spawns a command and returns its process with optionally expanded envs.

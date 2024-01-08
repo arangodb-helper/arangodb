@@ -42,7 +42,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 
-	"github.com/arangodb-helper/arangodb/pkg/utils"
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
@@ -51,6 +50,7 @@ import (
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
+	"github.com/arangodb-helper/arangodb/pkg/utils"
 	"github.com/arangodb-helper/arangodb/service/options"
 )
 
@@ -80,18 +80,9 @@ type Config struct {
 	LogRotateInterval    time.Duration
 	InstanceUpTimeout    time.Duration
 
-	DockerContainerName   string // Name of the container running this process
-	DockerEndpoint        string // Where to reach the docker daemon
-	DockerArangodImage    string // Name of Arangodb docker image
-	DockerArangoSyncImage string // Name of Arangosync docker image
-	DockerImagePullPolicy ImagePullPolicy
-	DockerStarterImage    string
-	DockerUser            string
-	DockerGCDelay         time.Duration
-	DockerNetworkMode     string
-	DockerPrivileged      bool
-	DockerTTY             bool
-	RunningInDocker       bool
+	DockerConfig       DockerConfig
+	DockerStarterImage string
+	RunningInDocker    bool
 
 	SyncEnabled             bool   // If set, arangosync servers are activated
 	SyncMasterKeyFile       string // TLS keyfile of local sync master
@@ -107,7 +98,7 @@ type Config struct {
 // UseDockerRunner returns true if the docker runner should be used.
 // (instead of the local process runner).
 func (c Config) UseDockerRunner() bool {
-	return c.DockerEndpoint != "" && c.DockerArangodImage != ""
+	return c.DockerConfig.Endpoint != "" && c.DockerConfig.ImageArangoD != ""
 }
 
 // GuessOwnAddress fills in the OwnAddress field if needed and returns an update config.
@@ -132,22 +123,22 @@ func (c Config) GetNetworkEnvironment(log zerolog.Logger) (Config, int, bool) {
 		if c.OwnAddress == "" {
 			log.Fatal().Msg("starter.address must be specified")
 		}
-		if c.DockerContainerName == "" {
+		if c.DockerConfig.HostContainerName == "" {
 			log.Fatal().Msg("docker.container must be specified")
 		}
-		if c.DockerEndpoint == "" {
+		if c.DockerConfig.Endpoint == "" {
 			log.Fatal().Msg("docker.endpoint must be specified")
 		}
-		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(c.DockerEndpoint, c.DockerContainerName, c.MasterPort)
+		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(c.DockerConfig.Endpoint, c.DockerConfig.HostContainerName, c.MasterPort)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to detect port mapping")
 		}
-		if c.DockerNetworkMode == "" && networkMode != "" && networkMode != "default" {
+		if c.DockerConfig.NetworkMode == "" && networkMode != "" && networkMode != "default" {
 			log.Info().Msgf("Auto detected network mode: %s", networkMode)
-			c.DockerNetworkMode = networkMode
+			c.DockerConfig.NetworkMode = networkMode
 		}
 		if !hasTTY {
-			c.DockerTTY = false
+			c.DockerConfig.TTY = false
 		}
 		return c, hostPort, isNetHost
 	}
@@ -160,9 +151,7 @@ func (c Config) GetNetworkEnvironment(log zerolog.Logger) (Config, int, bool) {
 func (c Config) CreateRunner(log zerolog.Logger) (Runner, Config, bool) {
 	var runner Runner
 	if c.UseDockerRunner() {
-		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerArangodImage, c.DockerArangoSyncImage,
-			c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
-			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
+		runner, err := NewDockerRunner(log, c.DockerConfig)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to create docker runner")
 		}

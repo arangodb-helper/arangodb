@@ -29,7 +29,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -44,6 +43,7 @@ import (
 	driver "github.com/arangodb/go-driver"
 
 	_ "github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/arangodb"
 	"github.com/arangodb-helper/arangodb/pkg/docker"
 	"github.com/arangodb-helper/arangodb/pkg/features"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
@@ -177,18 +177,18 @@ func init() {
 	f.StringVar(&opts.rocksDB.encryptionKeyFile, "rocksdb.encryption-keyfile", "", "Key file used for RocksDB encryption. (Enterprise Edition 3.2 and up)")
 	f.StringVar(&opts.rocksDB.encryptionKeyGenerator, "rocksdb.encryption-key-generator", "", "Path to program. The output of this program will be used as key for RocksDB encryption. (Enterprise Edition)")
 
-	f.StringVar(&opts.docker.endpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
-	f.StringVar(&opts.docker.arangodImage, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
-	f.StringVar(&opts.docker.arangoSyncImage, "docker.sync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
-	f.StringVar(&opts.docker.imagePullPolicy, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
-	f.StringVar(&opts.docker.user, "docker.user", "", "use the given name as user to run the Docker container")
-	f.StringVar(&opts.docker.containerName, "docker.container", "", "name of the docker container that is running this process")
-	f.DurationVar(&opts.docker.gcDelay, "docker.gc-delay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
+	f.StringVar(&opts.docker.Endpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
+	f.StringVar(&opts.docker.ImageArangoD, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
+	f.StringVar(&opts.docker.ImageArangoSync, "docker.sync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
+	f.StringVar(&opts.docker.imagePullPolicyRaw, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
+	f.StringVar(&opts.docker.User, "docker.user", "", "use the given name as user to run the Docker container")
+	f.StringVar(&opts.docker.HostContainerName, "docker.container", "", "name of the docker container that is running this process")
+	f.DurationVar(&opts.docker.GCDelay, "docker.gc-delay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
 	f.BoolVar(&opts.docker.netHost, "docker.net-host", false, "Run containers with --net=host")
 	f.Lookup("docker.net-host").Deprecated = "use --docker.net-mode=host instead"
-	f.StringVar(&opts.docker.networkMode, "docker.net-mode", "", "Run containers with --net=<value>")
-	f.BoolVar(&opts.docker.privileged, "docker.privileged", false, "Run containers with --privileged")
-	f.BoolVar(&opts.docker.tty, "docker.tty", true, "Run containers with TTY enabled")
+	f.StringVar(&opts.docker.NetworkMode, "docker.net-mode", "", "Run containers with --net=<value>")
+	f.BoolVar(&opts.docker.Privileged, "docker.privileged", false, "Run containers with --privileged")
+	f.BoolVar(&opts.docker.TTY, "docker.tty", true, "Run containers with TTY enabled")
 
 	f.StringVar(&opts.auth.jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
 
@@ -334,83 +334,6 @@ func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
 }
 
-// findExecutable uses a platform dependent approach to find an executable
-// with given process name.
-func findExecutable(processName, defaultPath string) (executablePath string, isBuild bool) {
-	var localPaths []string
-	if exePath, err := os.Executable(); err == nil {
-		folder := filepath.Dir(exePath)
-		localPaths = append(localPaths, filepath.Join(folder, processName+filepath.Ext(exePath)))
-
-		// Also try searching in ../sbin in case if we are running from local installation
-		if runtime.GOOS != "windows" {
-			localPaths = append(localPaths, filepath.Join(folder, "../sbin", processName+filepath.Ext(exePath)))
-		}
-	}
-
-	var pathList []string
-	switch runtime.GOOS {
-	case "windows":
-		// Look in the default installation location:
-		foundPaths := make([]string, 0, 20)
-		basePath := "C:/Program Files"
-		d, e := os.Open(basePath)
-		if e == nil {
-			l, e := d.Readdir(1024)
-			if e == nil {
-				for _, n := range l {
-					if n.IsDir() {
-						name := n.Name()
-						if strings.HasPrefix(name, "ArangoDB3 ") ||
-							strings.HasPrefix(name, "ArangoDB3e ") {
-							foundPaths = append(foundPaths, basePath+"/"+name+
-								"/usr/bin/"+processName+".exe")
-						}
-					}
-				}
-			} else {
-				log.Error().Msgf("Could not read directory %s to look for executable.", basePath)
-			}
-			d.Close()
-		} else {
-			log.Error().Msgf("Could not open directory %s to look for executable.", basePath)
-		}
-		sort.Sort(sort.Reverse(sort.StringSlice(foundPaths)))
-		pathList = append(pathList, foundPaths...)
-	case "darwin":
-		pathList = append(pathList,
-			"/Applications/ArangoDB3-CLI.app/Contents/MacOS/usr/sbin/"+processName,
-			"/usr/local/opt/arangodb/sbin/"+processName,
-		)
-	case "linux":
-		pathList = append(pathList,
-			"/usr/sbin/"+processName,
-			"/usr/local/sbin/"+processName,
-		)
-	}
-
-	if opts.server.useLocalBin {
-		pathList = append(localPaths, pathList...)
-	} else {
-		pathList = append(pathList, localPaths...)
-	}
-
-	// buildPath should be always first on the list
-	buildPath := "build/bin/" + processName
-	pathList = append([]string{buildPath}, pathList...)
-
-	// Search for the first path that exists.
-	for _, p := range pathList {
-		if _, e := os.Stat(filepath.Clean(filepath.FromSlash(p))); e == nil || !os.IsNotExist(e) {
-			executablePath, _ = filepath.Abs(filepath.FromSlash(p))
-			isBuild = p == buildPath
-			return
-		}
-	}
-
-	return defaultPath, false
-}
-
 // findJSDir returns the JS directory to match the given executable path.
 func findJSDir(executablePath string, isBuild bool) (jsPath string) {
 	if isBuild {
@@ -425,9 +348,9 @@ func findJSDir(executablePath string, isBuild bool) (jsPath string) {
 func main() {
 	// Find executable and jsdir default in a platform dependent way:
 	var isBuild bool
-	opts.server.arangodPath, isBuild = findExecutable("arangod", defaultArangodPath)
+	opts.server.arangodPath, isBuild = arangodb.FindExecutable(log, "arangod", defaultArangodPath, opts.server.useLocalBin)
 	opts.server.arangodJSPath = findJSDir(opts.server.arangodPath, isBuild)
-	opts.server.arangoSyncPath, _ = findExecutable("arangosync", defaultArangoSyncPath)
+	opts.server.arangoSyncPath, _ = arangodb.FindExecutable(log, "arangosync", defaultArangoSyncPath, opts.server.useLocalBin)
 
 	if err := cmdMain.Execute(); err != nil {
 		os.Exit(1)
@@ -537,15 +460,15 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	runningInDocker := false
 	if docker.IsRunningInDocker() {
 		runningInDocker = true
-		info, err := docker.FindDockerContainerInfo(opts.docker.endpoint)
+		info, err := docker.FindDockerContainerInfo(opts.docker.Endpoint)
 		if err != nil {
 			log.Warn().Err(err).Msgf("could not find docker container info")
-			if opts.docker.containerName == "" {
+			if opts.docker.HostContainerName == "" {
 				showDockerContainerNameMissingHelp()
 			}
 		} else {
-			if opts.docker.containerName == "" {
-				opts.docker.containerName = info.Name
+			if opts.docker.HostContainerName == "" {
+				opts.docker.HostContainerName = info.Name
 			}
 			if info.ImageName != "" {
 				dockerStarterImage = info.ImageName
@@ -560,19 +483,20 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	if opts.cluster.agencySize == 1 && opts.starter.ownAddress == "" {
 		showClusterAgencySize1WithoutAddressHelp()
 	}
-	if opts.docker.arangodImage != "" && opts.server.rrPath != "" {
+	if opts.docker.ImageArangoD != "" && opts.server.rrPath != "" {
 		showDockerImageWithRRIsNotAllowedHelp()
 	}
 	if opts.docker.netHost {
-		if opts.docker.networkMode == "" {
-			opts.docker.networkMode = "host"
-		} else if opts.docker.networkMode != "host" {
+		if opts.docker.NetworkMode == "" {
+			opts.docker.NetworkMode = "host"
+		} else if opts.docker.NetworkMode != "host" {
 			showDockerNetHostAndNotModeNotBothAllowedHelp()
 		}
 	}
-	imagePullPolicy, err := service.ParseImagePullPolicy(opts.docker.imagePullPolicy, opts.docker.arangodImage)
+	var err error
+	opts.docker.ImagePullPolicy, err = service.ParseImagePullPolicy(opts.docker.imagePullPolicyRaw, opts.docker.ImageArangoD)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("Unsupported image pull policy '%s'", opts.docker.imagePullPolicy)
+		log.Fatal().Err(err).Msgf("Unsupported image pull policy '%s'", opts.docker.imagePullPolicyRaw)
 	}
 
 	// Sanity checking URL scheme on advertised endpoints
@@ -669,9 +593,9 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 			log.Debug().Msgf("Using %s as default arangosync executable.", opts.server.arangoSyncPath)
 		} else {
 			// Check arangosync docker image
-			if opts.docker.arangoSyncImage == "" {
+			if opts.docker.ImageArangoSync == "" {
 				// Default to arangod docker image
-				opts.docker.arangoSyncImage = opts.docker.arangodImage
+				opts.docker.ImageArangoSync = opts.docker.ImageArangoD
 			}
 		}
 		if startMaster := optionalBool(opts.sync.startSyncMaster, true); startMaster {
@@ -739,18 +663,8 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		LogRotateInterval:       opts.log.rotateInterval,
 		InstanceUpTimeout:       opts.starter.instanceUpTimeout,
 		RunningInDocker:         docker.IsRunningInDocker(),
-		DockerContainerName:     opts.docker.containerName,
-		DockerEndpoint:          opts.docker.endpoint,
-		DockerArangodImage:      opts.docker.arangodImage,
-		DockerArangoSyncImage:   opts.docker.arangoSyncImage,
-		DockerImagePullPolicy:   imagePullPolicy,
+		DockerConfig:            opts.docker.DockerConfig,
 		DockerStarterImage:      dockerStarterImage,
-		DockerUser:              opts.docker.user,
-		DockerGCDelay:           opts.docker.gcDelay,
-		DockerNetworkMode:       opts.docker.networkMode,
-		DockerPrivileged:        opts.docker.privileged,
-		DockerTTY:               opts.docker.tty,
-		ProjectVersion:          projectVersion,
 		ProjectBuild:            projectBuild,
 		DebugCluster:            opts.starter.debugCluster,
 		SyncEnabled:             opts.starter.enableSync,

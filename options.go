@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service"
 	"github.com/arangodb-helper/arangodb/service/options"
 )
 
@@ -86,17 +87,9 @@ type starterOptions struct {
 		encryptionKeyGenerator string
 	}
 	docker struct {
-		endpoint        string
-		arangodImage    string
-		arangoSyncImage string
-		imagePullPolicy string
-		user            string
-		containerName   string
-		gcDelay         time.Duration
-		netHost         bool // Deprecated
-		networkMode     string
-		privileged      bool
-		tty             bool
+		service.DockerConfig
+		imagePullPolicyRaw string
+		netHost            bool // Deprecated
 	}
 	sync struct {
 		startSyncMaster []bool

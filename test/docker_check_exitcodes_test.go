@@ -35,8 +35,7 @@ import (
 // TestDockerErrExitCodeHandler runs in 'single' mode with invalid ArangoD configuration and
 // checks that exit code is recognized by starter
 func TestDockerErrExitCodeHandler(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

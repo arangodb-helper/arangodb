@@ -36,9 +36,7 @@ import (
 // all with datacenter to datacenter replication enabled.
 func TestProcessClusterSync(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
-	needEnterprise(t)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 
 	// Create certificates
 	ip := "127.0.0.1"
@@ -71,9 +69,7 @@ func TestProcessClusterSync(t *testing.T) {
 // TestProcessClusterRestartWithSyncOnAndOff starts a cluster without sync then restarts it with sync enabled and disabled again.
 func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
-	needEnterprise(t)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 
 	// Create certificates
 	ip := "127.0.0.1"
@@ -126,9 +122,7 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 // TestProcessLocalClusterRestartWithSyncOnAndOff starts a local cluster without sync then restarts it with sync enabled and disabled again.
 func TestProcessLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
-	needEnterprise(t)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 
 	// Create certificates
 	ip := "127.0.0.1"
@@ -182,9 +176,7 @@ func TestProcessLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 // - run upgrade
 func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
-	needEnterprise(t)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 
 	// Create certificates
 	ip := "127.0.0.1"
