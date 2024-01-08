@@ -32,7 +32,7 @@ import (
 
 // TestDockerClusterSync runs 3 arangodb starters in docker with arangosync enabled.
 func TestDockerClusterSync(t *testing.T) {
-	testMatch(t, testModeDocker, starterModeCluster, false)
+	testMatch(t, testModeDocker, starterModeCluster, true)
 	ip := os.Getenv("IP")
 	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
 
@@ -69,7 +69,7 @@ func TestDockerClusterSync(t *testing.T) {
 }
 
 func TestDockerClusterRestartWithSyncOnAndOff(t *testing.T) {
-	testMatch(t, testModeDocker, starterModeCluster, false)
+	testMatch(t, testModeDocker, starterModeCluster, true)
 	ip := os.Getenv("IP")
 	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
 
@@ -120,7 +120,7 @@ func TestDockerClusterRestartWithSyncOnAndOff(t *testing.T) {
 }
 
 func TestDockerLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
-	testMatch(t, testModeDocker, starterModeCluster, false)
+	testMatch(t, testModeDocker, starterModeCluster, true)
 	ip := os.Getenv("IP")
 	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
 
