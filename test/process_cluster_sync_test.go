@@ -216,7 +216,7 @@ func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 		defer cleanup()
 		waitForClusterReadiness(t, false, true, procs...)
 
-		time.Sleep(time.Minute * 15) // ensure slaves got updated configuration from master
+		time.Sleep(time.Second * 90) // ensure slaves got updated configuration from master
 
 		// check flags are updated in config
 		for _, dir := range peerDirs {
