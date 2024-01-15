@@ -22,13 +22,6 @@ To run only unit tests, execute:
 make run-unit-tests
 ```
 
-## Preparing a release
-
-To prepare for a release, do the following:
-
-- Update CHANGELOG.md. Update the first title (master -> new version). Commit it.
-- Make sure all tests are OK.
-
 ## Building a release
 
 On Linux, make sure that neither `.gobuild/tmp` nor `bin` contains any
@@ -43,6 +36,16 @@ To make a release you must have:
   for the `arangodb` docker hub namespace.
 - The latest checked out `master` branch of this repository.
 
+To create preview:
+```bash
+make prerelease-patch
+# or
+make prerelease-minor
+# or
+make prerelease-major
+```
+
+To create final version:
 ```bash
 make release-patch
 # or
@@ -68,7 +71,7 @@ If the release process fails, it may leave:
 - A git tag named `<major>.<minor>.<patch>` in this repository in GitHub.
   To resolve remove it manually.
 
-## Completing after a release
+## Finalizing the release
 
 After the release has been built (which includes publication) the following
 has to be done:
