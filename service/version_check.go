@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package service
 
@@ -30,6 +28,8 @@ import (
 	"time"
 
 	"github.com/dchest/uniuri"
+	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 
 	"github.com/arangodb/go-driver"
 
@@ -39,12 +39,17 @@ import (
 // DatabaseVersion returns the version of the `arangod` binary that is being
 // used by this starter.
 func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, bool, error) {
+	return DatabaseVersion(ctx, s.log, s.cfg.ArangodPath, s.runner)
+}
+
+// DatabaseVersion returns the version of the `arangod` binary
+func DatabaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string, runner Runner) (driver.Version, bool, error) {
 	retries := 25
 	var err error
 	for i := 0; i < retries; i++ {
 		var v driver.Version
 		var enterprise bool
-		v, enterprise, err = s.databaseVersion(ctx)
+		v, enterprise, err = databaseVersion(ctx, arangodPath, runner)
 		if err == nil {
 			return v, enterprise, nil
 		}
@@ -53,20 +58,20 @@ func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, bool, er
 			return "", false, ctxErr
 		}
 
-		s.log.Warn().Err(err).Msgf("Error while getting version. Attempt %d of %d", i+1, retries)
+		log.Warn().Err(err).Msgf("Error while getting version. Attempt %d of %d", i+1, retries)
 		time.Sleep(time.Second)
 	}
 
 	return "", false, fmt.Errorf("unable to get version: %s", err.Error())
 }
 
-func (s *Service) databaseVersion(ctx context.Context) (driver.Version, bool, error) {
+func databaseVersion(ctx context.Context, arangodPath string, runner Runner) (driver.Version, bool, error) {
 	// Start process to print version info
 	output := &bytes.Buffer{}
 	containerName := "arangodb-versioncheck-" + strings.ToLower(uniuri.NewLen(6))
-	p, err := s.runner.Start(ctx, definitions.ProcessTypeArangod, s.cfg.ArangodPath, []string{"--version", "--log.force-direct=true"}, nil, nil, nil, containerName, ".", output)
+	p, err := runner.Start(ctx, definitions.ProcessTypeArangod, arangodPath, []string{"--version", "--log.force-direct=true"}, nil, nil, nil, containerName, ".", output)
 	if err != nil {
-		return "", false, maskAny(err)
+		return "", false, errors.WithStack(err)
 	}
 	defer p.Cleanup()
 	if code := p.Wait(); code != 0 {

@@ -32,8 +32,7 @@ import (
 
 // TestDockerClusterDefault runs 3 arangodb starters in docker with default settings.
 func TestDockerClusterDefault(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeDocker, starterModeCluster, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -136,8 +135,7 @@ func TestDockerClusterDefault(t *testing.T) {
 
 // TestOldDockerClusterDefault runs 3 arangodb starters in docker with default settings.
 func TestOldDockerClusterDefault(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeDocker, starterModeCluster, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

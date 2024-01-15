@@ -37,8 +37,7 @@ import (
 
 // TestDockerSingle runs the arangodb starter in docker with `--starter.mode=single`
 func TestDockerSingle(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -92,8 +91,7 @@ func TestDockerSingle(t *testing.T) {
 
 // TestDockerSingleAutoKeyFile runs the arangodb starter in docker with `--starter.mode=single` && `--ssl.auto-key`
 func TestDockerSingleAutoKeyFile(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -149,8 +147,7 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 
 // TestDockerSingleAutoContainerName runs the arangodb starter in docker with `--starter.mode=single` automatic detection of its container name.
 func TestDockerSingleAutoContainerName(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -202,8 +199,7 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 
 // TestDockerSingleAutoRocksdb runs the arangodb starter in docker with `--server.storage-engine=rocksdb` and a 3.2+ image.
 func TestDockerSingleAutoRocksdb(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -258,8 +254,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 
 // TestOldDockerSingleAutoKeyFile runs the arangodb starter in docker with `--mode=single` && `--sslAutoKeyFile`
 func TestOldDockerSingleAutoKeyFile(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -314,8 +309,7 @@ func TestOldDockerSingleAutoKeyFile(t *testing.T) {
 // TestDockerSingleCheckPersistentOptions runs arangodb in single mode and
 // checks that overriding a persistent option results in an error message
 func TestDockerSingleCheckPersistentOptions(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

@@ -36,7 +36,7 @@ import (
 )
 
 func TestProcessConfigFileLoading(t *testing.T) {
-	needTestMode(t, testModeProcess)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 
 	t.Run("non-existing", func(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)

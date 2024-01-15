@@ -32,8 +32,7 @@ import (
 
 // TestDockerActiveFailoverLocal runs the arangodb starter in docker with mode `activefailover` & `--starter.local`
 func TestDockerActiveFailoverLocal(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeDocker, starterModeActiveFailover, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -90,8 +89,7 @@ func TestDockerActiveFailoverLocal(t *testing.T) {
 // TestDockerActiveFailoverSecure runs the arangodb starter in docker with mode `activefailover`,
 // `--starter.local` & `--ssl.auto-key`
 func TestDockerResilientActiveFailoverSecure(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeDocker, starterModeActiveFailover, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

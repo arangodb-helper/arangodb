@@ -32,8 +32,7 @@ import (
 // All are started in resilientsingle mode.
 func TestProcessResilientSingleDefault(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeProcess, starterModeActiveFailover, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -69,8 +68,7 @@ func TestProcessResilientSingleDefault(t *testing.T) {
 // All are started in resilientsingle mode.
 func TestProcessResilientSingleDefaultShutdownViaAPI(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeProcess, starterModeActiveFailover, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 

@@ -34,8 +34,7 @@ import (
 // TestDockerDatabaseVersion runs the arangodb starter in docker with `--starter.mode=single`
 // and tries a `/database-version` request.
 func TestDockerDatabaseVersion(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

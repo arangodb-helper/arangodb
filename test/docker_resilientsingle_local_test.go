@@ -32,8 +32,7 @@ import (
 
 // TestDockerResilientSingleLocal runs the arangodb starter in docker with mode `resilientsingle` & `--starter.local`
 func TestDockerResilientSingleLocal(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeDocker, starterModeActiveFailover, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -90,8 +89,7 @@ func TestDockerResilientSingleLocal(t *testing.T) {
 // TestDockerResilientSingleLocalSecure runs the arangodb starter in docker with mode `resilientsingle`,
 // `--starter.local` & `--ssl.auto-key`
 func TestDockerResilientSingleLocalSecure(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeDocker, starterModeActiveFailover, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

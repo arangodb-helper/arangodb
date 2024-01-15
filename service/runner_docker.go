@@ -50,11 +50,23 @@ const (
 	dockerDataDir        = "/data"
 )
 
-// NewDockerRunner creates a runner that starts processes in a docker container.
-func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
-	networkMode string, privileged, tty bool) (Runner, error) {
+type DockerConfig struct {
+	Endpoint          string
+	User              string
+	HostContainerName string
+	GCDelay           time.Duration
+	NetworkMode       string
+	Privileged        bool
+	TTY               bool
+	ImagePullPolicy   ImagePullPolicy
 
-	os.Setenv("DOCKER_HOST", endpoint)
+	ImageArangoD    string
+	ImageArangoSync string
+}
+
+// NewDockerRunner creates a runner that starts processes in a docker container.
+func NewDockerRunner(log zerolog.Logger, d DockerConfig) (Runner, error) {
+	os.Setenv("DOCKER_HOST", d.Endpoint)
 	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		return nil, maskAny(err)
@@ -62,30 +74,31 @@ func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage
 	return &dockerRunner{
 		log:             log,
 		client:          client,
-		arangodImage:    arangodImage,
-		arangoSyncImage: arangoSyncImage,
-		imagePullPolicy: imagePullPolicy,
-		user:            user,
-		volumesFrom:     volumesFrom,
+		arangodImage:    d.ImageArangoD,
+		arangoSyncImage: d.ImageArangoSync,
+		imagePullPolicy: d.ImagePullPolicy,
+		user:            d.User,
+		volumesFrom:     d.HostContainerName,
 		containerIDs:    make(map[string]time.Time),
-		gcDelay:         gcDelay,
-		networkMode:     networkMode,
-		privileged:      privileged,
-		tty:             tty,
+		gcDelay:         d.GCDelay,
+		networkMode:     d.NetworkMode,
+		privileged:      d.Privileged,
+		tty:             d.TTY,
 	}, nil
 }
 
 // dockerRunner implements a Runner that starts processes in a docker container.
 type dockerRunner struct {
-	log             zerolog.Logger
-	client          *docker.Client
+	log    zerolog.Logger
+	client *docker.Client
+	mutex  sync.Mutex
+
+	containerIDs    map[string]time.Time
 	arangodImage    string
 	arangoSyncImage string
 	imagePullPolicy ImagePullPolicy
 	user            string
 	volumesFrom     string
-	mutex           sync.Mutex
-	containerIDs    map[string]time.Time
 	gcOnce          sync.Once
 	gcDelay         time.Duration
 	networkMode     string

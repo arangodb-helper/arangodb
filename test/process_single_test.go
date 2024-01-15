@@ -35,8 +35,7 @@ import (
 // TestProcessSingle runs `arangodb --starter.mode=single`
 func TestProcessSingle(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeProcess, starterModeSingle, false)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -59,8 +58,7 @@ func TestProcessSingle(t *testing.T) {
 // TestProcessSingleShutdownViaAPI runs `arangodb --starter.mode=single`, stopping it through the `/shutdown` API.
 func TestProcessSingleShutdownViaAPI(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeProcess, starterModeSingle, false)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -81,8 +79,7 @@ func TestProcessSingleShutdownViaAPI(t *testing.T) {
 // TestProcessSingleAutoKeyFile runs `arangodb --starter.mode=single --ssl.auto-key`
 func TestProcessSingleAutoKeyFile(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeProcess, starterModeSingle, false)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -105,8 +102,7 @@ func TestProcessSingleAutoKeyFile(t *testing.T) {
 // TestOldProcessSingle runs `arangodb --mode=single`
 func TestOldProcessSingle(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeProcess, starterModeSingle, false)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -129,8 +125,7 @@ func TestOldProcessSingle(t *testing.T) {
 // TestOldProcessSingleAutoKeyFile runs `arangodb --mode=single --sslAutoKeyFile`
 func TestOldProcessSingleAutoKeyFile(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeProcess, starterModeSingle, false)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 
@@ -154,8 +149,7 @@ func TestOldProcessSingleAutoKeyFile(t *testing.T) {
 // checks that overriding a persistent option results in an error message
 func TestProcessSingleCheckPersistentOptions(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeProcess, starterModeSingle, false)
 
 	re, err := regexp.Compile("ERROR.*it is impossible to change persistent option")
 	require.NoError(t, err)

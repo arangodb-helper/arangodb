@@ -33,8 +33,7 @@ import (
 // TestDockerResilientSingleDefault runs 3 arangodb starters in docker with mode=resilientsingle
 // and otherwise default settings.
 func TestDockerResilientSingleDefault(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeDocker, starterModeActiveFailover, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -141,8 +140,7 @@ func TestDockerResilientSingleDefault(t *testing.T) {
 // TestDockerResilientSingle2Instance runs 3 arangodb starters in docker with mode=resilientsingle
 // and only 2 servers should start a single server instance.
 func TestDockerResilientSingle2Instance(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeActiveFailover)
+	testMatch(t, testModeDocker, starterModeActiveFailover, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

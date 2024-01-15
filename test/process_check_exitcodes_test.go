@@ -34,8 +34,7 @@ import (
 // checks that exit code is recognized by starter
 func TestProcessErrExitCodeHandler(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeProcess, starterModeSingle, false)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 

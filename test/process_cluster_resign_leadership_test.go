@@ -44,8 +44,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 	log := GetLogger(t)
 
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
