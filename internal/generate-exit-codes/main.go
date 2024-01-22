@@ -37,7 +37,7 @@ import (
 
 const (
 	// to support non-released version we have to use a version branch, not the main:
-	arangoDVersion       = "3.10"
+	arangoDVersion       = "3.11"
 	exitCodesDatTemplate = "https://raw.githubusercontent.com/arangodb/arangodb/%s/lib/Basics/exitcodes.dat"
 )
 

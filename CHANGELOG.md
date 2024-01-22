@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Add version meta-info for Windows binary
 
 ## [v0.18.0](https://github.com/arangodb-helper/arangodb/tree/0.18.0) (2024-01-19)
 - Redirect HTTP server warnings into log file, skip TLS handshake errors
