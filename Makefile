@@ -10,7 +10,16 @@ VERSION_MAJOR := $(shell echo $(VERSION_MAJOR_MINOR) | cut -f 1 -d '.')
 COMMIT := $(shell git rev-parse --short HEAD)
 MAKEFILE := $(ROOTDIR)/Makefile
 
-MULTIARCH ?= 1
+DOCKERNAMESPACE ?= arangodb
+IMAGE_NAME := $(DOCKERNAMESPACE)/arangodb-starter
+
+STARTER_TAGS := -t $(IMAGE_NAME):$(VERSION)
+ifeq (, $(findstring -preview,$(VERSION)))
+	STARTER_TAGS = -t $(IMAGE_NAME):$(VERSION) \
+		-t $(IMAGE_NAME):$(VERSION_MAJOR_MINOR) \
+		-t $(IMAGE_NAME):$(VERSION_MAJOR) \
+		-t $(IMAGE_NAME):latest
+endif
 
 ALPINE_IMAGE ?= alpine:3.16
 
@@ -46,7 +55,6 @@ ifeq ("$(GOOS)", "windows")
 endif
 
 ARANGODB ?= arangodb/arangodb:latest
-DOCKERNAMESPACE ?= arangodb
 
 IP ?= $(shell hostname -I | cut -d ' ' -f 1)
 
@@ -177,34 +185,9 @@ docker: binaries
 	$(DOCKERMACLI) -t arangodb/arangodb-starter .
 endif
 
-ifneq ($(MULTIARCH),1)
-docker-push: docker
-ifneq ($(DOCKERNAMESPACE), arangodb)
-	docker tag arangodb/arangodb-starter $(DOCKERNAMESPACE)/arangodb-starter
-endif
-	docker push $(DOCKERNAMESPACE)/arangodb-starter
-else
-docker-push: docker
-	$(DOCKERMACLI) --push -t $(DOCKERNAMESPACE)/arangodb-starter .
-endif
+docker-push-version: docker
+	$(DOCKERMACLI) --push $(STARTER_TAGS) .
 
-ifneq ($(MULTIARCH),1)
-docker-push-version: docker
-	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION)
-	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
-	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:$(VERSION_MAJOR)
-	docker tag arangodb/arangodb-starter arangodb/arangodb-starter:latest
-	docker push arangodb/arangodb-starter:$(VERSION)
-	docker push arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR)
-	docker push arangodb/arangodb-starter:$(VERSION_MAJOR)
-	docker push arangodb/arangodb-starter:latest
-else
-docker-push-version: docker
-	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION) .
-	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION_MAJOR_MINOR) .
-	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:$(VERSION_MAJOR) .
-	$(DOCKERMACLI) --push -t arangodb/arangodb-starter:latest .
-endif
 
 $(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
 	$(DOCKER_CMD) go build -o "$(RELEASE_BIN)" $(REPOPATH)/tools/release
