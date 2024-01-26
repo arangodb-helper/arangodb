@@ -3,6 +3,8 @@
 bin
 vendor/
 
+.envrc
+
 #IDE's
 .idea
 
