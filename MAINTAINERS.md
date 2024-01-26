@@ -1,5 +1,12 @@
 # Maintainer Instructions
 
+## Init
+
+Before starting any actions on repo, please do 
+```bash
+make init
+```
+
 ## Running tests
 
 A subset of all tests are run in CI pipeline.
