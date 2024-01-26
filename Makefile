@@ -167,7 +167,10 @@ binaries-test:
 
 $(BIN): $(GOBUILDDIR) $(GO_SOURCES)
 	@mkdir -p $(BINDIR)
+	@-rm resource.syso
 ifeq ($(GOOS),windows)
+	@echo ">> Generating versioninfo syso file ..."
+	@$(GOPATH)/bin/goversioninfo -64 -file-version=$(VERSION) -product-version=$(VERSION)
 	$(DOCKER_CMD) go build -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
 else
 	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
@@ -258,6 +261,8 @@ tools:
 	@GOBIN=$(GOPATH)/bin go install github.com/aktau/github-release@v0.8.1
 	@echo ">> Fetching govulncheck"
 	@GOBIN=$(GOPATH)/bin go install golang.org/x/vuln/cmd/govulncheck@v0.1.0
+	@echo ">> Fetching goversioninfo"
+	@GOBIN=$(GOPATH)/bin go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.4.0
 
 .PHONY: generate
 generate:

@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2022 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -64,6 +64,8 @@ const (
 	ArangoDExitTzdataInitializationFailed = 27 // Will be returned if tzdata is not found
 	// EXIT_RESOURCES_TOO_LOW
 	ArangoDExitResourcesTooLow = 28 // Will be returned if i.e. ulimit is too restrictive
+	// EXIT_SST_FILE_CHECK
+	ArangoDExitSstFileCheck = 29 // Will be returned when either sst file open or sst file check was unsuccessful i.e. sst file is not valid
 )
 
 var arangoDExitReason = map[int]string{
@@ -107,4 +109,6 @@ var arangoDExitReason = map[int]string{
 	ArangoDExitTzdataInitializationFailed: "failed to locate tzdata",
 	// EXIT_RESOURCES_TOO_LOW
 	ArangoDExitResourcesTooLow: "the system restricts resources below what is required to start arangod",
+	// EXIT_SST_FILE_CHECK
+	ArangoDExitSstFileCheck: "sst file check unsuccessful",
 }
