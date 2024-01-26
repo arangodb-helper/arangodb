@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [v0.18.1](https://github.com/arangodb-helper/arangodb/tree/0.18.1) (2024-01-26)
 - Add version meta-info for Windows binary
 
 ## [v0.18.0](https://github.com/arangodb-helper/arangodb/tree/0.18.0) (2024-01-19)
