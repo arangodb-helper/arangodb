@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix waiting for local slaves to terminate
 
 ## [v0.18.1](https://github.com/arangodb-helper/arangodb/tree/0.18.1) (2024-01-26)
 - Add version meta-info for Windows binary
