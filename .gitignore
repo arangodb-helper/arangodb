@@ -4,6 +4,7 @@ bin
 vendor/
 
 .envrc
+.DS_Store
 
 #IDE's
 .idea

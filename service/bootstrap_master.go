@@ -97,7 +97,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 			s.saveSetup()
 			s.log.Info().Msg("Starting service...")
 			s.startRunning(runner, config, bsCfg)
-			return
+			break
 		default:
 		}
 		if ctx.Err() != nil {

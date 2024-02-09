@@ -83,11 +83,14 @@ func (s *Service) startLocalSlaves(wg *sync.WaitGroup, config Config, bsCfg Boot
 		slaveConfig.MasterAddresses = []string{masterAddr}
 		slaveService := NewService(s.stopPeer.ctx, slaveLog, s.logService, slaveConfig, bsCfg, true)
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		go func(p Peer) {
+			defer func() {
+				s.log.Debug().Str("peer", p.ID).Msg("Local slave finished running")
+				wg.Done()
+			}()
 			if err := slaveService.Run(s.stopPeer.ctx, slaveBsCfg, setupConfig.Peers, relaunch); err != nil {
 				s.log.Error().Str("peer", p.ID).Err(err).Msg("Unable to start one of peers")
 			}
-		}()
+		}(p)
 	}
 }
