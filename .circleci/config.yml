@@ -6,13 +6,13 @@ parameters:
     default: "gcr.io/gcr-for-testing/golang:1.21.5"
   arangodbImage:
     type: string
-    default: "gcr.io/gcr-for-testing/arangodb/enterprise:3.9.2"
+    default: "gcr.io/gcr-for-testing/arangodb/enterprise-preview:devel-nightly"
   alpineImage:
     type: string
     default: "gcr.io/gcr-for-testing/alpine:3.17"
   starterModes:
     type: string
-    default: "single,cluster,activefailover"
+    default: "single,cluster"
 
 executors:
   golang-executor:

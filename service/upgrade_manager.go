@@ -289,7 +289,14 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	if mode.IsActiveFailoverMode() {
 		dbFeatures := NewDatabaseFeatures(toVersion, false)
 		if !dbFeatures.SupportsActiveFailover() {
-			return fmt.Errorf("Upgrade version (%s) does not support active-failover (resilient-single) mode", toVersion)
+			return fmt.Errorf("upgrade version (%s) does not support active-failover (resilient-single) mode", toVersion)
+		}
+	}
+
+	if mode.SupportsArangoSync() {
+		dbFeatures := NewDatabaseFeatures(toVersion, false)
+		if !dbFeatures.SupportsArangoSync() {
+			return fmt.Errorf("upgrade version (%s) does not support ArangoSync component", toVersion)
 		}
 	}
 

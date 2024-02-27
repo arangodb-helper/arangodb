@@ -211,7 +211,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 		},
 		"args.sync": {
 			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync instances as --%s", key)
+				return fmt.Sprintf("Deprecated: Passed through to all sync instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
@@ -219,7 +219,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 		},
 		"args.syncmasters": {
 			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
+				return fmt.Sprintf("Deprecated: Passed through to all sync master instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
@@ -227,7 +227,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 		},
 		"args.syncworkers": {
 			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync workers instances as --%s", key)
+				return fmt.Sprintf("Deprecated: Passed through to all sync workers instances as --%s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
@@ -268,7 +268,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 		},
 		"envs.sync": {
 			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all sync instances as %s", key)
+				return fmt.Sprintf("Deprecated: Env passed to all sync instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.EnvByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
@@ -276,7 +276,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 		},
 		"envs.syncmasters": {
 			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all sync master instances as %s", key)
+				return fmt.Sprintf("Deprecated: Env passed to all sync master instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.EnvByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
@@ -284,7 +284,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 		},
 		"envs.syncworkers": {
 			Usage: func(key string) string {
-				return fmt.Sprintf("Env passed to all sync master instances as %s", key)
+				return fmt.Sprintf("Deprecated: Env passed to all sync master instances as %s", key)
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.EnvByServerTypeAndName(definitions.ServerTypeSyncWorker, key)

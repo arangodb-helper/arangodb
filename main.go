@@ -150,6 +150,7 @@ func init() {
 	f.BoolVar(&opts.starter.debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
 	f.BoolVar(&opts.starter.disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
 	f.BoolVar(&opts.starter.enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
+	f.MarkDeprecated("starter.sync", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.DurationVar(&opts.starter.instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
 	if err := features.JWTRotation().RegisterDeprecated(f); err != nil {
 		panic(err)
@@ -169,6 +170,7 @@ func init() {
 	f.BoolVar(&opts.server.useLocalBin, "server.use-local-bin", false, "If true, starter will try searching for binaries in local directory first")
 	f.StringVar(&opts.server.arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
 	f.StringVar(&opts.server.arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
+	f.MarkDeprecated("server.arangosync", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.server.arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
 	f.StringVar(&opts.server.rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&opts.server.threads, "server.threads", 0, "Adjust server.threads of each server")
@@ -180,6 +182,7 @@ func init() {
 	f.StringVar(&opts.docker.Endpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&opts.docker.ImageArangoD, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
 	f.StringVar(&opts.docker.ImageArangoSync, "docker.sync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
+	f.MarkDeprecated("docker.sync-image", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.docker.imagePullPolicyRaw, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
 	f.StringVar(&opts.docker.User, "docker.user", "", "use the given name as user to run the Docker container")
 	f.StringVar(&opts.docker.HostContainerName, "docker.container", "", "name of the docker container that is running this process")
@@ -199,12 +202,19 @@ func init() {
 	f.StringVar(&opts.ssl.autoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
 
 	f.BoolSliceVar(&opts.sync.startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
+	f.MarkDeprecated("sync.start-master", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.BoolSliceVar(&opts.sync.startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
+	f.MarkDeprecated("sync.start-worker", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.sync.monitoring.token, "sync.monitoring.token", "", "Bearer token used to access ArangoSync monitoring endpoints")
+	f.MarkDeprecated("sync.monitoring.token", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.sync.master.jwtSecretFile, "sync.master.jwt-secret", "", "File containing JWT secret used to access the Sync Master (from Sync Worker)")
+	f.MarkDeprecated("sync.master.jwt-secret", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.sync.mq.Type, "sync.mq.type", "direct", "Type of message queue used by the Sync Master")
+	f.MarkDeprecated("sync.mq.type", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.sync.server.keyFile, "sync.server.keyfile", "", "TLS keyfile of local sync master")
+	f.MarkDeprecated("sync.server.keyfile", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.sync.server.clientCAFile, "sync.server.client-cafile", "", "CA Certificate used for client certificate verification")
+	f.MarkDeprecated("sync.server.client-cafile", "ArangoSync component is deprecated and will be removed in coming releases")
 
 	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 

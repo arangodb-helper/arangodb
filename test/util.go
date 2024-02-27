@@ -138,12 +138,17 @@ func needModeSupportedByVersion(t *testing.T, testMode, starterMode string) {
 }
 
 func isModeSupportedByVersion(t *testing.T, testMode, starterMode string) bool {
-	if starterMode != starterModeActiveFailover {
-		return true
+	f := getSupportedDatabaseFeatures(t, testMode)
+
+	if starterMode == starterModeActiveFailover {
+		return f.SupportsActiveFailover()
 	}
 
-	f := getSupportedDatabaseFeatures(t, testMode)
-	return f.SupportsActiveFailover()
+	if starterMode == starterModeActiveFailover {
+		return f.SupportsArangoSync()
+	}
+
+	return true
 }
 
 // Spawn spawns a command and returns its process with optionally expanded envs.
