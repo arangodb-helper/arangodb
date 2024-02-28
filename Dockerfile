@@ -1,5 +1,5 @@
-ARG IMAGE=alpine:3.16
-FROM ${IMAGE}
+ARG IMAGE
+FROM alpine:${IMAGE}
 MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
 ARG TARGETARCH

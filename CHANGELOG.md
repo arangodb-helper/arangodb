@@ -4,6 +4,7 @@
 - Mark ArangoSync component as deprecated
 - Do not allow starting ArangoDB v3.12+ with ArangoSync component
 - Do not allow upgrade if the cluster is using ArangoSync component (if the new version is v3.12 or newer)
+- Bump Go version (v1.21.6) and dependencies for CVE fixes
 
 ## [v0.18.2](https://github.com/arangodb-helper/arangodb/tree/0.18.2) (2024-02-13)
 - Fix waiting for local slaves to terminate

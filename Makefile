@@ -21,7 +21,7 @@ ifeq (, $(findstring -preview,$(VERSION)))
 		-t $(IMAGE_NAME):latest
 endif
 
-ALPINE_IMAGE ?= alpine:3.16
+ALPINE_IMAGE ?= 3.18
 
 DOCKERCLI ?= $(shell which docker)
 GOBUILDLINKTARGET := ../../../..
@@ -43,8 +43,8 @@ REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.21.5
-GOIMAGE ?= golang:$(GOVERSION)-alpine3.17
+GOVERSION := 1.21.6
+GOIMAGE ?= golang:$(GOVERSION)-alpine$(ALPINE_IMAGE)
 
 GOOS ?= linux
 GOARCH ?= amd64
@@ -100,7 +100,7 @@ TEST_BIN := /usr/code/bin/$(GOOS)/$(GOARCH)/$(TESTNAME)
 RELEASE_BIN := /usr/code/.gobuild/bin/release
 
 DOCKER_CMD = $(DOCKERCLI) run \
-                --rm --platform linux/$(GOARCH) \
+                --rm \
                 -v $(SRCDIR):/usr/code \
                 -u "$(shell id -u):$(shell id -g)" \
                 -e GOCACHE=/usr/code/.gobuild/.cache \
@@ -144,12 +144,23 @@ build: vendor $(BIN)
 build-test: vendor $(TESTBIN)
 	@echo ">> Build Tests Bin $(TESTBIN) done"
 
-binaries:
+binary-linux:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build-test
+
+binary-darwin:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build-test
+
+binary-windows:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
+
+binaries: binary-linux binary-darwin binary-windows
 
 releases:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 release
@@ -158,13 +169,6 @@ releases:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 release
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 release
 	@(cd "$(RELEASEDIR)"; sha256sum arangodb-* > SHA256SUMS; cat SHA256SUMS | sha256sum -c)
-
-binaries-test:
-	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
 
 $(BIN): $(GOBUILDDIR) $(GO_SOURCES)
 	@mkdir -p $(BINDIR)
@@ -223,7 +227,7 @@ run-unit-tests: $(GO_SOURCES)
 # Run all integration tests
 run-tests: run-tests-local-process run-tests-docker
 
-run-tests-local-process: build-test build run-tests-local-process-run
+run-tests-local-process: binary-linux run-tests-local-process-run
 run-tests-local-process-run: export TEST_MODES=localprocess
 run-tests-local-process-run: export DOCKER_IMAGE=$(ARANGODB)
 run-tests-local-process-run: export DOCKER_PARAMS:=-e "TEST_MODES=$(TEST_MODES)" -e "STARTER_MODES=$(STARTER_MODES)" -e "STARTER=/usr/code/bin/linux/$(GOARCH)/arangodb"

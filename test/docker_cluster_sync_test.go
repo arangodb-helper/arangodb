@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
@@ -33,6 +31,8 @@ import (
 // TestDockerClusterSync runs 3 arangodb starters in docker with arangosync enabled.
 func TestDockerClusterSync(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, true)
+	requireArangoSync(t, testModeDocker)
+
 	ip := os.Getenv("IP")
 	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
 
@@ -70,6 +70,8 @@ func TestDockerClusterSync(t *testing.T) {
 
 func TestDockerClusterRestartWithSyncOnAndOff(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, true)
+	requireArangoSync(t, testModeDocker)
+
 	ip := os.Getenv("IP")
 	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
 
@@ -121,6 +123,8 @@ func TestDockerClusterRestartWithSyncOnAndOff(t *testing.T) {
 
 func TestDockerLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, true)
+	requireArangoSync(t, testModeDocker)
+
 	ip := os.Getenv("IP")
 	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
 
