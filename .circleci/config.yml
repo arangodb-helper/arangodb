@@ -3,13 +3,13 @@ version: 2.1
 parameters:
   goImage:
     type: string
-    default: "gcr.io/gcr-for-testing/golang:1.21.5"
+    default: "gcr.io/gcr-for-testing/golang:1.21.6"
   arangodbImage:
     type: string
     default: "gcr.io/gcr-for-testing/arangodb/enterprise-preview:devel-nightly"
   alpineImage:
     type: string
-    default: "gcr.io/gcr-for-testing/alpine:3.17"
+    default: "gcr.io/gcr-for-testing/alpine:3.18"
   starterModes:
     type: string
     default: "single,cluster"
@@ -17,7 +17,7 @@ parameters:
 executors:
   golang-executor:
     docker:
-      - image: gcr.io/gcr-for-testing/golang:1.21.5
+      - image: gcr.io/gcr-for-testing/golang:1.21.6
   machine-executor:
     machine:
       image: ubuntu-2204:current
@@ -52,7 +52,6 @@ jobs:
       GOIMAGE: << pipeline.parameters.goImage >>
       ALPINE_IMAGE: << pipeline.parameters.alpineImage >>
       STARTER_MODES: << pipeline.parameters.starterModes >>
-      MULTIARCH: 0
       VERBOSE: 1
 
 workflows:
