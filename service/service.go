@@ -1267,7 +1267,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 	}
 
 	if !s.DatabaseFeatures().SupportsArangoSync() {
-		if bsCfg.Mode.SupportsArangoSync() || boolFromRef(bsCfg.StartSyncMaster, false) || boolFromRef(bsCfg.StartSyncWorker, false) {
+		if boolFromRef(bsCfg.StartSyncMaster, false) || boolFromRef(bsCfg.StartSyncWorker, false) {
 			return fmt.Errorf("this ArangoDB version does not support running with ArangoSync component")
 		}
 	}

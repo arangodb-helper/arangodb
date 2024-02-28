@@ -627,6 +627,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		if opts.sync.monitoring.token == "" {
 			opts.sync.monitoring.token = uniuri.New()
 		}
+		log.Warn().Msgf("ArangoSync component is deprecated and will be removed in coming releases")
 	} else {
 		opts.sync.startSyncMaster = []bool{false}
 		opts.sync.startSyncWorker = []bool{false}
