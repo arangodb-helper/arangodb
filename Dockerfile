@@ -1,5 +1,5 @@
 ARG IMAGE
-FROM alpine:${IMAGE}
+FROM ${IMAGE}
 MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
 ARG TARGETARCH

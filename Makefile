@@ -21,8 +21,6 @@ ifeq (, $(findstring -preview,$(VERSION)))
 		-t $(IMAGE_NAME):latest
 endif
 
-ALPINE_IMAGE ?= 3.18
-
 GOBUILDLINKTARGET := ../../../..
 
 BUILDDIR ?= $(ROOTDIR)
@@ -39,9 +37,11 @@ REPONAME := $(PROJECT)
 REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
+ALPINE_IMAGE ?= alpine:3.18
+
 GOPATH := $(GOBUILDDIR)
 GOVERSION := 1.21.6
-GOIMAGE ?= golang:$(GOVERSION)-alpine$(ALPINE_IMAGE)
+GOIMAGE ?= golang:$(GOVERSION)-alpine3.18
 
 GOOS ?= linux
 GOARCH ?= amd64
