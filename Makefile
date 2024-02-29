@@ -23,10 +23,7 @@ endif
 
 ALPINE_IMAGE ?= 3.18
 
-DOCKERCLI ?= $(shell which docker)
 GOBUILDLINKTARGET := ../../../..
-
-DOCKER_BUILD_CLI := $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform linux/$(GOARCH)
 
 BUILDDIR ?= $(ROOTDIR)
 
@@ -52,6 +49,9 @@ GOARCH ?= amd64
 ifeq ("$(GOOS)", "windows")
 	GOEXE := .exe
 endif
+
+DOCKERCLI ?= $(shell which docker)
+DOCKER_BUILD_CLI := $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform linux/$(GOARCH)
 
 ARANGODB ?= arangodb/arangodb:latest
 
