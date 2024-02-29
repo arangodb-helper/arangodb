@@ -98,3 +98,8 @@ func (v DatabaseFeatures) GetJWTFolderOption() bool {
 func (v DatabaseFeatures) SupportsActiveFailover() bool {
 	return v.Version.CompareTo(v312) < 0
 }
+
+// SupportsArangoSync returns true if ArangoSync is supported
+func (v DatabaseFeatures) SupportsArangoSync() bool {
+	return v.Version.CompareTo(v312) < 0
+}

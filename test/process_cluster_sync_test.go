@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@ import (
 func TestProcessClusterSync(t *testing.T) {
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, true)
+	requireArangoSync(t, testModeProcess)
 
 	// Create certificates
 	ip := "127.0.0.1"
@@ -70,6 +71,7 @@ func TestProcessClusterSync(t *testing.T) {
 func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, true)
+	requireArangoSync(t, testModeProcess)
 
 	// Create certificates
 	ip := "127.0.0.1"
@@ -123,6 +125,7 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 func TestProcessLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, true)
+	requireArangoSync(t, testModeProcess)
 
 	// Create certificates
 	ip := "127.0.0.1"
@@ -177,6 +180,7 @@ func TestProcessLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, true)
+	requireArangoSync(t, testModeProcess)
 
 	// Create certificates
 	ip := "127.0.0.1"

@@ -21,13 +21,7 @@ ifeq (, $(findstring -preview,$(VERSION)))
 		-t $(IMAGE_NAME):latest
 endif
 
-ALPINE_IMAGE ?= alpine:3.16
-
-DOCKERCLI ?= $(shell which docker)
 GOBUILDLINKTARGET := ../../../..
-
-DOCKERMACLI := $(DOCKERCLI) buildx build -f "$(ROOTDIR)/Dockerfile.ma" --build-arg "IMAGE=$(ALPINE_IMAGE)" \
-               			--platform linux/amd64,linux/arm64
 
 BUILDDIR ?= $(ROOTDIR)
 
@@ -43,9 +37,11 @@ REPONAME := $(PROJECT)
 REPODIR := $(ORGDIR)/$(REPONAME)
 REPOPATH := $(ORGPATH)/$(REPONAME)
 
+ALPINE_IMAGE ?= alpine:3.18
+
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.21.5
-GOIMAGE ?= golang:$(GOVERSION)-alpine3.17
+GOVERSION := 1.21.6
+GOIMAGE ?= golang:$(GOVERSION)-alpine3.18
 
 GOOS ?= linux
 GOARCH ?= amd64
@@ -53,6 +49,9 @@ GOARCH ?= amd64
 ifeq ("$(GOOS)", "windows")
 	GOEXE := .exe
 endif
+
+DOCKERCLI ?= $(shell which docker)
+DOCKER_BUILD_CLI := $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform linux/$(GOARCH)
 
 ARANGODB ?= arangodb/arangodb:latest
 
@@ -140,15 +139,28 @@ $(RELEASEBIN): vendor $(BIN)
 	@cp "$(BIN)" "$(RELEASEBIN)"
 
 build: vendor $(BIN)
+	@echo ">> Build Bin $(BIN) done"
 
 build-test: vendor $(TESTBIN)
+	@echo ">> Build Tests Bin $(TESTBIN) done"
 
-binaries:
+binary-linux:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
+	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build-test
+
+binary-darwin:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
+	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build-test
+
+binary-windows:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
+	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
+
+binaries: binary-linux binary-darwin binary-windows
 
 releases:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 release
@@ -158,20 +170,14 @@ releases:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 release
 	@(cd "$(RELEASEDIR)"; sha256sum arangodb-* > SHA256SUMS; cat SHA256SUMS | sha256sum -c)
 
-binaries-test:
-	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
-
 $(BIN): $(GOBUILDDIR) $(GO_SOURCES)
 	@mkdir -p $(BINDIR)
-	@-rm resource.syso
+	@-rm -f resource.syso
 ifeq ($(GOOS),windows)
 	@echo ">> Generating versioninfo syso file ..."
 	@$(GOPATH)/bin/goversioninfo -64 -file-version=$(VERSION) -product-version=$(VERSION)
 	$(DOCKER_CMD) go build -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
+	@-rm -f resource.syso
 else
 	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
 endif
@@ -180,17 +186,12 @@ $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	@mkdir -p $(BINDIR)
 	$(DOCKER_CMD) go test -c -o "$(TEST_BIN)" ./test
 
-ifneq ($(MULTIARCH),1)
 docker: build
-	$(DOCKERCLI) build -t arangodb/arangodb-starter --build-arg "IMAGE=$(ALPINE_IMAGE)" .
-else
-docker: binaries
-	$(DOCKERMACLI) -t arangodb/arangodb-starter .
-endif
+	@echo ">> Building Docker Image with buildx"
+	$(DOCKER_BUILD_CLI) -t arangodb/arangodb-starter .
 
 docker-push-version: docker
-	$(DOCKERMACLI) --push $(STARTER_TAGS) .
-
+	$(DOCKER_BUILD_CLI) --push $(STARTER_TAGS) .
 
 $(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
 	$(DOCKER_CMD) go build -o "$(RELEASE_BIN)" $(REPOPATH)/tools/release
@@ -217,7 +218,7 @@ TESTCONTAINER := arangodb-starter-test
 
 # Run all unit tests
 run-unit-tests: $(GO_SOURCES)
-	go test --count=1 \
+	go test --count=1 -v \
 		$(REPOPATH) \
 		$(REPOPATH)/pkg/... \
 		$(REPOPATH)/service/... \
@@ -226,13 +227,13 @@ run-unit-tests: $(GO_SOURCES)
 # Run all integration tests
 run-tests: run-tests-local-process run-tests-docker
 
-run-tests-local-process: build-test build run-tests-local-process-run
+run-tests-local-process: binary-linux run-tests-local-process-run
 run-tests-local-process-run: export TEST_MODES=localprocess
 run-tests-local-process-run: export DOCKER_IMAGE=$(ARANGODB)
-run-tests-local-process-run: export DOCKER_PARAMS:=-e "TEST_MODES=$(TEST_MODES)" -e "STARTER_MODES=$(STARTER_MODES)" -e "STARTER=/usr/code/bin/linux/amd64/arangodb"
+run-tests-local-process-run: export DOCKER_PARAMS:=-e "TEST_MODES=$(TEST_MODES)" -e "STARTER_MODES=$(STARTER_MODES)" -e "STARTER=/usr/code/bin/linux/$(GOARCH)/arangodb"
 run-tests-local-process-run:
 	@-$(DOCKERCLI) rm -f -v $(TESTCONTAINER) &> /dev/null
-	$(DOCKER_CMD) /usr/code/bin/linux/amd64/test -test.timeout $(TEST_TIMEOUT) -test.v $(TESTOPTIONS)
+	$(DOCKER_CMD) /usr/code/bin/linux/$(GOARCH)/test -test.timeout $(TEST_TIMEOUT) -test.v $(TESTOPTIONS)
 
 _run-tests: build-test build
 	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) IP=$(IP) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.failfast -test.v $(TESTOPTIONS)
