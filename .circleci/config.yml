@@ -52,6 +52,7 @@ jobs:
       GOIMAGE: << pipeline.parameters.goImage >>
       ALPINE_IMAGE: << pipeline.parameters.alpineImage >>
       STARTER_MODES: << pipeline.parameters.starterModes >>
+      DOCKER_PLATFORMS: "linux/amd64"
       VERBOSE: 1
 
 workflows:

@@ -90,6 +90,7 @@ type Config struct {
 	SyncMasterJWTSecretFile string // File containing JWT secret used to access the Sync Master (from Sync Worker)
 	SyncMonitoringToken     string // Bearer token used for arangosync --monitoring.token
 	SyncMQType              string // MQType used by sync master
+	SyncBinaryFoundErr      error  // If set, the sync binary was not found
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -1262,14 +1263,18 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 
 	if !s.DatabaseFeatures().SupportsActiveFailover() {
 		if bsCfg.Mode.IsActiveFailoverMode() || boolFromRef(bsCfg.StartResilientSingle, false) {
-			return fmt.Errorf("this ArangoDB version does not support running in Active-Failover (resilient-single) mode")
+			return fmt.Errorf("this ArangoDB version does not support running in Active-Failover mode (resilient-single is not supported since 3.12)")
 		}
 	}
 
 	if !s.DatabaseFeatures().SupportsArangoSync() {
-		if boolFromRef(bsCfg.StartSyncMaster, false) || boolFromRef(bsCfg.StartSyncWorker, false) {
-			return fmt.Errorf("this ArangoDB version does not support running with ArangoSync component")
+		if s.cfg.SyncEnabled {
+			return fmt.Errorf("this ArangoDB version does not support running with ArangoSync (it is not supported since 3.12)")
 		}
+	}
+
+	if s.cfg.SyncBinaryFoundErr != nil {
+		return s.cfg.SyncBinaryFoundErr
 	}
 
 	if s.jwtSecret != "" {
@@ -1281,7 +1286,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 					return err
 				}
 
-				if err := ioutil.WriteFile(bsCfg.JWTFolderDirFile(definitions.ArangodJWTSecretActive), []byte(s.jwtSecret), 0600); err != nil {
+				if err := os.WriteFile(bsCfg.JWTFolderDirFile(definitions.ArangodJWTSecretActive), []byte(s.jwtSecret), 0600); err != nil {
 					return err
 				}
 			}

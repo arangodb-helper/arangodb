@@ -51,7 +51,8 @@ ifeq ("$(GOOS)", "windows")
 endif
 
 DOCKERCLI ?= $(shell which docker)
-DOCKER_BUILD_CLI := $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform linux/$(GOARCH)
+DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
+DOCKER_BUILD_CLI := $(DOCKERCLI) build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS)
 
 ARANGODB ?= arangodb/arangodb:latest
 

@@ -598,7 +598,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		if !runningInDocker {
 			// Check arangosync executable
 			if _, err := os.Stat(opts.server.arangoSyncPath); os.IsNotExist(err) {
-				showArangoSyncExecutableNotFoundHelp(opts.server.arangoSyncPath)
+				opts.sync.binaryFoundErr = fmt.Errorf("cannot find `arangosync` (expected at `%s`)", opts.server.arangoSyncPath)
 			}
 			log.Debug().Msgf("Using %s as default arangosync executable.", opts.server.arangoSyncPath)
 		} else {
@@ -684,6 +684,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		SyncMasterClientCAFile:  opts.sync.server.clientCAFile,
 		SyncMasterJWTSecretFile: opts.sync.master.jwtSecretFile,
 		SyncMQType:              opts.sync.mq.Type,
+		SyncBinaryFoundErr:      opts.sync.binaryFoundErr,
 		Configuration:           passthroughOpts,
 	}
 	service := service.NewService(context.Background(), log, logService, serviceConfig, bsCfg, false)

@@ -126,18 +126,6 @@ func showArangoSyncNotAllowedWithModeHelp(mode string) {
 	)
 }
 
-// ArangoSync is not found at given path.
-func showArangoSyncExecutableNotFoundHelp(arangosyncPath string) {
-	showFatalHelp(
-		fmt.Sprintf("Cannot find `arangosync` (expected at `%s`).", arangosyncPath),
-		"",
-		"How to solve this:",
-		"1 - Install ArangoSync locally or run the ArangoDB starter in docker. (see README for details).",
-		"    Make sure to use an Enterprise Edition of ArangoDB.",
-		"",
-	)
-}
-
 // --sync.server.keyfile is missing
 func showSyncMasterServerKeyfileMissingHelp() {
 	showFatalHelp(

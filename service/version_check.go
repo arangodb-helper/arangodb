@@ -75,7 +75,7 @@ func databaseVersion(ctx context.Context, arangodPath string, runner Runner) (dr
 	}
 	defer p.Cleanup()
 	if code := p.Wait(); code != 0 {
-		return "", false, fmt.Errorf("Process exited with exit code %d - %s", code, output.String())
+		return "", false, fmt.Errorf("process exited with exit code %d - %s", code, output.String())
 	}
 
 	// Parse output
@@ -93,8 +93,9 @@ func databaseVersion(ctx context.Context, arangodPath string, runner Runner) (dr
 	var v driver.Version
 
 	if vs, ok := parsedLines["server-version"]; !ok {
-		return "", false, fmt.Errorf("No server-version found in '%s'", stdout)
+		return "", false, fmt.Errorf("no server-version found in '%s'", stdout)
 	} else {
+		fmt.Println("ArangoDB version found: ", vs)
 		v = driver.Version(vs)
 	}
 
