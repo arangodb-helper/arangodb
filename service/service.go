@@ -1263,13 +1263,13 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 
 	if !s.DatabaseFeatures().SupportsActiveFailover() {
 		if bsCfg.Mode.IsActiveFailoverMode() || boolFromRef(bsCfg.StartResilientSingle, false) {
-			return fmt.Errorf("this ArangoDB version does not support running in Active-Failover (resilient-single) mode")
+			return fmt.Errorf("this ArangoDB version does not support running in Active-Failover mode (resilient-single is not supported since 3.12)")
 		}
 	}
 
 	if !s.DatabaseFeatures().SupportsArangoSync() {
 		if s.cfg.SyncEnabled {
-			return fmt.Errorf("this ArangoDB version does not support running with ArangoSync component")
+			return fmt.Errorf("this ArangoDB version does not support running with ArangoSync (it is not supported since 3.12)")
 		}
 	}
 
