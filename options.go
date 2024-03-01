@@ -94,7 +94,9 @@ type starterOptions struct {
 	sync struct {
 		startSyncMaster []bool
 		startSyncWorker []bool
-		monitoring      struct {
+		binaryFoundErr  error
+
+		monitoring struct {
 			token string
 		}
 		master struct {
