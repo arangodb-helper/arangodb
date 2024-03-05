@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [v0.18.3](https://github.com/arangodb-helper/arangodb/tree/0.18.3) (2024-03-05)
 - Mark ArangoSync component as deprecated
 - Do not allow starting ArangoDB v3.12+ with ArangoSync component
 - Do not allow upgrade if the cluster is using ArangoSync component (if the new version is v3.12 or newer)
