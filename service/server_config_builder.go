@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -64,8 +62,6 @@ func collectServerConfigVolumes(serverType definitions.ServerType, config config
 		addVolumeForSetting("ssl", "keyfile")
 		addVolumeForSetting("ssl", "cafile")
 		addVolumeForSetting("rocksdb", "encryption-keyfile")
-	case definitions.ProcessTypeArangoSync:
-		// TODO
 	}
 
 	return result
@@ -78,8 +74,6 @@ func createServerArgs(log zerolog.Logger, config Config, clusterConfig ClusterCo
 	switch serverType.ProcessType() {
 	case definitions.ProcessTypeArangod:
 		return createArangodArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, arangodConfig, agentRecoveryID, databaseAutoUpgrade, clusterJWTSecretFile, features), nil
-	case definitions.ProcessTypeArangoSync:
-		return createArangoSyncArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, clusterJWTSecretFile, features)
 	default:
 		return nil, nil
 	}

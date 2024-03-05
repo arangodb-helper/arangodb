@@ -47,15 +47,13 @@ import (
 )
 
 const (
-	whatCluster               = "cluster"
-	whatSingle                = "single server"
-	whatResilientSingle       = "resilient single server"
-	testModeProcess           = "localprocess"
-	testModeDocker            = "docker"
-	starterModeCluster        = "cluster"
-	starterModeSingle         = "single"
-	starterModeActiveFailover = "activefailover"
-	portIncrement             = 10
+	whatCluster        = "cluster"
+	whatSingle         = "single server"
+	testModeProcess    = "localprocess"
+	testModeDocker     = "docker"
+	starterModeCluster = "cluster"
+	starterModeSingle  = "single"
+	portIncrement      = 10
 )
 
 type EnvironmentVariable string
@@ -137,20 +135,14 @@ func needModeSupportedByVersion(t *testing.T, testMode, starterMode string) {
 	}
 }
 
-func requireArangoSync(t *testing.T, testMode string) {
-	if !getSupportedDatabaseFeatures(t, testMode).SupportsArangoSync() {
-		t.Skip("ArangoSync is not supported")
-	}
-}
-
 func isModeSupportedByVersion(t *testing.T, testMode, starterMode string) bool {
-	f := getSupportedDatabaseFeatures(t, testMode)
+	/*f := getSupportedDatabaseFeatures(t, testMode)
 
 	if starterMode == starterModeActiveFailover {
 		if !f.SupportsActiveFailover() {
 			return false
 		}
-	}
+	}*/
 
 	return true
 }

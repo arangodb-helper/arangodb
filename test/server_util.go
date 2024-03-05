@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package test
@@ -44,8 +42,7 @@ import (
 )
 
 const (
-	basePort            = service.DefaultMasterPort
-	syncMonitoringToken = "syncMonitoringSecretToken"
+	basePort = service.DefaultMasterPort
 )
 
 var (
@@ -83,28 +80,20 @@ func secureStarterEndpoint(portOffset int) string {
 
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
-	return testClusterPeer(t, starterEndpoint, isSecure, false, 0)
+	return testClusterPeer(t, starterEndpoint, isSecure, 0)
 }
 
 // testClusterPeer runs a series of tests to verify a cluster peer.
-func testClusterPeer(t *testing.T, starterEndpoint string, isSecure, syncEnabled bool, reachableTimeout time.Duration) client.API {
+func testClusterPeer(t *testing.T, starterEndpoint string, isSecure bool, reachableTimeout time.Duration) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, syncEnabled, 0, reachableTimeout)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, 0, reachableTimeout)
 	return c
 }
 
 // testSingle runs a series of tests to verify a good single server.
 func testSingle(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "single", starterEndpoint, isSecure, false, false, 0, 0)
-	return c
-}
-
-// testResilientSingle runs a series of tests to verify good resilientsingle servers.
-func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, expectAgencyOnly bool) client.API {
-	c := NewStarterClient(t, starterEndpoint)
-
-	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, false, time.Second*30, time.Minute*2)
+	testProcesses(t, c, "single", starterEndpoint, isSecure, false, 0, 0)
 	return c
 }
 
@@ -126,8 +115,7 @@ func waitForStarter(t *testing.T, c client.API) {
 }
 
 // testProcesses runs a series of tests to verify a good series of database servers.
-func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool,
-	expectAgencyOnly bool, syncEnabled bool, singleTimeout, reachableTimeout time.Duration) {
+func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool, expectAgencyOnly bool, singleTimeout, reachableTimeout time.Duration) {
 	// Give the deployment a little bit of time:
 	ctx := context.Background()
 
@@ -229,40 +217,6 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 			break
 		}
 	}
-
-	// Check syncmaster
-	if sp, ok := processes.ServerByType(client.ServerTypeSyncMaster); ok {
-		if sp.IsSecure != isSecure {
-			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
-		}
-		if mode != "cluster" || !syncEnabled {
-			t.Errorf("Found syncmaster, not allowed in cluster mode without sync")
-		} else {
-			if isVerbose {
-				t.Logf("Found syncmaster at %s:%d", sp.IP, sp.Port)
-			}
-			testArangoSyncReachable(t, sp, reachableTimeout)
-		}
-	} else if (mode == "cluster") && syncEnabled {
-		t.Errorf("No syncmaster found in %s", starterEndpoint)
-	}
-
-	// Check syncworker
-	if sp, ok := processes.ServerByType(client.ServerTypeSyncWorker); ok {
-		if sp.IsSecure != isSecure {
-			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
-		}
-		if mode != "cluster" || !syncEnabled {
-			t.Errorf("Found syncworker, not allowed in cluster mode without sync")
-		} else {
-			if isVerbose {
-				t.Logf("Found syncworker at %s:%d", sp.IP, sp.Port)
-			}
-			testArangoSyncReachable(t, sp, reachableTimeout)
-		}
-	} else if (mode == "cluster") && syncEnabled {
-		t.Errorf("No syncworker found in %s", starterEndpoint)
-	}
 }
 
 // testArangodReachable tries to call some HTTP API methods of the given server process to make sure
@@ -282,30 +236,6 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess, timeout time.Du
 		}
 		if timeout == 0 || time.Since(start) > timeout {
 			t.Errorf("Failed to reach arangod %s at %s:%d %s", sp.Type, sp.IP, sp.Port, describe(err))
-			return
-		}
-		time.Sleep(time.Second)
-	}
-}
-
-// testArangoSyncReachable tries to call some HTTP API methods of the given server process to make sure
-// it is reachable.
-func testArangoSyncReachable(t *testing.T, sp client.ServerProcess, timeout time.Duration) {
-	start := time.Now()
-	for {
-		url := fmt.Sprintf("https://%s:%d/_api/version", sp.IP, sp.Port)
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			t.Fatalf("NewRequest failed: %s", describe(err))
-		}
-		req.Header.Set("Authorization", "bearer "+syncMonitoringToken)
-		resp, err := httpClient.Do(req)
-		if err == nil {
-			resp.Body.Close()
-			return
-		}
-		if timeout == 0 || time.Since(start) > timeout {
-			t.Errorf("Failed to reach arangosync at %s:%d %s", sp.IP, sp.Port, describe(err))
 			return
 		}
 		time.Sleep(time.Second)
@@ -414,29 +344,6 @@ func runStarterInContainer(t *testing.T, isSlave bool, cID string, port int, mou
 	}
 	baseArgs = append(baseArgs, args...)
 	return Spawn(t, strings.Join(baseArgs, " "))
-}
-
-func waitForClusterReadiness(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
-	WaitUntilStarterReady(t, whatCluster, len(procs), procs...)
-	var timeout time.Duration
-	if syncEnabled {
-		timeout = time.Minute
-	}
-	if isRelaunch {
-		timeout = time.Second * 5
-	}
-
-	for i := range procs {
-		testClusterPeer(t, insecureStarterEndpoint(i*portIncrement), false, syncEnabled, timeout)
-	}
-}
-
-// waitForClusterReadinessAndFinish waits until cluster will become available, runs tests against it and then terminates it.
-func waitForClusterReadinessAndFinish(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
-	waitForClusterReadiness(t, syncEnabled, isRelaunch, procs...)
-
-	logVerbose(t, "Waiting for termination")
-	SendIntrAndWait(t, procs...)
 }
 
 func waitForClusterHealthy(t *testing.T, endpoint string, timeout time.Duration) {

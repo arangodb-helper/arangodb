@@ -85,7 +85,7 @@ type UpgradeManagerContext interface {
 	IsRunningMaster() (isRunningMaster, isRunning bool, masterURL string)
 	// TestInstance checks the `up` status of an arangod server instance.
 	TestInstance(ctx context.Context, serverType definitions.ServerType, address string, port int,
-		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, isLeader bool, statusTrail []int, cancelled bool)
+		statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool)
 }
 
 // NewUpgradeManager creates a new upgrade manager.
@@ -164,8 +164,6 @@ const (
 	UpgradeEntryTypeDBServer    = "dbserver"
 	UpgradeEntryTypeCoordinator = "coordinator"
 	UpgradeEntryTypeSingle      = "single"
-	UpgradeEntryTypeSyncMaster  = "syncmaster"
-	UpgradeEntryTypeSyncWorker  = "syncworker"
 )
 
 // UpgradePlanEntry is the JSON structure that describes a single entry
@@ -181,7 +179,7 @@ type UpgradePlanEntry struct {
 // CreateStatusServer creates a UpgradeStatusServer for the given entry.
 // When the entry does not involve a specific server, nil is returned.
 func (e UpgradePlanEntry) CreateStatusServer(upgradeManagerContext UpgradeManagerContext) (*client.UpgradeStatusServer, error) {
-	config, _, mode := upgradeManagerContext.ClusterConfig()
+	config, _, _ := upgradeManagerContext.ClusterConfig()
 	var serverType definitions.ServerType
 	switch e.Type {
 	case UpgradeEntryTypeAgent:
@@ -191,21 +189,13 @@ func (e UpgradePlanEntry) CreateStatusServer(upgradeManagerContext UpgradeManage
 	case UpgradeEntryTypeCoordinator:
 		serverType = definitions.ServerTypeCoordinator
 	case UpgradeEntryTypeSingle:
-		if mode.IsActiveFailoverMode() {
-			serverType = definitions.ServerTypeResilientSingle
-		} else {
-			serverType = definitions.ServerTypeSingle
-		}
-	case UpgradeEntryTypeSyncMaster:
-		serverType = definitions.ServerTypeSyncMaster
-	case UpgradeEntryTypeSyncWorker:
-		serverType = definitions.ServerTypeSyncWorker
+		serverType = definitions.ServerTypeSingle
 	default:
-		return nil, maskAny(fmt.Errorf("Unknown entry type '%s'", e.Type))
+		return nil, maskAny(fmt.Errorf("unknown entry type '%s'", e.Type))
 	}
 	peer, found := config.PeerByID(e.PeerID)
 	if !found {
-		return nil, maskAny(fmt.Errorf("Unknown entry peer ID '%s'", e.PeerID))
+		return nil, maskAny(fmt.Errorf("unknown entry peer ID '%s'", e.PeerID))
 	}
 	port := peer.Port + peer.PortOffset + serverType.PortOffset()
 	return &client.UpgradeStatusServer{
@@ -284,21 +274,6 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		timeoutContext, _ := context.WithTimeout(context.Background(), time.Minute*5)
 		go m.runSingleServerUpgradeProcess(timeoutContext, myPeer, mode)
 		return nil
-	}
-
-	if mode.IsActiveFailoverMode() {
-		dbFeatures := NewDatabaseFeatures(toVersion, false)
-		if !dbFeatures.SupportsActiveFailover() {
-			return fmt.Errorf("upgrade version (%s) does not support active-failover (resilient-single) mode", toVersion)
-		}
-	}
-
-	if mode.SupportsArangoSync() {
-		for _, p := range config.AllPeers {
-			if p.HasSyncMaster() || p.HasSyncWorker() {
-				return fmt.Errorf("upgrade version (%s) does not support ArangoSync component (member: %s, %s)", toVersion, p.ID, p.Address)
-			}
-		}
 	}
 
 	// Check cluster health
@@ -406,17 +381,6 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 			})
 		}
 	}
-	// If active failover, add all singles
-	if mode.IsActiveFailoverMode() {
-		for _, p := range config.AllPeers {
-			if p.HasResilientSingle() {
-				plan.Entries = append(plan.Entries, UpgradePlanEntry{
-					Type:   UpgradeEntryTypeSingle,
-					PeerID: p.ID,
-				})
-			}
-		}
-	}
 	// If cluster...
 	if mode.IsClusterMode() {
 		// Add all dbservers
@@ -434,27 +398,6 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 			if p.HasCoordinator() {
 				plan.Entries = append(plan.Entries, UpgradePlanEntry{
 					Type:   UpgradeEntryTypeCoordinator,
-					PeerID: p.ID,
-				})
-			}
-		}
-	}
-	// If sync ...
-	if mode.SupportsArangoSync() {
-		// Add all syncmasters
-		for _, p := range config.AllPeers {
-			if p.HasSyncMaster() {
-				plan.Entries = append(plan.Entries, UpgradePlanEntry{
-					Type:   UpgradeEntryTypeSyncMaster,
-					PeerID: p.ID,
-				})
-			}
-		}
-		// Add all syncworkers
-		for _, p := range config.AllPeers {
-			if p.HasSyncWorker() {
-				plan.Entries = append(plan.Entries, UpgradePlanEntry{
-					Type:   UpgradeEntryTypeSyncWorker,
 					PeerID: p.ID,
 				})
 			}
@@ -750,8 +693,8 @@ func (m *upgradeManager) fetchRunningDatabaseVersions(ctx context.Context) ([]dr
 			return nil, maskAny(err)
 		}
 	}
-	if mode.IsSingleMode() || mode.IsActiveFailoverMode() {
-		if err := collect(config.GetResilientSingleEndpoints, ConnectionTypeDatabase); err != nil {
+	if mode.IsSingleMode() {
+		if err := collect(config.GetSingleEndpoints, ConnectionTypeDatabase); err != nil {
 			return nil, maskAny(err)
 		}
 	}
@@ -769,12 +712,12 @@ func (m *upgradeManager) IsServerUpgradeInProgress(serverType definitions.Server
 	return m.upgradeServerType == serverType
 }
 
-// serverDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
+// ServerDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
 func (m *upgradeManager) ServerDatabaseAutoUpgrade(serverType definitions.ServerType, lastExitCode int) bool {
 	return m.updateNeeded && m.upgradeServerType == serverType || lastExitCode == definitions.ArangoDExitUpgradeRequired
 }
 
-// serverDatabaseAutoUpgradeStarter is called when a server of given type has been be started with --database.auto-upgrade
+// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been be started with --database.auto-upgrade
 func (m *upgradeManager) ServerDatabaseAutoUpgradeStarter(serverType definitions.ServerType) {
 	if m.upgradeServerType == serverType {
 		m.updateNeeded = false
@@ -930,7 +873,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
 	_, isRunning, _ := m.upgradeManagerContext.IsRunningMaster()
 	if !isRunning {
-		return maskAny(fmt.Errorf("Not in running phase"))
+		return maskAny(fmt.Errorf("not in running phase"))
 	}
 
 	// recordFailure increments the failure count in the first entry and
@@ -1052,12 +995,12 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		}
 		m.log.Info().Msg("Finished upgrading coordinator")
 	case UpgradeEntryTypeSingle:
-		// Restart the activefailover single server in auto-upgrade mode
+		// Restart the single server in auto-upgrade mode
 		m.log.Info().Msg("Upgrading single server")
-		m.upgradeServerType = definitions.ServerTypeResilientSingle
+		m.upgradeServerType = definitions.ServerTypeSingle
 		m.updateNeeded = true
 		upgrade := func() error {
-			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeResilientSingle); err != nil {
+			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeSingle); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to restart single server"))
 			}
 
@@ -1068,7 +1011,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 				}
 
 				// Wait until all single servers respond
-				if err := m.waitUntil(ctx, m.areSingleServersResponding, "Active failover single server is not yet responding: %v"); err != nil {
+				if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
 					return recordFailure(errors.Wrap(err, "Not all single servers are responding in time"))
 				}
 
@@ -1083,50 +1026,8 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 			return maskAny(err)
 		}
 		m.log.Info().Msg("Finished upgrading single server")
-	case UpgradeEntryTypeSyncMaster:
-		// Restart the syncmaster
-		m.log.Info().Msg("Restarting syncmaster")
-		m.upgradeServerType = ""
-		m.updateNeeded = false
-		if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeSyncMaster); err != nil {
-			return recordFailure(errors.Wrap(err, "Failed to restart syncmaster"))
-		}
-
-		// Wait until syncmaster restarted
-		if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-			return recordFailure(errors.Wrap(err, "Syncmaster restart in upgrade mode did not succeed"))
-		}
-
-		// Wait until syncmaster 'up'
-		address := myPeer.Address
-		port := myPeer.Port + myPeer.PortOffset + definitions.ServerType(definitions.ServerTypeSyncMaster).PortOffset()
-		if up, _, _, _, _, _, _, _ := m.upgradeManagerContext.TestInstance(ctx, definitions.ServerTypeSyncMaster, address, port, nil); !up {
-			return recordFailure(fmt.Errorf("Syncmaster is not up in time"))
-		}
-		m.log.Info().Msg("Finished restarting syncmaster")
-	case UpgradeEntryTypeSyncWorker:
-		// Restart the syncworker
-		m.log.Info().Msg("Restarting syncworker")
-		m.upgradeServerType = ""
-		m.updateNeeded = false
-		if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeSyncWorker); err != nil {
-			return recordFailure(errors.Wrap(err, "Failed to restart syncworker"))
-		}
-
-		// Wait until syncworker restarted
-		if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-			return recordFailure(errors.Wrap(err, "Syncworker restart in upgrade mode did not succeed"))
-		}
-
-		// Wait until syncworker 'up'
-		address := myPeer.Address
-		port := myPeer.Port + myPeer.PortOffset + definitions.ServerType(definitions.ServerTypeSyncWorker).PortOffset()
-		if up, _, _, _, _, _, _, _ := m.upgradeManagerContext.TestInstance(ctx, definitions.ServerTypeSyncWorker, address, port, nil); !up {
-			return recordFailure(fmt.Errorf("Syncworker is not up in time"))
-		}
-		m.log.Info().Msg("Finished restarting syncworker")
 	default:
-		return maskAny(fmt.Errorf("Unsupported upgrade plan entry type '%s'", firstEntry.Type))
+		return maskAny(fmt.Errorf("unsupported upgrade plan entry type '%s'", firstEntry.Type))
 	}
 
 	// Move first entry to finished entries
@@ -1373,9 +1274,9 @@ func (m *upgradeManager) areCoordinatorsResponding(ctx context.Context) error {
 // areSingleServersResponding performs a check if all single servers are responding.
 func (m *upgradeManager) areSingleServersResponding(ctx context.Context) error {
 	// Get cluster config
-	clusterConfig, _, mode := m.upgradeManagerContext.ClusterConfig()
+	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Build endpoint list
-	endpoints, err := clusterConfig.GetSingleEndpoints(mode.IsSingleMode())
+	endpoints, err := clusterConfig.GetSingleEndpoints()
 	if err != nil {
 		return maskAny(err)
 	}
@@ -1511,7 +1412,7 @@ func (m *upgradeManager) enableSupervision(ctx context.Context) error {
 	return nil
 }
 
-// ShowServerVersions queries the versions of all Arangod servers in the cluster and shows them.
+// ShowArangodServerVersions queries the versions of all Arangod servers in the cluster and shows them.
 // Returns true when all servers are the same, false otherwise.
 func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, error) {
 	// Get cluster config
@@ -1548,18 +1449,11 @@ func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, e
 		showGroup(definitions.ServerTypeAgent, endpoints)
 	}
 	if mode.IsSingleMode() {
-		endpoints, err := clusterConfig.GetSingleEndpoints(true)
+		endpoints, err := clusterConfig.GetSingleEndpoints()
 		if err != nil {
 			return false, maskAny(err)
 		}
 		showGroup(definitions.ServerTypeSingle, endpoints)
-	}
-	if mode.IsActiveFailoverMode() {
-		endpoints, err := clusterConfig.GetSingleEndpoints(false)
-		if err != nil {
-			return false, maskAny(err)
-		}
-		showGroup(definitions.ServerTypeResilientSingle, endpoints)
 	}
 	if mode.IsClusterMode() {
 		endpoints, err := clusterConfig.GetDBServerEndpoints()

@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Adam Janikowski
-// Author Tomasz Mielech
 //
 
 package service
@@ -181,14 +178,12 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 						}
 					}
 				}()
-				if up, correctRole, version, role, mode, isLeader, statusTrail, cancelled := p.runtimeContext.TestInstance(ctx, p.serverType, myHostAddress, port, statusChanged); !cancelled {
+				if up, correctRole, version, role, mode, statusTrail, cancelled := p.runtimeContext.TestInstance(ctx, p.serverType, myHostAddress, port, statusChanged); !cancelled {
 					if up && correctRole {
 						msgPostfix := ""
-						if p.serverType == definitions.ServerTypeResilientSingle && !isLeader {
-							msgPostfix = " as follower"
-						}
+
 						logProcess.Info().Msgf("%s up and running%s (version %s).", p.serverType, msgPostfix, version)
-						if (p.serverType == definitions.ServerTypeCoordinator && !p.runtimeContext.IsLocalSlave()) || p.serverType == definitions.ServerTypeSingle || p.serverType == definitions.ServerTypeResilientSingle {
+						if (p.serverType == definitions.ServerTypeCoordinator && !p.runtimeContext.IsLocalSlave()) || p.serverType == definitions.ServerTypeSingle {
 							hostPort, err := proc.HostPort(port)
 							if err != nil {
 								if id := proc.ContainerID(); id != "" {
@@ -200,29 +195,14 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 								what := ServiceModeCluster
 								if p.serverType == definitions.ServerTypeSingle {
 									what = "single server"
-								} else if p.serverType == definitions.ServerTypeResilientSingle {
-									what = "resilient single server"
 								}
-								if p.serverType != definitions.ServerTypeResilientSingle || isLeader {
-									p.s.logMutex.Lock()
-									logProcess.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
-									logProcess.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
-									p.s.logMutex.Unlock()
-								}
-								p.runtimeContext.removeRecoveryFile()
-							}
-						}
-						if p.serverType == definitions.ServerTypeSyncMaster && !p.runtimeContext.IsLocalSlave() {
-							hostPort, err := proc.HostPort(port)
-							if err != nil {
-								if id := proc.ContainerID(); id != "" {
-									logProcess.Info().Msgf("%s can only be accessed from inside a container.", p.serverType)
-								}
-							} else {
-								ip := p.myPeer.Address
+
 								p.s.logMutex.Lock()
-								logProcess.Info().Msgf("Your syncmaster is now available at `https://%s:%d`", ip, hostPort)
+								logProcess.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
+								logProcess.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
 								p.s.logMutex.Unlock()
+
+								p.runtimeContext.removeRecoveryFile()
 							}
 						}
 					} else if !up {

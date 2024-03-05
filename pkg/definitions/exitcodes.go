@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2022 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,9 +29,6 @@ func GetExitCodeReason(code int) string {
 
 // ExitCodeIsRecoverable returns true if provided code indicates that restarting ArangoD process with exact same config won't help
 func ExitCodeIsRecoverable(pType ProcessType, code int) bool {
-	if pType == ProcessTypeArangoSync {
-		return true
-	}
 	switch code {
 	case ArangoDExitBinaryNotFound,
 		ArangoDExitConfigNotFound,

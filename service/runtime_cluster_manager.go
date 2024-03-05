@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -207,7 +207,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 	s.runtimeContext = runtimeContext
 	s.interruptChan = make(chan struct{}, 32)
 	_, myPeer, mode := runtimeContext.ClusterConfig()
-	if !mode.IsClusterMode() && !mode.IsActiveFailoverMode() {
+	if !mode.IsClusterMode() {
 		// Cluster manager is only relevant in cluster mode
 		return
 	}
