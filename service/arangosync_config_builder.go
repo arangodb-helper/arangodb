@@ -33,11 +33,12 @@ package service
 //
 
 import (
-	"github.com/pkg/errors"
-	"github.com/rs/zerolog"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+
+	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
