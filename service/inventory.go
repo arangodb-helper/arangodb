@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2020-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2020-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Adam Janikowski
-// Author Tomasz Mielech
 //
 
 package service
@@ -210,17 +207,6 @@ func (s *httpServer) forEachServerType(m ServiceMode, p *Peer, action func(m Ser
 		}
 		if p.HasCoordinator() {
 			if err := action(m, p, definitions.ServerTypeCoordinator); err != nil {
-				return err
-			}
-		}
-		if p.HasAgent() {
-			if err := action(m, p, definitions.ServerTypeAgent); err != nil {
-				return err
-			}
-		}
-	case ServiceModeActiveFailover, ServiceModeResilentSingle:
-		if p.HasResilientSingle() {
-			if err := action(m, p, definitions.ServerTypeResilientSingle); err != nil {
 				return err
 			}
 		}

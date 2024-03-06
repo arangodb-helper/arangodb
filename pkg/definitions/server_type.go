@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package definitions
@@ -37,9 +35,6 @@ const (
 	ServerTypeDBServerNoResign = "dbserver_noresign"
 	ServerTypeAgent            = "agent"
 	ServerTypeSingle           = "single"
-	ServerTypeResilientSingle  = "resilientsingle"
-	ServerTypeSyncMaster       = "syncmaster"
-	ServerTypeSyncWorker       = "syncworker"
 )
 
 // String returns a string representation of the given ServerType.
@@ -50,16 +45,12 @@ func (s ServerType) String() string {
 // PortOffset returns the offset from a peer base port for the given type of server.
 func (s ServerType) PortOffset() int {
 	switch s {
-	case ServerTypeCoordinator, ServerTypeSingle, ServerTypeResilientSingle:
+	case ServerTypeCoordinator, ServerTypeSingle:
 		return PortOffsetCoordinator
 	case ServerTypeDBServer, ServerTypeDBServerNoResign:
 		return PortOffsetDBServer
 	case ServerTypeAgent:
 		return PortOffsetAgent
-	case ServerTypeSyncMaster:
-		return PortOffsetSyncMaster
-	case ServerTypeSyncWorker:
-		return PortOffsetSyncWorker
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
 	}
@@ -68,7 +59,7 @@ func (s ServerType) PortOffset() int {
 // InitialStopTimeout returns initial delay for process stopping
 func (s ServerType) InitialStopTimeout() time.Duration {
 	switch s {
-	case ServerTypeDBServer, ServerTypeSingle, ServerTypeResilientSingle:
+	case ServerTypeDBServer, ServerTypeSingle:
 		return 3 * time.Second
 	default:
 		return time.Second
@@ -78,8 +69,6 @@ func (s ServerType) InitialStopTimeout() time.Duration {
 // ProcessType returns the type of process needed to run a server of given type.
 func (s ServerType) ProcessType() ProcessType {
 	switch s {
-	case ServerTypeSyncMaster, ServerTypeSyncWorker:
-		return ProcessTypeArangoSync
 	default:
 		return ProcessTypeArangod
 	}
@@ -92,14 +81,10 @@ func (s ServerType) ExpectedServerRole() (string, string) {
 		return "COORDINATOR", ""
 	case ServerTypeSingle:
 		return "SINGLE", ""
-	case ServerTypeResilientSingle:
-		return "SINGLE", "resilient"
 	case ServerTypeDBServer, ServerTypeDBServerNoResign:
 		return "PRIMARY", ""
 	case ServerTypeAgent:
 		return "AGENT", ""
-	case ServerTypeSyncMaster, ServerTypeSyncWorker:
-		return "", ""
 	default:
 		panic(fmt.Sprintf("Unknown ServerType: %s", string(s)))
 	}
@@ -116,12 +101,8 @@ func (s ServerType) GetName() string {
 		return "dbserver"
 	case ServerTypeCoordinator:
 		return "coordinator"
-	case ServerTypeSingle, ServerTypeResilientSingle:
+	case ServerTypeSingle:
 		return "single server"
-	case ServerTypeSyncMaster:
-		return "sync master"
-	case ServerTypeSyncWorker:
-		return "sync worker"
 	}
 
 	return ""
@@ -134,8 +115,5 @@ func AllServerTypes() []ServerType {
 		ServerTypeDBServerNoResign,
 		ServerTypeAgent,
 		ServerTypeSingle,
-		ServerTypeResilientSingle,
-		ServerTypeSyncMaster,
-		ServerTypeSyncWorker,
 	}
 }

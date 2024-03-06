@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2022 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,21 +31,19 @@ import (
 
 type starterOptions struct {
 	cluster struct {
-		advertisedEndpoint  string
-		agencySize          int
-		startAgent          []bool
-		startDBServer       []bool
-		startCoordinator    []bool
-		startActiveFailover []bool
+		advertisedEndpoint string
+		agencySize         int
+		startAgent         []bool
+		startDBServer      []bool
+		startCoordinator   []bool
 	}
 	server struct {
-		useLocalBin    bool
-		arangodPath    string
-		arangodJSPath  string
-		arangoSyncPath string
-		rrPath         string
-		threads        int
-		storageEngine  string
+		useLocalBin   bool
+		arangodPath   string
+		arangodJSPath string
+		rrPath        string
+		threads       int
+		storageEngine string
 	}
 	log struct {
 		dir               string // Custom log directory (default "")
@@ -69,7 +67,6 @@ type starterOptions struct {
 		allPortOffsetsUnique bool
 		disableIPv6          bool
 		debugCluster         bool
-		enableSync           bool
 		instanceUpTimeout    time.Duration
 	}
 	auth struct {
@@ -90,25 +87,6 @@ type starterOptions struct {
 		service.DockerConfig
 		imagePullPolicyRaw string
 		netHost            bool // Deprecated
-	}
-	sync struct {
-		startSyncMaster []bool
-		startSyncWorker []bool
-		binaryFoundErr  error
-
-		monitoring struct {
-			token string
-		}
-		master struct {
-			jwtSecretFile string // File containing JWT secret used to access the Sync Master (from Sync Worker)
-		}
-		mq struct {
-			Type string // MQ type used to Sync Master
-		}
-		server struct {
-			keyFile      string // TLS keyfile of local sync master
-			clientCAFile string // CA Certificate used for client certificate verification
-		}
 	}
 }
 
@@ -151,33 +129,6 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			},
 			DeprecatedHintFormat: "use --args.agents.%s instead",
 		},
-		"sync": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-			DeprecatedHintFormat: "use --args.sync.%s instead",
-		},
-		"syncmasters": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync master instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-			DeprecatedHintFormat: "use --args.syncmasters.%s instead",
-		},
-		"syncworkers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Passed through to all sync workers instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
-			},
-			DeprecatedHintFormat: "use --args.syncworkers.%s instead",
-		},
 		// New methods for args
 		"args.all": {
 			Usage: func(key string) string {
@@ -211,30 +162,7 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 				return p.ArgByServerTypeAndName(definitions.ServerTypeAgent, key)
 			},
 		},
-		"args.sync": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Deprecated: Passed through to all sync instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-		},
-		"args.syncmasters": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Deprecated: Passed through to all sync master instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-		},
-		"args.syncworkers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Deprecated: Passed through to all sync workers instances as --%s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.ArgByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
-			},
-		},
+
 		// New methods for envs
 		"envs.all": {
 			Usage: func(key string) string {
@@ -266,30 +194,6 @@ func preparePassthroughPrefixes() options.ConfigurationPrefixes {
 			},
 			FieldSelector: func(p *options.Configuration, key string) *[]string {
 				return p.EnvByServerTypeAndName(definitions.ServerTypeAgent, key)
-			},
-		},
-		"envs.sync": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Deprecated: Env passed to all sync instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByProcessTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-		},
-		"envs.syncmasters": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Deprecated: Env passed to all sync master instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByServerTypeAndName(definitions.ServerTypeSyncMaster, key)
-			},
-		},
-		"envs.syncworkers": {
-			Usage: func(key string) string {
-				return fmt.Sprintf("Deprecated: Env passed to all sync master instances as %s", key)
-			},
-			FieldSelector: func(p *options.Configuration, key string) *[]string {
-				return p.EnvByServerTypeAndName(definitions.ServerTypeSyncWorker, key)
 			},
 		},
 	}

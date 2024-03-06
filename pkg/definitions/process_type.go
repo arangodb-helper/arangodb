@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package definitions
 
@@ -28,8 +26,7 @@ import "fmt"
 type ProcessType string
 
 const (
-	ProcessTypeArangod    ProcessType = "arangod"
-	ProcessTypeArangoSync ProcessType = "arangosync"
+	ProcessTypeArangod ProcessType = "arangod"
 )
 
 // String returns a string representation of the given ProcessType.
@@ -43,8 +40,6 @@ func (s ProcessType) CommandFileName() string {
 	switch s {
 	case ProcessTypeArangod:
 		return "arangod_command.txt"
-	case ProcessTypeArangoSync:
-		return "arangosync_command.txt"
 	default:
 		return ""
 	}
@@ -55,8 +50,6 @@ func (s ProcessType) LogFileName(suffix string) string {
 	switch s {
 	case ProcessTypeArangod:
 		return fmt.Sprintf("arangod%s.log", suffix)
-	case ProcessTypeArangoSync:
-		return fmt.Sprintf("arangosync%s.log", suffix)
 	default:
 		return ""
 	}

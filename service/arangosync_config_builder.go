@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -35,19 +33,14 @@ package service
 //
 
 import (
-	"fmt"
 	"io/ioutil"
-	"net"
 	"os"
-	"path"
 	"path/filepath"
-	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
-	"github.com/arangodb-helper/arangodb/service/options"
 )
 
 // createArangoClusterSecretFile creates an arangod.jwtsecret file in the given host directory if it does not yet exists.
@@ -135,97 +128,4 @@ func createArangoClusterSecretFile(log zerolog.Logger, bsCfg BootstrapConfig, my
 		}
 	}
 	return nil, "", nil
-}
-
-// createArangoSyncArgs returns the command line arguments needed to run an arangosync server of given type.
-func createArangoSyncArgs(log zerolog.Logger, config Config, clusterConfig ClusterConfig, myContainerDir, myContainerLogFile string,
-	myPeerID, myAddress, myPort string, serverType definitions.ServerType, clusterJWTSecretFile string, features DatabaseFeatures) ([]string, error) {
-
-	opts := make([]optionPair, 0, 32)
-	executable := config.ArangoSyncPath
-	args := []string{
-		executable,
-	}
-
-	opts = append(opts,
-		optionPair{"--log.file", myContainerLogFile},
-		optionPair{"--server.endpoint", "https://" + net.JoinHostPort(myAddress, myPort)},
-		optionPair{"--server.port", myPort},
-		optionPair{"--monitoring.token", config.SyncMonitoringToken},
-		optionPair{"--master.jwt-secret", config.SyncMasterJWTSecretFile},
-		optionPair{"--pid-file", getLockFilePath(myContainerDir)},
-	)
-	if config.DebugCluster {
-		opts = append(opts,
-			optionPair{"--log.level", "debug"})
-	}
-	switch serverType {
-	case definitions.ServerTypeSyncMaster:
-		args = append(args, "run", "master")
-		opts = append(opts,
-			optionPair{"--server.keyfile", config.SyncMasterKeyFile},
-			optionPair{"--server.client-cafile", config.SyncMasterClientCAFile},
-			optionPair{"--mq.type", config.SyncMQType},
-		)
-		if clusterJWTSecretFile != "" {
-			jwtSecretPath := clusterJWTSecretFile
-			if features.GetJWTFolderOption() {
-				jwtSecretPath = path.Join(clusterJWTSecretFile, definitions.ArangodJWTSecretActive)
-			}
-			opts = append(opts, optionPair{"--cluster.jwt-secret", jwtSecretPath})
-		}
-		if clusterEPs, err := clusterConfig.GetCoordinatorEndpoints(); err == nil {
-			if len(clusterEPs) == 0 {
-				return nil, maskAny(fmt.Errorf("No cluster coordinators found"))
-			}
-			for _, ep := range clusterEPs {
-				opts = append(opts,
-					optionPair{"--cluster.endpoint", ep})
-			}
-		} else {
-			log.Error().Err(err).Msg("Cannot find coordinator endpoints")
-			return nil, maskAny(err)
-		}
-	case definitions.ServerTypeSyncWorker:
-		args = append(args, "run", "worker")
-		if syncMasterEPs, err := clusterConfig.GetSyncMasterEndpoints(); err == nil {
-			if len(syncMasterEPs) == 0 {
-				return nil, maskAny(fmt.Errorf("No sync masters found"))
-			}
-			for _, ep := range syncMasterEPs {
-				opts = append(opts, optionPair{"--master.endpoint", ep})
-			}
-		} else {
-			log.Error().Err(err).Msg("Cannot find sync master endpoints")
-			return nil, maskAny(err)
-		}
-	}
-
-	passArgs := config.Configuration.ArgsForServerType(serverType)
-
-	for _, opt := range opts {
-		if _, ok := passArgs[opt.Key]; ok {
-			log.Warn().Msgf("Pass through option %s conflicts with automatically generated option with value '%s'", opt.Key, opt.Value)
-		} else {
-			args = append(args, opt.Key, opt.Value)
-		}
-	}
-	for key, values := range passArgs {
-		if len(values) == 0 {
-			continue
-		}
-
-		// Append all values
-		for _, value := range values {
-			// arangosync uses this spf13/pflag pkg which allows passing boolean flags only in key=value notation:
-			_, err := strconv.ParseBool(value)
-			if err == nil {
-				args = append(args, fmt.Sprintf("%s=%s", options.FormattedOptionName(key), value))
-			} else {
-				args = append(args, options.FormattedOptionName(key), value)
-			}
-		}
-	}
-
-	return args, nil
 }

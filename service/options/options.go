@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2021-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2021-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,9 +36,6 @@ type Configuration struct {
 	Coordinators ConfigurationType
 	DBServers    ConfigurationType
 	Agents       ConfigurationType
-	AllSync      ConfigurationType
-	SyncMasters  ConfigurationType
-	SyncWorkers  ConfigurationType
 
 	PersistentOptions PersistentOptions
 }
@@ -49,9 +46,6 @@ func NewConfiguration() Configuration {
 		Coordinators: NewConfigurationType(),
 		DBServers:    NewConfigurationType(),
 		Agents:       NewConfigurationType(),
-		AllSync:      NewConfigurationType(),
-		SyncMasters:  NewConfigurationType(),
-		SyncWorkers:  NewConfigurationType(),
 	}
 }
 
@@ -171,14 +165,10 @@ func (p *Configuration) ByServerType(serverType definitions.ServerType) *Configu
 		return &p.All
 	case definitions.ServerTypeCoordinator:
 		return &p.Coordinators
-	case definitions.ServerTypeDBServer, definitions.ServerTypeResilientSingle:
+	case definitions.ServerTypeDBServer:
 		return &p.DBServers
 	case definitions.ServerTypeAgent:
 		return &p.Agents
-	case definitions.ServerTypeSyncMaster:
-		return &p.SyncMasters
-	case definitions.ServerTypeSyncWorker:
-		return &p.SyncWorkers
 	default:
 		return nil
 	}
@@ -188,8 +178,6 @@ func (p *Configuration) ByProcessType(serverType definitions.ServerType) *Config
 	switch serverType.ProcessType() {
 	case definitions.ProcessTypeArangod:
 		return &p.All
-	case definitions.ProcessTypeArangoSync:
-		return &p.AllSync
 	default:
 		return nil
 	}

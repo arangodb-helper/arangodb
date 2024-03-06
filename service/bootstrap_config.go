@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,9 +38,6 @@ type BootstrapConfig struct {
 	StartAgent                    *bool  // If not nil, sets if starter starts a agent, otherwise default handling applies
 	StartDBserver                 *bool  // If not nil, sets if starter starts a dbserver, otherwise default handling applies
 	StartCoordinator              *bool  // If not nil, sets if starter starts a coordinator, otherwise default handling applies
-	StartResilientSingle          *bool  // If not nil, sets if starter starts a resilient single, otherwise default handling applies
-	StartSyncMaster               *bool  // If not nil, sets if the starter starts a sync master, otherwise default handling applies
-	StartSyncWorker               *bool  // If not nil, sets if the starter starts a sync worker, otherwise default handling applies
 	ServerStorageEngine           string // mmfiles | rocksdb
 	JwtSecret                     string // JWT secret used for arangod communication
 	ArangosyncMonitoringToken     string // Bearer token used for arangosync authentication
@@ -95,8 +92,6 @@ func (bsCfg *BootstrapConfig) PeersNeeded() int {
 		minServers = 3
 	case bsCfg.Mode.IsSingleMode():
 		minServers = 1
-	case bsCfg.Mode.IsActiveFailoverMode():
-		minServers = 2
 	}
 	if minServers < bsCfg.AgencySize {
 		minServers = bsCfg.AgencySize

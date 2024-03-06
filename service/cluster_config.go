@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -259,45 +259,16 @@ func (p ClusterConfig) GetCoordinatorEndpoints() ([]string, error) {
 	return endpoints, nil
 }
 
-// GetAllSingleEndpoints creates a list of URL's for all single servers.
-func (p ClusterConfig) GetAllSingleEndpoints() ([]string, error) {
-	result, err := p.GetSingleEndpoints(true)
-	if err != nil {
-		return nil, maskAny(err)
-	}
-	return result, nil
-}
-
-// GetResilientSingleEndpoints creates a list of URL's for all resilient single servers.
-func (p ClusterConfig) GetResilientSingleEndpoints() ([]string, error) {
-	return p.GetSingleEndpoints(false)
-}
-
 // GetSingleEndpoints creates a list of URL's for all single servers.
-func (p ClusterConfig) GetSingleEndpoints(all bool) ([]string, error) {
+func (p ClusterConfig) GetSingleEndpoints() ([]string, error) {
 	// Build endpoint list
 	var endpoints []string
 	for _, p := range p.AllPeers {
-		if all || p.HasResilientSingle() {
-			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeSingle).PortOffset()
-			scheme := NewURLSchemes(p.IsSecure).Browser
-			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-			endpoints = append(endpoints, ep)
-		}
-	}
-	return endpoints, nil
-}
+		port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeSingle).PortOffset()
+		scheme := NewURLSchemes(p.IsSecure).Browser
+		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+		endpoints = append(endpoints, ep)
 
-// GetSyncMasterEndpoints creates a list of URL's for all sync masters.
-func (p ClusterConfig) GetSyncMasterEndpoints() ([]string, error) {
-	// Build endpoint list
-	var endpoints []string
-	for _, p := range p.AllPeers {
-		if p.HasSyncMaster() {
-			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeSyncMaster).PortOffset()
-			ep := fmt.Sprintf("https://%s", net.JoinHostPort(p.Address, strconv.Itoa(port)))
-			endpoints = append(endpoints, ep)
-		}
 	}
 	return endpoints, nil
 }

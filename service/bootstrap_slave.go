@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,15 +17,13 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package service
 
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 
@@ -42,17 +40,14 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			s.log.Fatal().Err(err).Msg("Failed to get HTTP server port")
 		}
 		encoded, err := json.Marshal(HelloRequest{
-			DataDir:         config.DataDir,
-			SlaveID:         s.id,
-			SlaveAddress:    config.OwnAddress,
-			SlavePort:       hostPort,
-			IsSecure:        s.IsSecure(),
-			Agent:           copyBoolRef(bsCfg.StartAgent),
-			DBServer:        copyBoolRef(bsCfg.StartDBserver),
-			Coordinator:     copyBoolRef(bsCfg.StartCoordinator),
-			ResilientSingle: copyBoolRef(bsCfg.StartResilientSingle),
-			SyncMaster:      copyBoolRef(bsCfg.StartSyncMaster),
-			SyncWorker:      copyBoolRef(bsCfg.StartSyncWorker),
+			DataDir:      config.DataDir,
+			SlaveID:      s.id,
+			SlaveAddress: config.OwnAddress,
+			SlavePort:    hostPort,
+			IsSecure:     s.IsSecure(),
+			Agent:        copyBoolRef(bsCfg.StartAgent),
+			DBServer:     copyBoolRef(bsCfg.StartDBserver),
+			Coordinator:  copyBoolRef(bsCfg.StartCoordinator),
 		})
 		if err != nil {
 			s.log.Fatal().Err(err).Msg("Failed to encode Hello request")
@@ -68,7 +63,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			continue
 		}
 
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		r.Body.Close()
 		if err != nil {
 			s.log.Info().Err(err).Msg("Cannot start because HTTP response from master was bad")
@@ -145,7 +140,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 				s.log.Warn().Msgf("Invalid status received from master: %d", r.StatusCode)
 			} else {
 				defer r.Body.Close()
-				body, _ := ioutil.ReadAll(r.Body)
+				body, _ := io.ReadAll(r.Body)
 				var clusterConfig ClusterConfig
 				json.Unmarshal(body, &clusterConfig)
 				s.myPeers = clusterConfig

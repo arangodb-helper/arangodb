@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -60,8 +58,7 @@ type DockerConfig struct {
 	TTY               bool
 	ImagePullPolicy   ImagePullPolicy
 
-	ImageArangoD    string
-	ImageArangoSync string
+	ImageArangoD string
 }
 
 // NewDockerRunner creates a runner that starts processes in a docker container.
@@ -75,7 +72,6 @@ func NewDockerRunner(log zerolog.Logger, d DockerConfig) (Runner, error) {
 		log:             log,
 		client:          client,
 		arangodImage:    d.ImageArangoD,
-		arangoSyncImage: d.ImageArangoSync,
 		imagePullPolicy: d.ImagePullPolicy,
 		user:            d.User,
 		volumesFrom:     d.HostContainerName,
@@ -95,7 +91,6 @@ type dockerRunner struct {
 
 	containerIDs    map[string]time.Time
 	arangodImage    string
-	arangoSyncImage string
 	imagePullPolicy ImagePullPolicy
 	user            string
 	volumesFrom     string
@@ -173,10 +168,8 @@ func (r *dockerRunner) Start(ctx context.Context, processType definitions.Proces
 	switch processType {
 	case definitions.ProcessTypeArangod:
 		image = r.arangodImage
-	case definitions.ProcessTypeArangoSync:
-		image = r.arangoSyncImage
 	default:
-		return nil, maskAny(fmt.Errorf("Unknown process type: %s", processType))
+		return nil, maskAny(fmt.Errorf("unknown process type: %s", processType))
 	}
 
 	// Pull docker image

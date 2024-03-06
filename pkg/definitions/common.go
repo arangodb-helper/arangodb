@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Adam Janikowski
-//
 
 package definitions
 
@@ -27,8 +25,6 @@ const (
 	PortOffsetCoordinator  = 1 // Coordinator/single server
 	PortOffsetDBServer     = 2
 	PortOffsetAgent        = 3
-	PortOffsetSyncMaster   = 4
-	PortOffsetSyncWorker   = 5
 	PortOffsetIncrementOld = 5  // {our http server, agent, coordinator, dbserver, reserved}
 	PortOffsetIncrementNew = 10 // {our http server, agent, coordinator, dbserver, syncmaster, syncworker, reserved...}
 )

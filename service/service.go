@@ -26,7 +26,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"net"
 	"net/http"
@@ -62,7 +61,6 @@ const (
 type Config struct {
 	ArangodPath          string
 	ArangodJSPath        string
-	ArangoSyncPath       string
 	AdvertisedEndpoint   string
 	MasterPort           int
 	RrPath               string
@@ -83,14 +81,6 @@ type Config struct {
 	DockerConfig       DockerConfig
 	DockerStarterImage string
 	RunningInDocker    bool
-
-	SyncEnabled             bool   // If set, arangosync servers are activated
-	SyncMasterKeyFile       string // TLS keyfile of local sync master
-	SyncMasterClientCAFile  string // CA Certificate used for client certificate verification
-	SyncMasterJWTSecretFile string // File containing JWT secret used to access the Sync Master (from Sync Worker)
-	SyncMonitoringToken     string // Bearer token used for arangosync --monitoring.token
-	SyncMQType              string // MQType used by sync master
-	SyncBinaryFoundErr      error  // If set, the sync binary was not found
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -160,7 +150,6 @@ func (c Config) CreateRunner(log zerolog.Logger) (Runner, Config, bool) {
 		// Set executables to their image path's
 		c.ArangodPath = "/usr/sbin/arangod"
 		c.ArangodJSPath = "/usr/share/arangodb3/js"
-		c.ArangoSyncPath = "/usr/sbin/arangosync"
 		// Docker setup uses different volumes with same dataDir, allow that
 		allowSameDataDir := true
 
@@ -553,15 +542,14 @@ type StatusItem struct {
 }
 
 type instanceUpInfo struct {
-	Version  string
-	Role     string
-	Mode     string
-	IsLeader bool
+	Version string
+	Role    string
+	Mode    string
 }
 
 // TestInstance checks the `up` status of an arangod server instance.
 func (s *Service) TestInstance(ctx context.Context, serverType definitions.ServerType, address string, port int,
-	statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, isLeader bool, statusTrail []int, cancelled bool) {
+	statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan instanceUpInfo)
 	statusCodes := make(chan int)
 	if statusChanged != nil {
@@ -570,14 +558,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 	go func() {
 		defer close(instanceUp)
 		defer close(statusCodes)
-		client := &http.Client{
-			Timeout: time.Second * 10,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
+
 		scheme := "http"
 		if s.IsSecure() {
 			scheme = "https"
@@ -585,12 +566,12 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 		makeArangodVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 
-			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
+			clientDb, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
 			if err != nil {
 				return "", -1, maskAny(err)
 			}
 
-			c := client.Connection()
+			c := clientDb.Connection()
 
 			req, err := c.NewRequest("GET", "/_api/version")
 			if err != nil {
@@ -612,56 +593,23 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			}
 			return versionResponse.Version, resp.StatusCode(), nil
 		}
-		makeArangoSyncVersionRequest := func() (string, int, error) {
-			addr := net.JoinHostPort(address, strconv.Itoa(port))
-			url := fmt.Sprintf("https://%s/_api/version", addr)
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				return "", -1, maskAny(err)
-			}
-			if err := addBearerTokenHeader(req, s.cfg.SyncMonitoringToken); err != nil {
-				return "", -2, maskAny(err)
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				return "", -3, maskAny(err)
-			}
-			if resp.StatusCode != 200 {
-				return "", resp.StatusCode, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
-			}
-			versionResponse := struct {
-				Version string `json:"version"`
-				Build   string `json:"build"`
-			}{}
-			defer resp.Body.Close()
-			decoder := json.NewDecoder(resp.Body)
-			if err := decoder.Decode(&versionResponse); err != nil {
-				return "", -4, maskAny(fmt.Errorf("Unexpected version response: %#v", err))
-			}
-			return versionResponse.Version, resp.StatusCode, nil
-		}
 		makeVersionRequest := func() (string, int, error) {
 			switch serverType.ProcessType() {
 			case definitions.ProcessTypeArangod:
 				return makeArangodVersionRequest()
-			case definitions.ProcessTypeArangoSync:
-				return makeArangoSyncVersionRequest()
 			default:
 				return "", 0, maskAny(fmt.Errorf("Unknown process type '%s'", serverType.ProcessType()))
 			}
 		}
 		makeRoleRequest := func() (string, string, int, error) {
-			if serverType.ProcessType() == definitions.ProcessTypeArangoSync {
-				return "", "", 200, nil
-			}
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 
-			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
+			clientDB, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
 			if err != nil {
 				return "", "", -1, maskAny(err)
 			}
 
-			c := client.Connection()
+			c := clientDB.Connection()
 			req, err := c.NewRequest("GET", "/_admin/server/role")
 			if err != nil {
 				return "", "", -1, maskAny(err)
@@ -683,63 +631,17 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			}
 			return roleResponse.Role, roleResponse.Mode, resp.StatusCode(), nil
 		}
-		makeIsLeaderRequest := func() (bool, error) {
-			if serverType != definitions.ServerTypeResilientSingle {
-				return false, nil
-			}
-			addr := net.JoinHostPort(address, strconv.Itoa(port))
-
-			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
-			if err != nil {
-				return false, maskAny(err)
-			}
-
-			c := client.Connection()
-
-			req, err := c.NewRequest("GET", "/_api/database")
-			if err != nil {
-				return false, maskAny(err)
-			}
-
-			resp, err := c.Do(ctx, req)
-			if err != nil {
-				if driver.IsNoLeader(err) {
-					// Server is up, just not the leader
-					return false, nil
-				}
-				return false, maskAny(err)
-			}
-			if resp.StatusCode() == 200 {
-				return true, nil
-			}
-
-			var data driver.ArangoError
-
-			if err := resp.ParseBody("", &data); err != nil {
-				return false, maskAny(err)
-			}
-
-			if IsNoLeaderError(data) {
-				// Server is up, just not the leader
-				return false, nil
-			}
-
-			return false, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode()))
-		}
 
 		checkInstanceOnce := func() bool {
 			if version, statusCode, err := makeVersionRequest(); err == nil {
 				var role, mode string
 				if role, mode, statusCode, err = makeRoleRequest(); err == nil {
-					if isLeader, err := makeIsLeaderRequest(); err == nil {
-						instanceUp <- instanceUpInfo{
-							Version:  version,
-							Role:     role,
-							Mode:     mode,
-							IsLeader: isLeader,
-						}
-						return true
+					instanceUp <- instanceUpInfo{
+						Version: version,
+						Role:    role,
+						Mode:    mode,
 					}
+					return true
 				}
 				statusCodes <- statusCode
 			}
@@ -765,7 +667,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			up = instanceInfo.Version != ""
 			correctRole = instanceInfo.Role == expectedRole || expectedRole == ""
 			correctMode := instanceInfo.Mode == expectedMode || expectedMode == ""
-			return up, correctRole && correctMode, instanceInfo.Version, instanceInfo.Role, instanceInfo.Mode, instanceInfo.IsLeader, statusTrail, false
+			return up, correctRole && correctMode, instanceInfo.Version, instanceInfo.Role, instanceInfo.Mode, statusTrail, false
 		case statusCode := <-statusCodes:
 			lastStatusCode := math.MinInt32
 			if len(statusTrail) > 0 {
@@ -782,7 +684,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 				}
 			}
 		case <-ctx.Done():
-			return false, false, "", "", "", false, statusTrail, true
+			return false, false, "", "", "", statusTrail, true
 		}
 	}
 }
@@ -917,9 +819,6 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 					peer.HasAgentFlag = boolFromRef(req.Agent, peer.HasAgentFlag)
 					peer.HasCoordinatorFlag = utils.NotNilDefault(req.Coordinator, peer.HasCoordinatorFlag)
 					peer.HasDBServerFlag = utils.NotNilDefault(req.DBServer, peer.HasDBServerFlag)
-					peer.HasResilientSingleFlag = boolFromRef(req.ResilientSingle, peer.HasResilientSingleFlag)
-					peer.HasSyncMasterFlag = boolFromRef(req.SyncMaster, peer.HasSyncMasterFlag)
-					peer.HasSyncWorkerFlag = boolFromRef(req.SyncWorker, peer.HasSyncWorkerFlag)
 				}
 			}
 		} else {
@@ -933,12 +832,9 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			s.log.Debug().Msgf("Set slave port offset to %d, got slaveAddr=%s, slavePort=%d", portOffset, slaveAddr, slavePort)
 
 			servers := peerServers{
-				HasAgentFlag:           !s.myPeers.HaveEnoughAgents(),
-				HasDBServerFlag:        nil,
-				HasCoordinatorFlag:     nil,
-				HasResilientSingleFlag: s.mode.IsActiveFailoverMode(),
-				HasSyncMasterFlag:      s.mode.SupportsArangoSync() && s.cfg.SyncEnabled,
-				HasSyncWorkerFlag:      s.mode.SupportsArangoSync() && s.cfg.SyncEnabled,
+				HasAgentFlag:       !s.myPeers.HaveEnoughAgents(),
+				HasDBServerFlag:    nil,
+				HasCoordinatorFlag: nil,
 			}
 			if req.Agent != nil {
 				servers.HasAgentFlag = *req.Agent
@@ -948,15 +844,6 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			}
 			if req.Coordinator != nil && *req.Coordinator != true {
 				servers.HasCoordinatorFlag = req.Coordinator
-			}
-			if req.ResilientSingle != nil {
-				servers.HasResilientSingleFlag = *req.ResilientSingle
-			}
-			if req.SyncMaster != nil {
-				servers.HasSyncMasterFlag = *req.SyncMaster
-			}
-			if req.SyncWorker != nil {
-				servers.HasSyncWorkerFlag = *req.SyncWorker
 			}
 			newPeer := newPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, servers, req.IsSecure)
 			s.myPeers.AddPeer(newPeer)
@@ -1055,7 +942,7 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 func (s *Service) getGlobalToken() (string, error) {
 	p := s.GetLocalFolder()
 
-	token, err := ioutil.ReadFile(path.Join(p, definitions.ArangodJWTSecretActive))
+	token, err := os.ReadFile(path.Join(p, definitions.ArangodJWTSecretActive))
 	if err != nil {
 		return "", err
 	}
@@ -1071,7 +958,7 @@ func (s *Service) getFolderToken(serverTypes ...definitions.ServerType) (string,
 			continue
 		}
 
-		token, err := ioutil.ReadFile(path.Join(p, definitions.ArangodJWTSecretFolderName, definitions.ArangodJWTSecretActive))
+		token, err := os.ReadFile(path.Join(p, definitions.ArangodJWTSecretFolderName, definitions.ArangodJWTSecretActive))
 		if err != nil {
 			currentErr = err
 			continue
@@ -1228,7 +1115,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 	s.sslKeyFile = bsCfg.SslKeyFile
 
 	// Check mode & flags
-	if bsCfg.Mode.IsClusterMode() || bsCfg.Mode.IsActiveFailoverMode() {
+	if bsCfg.Mode.IsClusterMode() {
 		if bsCfg.AgencySize < 1 {
 			return maskAny(fmt.Errorf("AgentSize must be >= 1"))
 		}
@@ -1259,22 +1146,6 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 	ctx := context.Background()
 	if err := s.detectDatabaseFeatures(ctx); err != nil {
 		return errors.Wrap(err, "Failed to detect database features")
-	}
-
-	if !s.DatabaseFeatures().SupportsActiveFailover() {
-		if bsCfg.Mode.IsActiveFailoverMode() || boolFromRef(bsCfg.StartResilientSingle, false) {
-			return fmt.Errorf("this ArangoDB version does not support running in Active-Failover mode (resilient-single is not supported since 3.12)")
-		}
-	}
-
-	if !s.DatabaseFeatures().SupportsArangoSync() {
-		if s.cfg.SyncEnabled {
-			return fmt.Errorf("this ArangoDB version does not support running with ArangoSync (it is not supported since 3.12)")
-		}
-	}
-
-	if s.cfg.SyncBinaryFoundErr != nil {
-		return s.cfg.SyncBinaryFoundErr
 	}
 
 	if s.jwtSecret != "" {

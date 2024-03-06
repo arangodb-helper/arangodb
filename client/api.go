@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package client
@@ -74,7 +72,7 @@ type API interface {
 	// If there is no plan, a NotFoundError will be returned.
 	AbortDatabaseUpgrade(ctx context.Context) error
 
-	// Status returns the status of any upgrade plan
+	// UpgradeStatus returns the status of any upgrade plan
 	UpgradeStatus(context.Context) (UpgradeStatus, error)
 
 	Inventory(ctx context.Context) (api.Inventory, error)
@@ -124,8 +122,6 @@ const (
 	ServerTypeDBServer    = ServerType("dbserver")
 	ServerTypeAgent       = ServerType("agent")
 	ServerTypeSingle      = ServerType("single")
-	ServerTypeSyncMaster  = ServerType("syncmaster")
-	ServerTypeSyncWorker  = ServerType("syncworker")
 )
 
 // ServerProcess holds all information of a single server started by the starter.

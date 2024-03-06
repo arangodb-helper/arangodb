@@ -33,7 +33,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
@@ -63,7 +62,6 @@ const (
 	defaultDockerGCDelay            = time.Minute * 10
 	defaultDockerStarterImage       = "arangodb/arangodb-starter"
 	defaultArangodPath              = "/usr/sbin/arangod"
-	defaultArangoSyncPath           = "/usr/sbin/arangosync"
 	defaultConfigFilePath           = "arangodb-starter.conf"
 	defaultLogRotateFilesToKeep     = 5
 	defaultLogRotateInterval        = time.Minute * 60 * 24
@@ -149,8 +147,6 @@ func init() {
 	f.StringVar(&opts.starter.dataDir, "starter.data-dir", getEnvVar("DATA_DIR", "."), "directory to store all data the starter generates (and holds actual database directories)")
 	f.BoolVar(&opts.starter.debugCluster, "starter.debug-cluster", getEnvVar("DEBUG_CLUSTER", "") != "", "If set, log more information to debug a cluster")
 	f.BoolVar(&opts.starter.disableIPv6, "starter.disable-ipv6", !net.IsIPv6Supported(), "If set, no IPv6 notation will be used. Use this only when IPv6 address family is disabled")
-	f.BoolVar(&opts.starter.enableSync, "starter.sync", false, "If set, the starter will also start arangosync instances")
-	f.MarkDeprecated("starter.sync", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.DurationVar(&opts.starter.instanceUpTimeout, "starter.instance-up-timeout", defaultInstanceUpTimeout, "Timeout to wait for an instance start")
 	if err := features.JWTRotation().RegisterDeprecated(f); err != nil {
 		panic(err)
@@ -164,13 +160,9 @@ func init() {
 	f.BoolSliceVar(&opts.cluster.startAgent, "cluster.start-agent", nil, "should an agent instance be started")
 	f.BoolSliceVar(&opts.cluster.startDBServer, "cluster.start-dbserver", nil, "should a dbserver instance be started")
 	f.BoolSliceVar(&opts.cluster.startCoordinator, "cluster.start-coordinator", nil, "should a coordinator instance be started")
-	f.BoolSliceVar(&opts.cluster.startActiveFailover, "cluster.start-single", nil, "should an active-failover single server instance be started")
-	f.MarkDeprecated("cluster.start-single", "Active-Failover (resilient-single) mode is deprecated and will be removed in coming releases")
 
 	f.BoolVar(&opts.server.useLocalBin, "server.use-local-bin", false, "If true, starter will try searching for binaries in local directory first")
 	f.StringVar(&opts.server.arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
-	f.StringVar(&opts.server.arangoSyncPath, "server.arangosync", defaultArangoSyncPath, "Path of arangosync")
-	f.MarkDeprecated("server.arangosync", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.server.arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
 	f.StringVar(&opts.server.rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&opts.server.threads, "server.threads", 0, "Adjust server.threads of each server")
@@ -181,8 +173,6 @@ func init() {
 
 	f.StringVar(&opts.docker.Endpoint, "docker.endpoint", "unix:///var/run/docker.sock", "Endpoint used to reach the docker daemon")
 	f.StringVar(&opts.docker.ImageArangoD, "docker.image", getEnvVar("DOCKER_IMAGE", ""), "name of the Docker image to use to launch arangod instances (leave empty to avoid using docker)")
-	f.StringVar(&opts.docker.ImageArangoSync, "docker.sync-image", getEnvVar("DOCKER_ARANGOSYNC_IMAGE", ""), "name of the Docker image to use to launch arangosync instances")
-	f.MarkDeprecated("docker.sync-image", "ArangoSync component is deprecated and will be removed in coming releases")
 	f.StringVar(&opts.docker.imagePullPolicyRaw, "docker.imagePullPolicy", "", "pull docker image from docker hub (Always|IfNotPresent|Never)")
 	f.StringVar(&opts.docker.User, "docker.user", "", "use the given name as user to run the Docker container")
 	f.StringVar(&opts.docker.HostContainerName, "docker.container", "", "name of the docker container that is running this process")
@@ -200,21 +190,6 @@ func init() {
 	f.BoolVar(&opts.ssl.autoKeyFile, "ssl.auto-key", false, "If set, a self-signed certificate will be created and used as --ssl.keyfile")
 	f.StringVar(&opts.ssl.autoServerName, "ssl.auto-server-name", "", "Server name put into self-signed certificate. See --ssl.auto-key")
 	f.StringVar(&opts.ssl.autoOrganization, "ssl.auto-organization", "ArangoDB", "Organization name put into self-signed certificate. See --ssl.auto-key")
-
-	f.BoolSliceVar(&opts.sync.startSyncMaster, "sync.start-master", nil, "should an ArangoSync master instance be started (only relevant when starter.sync is enabled)")
-	f.MarkDeprecated("sync.start-master", "ArangoSync component is deprecated and will be removed in coming releases")
-	f.BoolSliceVar(&opts.sync.startSyncWorker, "sync.start-worker", nil, "should an ArangoSync worker instance be started (only relevant when starter.sync is enabled)")
-	f.MarkDeprecated("sync.start-worker", "ArangoSync component is deprecated and will be removed in coming releases")
-	f.StringVar(&opts.sync.monitoring.token, "sync.monitoring.token", "", "Bearer token used to access ArangoSync monitoring endpoints")
-	f.MarkDeprecated("sync.monitoring.token", "ArangoSync component is deprecated and will be removed in coming releases")
-	f.StringVar(&opts.sync.master.jwtSecretFile, "sync.master.jwt-secret", "", "File containing JWT secret used to access the Sync Master (from Sync Worker)")
-	f.MarkDeprecated("sync.master.jwt-secret", "ArangoSync component is deprecated and will be removed in coming releases")
-	f.StringVar(&opts.sync.mq.Type, "sync.mq.type", "direct", "Type of message queue used by the Sync Master")
-	f.MarkDeprecated("sync.mq.type", "ArangoSync component is deprecated and will be removed in coming releases")
-	f.StringVar(&opts.sync.server.keyFile, "sync.server.keyfile", "", "TLS keyfile of local sync master")
-	f.MarkDeprecated("sync.server.keyfile", "ArangoSync component is deprecated and will be removed in coming releases")
-	f.StringVar(&opts.sync.server.clientCAFile, "sync.server.client-cafile", "", "CA Certificate used for client certificate verification")
-	f.MarkDeprecated("sync.server.client-cafile", "ArangoSync component is deprecated and will be removed in coming releases")
 
 	cmdMain.Flags().SetNormalizeFunc(normalizeOptionNames)
 
@@ -360,7 +335,6 @@ func main() {
 	var isBuild bool
 	opts.server.arangodPath, isBuild = arangodb.FindExecutable(log, "arangod", defaultArangodPath, opts.server.useLocalBin)
 	opts.server.arangodJSPath = findJSDir(opts.server.arangodPath, isBuild)
-	opts.server.arangoSyncPath, _ = arangodb.FindExecutable(log, "arangosync", defaultArangoSyncPath, opts.server.useLocalBin)
 
 	if err := cmdMain.Execute(); err != nil {
 		os.Exit(1)
@@ -517,7 +491,6 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	// Expand home-dis (~) in paths
 	opts.server.arangodPath = mustExpand(opts.server.arangodPath)
 	opts.server.arangodJSPath = mustExpand(opts.server.arangodJSPath)
-	opts.server.arangoSyncPath = mustExpand(opts.server.arangoSyncPath)
 	opts.server.rrPath = mustExpand(opts.server.rrPath)
 	opts.starter.dataDir = mustExpand(opts.starter.dataDir)
 	opts.auth.jwtSecretFile = mustExpand(opts.auth.jwtSecretFile)
@@ -585,53 +558,6 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 
 	serviceMode := service.ServiceMode(opts.starter.mode)
-	if serviceMode.IsActiveFailoverMode() || optionalBool(opts.cluster.startActiveFailover, false) {
-		log.Warn().Msgf("Active-Failover (resilient-single) mode is deprecated and will be removed in coming releases")
-	}
-
-	// Check sync settings
-	if opts.starter.enableSync {
-		// Check mode
-		if !serviceMode.SupportsArangoSync() {
-			showArangoSyncNotAllowedWithModeHelp(opts.starter.mode)
-		}
-		if !runningInDocker {
-			// Check arangosync executable
-			if _, err := os.Stat(opts.server.arangoSyncPath); os.IsNotExist(err) {
-				opts.sync.binaryFoundErr = fmt.Errorf("cannot find `arangosync` (expected at `%s`)", opts.server.arangoSyncPath)
-			}
-			log.Debug().Msgf("Using %s as default arangosync executable.", opts.server.arangoSyncPath)
-		} else {
-			// Check arangosync docker image
-			if opts.docker.ImageArangoSync == "" {
-				// Default to arangod docker image
-				opts.docker.ImageArangoSync = opts.docker.ImageArangoD
-			}
-		}
-		if startMaster := optionalBool(opts.sync.startSyncMaster, true); startMaster {
-			if opts.sync.server.keyFile == "" {
-				showSyncMasterServerKeyfileMissingHelp()
-			}
-			if opts.sync.server.clientCAFile == "" {
-				showSyncMasterClientCAFileMissingHelp()
-			}
-		}
-		if opts.sync.master.jwtSecretFile == "" {
-			if opts.auth.jwtSecretFile != "" {
-				// Use cluster JWT secret
-				opts.sync.master.jwtSecretFile = opts.auth.jwtSecretFile
-			} else {
-				showSyncMasterJWTSecretMissingHelp()
-			}
-		}
-		if opts.sync.monitoring.token == "" {
-			opts.sync.monitoring.token = uniuri.New()
-		}
-		log.Warn().Msgf("ArangoSync component is deprecated and will be removed in coming releases")
-	} else {
-		opts.sync.startSyncMaster = []bool{false}
-		opts.sync.startSyncWorker = []bool{false}
-	}
 
 	// Create service
 	bsCfg := service.BootstrapConfig{
@@ -643,9 +569,6 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		StartAgent:                    mustGetOptionalBoolRef("cluster.start-agent", opts.cluster.startAgent),
 		StartDBserver:                 mustGetOptionalBoolRef("cluster.start-dbserver", opts.cluster.startDBServer),
 		StartCoordinator:              mustGetOptionalBoolRef("cluster.start-coordinator", opts.cluster.startCoordinator),
-		StartResilientSingle:          mustGetOptionalBoolRef("cluster.start-single", opts.cluster.startActiveFailover),
-		StartSyncMaster:               mustGetOptionalBoolRef("sync.start-master", opts.sync.startSyncMaster),
-		StartSyncWorker:               mustGetOptionalBoolRef("sync.start-worker", opts.sync.startSyncWorker),
 		ServerStorageEngine:           opts.server.storageEngine,
 		JwtSecret:                     jwtSecret,
 		SslKeyFile:                    opts.ssl.keyFile,
@@ -656,40 +579,32 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 	}
 	bsCfg.Initialize()
 	serviceConfig := service.Config{
-		ArangodPath:             opts.server.arangodPath,
-		ArangoSyncPath:          opts.server.arangoSyncPath,
-		ArangodJSPath:           opts.server.arangodJSPath,
-		AdvertisedEndpoint:      opts.cluster.advertisedEndpoint,
-		MasterPort:              opts.starter.masterPort,
-		RrPath:                  opts.server.rrPath,
-		DataDir:                 opts.starter.dataDir,
-		LogDir:                  opts.log.dir,
-		OwnAddress:              opts.starter.ownAddress,
-		BindAddress:             opts.starter.bindAddress,
-		MasterAddresses:         opts.starter.masterAddresses,
-		Verbose:                 opts.log.verbose,
-		ServerThreads:           opts.server.threads,
-		AllPortOffsetsUnique:    opts.starter.allPortOffsetsUnique,
-		LogRotateFilesToKeep:    opts.log.rotateFilesToKeep,
-		LogRotateInterval:       opts.log.rotateInterval,
-		InstanceUpTimeout:       opts.starter.instanceUpTimeout,
-		RunningInDocker:         docker.IsRunningInDocker(),
-		DockerConfig:            opts.docker.DockerConfig,
-		DockerStarterImage:      dockerStarterImage,
-		ProjectBuild:            projectBuild,
-		DebugCluster:            opts.starter.debugCluster,
-		SyncEnabled:             opts.starter.enableSync,
-		SyncMonitoringToken:     opts.sync.monitoring.token,
-		SyncMasterKeyFile:       opts.sync.server.keyFile,
-		SyncMasterClientCAFile:  opts.sync.server.clientCAFile,
-		SyncMasterJWTSecretFile: opts.sync.master.jwtSecretFile,
-		SyncMQType:              opts.sync.mq.Type,
-		SyncBinaryFoundErr:      opts.sync.binaryFoundErr,
-		Configuration:           passthroughOpts,
+		ArangodPath:          opts.server.arangodPath,
+		ArangodJSPath:        opts.server.arangodJSPath,
+		AdvertisedEndpoint:   opts.cluster.advertisedEndpoint,
+		MasterPort:           opts.starter.masterPort,
+		RrPath:               opts.server.rrPath,
+		DataDir:              opts.starter.dataDir,
+		LogDir:               opts.log.dir,
+		OwnAddress:           opts.starter.ownAddress,
+		BindAddress:          opts.starter.bindAddress,
+		MasterAddresses:      opts.starter.masterAddresses,
+		Verbose:              opts.log.verbose,
+		ServerThreads:        opts.server.threads,
+		AllPortOffsetsUnique: opts.starter.allPortOffsetsUnique,
+		LogRotateFilesToKeep: opts.log.rotateFilesToKeep,
+		LogRotateInterval:    opts.log.rotateInterval,
+		InstanceUpTimeout:    opts.starter.instanceUpTimeout,
+		RunningInDocker:      docker.IsRunningInDocker(),
+		DockerConfig:         opts.docker.DockerConfig,
+		DockerStarterImage:   dockerStarterImage,
+		ProjectBuild:         projectBuild,
+		DebugCluster:         opts.starter.debugCluster,
+		Configuration:        passthroughOpts,
 	}
-	service := service.NewService(context.Background(), log, logService, serviceConfig, bsCfg, false)
+	svc := service.NewService(context.Background(), log, logService, serviceConfig, bsCfg, false)
 
-	return service, bsCfg
+	return svc, bsCfg
 }
 
 // getEnvVar returns the value of the environment variable with given key of the given default
