@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Remove deprecated ArangoSync component and ActiveFailover mode
+- Bump Go version (1.21.8) and dependencies for CVE fixes
 
 ## [v0.18.3](https://github.com/arangodb-helper/arangodb/tree/0.18.3) (2024-03-05)
 - Mark ArangoSync component as deprecated
