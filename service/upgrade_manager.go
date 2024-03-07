@@ -296,7 +296,10 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	if mode.SupportsArangoSync() {
 		for _, p := range config.AllPeers {
 			if p.HasSyncMaster() || p.HasSyncWorker() {
-				return fmt.Errorf("upgrade version (%s) does not support ArangoSync component (member: %s, %s)", toVersion, p.ID, p.Address)
+				dbFeatures := NewDatabaseFeatures(toVersion, false)
+				if !dbFeatures.SupportsArangoSync() {
+					return fmt.Errorf("upgrade version (%s) does not support ArangoSync component (member: %s, %s)", toVersion, p.ID, p.Address)
+				}
 			}
 		}
 	}
