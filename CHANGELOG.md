@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix upgrade with ArangoSync component enabled
 
 ## [v0.18.3](https://github.com/arangodb-helper/arangodb/tree/0.18.3) (2024-03-05)
 - Mark ArangoSync component as deprecated
