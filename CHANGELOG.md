@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [v0.19.0](https://github.com/arangodb-helper/arangodb/tree/0.19.0) (2024-03-11)
 - Remove deprecated ArangoSync component and ActiveFailover mode
 - Bump Go version (1.21.8) and dependencies for CVE fixes
 
