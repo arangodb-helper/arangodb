@@ -262,7 +262,7 @@ tools:
 	@echo ">> Fetching github release"
 	@GOBIN=$(GOPATH)/bin go install github.com/aktau/github-release@v0.8.1
 	@echo ">> Fetching govulncheck"
-	@GOBIN=$(GOPATH)/bin go install golang.org/x/vuln/cmd/govulncheck@v0.1.0
+	@GOBIN=$(GOPATH)/bin go install golang.org/x/vuln/cmd/govulncheck@v1.0.4
 	@echo ">> Fetching goversioninfo"
 	@GOBIN=$(GOPATH)/bin go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.4.0
 
