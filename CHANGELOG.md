@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Bump Go version (1.22.2) and dependencies for CVE fixes
 
 ## [v0.18.4](https://github.com/arangodb-helper/arangodb/tree/0.18.4) (2024-03-11)
 - Fix upgrade with ArangoSync component enabled
