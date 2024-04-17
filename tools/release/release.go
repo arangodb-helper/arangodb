@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -52,11 +51,8 @@ var (
 	dryRun      bool   // If set, do not really push a release or any git changes
 
 	binaries = map[string]string{
-		"arangodb-darwin-amd64":      "darwin/amd64/arangodb",
-		"arangodb-darwin-arm64":      "darwin/arm64/arangodb",
-		"arangodb-linux-amd64":       "linux/amd64/arangodb",
-		"arangodb-linux-arm64":       "linux/arm64/arangodb",
-		"arangodb-windows-amd64.exe": "windows/amd64/arangodb.exe",
+		"arangodb-linux-amd64": "linux/amd64/arangodb",
+		"arangodb-linux-arm64": "linux/arm64/arangodb",
 	}
 )
 
@@ -91,7 +87,7 @@ func ensureGithubToken() {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
 		p := filepath.Join(os.Getenv("HOME"), ".arangodb/github-token")
-		if raw, err := ioutil.ReadFile(p); err != nil {
+		if raw, err := os.ReadFile(p); err != nil {
 			log.Fatalf("Failed to release '%s': %v", p, err)
 		} else {
 			token = strings.TrimSpace(string(raw))
@@ -242,9 +238,9 @@ func gitTag(tags ...string) {
 }
 
 func createSHA256Sums() {
-	sums := []string{}
+	var sums []string
 	for name, p := range binaries {
-		blob, err := ioutil.ReadFile(filepath.Join(binFolder, p))
+		blob, err := os.ReadFile(filepath.Join(binFolder, p))
 		if err != nil {
 			log.Fatalf("Failed to read binary '%s': %#v\n", name, err)
 		}
@@ -253,7 +249,7 @@ func createSHA256Sums() {
 		sums = append(sums, sha+"  "+name)
 	}
 	sumsPath := filepath.Join(binFolder, "SHA256SUMS")
-	if err := ioutil.WriteFile(sumsPath, []byte(strings.Join(sums, "\n")+"\n"), 0644); err != nil {
+	if err := os.WriteFile(sumsPath, []byte(strings.Join(sums, "\n")+"\n"), 0644); err != nil {
 		log.Fatalf("Failed to write '%s': %#v\n", sumsPath, err)
 	}
 }
