@@ -26,7 +26,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -184,7 +183,7 @@ func SpawnWithExpand(t *testing.T, command string, expand bool) *SubProcess {
 
 // SetUniqueDataDir creates a temp dir and sets the DATA_DIR environment variable to it.
 func SetUniqueDataDir(t *testing.T) string {
-	dataDir, err := ioutil.TempDir("", "")
+	dataDir, err := os.MkdirTemp("", "")
 	require.NoError(t, err)
 	os.Setenv("DATA_DIR", dataDir)
 	return dataDir
@@ -367,6 +366,8 @@ func WaitForHttpPortClosed(log Logger, throttle Throttle, url string) TimeoutFun
 func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 	g := sync.WaitGroup{}
 	result := true
+
+	t.Logf("Stopping %d starters", len(starters))
 	for _, starter := range starters {
 		starter := starter // Used in nested function
 		g.Add(1)

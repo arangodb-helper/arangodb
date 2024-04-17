@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ import (
 
 // peerServers
 type peerServers struct {
-	HasAgentFlag           bool  `json:"HasAgent"`                     // If set, this peer is running an agent
+	HasAgentFlag           *bool `json:"HasAgent,omitempty"`           // If set, this peer is running an agent
 	HasDBServerFlag        *bool `json:"HasDBServer,omitempty"`        // If set or is nil, this peer is running a dbserver
 	HasCoordinatorFlag     *bool `json:"HasCoordinator,omitempty"`     // If set or is nil, this peer is running a coordinator
 	HasResilientSingleFlag bool  `json:"HasResilientSingle,omitempty"` // If set, this peer is running a resilient single server
@@ -61,8 +61,12 @@ func preparePeerServers(mode ServiceMode, bsCfg BootstrapConfig, config Config) 
 	if !boolFromRef(bsCfg.StartCoordinator, true) {
 		hasCoordinator = boolRef(false)
 	}
+	var hasAgent *bool
+	if !boolFromRef(bsCfg.StartAgent, !mode.IsSingleMode()) {
+		hasAgent = boolRef(false)
+	}
 	return peerServers{
-		HasAgentFlag:           boolFromRef(bsCfg.StartAgent, !mode.IsSingleMode()),
+		HasAgentFlag:           hasAgent,
 		HasDBServerFlag:        hasDBServer,
 		HasCoordinatorFlag:     hasCoordinator,
 		HasResilientSingleFlag: boolFromRef(bsCfg.StartResilientSingle, mode.IsActiveFailoverMode()),
@@ -85,7 +89,7 @@ func newPeer(id, address string, port, portOffset int, dataDir string, servers p
 }
 
 // HasAgent returns true if this peer is running an agent
-func (p Peer) HasAgent() bool { return p.HasAgentFlag }
+func (p Peer) HasAgent() bool { return p.HasAgentFlag == nil || *p.HasAgentFlag }
 
 // HasDBServer returns true if this peer is running a dbserver
 func (p Peer) HasDBServer() bool { return p.HasDBServerFlag == nil || *p.HasDBServerFlag }

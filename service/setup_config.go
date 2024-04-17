@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -80,11 +80,15 @@ func (s *Service) saveSetup() error {
 func ReadSetupConfig(log zerolog.Logger, dataDir string) (SetupConfigFile, bool, error) {
 	// Is this a new start or a restart?
 	confFile := filepath.Join(dataDir, setupFileName)
-	setupContent, err := ioutil.ReadFile(confFile)
+	setupContent, err := os.ReadFile(confFile)
 	if err != nil {
 		log.Info().Err(err).Msgf("Failed to read configuration file \"%s\"", confFile)
 		return SetupConfigFile{}, false, nil
 	}
+	return VerifySetupConfig(log, setupContent)
+}
+
+func VerifySetupConfig(log zerolog.Logger, setupContent []byte) (SetupConfigFile, bool, error) {
 	// Could read file
 	var cfg SetupConfigFile
 	if err := json.Unmarshal(setupContent, &cfg); err != nil {
