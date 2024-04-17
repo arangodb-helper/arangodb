@@ -46,10 +46,6 @@ GOIMAGE ?= golang:$(GOVERSION)-alpine3.18
 GOOS ?= linux
 GOARCH ?= amd64
 
-ifeq ("$(GOOS)", "windows")
-	GOEXE := .exe
-endif
-
 DOCKERCLI ?= $(shell which docker)
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
 DOCKER_BUILD_CLI := $(DOCKERCLI) build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS)
@@ -145,43 +141,21 @@ build: vendor $(BIN)
 build-test: vendor $(TESTBIN)
 	@echo ">> Build Tests Bin $(TESTBIN) done"
 
-binary-linux:
+binaries:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build-test
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build-test
 
-binary-darwin:
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 build-test
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 build-test
-
-binary-windows:
-	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build
-	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 build-test
-
-binaries: binary-linux binary-darwin binary-windows
-
 releases:
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 release
 	@${MAKE} -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 release
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=amd64 release
-	@${MAKE} -f $(MAKEFILE) -B GOOS=darwin GOARCH=arm64 release
-	@${MAKE} -f $(MAKEFILE) -B GOOS=windows GOARCH=amd64 release
 	@(cd "$(RELEASEDIR)"; sha256sum arangodb-* > SHA256SUMS; cat SHA256SUMS | sha256sum -c)
 
 $(BIN): $(GOBUILDDIR) $(GO_SOURCES)
 	@mkdir -p $(BINDIR)
 	@-rm -f resource.syso
-ifeq ($(GOOS),windows)
-	@echo ">> Generating versioninfo syso file ..."
-	@$(GOPATH)/bin/goversioninfo -64 -file-version=$(VERSION) -product-version=$(VERSION)
-	$(DOCKER_CMD) go build -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
-	@-rm -f resource.syso
-else
 	$(DOCKER_CMD) go build -installsuffix netgo -tags netgo -ldflags "-X main.projectVersion=$(VERSION) -X main.projectBuild=$(COMMIT)" -o "$(BUILD_BIN)" .
-endif
 
 $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 	@mkdir -p $(BINDIR)
@@ -228,7 +202,7 @@ run-unit-tests: $(GO_SOURCES)
 # Run all integration tests
 run-tests: run-tests-local-process run-tests-docker
 
-run-tests-local-process: binary-linux run-tests-local-process-run
+run-tests-local-process: binaries run-tests-local-process-run
 run-tests-local-process-run: export TEST_MODES=localprocess
 run-tests-local-process-run: export DOCKER_IMAGE=$(ARANGODB)
 run-tests-local-process-run: export DOCKER_PARAMS:=-e "TEST_MODES=$(TEST_MODES)" -e "STARTER_MODES=$(STARTER_MODES)" -e "STARTER=/usr/code/bin/linux/$(GOARCH)/arangodb"

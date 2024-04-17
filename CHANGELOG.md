@@ -3,6 +3,7 @@
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Bump Go version (1.22.2) and dependencies for CVE fixes
 - Fix issue with restart if member is using 'cluster.start-agent=false' feature
+- Remove MacOS and Windows support
 
 ## [v0.19.0](https://github.com/arangodb-helper/arangodb/tree/0.19.0) (2024-03-11)
 - Remove deprecated ArangoSync component and ActiveFailover mode
