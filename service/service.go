@@ -816,7 +816,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 					peer.Port = req.SlavePort
 					peer.DataDir = req.DataDir
 
-					peer.HasAgentFlag = boolFromRef(req.Agent, peer.HasAgentFlag)
+					peer.HasAgentFlag = utils.NotNilDefault(req.Agent, peer.HasAgentFlag)
 					peer.HasCoordinatorFlag = utils.NotNilDefault(req.Coordinator, peer.HasCoordinatorFlag)
 					peer.HasDBServerFlag = utils.NotNilDefault(req.DBServer, peer.HasDBServerFlag)
 				}
@@ -831,13 +831,14 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, slavePort, s.cfg.AllPortOffsetsUnique)
 			s.log.Debug().Msgf("Set slave port offset to %d, got slaveAddr=%s, slavePort=%d", portOffset, slaveAddr, slavePort)
 
+			hasAgentFlag := !s.myPeers.HaveEnoughAgents()
 			servers := peerServers{
-				HasAgentFlag:       !s.myPeers.HaveEnoughAgents(),
+				HasAgentFlag:       &hasAgentFlag,
 				HasDBServerFlag:    nil,
 				HasCoordinatorFlag: nil,
 			}
 			if req.Agent != nil {
-				servers.HasAgentFlag = *req.Agent
+				servers.HasAgentFlag = req.Agent
 			}
 			if req.DBServer != nil && *req.DBServer != true {
 				servers.HasDBServerFlag = req.DBServer
@@ -1220,7 +1221,10 @@ func (s *Service) adjustClusterConfigForRelaunch(bsCfg BootstrapConfig) {
 	}
 
 	s.myPeers.ForEachPeer(func(p Peer) Peer {
-		p.peerServers = preparePeerServers(s.mode, bsCfg, s.cfg)
+		if bsCfg.ID == p.ID {
+			s.log.Debug().Msgf("Adjusting current memeber cluster config after restart (port: %d)", p.Port)
+			p.peerServers = preparePeerServers(s.mode, bsCfg, s.cfg)
+		}
 		return p
 	})
 }
