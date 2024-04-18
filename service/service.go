@@ -1220,7 +1220,10 @@ func (s *Service) adjustClusterConfigForRelaunch(bsCfg BootstrapConfig) {
 	}
 
 	s.myPeers.ForEachPeer(func(p Peer) Peer {
-		p.peerServers = preparePeerServers(s.mode, bsCfg, s.cfg)
+		if bsCfg.ID == p.ID {
+			s.log.Debug().Msgf("Adjusting current memeber cluster config after restart (port: %d)", p.Port)
+			p.peerServers = preparePeerServers(s.mode, bsCfg, s.cfg)
+		}
 		return p
 	})
 }
