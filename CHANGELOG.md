@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [v0.19.1](https://github.com/arangodb-helper/arangodb/tree/0.19.1) (2024-04-20)
 - Bump Go version (1.22.2) and dependencies for CVE fixes
 - Fix issue with restart if member is using 'cluster.start-agent=false' feature
 - Remove MacOS and Windows support
