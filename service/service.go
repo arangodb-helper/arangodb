@@ -124,7 +124,7 @@ func (c Config) GetNetworkEnvironment(log zerolog.Logger) (Config, int, bool) {
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to detect port mapping")
 		}
-		if c.DockerConfig.NetworkMode == "" && networkMode != "" && networkMode != "default" {
+		if c.DockerConfig.NetworkMode == "" && networkMode != "" && networkMode != "default" && networkMode != "bridge" {
 			log.Info().Msgf("Auto detected network mode: %s", networkMode)
 			c.DockerConfig.NetworkMode = networkMode
 		}
