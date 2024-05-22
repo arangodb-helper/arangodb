@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Fix for Docker default Network Mode
+- Bump Go version (1.22.3) and dependencies for CVE fixes
 
 ## [v0.18.5](https://github.com/arangodb-helper/arangodb/tree/0.18.5) (2024-04-20)
 - Bump Go version (1.22.2) and dependencies for CVE fixes
