@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -282,7 +280,7 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 			opts.HostConfig.Binds = append(opts.HostConfig.Binds, bind)
 		}
 	}
-	if r.networkMode != "" && r.networkMode != "default" {
+	if r.networkMode != "" && r.networkMode != "default" && r.networkMode != "bridge" {
 		opts.HostConfig.NetworkMode = r.networkMode
 	} else {
 		for _, p := range ports {
@@ -405,7 +403,7 @@ func (r *dockerRunner) CreateStartArangodbCommand(myDataDir string, index int, m
 		hostPort = masterPortI + (portOffsetIncrement * (index - 1))
 	}
 	var netArgs string
-	if r.networkMode == "" || r.networkMode == "default" {
+	if r.networkMode == "" || r.networkMode == "default" && r.networkMode != "bridge" {
 		netArgs = fmt.Sprintf("-p %d:%d", hostPort, DefaultMasterPort)
 	} else {
 		netArgs = fmt.Sprintf("--net=%s", r.networkMode)
