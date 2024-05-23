@@ -275,7 +275,7 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 			opts.HostConfig.Binds = append(opts.HostConfig.Binds, bind)
 		}
 	}
-	if r.networkMode != "" && r.networkMode != "default" {
+	if r.networkMode != "" && r.networkMode != "default" && r.networkMode != "bridge" {
 		opts.HostConfig.NetworkMode = r.networkMode
 	} else {
 		for _, p := range ports {
@@ -398,7 +398,7 @@ func (r *dockerRunner) CreateStartArangodbCommand(myDataDir string, index int, m
 		hostPort = masterPortI + (portOffsetIncrement * (index - 1))
 	}
 	var netArgs string
-	if r.networkMode == "" || r.networkMode == "default" {
+	if r.networkMode == "" || r.networkMode == "default" && r.networkMode != "bridge" {
 		netArgs = fmt.Sprintf("-p %d:%d", hostPort, DefaultMasterPort)
 	} else {
 		netArgs = fmt.Sprintf("--net=%s", r.networkMode)
