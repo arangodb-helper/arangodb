@@ -5,7 +5,7 @@ The _ArangoDB Starter_ is a tool that can help you deploy ArangoDB in an easy wa
 
 The binary is called `arangodb`, not to be confused with the server binary `arangod`.
 
-Also see:
+See also:
 
 - [Tutorial](../../Tutorials/Starter/README.md):
   Introduction to the _ArangoDB Starter_
