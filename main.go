@@ -189,7 +189,7 @@ func init() {
 	f.DurationVar(&opts.docker.GCDelay, "docker.gc-delay", defaultDockerGCDelay, "Delay before stopped containers are garbage collected")
 	f.BoolVar(&opts.docker.netHost, "docker.net-host", false, "Run containers with --net=host")
 	f.Lookup("docker.net-host").Deprecated = "use --docker.net-mode=host instead"
-	f.StringVar(&opts.docker.NetworkMode, "docker.net-mode", "bridge", "Run containers with --net=<value>")
+	f.StringVar(&opts.docker.NetworkMode, "docker.net-mode", "", "Run containers with --net=<value>")
 	f.BoolVar(&opts.docker.Privileged, "docker.privileged", false, "Run containers with --privileged")
 	f.BoolVar(&opts.docker.TTY, "docker.tty", true, "Run containers with TTY enabled")
 
