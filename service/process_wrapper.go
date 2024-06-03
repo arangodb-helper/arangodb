@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,20 +17,21 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Adam Janikowski
-// Author Tomasz Mielech
-//
 
 package service
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/pkg/utils"
 )
 
 func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
@@ -62,7 +63,10 @@ func NewProcessWrapper(s *runtimeServerManager, ctx context.Context, log zerolog
 }
 
 type ProcessWrapper interface {
+	// Wait blocks until process terminates
+	// Returns true if process was already terminated or it has terminated in time
 	Wait(timeout time.Duration) bool
+
 	Process() Process
 }
 
@@ -105,8 +109,10 @@ func (p *processWrapper) stop() {
 
 	select {
 	case <-p.stopping:
+		p.log.Debug().Msg("stopping channel already closed")
 		break
 	default:
+		p.log.Debug().Msg("closing stopping channel")
 		close(p.stopping)
 	}
 }
@@ -119,6 +125,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 	}()
 	restart := 0
 	recentFailures := 0
+	exitCode := -1
 
 	close(startedCh)
 
@@ -128,7 +135,9 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		myHostAddress := p.myPeer.Address
 		startTime := time.Now()
 		features := p.runtimeContext.DatabaseFeatures()
-		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart)
+		output := utils.NewLimitedBuffer(80 * 100)
+
+		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output, exitCode)
 		if err != nil {
 			logProcess.Error().Err(err).Msgf("Error while starting %s", p.serverType)
 			if !portInUse {
@@ -163,18 +172,18 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 						}
 						if statusItem.Duration > showLogDuration {
 							showLogDuration = statusItem.Duration + time.Second*30
+
+							p.showProcessOutput(logProcess, output, p.serverType)
 							p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 						}
 					}
 				}()
-				if up, correctRole, version, role, mode, isLeader, statusTrail, cancelled := p.runtimeContext.TestInstance(ctx, p.serverType, myHostAddress, port, statusChanged); !cancelled {
+				if up, correctRole, version, role, mode, statusTrail, cancelled := p.runtimeContext.TestInstance(ctx, p.serverType, myHostAddress, port, statusChanged); !cancelled {
 					if up && correctRole {
 						msgPostfix := ""
-						if p.serverType == definitions.ServerTypeResilientSingle && !isLeader {
-							msgPostfix = " as follower"
-						}
+
 						logProcess.Info().Msgf("%s up and running%s (version %s).", p.serverType, msgPostfix, version)
-						if (p.serverType == definitions.ServerTypeCoordinator && !p.runtimeContext.IsLocalSlave()) || p.serverType == definitions.ServerTypeSingle || p.serverType == definitions.ServerTypeResilientSingle {
+						if (p.serverType == definitions.ServerTypeCoordinator && !p.runtimeContext.IsLocalSlave()) || p.serverType == definitions.ServerTypeSingle {
 							hostPort, err := proc.HostPort(port)
 							if err != nil {
 								if id := proc.ContainerID(); id != "" {
@@ -186,33 +195,18 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 								what := ServiceModeCluster
 								if p.serverType == definitions.ServerTypeSingle {
 									what = "single server"
-								} else if p.serverType == definitions.ServerTypeResilientSingle {
-									what = "resilient single server"
 								}
-								if p.serverType != definitions.ServerTypeResilientSingle || isLeader {
-									p.s.logMutex.Lock()
-									logProcess.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
-									logProcess.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
-									p.s.logMutex.Unlock()
-								}
+
+								p.s.logMutex.Lock()
+								logProcess.Info().Msgf("Your %s can now be accessed with a browser at `%s://%s:%d` or", what, urlSchemes.Browser, ip, hostPort)
+								logProcess.Info().Msgf("using `arangosh --server.endpoint %s://%s:%d`.", urlSchemes.ArangoSH, ip, hostPort)
+								p.s.logMutex.Unlock()
+
 								p.runtimeContext.removeRecoveryFile()
 							}
 						}
-						if p.serverType == definitions.ServerTypeSyncMaster && !p.runtimeContext.IsLocalSlave() {
-							hostPort, err := proc.HostPort(port)
-							if err != nil {
-								if id := proc.ContainerID(); id != "" {
-									logProcess.Info().Msgf("%s can only be accessed from inside a container.", p.serverType)
-								}
-							} else {
-								ip := p.myPeer.Address
-								p.s.logMutex.Lock()
-								logProcess.Info().Msgf("Your syncmaster is now available at `https://%s:%d`", ip, hostPort)
-								p.s.logMutex.Unlock()
-							}
-						}
 					} else if !up {
-						logProcess.Warn().Msgf("%s not ready after 5min!: Status trail: %#v", p.serverType, statusTrail)
+						logProcess.Warn().Msgf("%s not ready after %s! Status trail: %#v", p.config.InstanceUpTimeout, p.serverType, statusTrail)
 					} else if !correctRole {
 						expectedRole, expectedMode := p.serverType.ExpectedServerRole()
 						logProcess.Warn().Msgf("%s does not have the expected role of '%s,%s' (but '%s,%s'): Status trail: %#v", p.serverType, expectedRole, expectedMode, role, mode, statusTrail)
@@ -223,17 +217,19 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			procC := proc.WaitCh()
 
 			select {
-			case <-procC:
-				logProcess.Info().Msgf("Terminated %s", p.serverType)
+			case exitCode = <-procC:
+				logProcess.Info().Msgf("Terminated %s. Exit code: %d (%s)", p.serverType, exitCode, definitions.GetExitCodeReason(exitCode))
 				break
 			case <-p.stopping:
+				var initialTimeout time.Duration
 				if p.s.stopping {
-					// Starter is being closed
-					terminateProcessWithActions(logProcess, p.proc, p.serverType, time.Second, time.Minute)
-				} else {
-					// Process restart
-					terminateProcessWithActions(logProcess, p.proc, p.serverType, 0, time.Minute)
+					// Starter is being closed, so we add timeout
+					initialTimeout = time.Second
 				}
+				exitCode = terminateProcessWithActions(logProcess, p.proc, p.serverType, initialTimeout, time.Minute)
+
+				// ensure we read from procC channel
+				<-procC
 				break
 			}
 			cancel()
@@ -255,13 +251,15 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			if isRecentFailure && !p.s.stopping {
 				if !portInUse {
 					logProcess.Info().Msgf("%s has terminated quickly, in %s (recent failures: %d)", p.serverType, uptime, recentFailures)
-					if recentFailures >= definitions.MinRecentFailuresForLog {
-						// Show logs of the server
-						p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
-					}
+					p.showProcessOutput(logProcess, output, p.serverType)
+					p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 				}
-				if recentFailures >= definitions.MaxRecentFailures {
-					logProcess.Error().Msgf("%s has failed %d times, giving up", p.serverType, recentFailures)
+				retryingWillNotHelp := !definitions.ExitCodeIsRecoverable(p.serverType.ProcessType(), exitCode)
+				if retryingWillNotHelp || recentFailures >= definitions.MaxRecentFailures {
+					logProcess.Error().Msgf(
+						"%s has failed %d times, giving up. Recent exit code: %d (%s)",
+						p.serverType, recentFailures, exitCode, definitions.GetExitCodeReason(exitCode),
+					)
 					p.runtimeContext.Stop()
 					p.s.stopping = true
 					break
@@ -269,7 +267,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			} else {
 				logProcess.Info().Msgf("%s has terminated", p.serverType)
 				if p.config.DebugCluster && !p.s.stopping {
-					// Show logs of the server
+					p.showProcessOutput(logProcess, output, p.serverType)
 					p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 				}
 			}
@@ -285,4 +283,15 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		logProcess.Info().Msgf("restarting %s", p.serverType)
 		restart++
 	}
+}
+
+func (p *processWrapper) showProcessOutput(log zerolog.Logger, b *utils.LimitedBuffer, serverType definitions.ServerType) {
+	result := &bytes.Buffer{}
+	result.WriteString(fmt.Sprintf("## Start of %s output:\n", serverType))
+	for _, line := range strings.Split(b.String(), "\n") {
+		result.WriteString("\t" + line + "\n")
+	}
+	result.WriteString(fmt.Sprintf("## End of %s output.", serverType))
+
+	log.Info().Msg(result.String())
 }

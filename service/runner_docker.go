@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -35,11 +33,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	docker "github.com/fsouza/go-dockerclient"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 const (
@@ -50,11 +48,22 @@ const (
 	dockerDataDir        = "/data"
 )
 
-// NewDockerRunner creates a runner that starts processes in a docker container.
-func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage string, imagePullPolicy ImagePullPolicy, user, volumesFrom string, gcDelay time.Duration,
-	networkMode string, privileged, tty bool) (Runner, error) {
+type DockerConfig struct {
+	Endpoint          string
+	User              string
+	HostContainerName string
+	GCDelay           time.Duration
+	NetworkMode       string
+	Privileged        bool
+	TTY               bool
+	ImagePullPolicy   ImagePullPolicy
 
-	os.Setenv("DOCKER_HOST", endpoint)
+	ImageArangoD string
+}
+
+// NewDockerRunner creates a runner that starts processes in a docker container.
+func NewDockerRunner(log zerolog.Logger, d DockerConfig) (Runner, error) {
+	os.Setenv("DOCKER_HOST", d.Endpoint)
 	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		return nil, maskAny(err)
@@ -62,30 +71,29 @@ func NewDockerRunner(log zerolog.Logger, endpoint, arangodImage, arangoSyncImage
 	return &dockerRunner{
 		log:             log,
 		client:          client,
-		arangodImage:    arangodImage,
-		arangoSyncImage: arangoSyncImage,
-		imagePullPolicy: imagePullPolicy,
-		user:            user,
-		volumesFrom:     volumesFrom,
+		arangodImage:    d.ImageArangoD,
+		imagePullPolicy: d.ImagePullPolicy,
+		user:            d.User,
+		volumesFrom:     d.HostContainerName,
 		containerIDs:    make(map[string]time.Time),
-		gcDelay:         gcDelay,
-		networkMode:     networkMode,
-		privileged:      privileged,
-		tty:             tty,
+		gcDelay:         d.GCDelay,
+		networkMode:     d.NetworkMode,
+		privileged:      d.Privileged,
+		tty:             d.TTY,
 	}, nil
 }
 
 // dockerRunner implements a Runner that starts processes in a docker container.
 type dockerRunner struct {
-	log             zerolog.Logger
-	client          *docker.Client
+	log    zerolog.Logger
+	client *docker.Client
+	mutex  sync.Mutex
+
+	containerIDs    map[string]time.Time
 	arangodImage    string
-	arangoSyncImage string
 	imagePullPolicy ImagePullPolicy
 	user            string
 	volumesFrom     string
-	mutex           sync.Mutex
-	containerIDs    map[string]time.Time
 	gcOnce          sync.Once
 	gcDelay         time.Duration
 	networkMode     string
@@ -97,7 +105,6 @@ type dockerContainer struct {
 	log       zerolog.Logger
 	client    *docker.Client
 	container *docker.Container
-	waiter    docker.CloseWaiter
 }
 
 func (r *dockerRunner) GetContainerDir(hostDir, defaultContainerDir string) string {
@@ -107,13 +114,13 @@ func (r *dockerRunner) GetContainerDir(hostDir, defaultContainerDir string) stri
 	return defaultContainerDir
 }
 
-func (p *dockerContainer) WaitCh() <-chan struct{} {
-	c := make(chan struct{})
+func (p *dockerContainer) WaitCh() <-chan int {
+	c := make(chan int)
 
 	go func() {
 		defer close(c)
 
-		p.Wait()
+		c <- p.Wait()
 	}()
 
 	return c
@@ -161,10 +168,8 @@ func (r *dockerRunner) Start(ctx context.Context, processType definitions.Proces
 	switch processType {
 	case definitions.ProcessTypeArangod:
 		image = r.arangodImage
-	case definitions.ProcessTypeArangoSync:
-		image = r.arangoSyncImage
 	default:
-		return nil, maskAny(fmt.Errorf("Unknown process type: %s", processType))
+		return nil, maskAny(fmt.Errorf("unknown process type: %s", processType))
 	}
 
 	// Pull docker image
@@ -234,6 +239,7 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 	for k, v := range envs {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
+	env = append(env, fmt.Sprintf("ARANGODB_SERVER_DIR=%s", serverDir))
 
 	opts := docker.CreateContainerOptions{
 		Name: containerName,
@@ -269,14 +275,14 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 			opts.HostConfig.Binds = append(opts.HostConfig.Binds, bind)
 		}
 	}
-	if r.networkMode != "" && r.networkMode != "default" {
+	if r.networkMode != "" && r.networkMode != "default" && r.networkMode != "bridge" {
 		opts.HostConfig.NetworkMode = r.networkMode
 	} else {
 		for _, p := range ports {
 			dockerPort := docker.Port(fmt.Sprintf("%d/tcp", p))
 			opts.Config.ExposedPorts[dockerPort] = struct{}{}
 			opts.HostConfig.PortBindings[dockerPort] = []docker.PortBinding{
-				docker.PortBinding{
+				{
 					HostIP:   "0.0.0.0",
 					HostPort: strconv.Itoa(p),
 				},
@@ -291,15 +297,15 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 	}
 	r.recordContainerID(c.ID) // Record ID so we can clean it up later
 
-	var waiter docker.CloseWaiter
 	if output != nil {
 		// Attach output to container
 		r.log.Debug().Msgf("Attaching to output of container %s", containerName)
 		success := make(chan struct{})
 		defer close(success)
-		waiter, err = r.client.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
+		_, err = r.client.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
 			Container:    c.ID,
 			OutputStream: output,
+			ErrorStream:  output,
 			Logs:         true,
 			Stdout:       true,
 			Stderr:       true,
@@ -332,7 +338,6 @@ func (r *dockerRunner) start(image string, command string, args []string, envs m
 		log:       r.log.With().Str("container", c.ID).Logger(),
 		client:    r.client,
 		container: c,
-		waiter:    waiter,
 	}, nil
 }
 
@@ -393,7 +398,7 @@ func (r *dockerRunner) CreateStartArangodbCommand(myDataDir string, index int, m
 		hostPort = masterPortI + (portOffsetIncrement * (index - 1))
 	}
 	var netArgs string
-	if r.networkMode == "" || r.networkMode == "default" {
+	if r.networkMode == "" || r.networkMode == "default" && r.networkMode != "bridge" {
 		netArgs = fmt.Sprintf("-p %d:%d", hostPort, DefaultMasterPort)
 	} else {
 		netArgs = fmt.Sprintf("--net=%s", r.networkMode)
@@ -419,7 +424,7 @@ func (r *dockerRunner) Cleanup() error {
 			Force:         true,
 			RemoveVolumes: true,
 		}); err != nil && !isNoSuchContainer(err) {
-			r.log.Warn().Err(err).Msgf("Failed to remove container %s: %#v", id)
+			r.log.Warn().Err(err).Msgf("Failed to remove container %s", id)
 		}
 	}
 	r.containerIDs = make(map[string]time.Time)
@@ -540,9 +545,6 @@ func (p *dockerContainer) HostPort(containerPort int) (int, error) {
 }
 
 func (p *dockerContainer) Wait() int {
-	if p.waiter != nil {
-		p.waiter.Wait()
-	}
 	exitCode, err := p.client.WaitContainer(p.container.ID)
 	if err != nil {
 		p.log.Error().Err(err).Msg("WaitContainer failed")

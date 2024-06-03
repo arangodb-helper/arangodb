@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package main
 
@@ -27,14 +25,19 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/coreos/go-semver/semver"
+)
+
+const (
+	preReleasePrefix = "preview-"
 )
 
 var (
@@ -44,13 +47,12 @@ var (
 	ghUser      string // Github account name to create release in
 	ghRepo      string // Github repository name to create release in
 	binFolder   string // Folder containing binaries
+	preRelease  bool   // If set, mark release as preview
+	dryRun      bool   // If set, do not really push a release or any git changes
 
 	binaries = map[string]string{
-		"arangodb-darwin-amd64":      "darwin/amd64/arangodb",
-		"arangodb-darwin-arm64":      "darwin/arm64/arangodb",
-		"arangodb-linux-amd64":       "linux/amd64/arangodb",
-		"arangodb-linux-arm64":       "linux/arm64/arangodb",
-		"arangodb-windows-amd64.exe": "windows/amd64/arangodb.exe",
+		"arangodb-linux-amd64": "linux/amd64/arangodb",
+		"arangodb-linux-arm64": "linux/arm64/arangodb",
 	}
 )
 
@@ -61,20 +63,23 @@ func init() {
 	flag.StringVar(&ghUser, "github-user", "arangodb-helper", "Github account name to create release in")
 	flag.StringVar(&ghRepo, "github-repo", "arangodb", "Github repository name to create release in")
 	flag.StringVar(&binFolder, "bin-folder", "./bin", "Folder containing binaries")
+	flag.BoolVar(&preRelease, "prerelease", false, "If set, mark release as preview")
+	flag.BoolVar(&dryRun, "dryrun", false, "If set, do not really push a release or any git changes")
 }
 
 func main() {
 	flag.Parse()
 	ensureGithubToken()
 	checkCleanRepo()
-	version := bumpVersion(releaseType)
+	version := bumpVersionInFile(releaseType)
+	tagName := fmt.Sprintf("v%s", version)
 	make("clean")
 	make("binaries")
 	createSHA256Sums()
-	make("docker-push-version")
-	gitTag(version)
-	githubCreateRelease(version)
-	bumpVersion("devel")
+	pushDockerImages()
+	gitTag(version, tagName) // push both old and new tags for backward compatibility
+	githubCreateRelease(tagName)
+	bumpVersionInFile("devel")
 }
 
 // ensureGithubToken makes sure the GITHUB_TOKEN envvar is set.
@@ -82,7 +87,7 @@ func ensureGithubToken() {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
 		p := filepath.Join(os.Getenv("HOME"), ".arangodb/github-token")
-		if raw, err := ioutil.ReadFile(p); err != nil {
+		if raw, err := os.ReadFile(p); err != nil {
 			log.Fatalf("Failed to release '%s': %v", p, err)
 		} else {
 			token = strings.TrimSpace(string(raw))
@@ -101,42 +106,108 @@ func checkCleanRepo() {
 	}
 }
 
+func pushDockerImages() {
+	if dryRun {
+		log.Printf("Skipping pushing docker images to registry")
+	} else {
+		make("docker-push-version")
+	}
+}
+
 func make(target string) {
 	if err := run("make", target); err != nil {
 		log.Fatalf("Failed to make %s: %v\n", target, err)
 	}
 }
 
-func bumpVersion(action string) string {
-	contents, err := ioutil.ReadFile(versionFile)
+func bumpVersionInFile(action string) string {
+	contents, err := os.ReadFile(versionFile)
 	if err != nil {
 		log.Fatalf("Cannot read '%s': %v\n", versionFile, err)
 	}
 	version := semver.New(strings.TrimSpace(string(contents)))
+	bumpVersion(version, action, preRelease)
 
-	switch action {
-	case "patch":
-		version.BumpPatch()
-	case "minor":
-		version.BumpMinor()
-	case "major":
-		version.BumpMajor()
-	case "devel":
-		version.Metadata = "git"
-	}
 	contents = []byte(version.String())
 
-	if err := ioutil.WriteFile(versionFile, contents, 0755); err != nil {
-		log.Fatalf("Cannot write '%s': %v\n", versionFile, err)
+	if dryRun {
+		log.Printf("Skipping writing VERSION file. Content: %s", string(contents))
+	} else {
+		if err := os.WriteFile(versionFile, contents, 0755); err != nil {
+			log.Fatalf("Cannot write '%s': %v\n", versionFile, err)
+		}
 	}
 
-	gitCommitAll(fmt.Sprintf("Updated to %s", version))
+	gitCommitAll(fmt.Sprintf("Updated to v%s", version))
 	log.Printf("Updated '%s' to '%s'\n", versionFile, string(contents))
 
 	return version.String()
 }
 
+func bumpVersion(version *semver.Version, action string, isPreRelease bool) {
+	if action == "devel" {
+		version.Metadata = "git"
+		return
+	}
+	version.Metadata = ""
+
+	currVersionIsPreRelease := strings.HasPrefix(string(version.PreRelease), preReleasePrefix)
+	if isPreRelease {
+		firstPreRelease := semver.PreRelease(fmt.Sprintf("%s1", preReleasePrefix))
+		switch action {
+		case "patch":
+			if currVersionIsPreRelease {
+				version.PreRelease = bumpPreReleaseIndex(version.PreRelease)
+			} else {
+				version.BumpPatch()
+				version.PreRelease = firstPreRelease
+			}
+		case "minor":
+			if currVersionIsPreRelease && version.Patch == 0 {
+				version.PreRelease = bumpPreReleaseIndex(version.PreRelease)
+			} else {
+				version.BumpMinor()
+				version.PreRelease = firstPreRelease
+			}
+		case "major":
+			if currVersionIsPreRelease && version.Minor == 0 && version.Patch == 0 {
+				version.PreRelease = bumpPreReleaseIndex(version.PreRelease)
+			} else {
+				version.BumpMajor()
+				version.PreRelease = firstPreRelease
+			}
+		}
+	} else {
+		version.PreRelease = ""
+		if !currVersionIsPreRelease {
+			switch action {
+			case "patch":
+				version.BumpPatch()
+			case "minor":
+				version.BumpMinor()
+			case "major":
+				version.BumpMajor()
+			}
+		}
+	}
+}
+
+func bumpPreReleaseIndex(preReleaseStr semver.PreRelease) semver.PreRelease {
+	indexStr := strings.TrimPrefix(string(preReleaseStr), preReleasePrefix)
+	index, err := strconv.Atoi(indexStr)
+	if err != nil {
+		log.Fatalf("Could not parse prerelease: %s", preReleaseStr)
+	}
+	index++
+	return semver.PreRelease(fmt.Sprintf("%s%d", preReleasePrefix, index))
+}
+
 func gitCommitAll(message string) {
+	if dryRun {
+		log.Printf("Skipping git commit and push with message '%s'", message)
+		return
+	}
+
 	args := []string{
 		"commit",
 		"--all",
@@ -150,9 +221,16 @@ func gitCommitAll(message string) {
 	}
 }
 
-func gitTag(version string) {
-	if err := run("git", "tag", version); err != nil {
-		log.Fatalf("Failed to tag: %v\n", err)
+func gitTag(tags ...string) {
+	if dryRun {
+		log.Printf("Skipping git tag with '%+v'", tags)
+		return
+	}
+
+	for _, t := range tags {
+		if err := run("git", "tag", t); err != nil {
+			log.Fatalf("Failed to tag: %v\n", err)
+		}
 	}
 	if err := run("git", "push", "--tags"); err != nil {
 		log.Fatalf("Failed to push tags: %v\n", err)
@@ -160,9 +238,9 @@ func gitTag(version string) {
 }
 
 func createSHA256Sums() {
-	sums := []string{}
+	var sums []string
 	for name, p := range binaries {
-		blob, err := ioutil.ReadFile(filepath.Join(binFolder, p))
+		blob, err := os.ReadFile(filepath.Join(binFolder, p))
 		if err != nil {
 			log.Fatalf("Failed to read binary '%s': %#v\n", name, err)
 		}
@@ -171,12 +249,17 @@ func createSHA256Sums() {
 		sums = append(sums, sha+"  "+name)
 	}
 	sumsPath := filepath.Join(binFolder, "SHA256SUMS")
-	if err := ioutil.WriteFile(sumsPath, []byte(strings.Join(sums, "\n")+"\n"), 0644); err != nil {
+	if err := os.WriteFile(sumsPath, []byte(strings.Join(sums, "\n")+"\n"), 0644); err != nil {
 		log.Fatalf("Failed to write '%s': %#v\n", sumsPath, err)
 	}
 }
 
 func githubCreateRelease(version string) {
+	if dryRun {
+		log.Printf("Skipping github release with tag name '%s'", version)
+		return
+	}
+
 	// Create draft release
 	args := []string{
 		"release",
@@ -185,9 +268,15 @@ func githubCreateRelease(version string) {
 		"--tag", version,
 		"--draft",
 	}
+	if preRelease {
+		args = append(args, "--pre-release")
+	}
 	if err := run(ghRelease, args...); err != nil {
 		log.Fatalf("Failed to create github release: %v\n", err)
 	}
+	// Ensure release created (sometimes there is a delay between creation request and it's availability for assets upload)
+	ensureReleaseCreated(version)
+
 	// Upload binaries
 	assets := map[string]string{
 		"SHA256SUMS": "SHA256SUMS",
@@ -215,9 +304,37 @@ func githubCreateRelease(version string) {
 		"--repo", ghRepo,
 		"--tag", version,
 	}
+	if preRelease {
+		args = append(args, "--pre-release")
+	}
 	if err := run(ghRelease, args...); err != nil {
 		log.Fatalf("Failed to finalize github release: %v\n", err)
 	}
+}
+
+func ensureReleaseCreated(tagName string) {
+	const attemptsCount = 5
+	var interval = time.Second
+	var err error
+
+	for i := 1; i <= attemptsCount; i++ {
+		time.Sleep(interval)
+		interval *= 2
+
+		args := []string{
+			"info",
+			"--user", ghUser,
+			"--repo", ghRepo,
+			"--tag", tagName,
+		}
+		err = run(ghRelease, args...)
+		if err == nil {
+			return
+		}
+		log.Printf("attempt #%d to get release info for tag %s failed. Retry in %s...", i, tagName, interval.String())
+	}
+
+	log.Fatalf("failed to get release info for tag %s", tagName)
 }
 
 func run(cmd string, args ...string) error {

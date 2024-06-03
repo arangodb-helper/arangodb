@@ -32,7 +32,7 @@ import (
 
 // TestPassthroughConflict runs `arangodb --starter.local --all.ssl.keyfile=foo`
 func TestPassthroughConflict(t *testing.T) {
-	needTestMode(t, testModeProcess)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 

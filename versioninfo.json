@@ -1,0 +1,11 @@
+{
+  "StringFileInfo": {
+    "CompanyName": "ArangoDB GmbH",
+    "FileDescription": "ArangoDB Starter allows to start and manage ArangoDB clusters with ease.",
+    "LegalCopyright": "Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany",
+    "InternalName": "arangodb.exe",
+    "Comments": "Source code can be found at https://github.com/arangodb-helper/arangodb",
+    "ProductName": "arangodb-starter",
+    "OriginalFilename": "arangodb.exe"
+  }
+}

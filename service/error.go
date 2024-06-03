@@ -25,8 +25,9 @@ package service
 import (
 	"fmt"
 
-	driver "github.com/arangodb/go-driver"
 	"github.com/pkg/errors"
+
+	driver "github.com/arangodb/go-driver"
 )
 
 var (

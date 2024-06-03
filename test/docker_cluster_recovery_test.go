@@ -36,10 +36,7 @@ import (
 func TestDockerClusterRecovery(t *testing.T) {
 	log := GetLogger(t)
 
-	SkipOnTravis(t, "Test does not work on TRAVIS VM") // TODO: Fix needed
-
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeDocker, starterModeCluster, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

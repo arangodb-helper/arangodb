@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -42,11 +40,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/arangodb-helper/arangodb/service/options"
+	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
-	"github.com/rs/zerolog"
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
 var (
@@ -129,6 +126,15 @@ func createArangodConf(log zerolog.Logger, bsCfg BootstrapConfig, myHostDir, myC
 			Name: "rocksdb",
 			Settings: map[string]string{
 				"encryption-keyfile": bsCfg.RocksDBEncryptionKeyFile,
+			},
+		}
+		config = append(config, rocksdbSection)
+	}
+	if bsCfg.RocksDBEncryptionKeyGenerator != "" {
+		rocksdbSection := &configSection{
+			Name: "rocksdb",
+			Settings: map[string]string{
+				"encryption-key-generator": bsCfg.RocksDBEncryptionKeyGenerator,
 			},
 		}
 		config = append(config, rocksdbSection)
@@ -239,15 +245,8 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		opts = append(opts,
 			optionPair{"--foxx.queues", "true"},
 		)
-	case definitions.ServerTypeResilientSingle:
-		opts = append(opts,
-			optionPair{"--foxx.queues", "true"},
-			optionPair{"--replication.automatic-failover", "true"},
-			optionPair{"--cluster.my-address", myTCPURL},
-			optionPair{"--cluster.my-role", "SINGLE"},
-		)
 	}
-	if serverType == definitions.ServerTypeCoordinator || serverType == definitions.ServerTypeResilientSingle {
+	if serverType == definitions.ServerTypeCoordinator {
 		if config.AdvertisedEndpoint != "" {
 			opts = append(opts,
 				optionPair{"--cluster.my-advertised-endpoint", fixupEndpointURLSchemeForArangod(config.AdvertisedEndpoint)},

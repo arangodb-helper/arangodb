@@ -33,8 +33,7 @@ import (
 // TestDockerClusterUpgrade runs 3 arangodb starters in docker with default settings.
 // Once running it starts a database upgrade.
 func TestDockerClusterUpgrade(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeDocker, starterModeCluster, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

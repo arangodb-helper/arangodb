@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2021-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,13 +17,12 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Adam Janikowski
-//
 
 package options
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -37,9 +36,8 @@ type Configuration struct {
 	Coordinators ConfigurationType
 	DBServers    ConfigurationType
 	Agents       ConfigurationType
-	AllSync      ConfigurationType
-	SyncMasters  ConfigurationType
-	SyncWorkers  ConfigurationType
+
+	PersistentOptions PersistentOptions
 }
 
 func NewConfiguration() Configuration {
@@ -48,9 +46,6 @@ func NewConfiguration() Configuration {
 		Coordinators: NewConfigurationType(),
 		DBServers:    NewConfigurationType(),
 		Agents:       NewConfigurationType(),
-		AllSync:      NewConfigurationType(),
-		SyncMasters:  NewConfigurationType(),
-		SyncWorkers:  NewConfigurationType(),
 	}
 }
 
@@ -61,20 +56,32 @@ func NewConfigurationType() ConfigurationType {
 func (p *Configuration) ArgsForServerType(serverType definitions.ServerType) map[string][]string {
 	m := map[string][]string{}
 
-	z := p.ByServerType(serverType)
+	z := p.ByProcessType(serverType)
 
 	for k, v := range z.Args {
 		m[k] = stringListCopy(*v)
 	}
 
-	if len(m) > 0 {
-		return m
-	}
-
-	z = p.ByProcessType(serverType)
+	z = p.ByServerType(serverType)
 
 	for k, v := range z.Args {
-		m[k] = stringListCopy(*v)
+		m[k] = append(m[k], stringListCopy(*v)...)
+	}
+
+	for k := range m {
+		dedup := map[string]bool{}
+		var args []string
+
+		for _, v := range m[k] {
+			if _, ok := dedup[v]; ok {
+				continue
+			}
+
+			dedup[v] = true
+			args = append(args, v)
+		}
+
+		m[k] = args
 	}
 
 	return m
@@ -158,14 +165,10 @@ func (p *Configuration) ByServerType(serverType definitions.ServerType) *Configu
 		return &p.All
 	case definitions.ServerTypeCoordinator:
 		return &p.Coordinators
-	case definitions.ServerTypeDBServer, definitions.ServerTypeResilientSingle:
+	case definitions.ServerTypeDBServer:
 		return &p.DBServers
 	case definitions.ServerTypeAgent:
 		return &p.Agents
-	case definitions.ServerTypeSyncMaster:
-		return &p.SyncMasters
-	case definitions.ServerTypeSyncWorker:
-		return &p.SyncWorkers
 	default:
 		return nil
 	}
@@ -175,8 +178,6 @@ func (p *Configuration) ByProcessType(serverType definitions.ServerType) *Config
 	switch serverType.ProcessType() {
 	case definitions.ProcessTypeArangod:
 		return &p.All
-	case definitions.ProcessTypeArangoSync:
-		return &p.AllSync
 	default:
 		return nil
 	}
@@ -194,10 +195,25 @@ type ConfigurationFlag struct {
 	Usage     string
 	Value     *[]string
 
-	Deprecated bool
+	DeprecatedHint string
 }
 
 type ConfigurationPrefixes map[string]ConfigurationPrefix
+
+func (c ConfigurationPrefixes) Lookup(key string) (string, *ConfigurationPrefix, string, error) {
+	for n, prefix := range c {
+		p := fmt.Sprintf("%s.", n)
+		if strings.HasPrefix(key, p) {
+			targ := strings.TrimPrefix(key, p)
+			if forbiddenOptions.IsForbidden(targ) {
+				return n, nil, "", fmt.Errorf("option --%s is essential to the starters behavior and cannot be overwritten", targ)
+			}
+			prefix := prefix
+			return n, &prefix, targ, nil
+		}
+	}
+	return "", nil, "", nil
+}
 
 func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []ConfigurationFlag, error) {
 	var f []ConfigurationFlag
@@ -207,50 +223,81 @@ func (c ConfigurationPrefixes) Parse(args ...string) (*Configuration, []Configur
 
 	for _, arg := range args {
 		arg = strings.SplitN(arg, "=", 2)[0]
-
 		if !strings.HasPrefix(arg, "--") {
 			continue
 		}
 
-		ckey := strings.TrimPrefix(arg, "--")
+		cleanKey := strings.TrimPrefix(arg, "--")
+		prefix, confPrefix, targ, err := c.Lookup(cleanKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		if confPrefix == nil {
+			continue
+		}
 
-		for n, prefix := range c {
-			p := fmt.Sprintf("%s.", n)
-			if !strings.HasPrefix(ckey, p) {
-				continue
-			}
+		if _, ok := flags[arg]; ok {
+			continue
+		} else {
+			flags[arg] = true
+		}
 
-			targ := strings.TrimPrefix(ckey, p)
+		val := confPrefix.FieldSelector(&config, targ)
+		f = append(f, ConfigurationFlag{
+			Key:            arg,
+			CleanKey:       cleanKey,
+			Extension:      targ,
+			Usage:          confPrefix.Usage(targ),
+			Value:          val,
+			DeprecatedHint: confPrefix.GetDeprecatedHint(targ),
+		})
 
-			if forbiddenOptions.IsForbidden(targ) {
-				return nil, nil, fmt.Errorf("option --%s is essential to the starters behavior and cannot be overwritten", targ)
-			}
-
-			if _, ok := flags[arg]; ok {
-				break
-			} else {
-				flags[arg] = true
-			}
-
-			f = append(f, ConfigurationFlag{
-				Key:        arg,
-				CleanKey:   ckey,
-				Extension:  targ,
-				Usage:      prefix.Usage(arg, targ),
-				Value:      prefix.FieldSelector(&config, targ),
-				Deprecated: prefix.Deprecated,
-			})
-			break
+		if IsPersistentOption(targ) {
+			config.PersistentOptions.Add(prefix, targ, val)
 		}
 	}
 
 	return &config, f, nil
 }
 
+func (c ConfigurationPrefixes) UsageHint() string {
+	maxNameLen := 0
+	for n, prefix := range c {
+		if prefix.GetDeprecatedHint(n) == "" {
+			if len(n) > maxNameLen {
+				maxNameLen = len(n)
+			}
+		}
+	}
+
+	parts := make([]string, 0)
+	for n, prefix := range c {
+		if prefix.GetDeprecatedHint(n) == "" {
+			postfix := "<xxx>=<value>"
+			pad := maxNameLen - len(n) + len(postfix) + 8
+			parts = append(parts,
+				fmt.Sprintf("%s--%s.%-*s%s", strings.Repeat(" ", 6), n, pad, postfix, prefix.Usage(postfix)),
+			)
+		}
+	}
+
+	sort.Strings(parts)
+	passthroughUsageHelp := "Passing through other database options:\n"
+	passthroughUsageHelp += strings.Join(parts, "\n")
+	return passthroughUsageHelp
+}
+
 type ConfigurationPrefix struct {
-	Usage         func(arg, key string) string
-	FieldSelector func(p *Configuration, key string) *[]string
-	Deprecated    bool
+	Usage                func(key string) string
+	FieldSelector        func(p *Configuration, key string) *[]string
+	DeprecatedHintFormat string
+}
+
+func (p ConfigurationPrefix) GetDeprecatedHint(key string) string {
+	if p.DeprecatedHintFormat == "" {
+		return ""
+	}
+	return fmt.Sprintf(p.DeprecatedHintFormat, key)
 }
 
 func stringListCopy(a []string) []string {

@@ -52,7 +52,7 @@ func (cf configFile) WriteTo(w io.Writer) (int64, error) {
 		if err != nil {
 			return x, maskAny(err)
 		}
-		x += int64(n)
+		x += n
 	}
 	return x, nil
 }

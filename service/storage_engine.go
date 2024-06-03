@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,14 +17,12 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package service
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -72,9 +70,6 @@ func (s *Service) readActualStorageEngine() (string, error) {
 			// In case of Coordinator return default storage engine
 			return features.DefaultStorageEngine(), nil
 		}
-	} else if mode.IsActiveFailoverMode() {
-		// Read engine from agent data directory
-		serverType = definitions.ServerTypeAgent
 	} else {
 		// Read engine from single server data directory
 		serverType = definitions.ServerTypeSingle
@@ -85,7 +80,7 @@ func (s *Service) readActualStorageEngine() (string, error) {
 		return "", maskAny(err)
 	}
 	// Read ENGINE file
-	engine, err := ioutil.ReadFile(filepath.Join(dataDir, "data", "ENGINE"))
+	engine, err := os.ReadFile(filepath.Join(dataDir, "data", "ENGINE"))
 	if err != nil {
 		return "", maskAny(err)
 	}

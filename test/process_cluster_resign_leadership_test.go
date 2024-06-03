@@ -30,11 +30,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/service"
+	"github.com/pkg/errors"
+
+	"github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/client"
-	"github.com/arangodb/go-driver"
-	"github.com/pkg/errors"
+	"github.com/arangodb-helper/arangodb/service"
 )
 
 // TestProcessClusterResignLeadership starts a master starter, followed by 2 slave starters.
@@ -43,8 +44,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 	log := GetLogger(t)
 
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -82,7 +82,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 30*time.Second, 500*time.Millisecond)
 
 	if version, err := coordinatorClient.Version(context.Background()); err != nil {
 		t.Fatal(err.Error())
@@ -148,6 +148,8 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 			if err != nil {
 				t.Fatal(err.Error())
 			}
+			WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckDatabase(databaseName)).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+
 			database, err = coordinatorClient.Database(context.Background(), databaseName)
 			if err != nil {
 				t.Fatal(err.Error())
@@ -261,7 +263,7 @@ func getShardsForCollection(client driver.Client, database driver.Database,
 	return nil, errors.Errorf("there are no shards for the collection %s", collectionName)
 }
 
-//getServerIDLeaderForFirstShard returns server ID of the leader shard.
+// getServerIDLeaderForFirstShard returns server ID of the leader shard.
 func getServerIDLeaderForFirstShard(client driver.Client, database driver.Database,
 	collectionName string) (driver.ServerID, error) {
 	newShards, err := getShardsForCollection(client, database, collectionName)

@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
@@ -27,17 +25,13 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	"github.com/arangodb-helper/arangodb/client"
-	"github.com/arangodb/go-driver"
 )
 
 // TestProcessClusterUpgrade starts a master starter, followed by 2 slave starters.
 // Once running it starts a database upgrade.
 func TestProcessClusterUpgrade(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -72,23 +66,15 @@ func TestProcessClusterUpgrade(t *testing.T) {
 }
 
 func testUpgradeProcess(t *testing.T, endpoint string) {
-	t.Log("Starting database upgrade")
 	c := NewStarterClient(t, endpoint)
 	ctx := context.Background()
 
 	waitForStarter(t, c)
+	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(0*portIncrement))
+	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(1*portIncrement))
+	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(2*portIncrement))
 
-	auth := driver.BasicAuthentication("root", "")
-	starterEndpointForCoordinator := insecureStarterEndpoint(1 * portIncrement)
-	coordinatorClient, err := CreateClient(t, starterEndpointForCoordinator, client.ServerTypeCoordinator, auth)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-
-	WaitUntilServiceReadyAPI(t, coordinatorClient, func(t *testing.T, ctx context.Context, c driver.Client) error {
-		_, err := coordinatorClient.Database(context.Background(), "_system")
-		return err
-	}).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
+	t.Log("Starting database upgrade")
 
 	if err := c.StartDatabaseUpgrade(ctx, false); err != nil {
 		t.Fatalf("StartDatabaseUpgrade failed: %v", err)

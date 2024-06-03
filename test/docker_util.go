@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
@@ -30,12 +28,44 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
+// createDockerVolumes creates docker volume for each provided prefix and returns the list of volume ids and cleanup function
+func createDockerVolumes(t *testing.T, prefixes ...string) ([]string, func()) {
+	ids := make([]string, 0, len(prefixes))
+	for _, prefix := range prefixes {
+		id := createDockerID(prefix)
+		ids = append(ids, id)
+		createDockerVolume(t, id)
+	}
+	require.Len(t, ids, len(prefixes))
+	return ids, func() {
+		for _, id := range ids {
+			removeDockerVolume(t, id)
+		}
+	}
+}
+
 func createDockerVolume(t *testing.T, id string) {
-	c := Spawn(t, fmt.Sprintf("docker volume create %s", id))
+	c := Spawn(t, fmt.Sprintf("docker volume create %s --label starter-test=true", id))
 	defer c.Close()
 	c.Wait()
+}
+
+func removeDockerVolumesByLabel(t *testing.T, labelKeyValue string) {
+	ps := exec.Command("docker", "volume", "ls", "-q", "--filter", "label="+labelKeyValue)
+	list, err := ps.Output()
+	if err != nil {
+		t.Fatalf("docker ps failed: %s", describe(err))
+	}
+	ids := strings.Split(strings.TrimSpace(string(list)), "\n")
+	for _, id := range ids {
+		if id := strings.TrimSpace(id); id != "" {
+			removeDockerVolume(t, id)
+		}
+	}
 }
 
 func removeDockerVolume(t *testing.T, id string) {

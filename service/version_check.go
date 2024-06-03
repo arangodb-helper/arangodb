@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package service
 
@@ -29,41 +27,55 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
-	driver "github.com/arangodb/go-driver"
 	"github.com/dchest/uniuri"
+	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
+
+	"github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // DatabaseVersion returns the version of the `arangod` binary that is being
 // used by this starter.
-
 func (s *Service) DatabaseVersion(ctx context.Context) (driver.Version, bool, error) {
-	for i := 0; i < 25; i++ {
-		d, enterprise, err := s.databaseVersion(ctx)
-		if err != nil {
-			s.log.Warn().Err(err).Msg("Error while getting version")
-			time.Sleep(time.Second)
-			continue
-		}
-
-		return d, enterprise, nil
-	}
-
-	return "", false, fmt.Errorf("Unable to get version")
+	return DatabaseVersion(ctx, s.log, s.cfg.ArangodPath, s.runner)
 }
 
-func (s *Service) databaseVersion(ctx context.Context) (driver.Version, bool, error) {
+// DatabaseVersion returns the version of the `arangod` binary
+func DatabaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string, runner Runner) (driver.Version, bool, error) {
+	retries := 25
+	var err error
+	for i := 0; i < retries; i++ {
+		var v driver.Version
+		var enterprise bool
+		v, enterprise, err = databaseVersion(ctx, arangodPath, runner)
+		if err == nil {
+			return v, enterprise, nil
+		}
+
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", false, ctxErr
+		}
+
+		log.Warn().Err(err).Msgf("Error while getting version. Attempt %d of %d", i+1, retries)
+		time.Sleep(time.Second)
+	}
+
+	return "", false, fmt.Errorf("unable to get version: %s", err.Error())
+}
+
+func databaseVersion(ctx context.Context, arangodPath string, runner Runner) (driver.Version, bool, error) {
 	// Start process to print version info
 	output := &bytes.Buffer{}
 	containerName := "arangodb-versioncheck-" + strings.ToLower(uniuri.NewLen(6))
-	p, err := s.runner.Start(ctx, definitions.ProcessTypeArangod, s.cfg.ArangodPath, []string{"--version"}, nil, nil, nil, containerName, ".", output)
+	p, err := runner.Start(ctx, definitions.ProcessTypeArangod, arangodPath, []string{"--version", "--log.force-direct=true"}, nil, nil, nil, containerName, ".", output)
 	if err != nil {
-		return "", false, maskAny(err)
+		return "", false, errors.WithStack(err)
 	}
 	defer p.Cleanup()
 	if code := p.Wait(); code != 0 {
-		return "", false, fmt.Errorf("Process exited with exit code %d - %s", code, output.String())
+		return "", false, fmt.Errorf("process exited with exit code %d - %s", code, output.String())
 	}
 
 	// Parse output
@@ -81,8 +93,9 @@ func (s *Service) databaseVersion(ctx context.Context) (driver.Version, bool, er
 	var v driver.Version
 
 	if vs, ok := parsedLines["server-version"]; !ok {
-		return "", false, fmt.Errorf("No server-version found in '%s'", stdout)
+		return "", false, fmt.Errorf("no server-version found in '%s'", stdout)
 	} else {
+		fmt.Println("ArangoDB version found: ", vs)
 		v = driver.Version(vs)
 	}
 

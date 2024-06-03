@@ -70,7 +70,7 @@ func copyBoolRef(v *bool) *bool {
 	return boolRef(*v)
 }
 
-//  boolFromRef returns a boolean from given reference, returning given default value
+// boolFromRef returns a boolean from given reference, returning given default value
 // when reference is nil.
 func boolFromRef(v *bool, defaultValue bool) bool {
 	if v == nil {

@@ -3,6 +3,11 @@
 bin
 vendor/
 
+.envrc
+.DS_Store
+
 #IDE's
 .idea
 
+resource.syso
+CONTAINER

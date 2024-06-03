@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2020 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2022 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,11 +17,19 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Adam Janikowski
-//
 
-package tools
+package service
 
 import (
-	_ "github.com/aktau/github-release"
+	"testing"
+
+	"github.com/stretchr/testify/require"
 )
+
+func TestCreateCommandFileHeader(t *testing.T) {
+	var h string
+	require.NotPanics(t, func() {
+		h = createCommandFileHeader()
+	})
+	require.NotEmpty(t, h)
+}

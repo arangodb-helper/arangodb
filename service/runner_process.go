@@ -36,9 +36,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // NewProcessRunner creates a runner that starts processes on the local OS.
@@ -64,13 +64,13 @@ func getLockFilePath(serverDir string) string {
 	return filepath.Join(serverDir, "data", "LOCK")
 }
 
-func (p *process) WaitCh() <-chan struct{} {
-	c := make(chan struct{})
+func (p *process) WaitCh() <-chan int {
+	c := make(chan int)
 
 	go func() {
 		defer close(c)
 
-		p.Wait()
+		c <- p.Wait()
 	}()
 
 	return c
@@ -105,7 +105,7 @@ func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
 	}
 	if err := p.Signal(syscall.Signal(0)); err != nil {
 		// Process does not seem to exist anymore
-		r.log.Debug().Msgf("Cannot signal process %d", pid)
+		r.log.Debug().Msgf("Cannot signal(0) to process %d", pid)
 		return nil, nil
 	}
 	// Apparently we still have a server.
@@ -116,6 +116,7 @@ func (r *processRunner) Start(ctx context.Context, processType definitions.Proce
 	c := exec.Command(command, args...)
 	if output != nil {
 		c.Stdout = output
+		c.Stderr = output
 	}
 
 	c.SysProcAttr = getSysProcAttr()
@@ -125,6 +126,7 @@ func (r *processRunner) Start(ctx context.Context, processType definitions.Proce
 	for k, v := range envs {
 		c.Env = append(c.Env, fmt.Sprintf("%s=%s", k, v))
 	}
+	c.Env = append(c.Env, fmt.Sprintf("ARANGODB_SERVER_DIR=%s", serverDir))
 
 	if err := c.Start(); err != nil {
 		return nil, maskAny(err)
@@ -192,7 +194,12 @@ func (p *process) Wait() int {
 			} else {
 				if ps.ExitCode() != 0 {
 					if ws, ok := ps.Sys().(syscall.WaitStatus); ok {
-						l := p.log.Info()
+						logLevel := zerolog.WarnLevel
+						if ws.CoreDump() || ws.Signaled() && !ws.Stopped() && !ws.Continued() {
+							logLevel = zerolog.ErrorLevel
+						}
+						l := p.log.WithLevel(logLevel)
+
 						if ws.Exited() {
 							l = l.Int("exit-status", ws.ExitStatus())
 						}
@@ -213,9 +220,13 @@ func (p *process) Wait() int {
 							l = l.Bool("core-dump", true)
 						}
 
-						l.Int("trap-cause", ws.TrapCause()).Msgf("Wait on %d returned", proc.Pid)
+						if ws.TrapCause() >= 0 {
+							l = l.Int("trap-cause", ws.TrapCause())
+						}
+
+						l.Msgf("Wait on %d returned", proc.Pid)
 					} else {
-						p.log.Info().Int("exitcode", ps.ExitCode()).Msgf("Wait on %d returned", proc.Pid)
+						p.log.Warn().Int("exitcode", ps.ExitCode()).Msgf("Wait on %d returned", proc.Pid)
 					}
 				}
 

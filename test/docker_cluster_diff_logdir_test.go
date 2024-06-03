@@ -34,8 +34,7 @@ import (
 
 // TestDockerClusterDifferentLogDir runs 3 arangodb starters in docker with a custom log dir.
 func TestDockerClusterDifferentLogDir(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeDocker, starterModeCluster, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -166,8 +165,7 @@ func TestDockerClusterDifferentLogDir(t *testing.T) {
 // TestDockerClusterDifferentLogDirNoLog2File runs 3 arangodb starters in docker with a custom log dir without writing
 // starter log to file.
 func TestDockerClusterDifferentLogDirNoLog2File(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeDocker, starterModeCluster, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}

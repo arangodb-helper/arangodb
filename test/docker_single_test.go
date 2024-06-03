@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,23 +17,27 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/arangodb/go-driver"
 )
 
 // TestDockerSingle runs the arangodb starter in docker with `--starter.mode=single`
 func TestDockerSingle(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -87,8 +91,7 @@ func TestDockerSingle(t *testing.T) {
 
 // TestDockerSingleAutoKeyFile runs the arangodb starter in docker with `--starter.mode=single` && `--ssl.auto-key`
 func TestDockerSingleAutoKeyFile(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -144,8 +147,7 @@ func TestDockerSingleAutoKeyFile(t *testing.T) {
 
 // TestDockerSingleAutoContainerName runs the arangodb starter in docker with `--starter.mode=single` automatic detection of its container name.
 func TestDockerSingleAutoContainerName(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -197,8 +199,7 @@ func TestDockerSingleAutoContainerName(t *testing.T) {
 
 // TestDockerSingleAutoRocksdb runs the arangodb starter in docker with `--server.storage-engine=rocksdb` and a 3.2+ image.
 func TestDockerSingleAutoRocksdb(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -253,8 +254,7 @@ func TestDockerSingleAutoRocksdb(t *testing.T) {
 
 // TestOldDockerSingleAutoKeyFile runs the arangodb starter in docker with `--mode=single` && `--sslAutoKeyFile`
 func TestOldDockerSingleAutoKeyFile(t *testing.T) {
-	needTestMode(t, testModeDocker)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeDocker, starterModeSingle, false)
 	if os.Getenv("IP") == "" {
 		t.Fatal("IP envvar must be set to IP address of this machine")
 	}
@@ -304,4 +304,138 @@ func TestOldDockerSingleAutoKeyFile(t *testing.T) {
 
 	waitForCallFunction(t,
 		ShutdownStarterCall(secureStarterEndpoint(0*portIncrement)))
+}
+
+// TestDockerSingleCheckPersistentOptions runs arangodb in single mode and
+// checks that overriding a persistent option results in an error message
+func TestDockerSingleCheckPersistentOptions(t *testing.T) {
+	testMatch(t, testModeDocker, starterModeSingle, false)
+	if os.Getenv("IP") == "" {
+		t.Fatal("IP envvar must be set to IP address of this machine")
+	}
+
+	re, err := regexp.Compile("ERROR.*it is impossible to change persistent option")
+	require.NoError(t, err)
+
+	testCases := map[string]struct {
+		minVersion    driver.Version
+		oldOption     string
+		newOption     string
+		shouldHaveErr bool
+	}{
+		"no-err-change-false-to-true": {
+			oldOption:     "--args.dbservers.database.extended-names-databases=false",
+			newOption:     "--args.dbservers.database.extended-names-databases=true",
+			shouldHaveErr: false,
+		},
+		"no-err-change-false-to-false": {
+			oldOption:     "--args.dbservers.database.extended-names-databases=false",
+			newOption:     "--args.dbservers.database.extended-names-databases=false",
+			shouldHaveErr: false,
+		},
+		"no-err-change-true-to-true": {
+			oldOption:     "--args.dbservers.database.extended-names-databases=true",
+			newOption:     "--args.dbservers.database.extended-names-databases=true",
+			shouldHaveErr: false,
+		},
+		"should-err-change-true-to-false": {
+			oldOption:     "--args.dbservers.database.extended-names-databases=true",
+			newOption:     "--args.dbservers.database.extended-names-databases=false",
+			shouldHaveErr: true,
+		},
+		"should-err-all-change-true-to-false": {
+			oldOption:     "--args.all.database.extended-names-databases=true",
+			newOption:     "--args.dbservers.database.extended-names-databases=false",
+			shouldHaveErr: true,
+		},
+		"no-err-all-change-true-to-true": {
+			oldOption:     "--args.all.database.extended-names-databases=true",
+			newOption:     "--args.dbservers.database.extended-names-databases=true",
+			shouldHaveErr: false,
+		},
+		"should-err-default-lang": {
+			oldOption:     "--args.dbservers.default-language=en",
+			newOption:     "--args.dbservers.default-language=es",
+			shouldHaveErr: true,
+		},
+		"no-err-default-lang": {
+			oldOption:     "--args.dbservers.default-language=es",
+			newOption:     "--args.dbservers.default-language=es",
+			shouldHaveErr: false,
+		},
+		"no-err-not-persistent": {
+			oldOption:     "--args.dbservers.wait-for-sync=true",
+			newOption:     "--args.dbservers.wait-for-sync=false",
+			shouldHaveErr: false,
+		},
+		"no-err-config-no-change": {
+			oldOption:     "--configuration=test/testdata/single-passthrough-persistent-old.conf",
+			newOption:     "--configuration=test/testdata/single-passthrough-persistent-old.conf",
+			shouldHaveErr: false,
+		},
+		"should-err-config-true-to-false": {
+			oldOption:     "--configuration=test/testdata/single-passthrough-persistent-old.conf",
+			newOption:     "--configuration=test/testdata/single-passthrough-persistent-new.conf",
+			shouldHaveErr: true,
+		},
+		"should-err-config-replace-true-to-false": {
+			oldOption:     "--configuration=test/testdata/single-passthrough-persistent-old.conf",
+			newOption:     "--args.dbservers.database.extended-names-databases=false",
+			shouldHaveErr: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			volID := createDockerID("vol-starter-test-single-")
+			createDockerVolume(t, volID)
+			defer removeDockerVolume(t, volID)
+			absTestDataPath, err := filepath.Abs("test/testdata")
+			require.NoError(t, err)
+			mounts := map[string]string{
+				"/test/testdata": absTestDataPath,
+				"/data":          volID,
+			}
+			ep := insecureStarterEndpoint(0 * portIncrement)
+
+			// first start
+			cID := createDockerID("starter-test-single-")
+			args := []string{
+				"--starter.mode=single",
+				"--starter.address=$IP",
+				tc.oldOption,
+				createEnvironmentStarterOptions(),
+			}
+			proc := runStarterInContainer(t, false, cID, basePort, mounts, args)
+			defer proc.Close()
+			defer removeDockerContainer(t, cID)
+			if ok := WaitUntilStarterReady(t, whatSingle, 1, proc); ok {
+				testSingle(t, ep, false)
+			}
+			err = proc.EnsureNoMatches(context.Background(), time.Second*3, re, t.Name())
+			require.NoError(t, err)
+			waitForCallFunction(t, ShutdownStarterCall(ep))
+
+			// second start
+			cID = createDockerID("starter-test-single-")
+			args = []string{
+				"--starter.mode=single",
+				"--starter.address=$IP",
+				tc.newOption,
+				createEnvironmentStarterOptions(),
+			}
+			procNew := runStarterInContainer(t, false, cID, basePort, mounts, args)
+			defer procNew.Close()
+			defer removeDockerContainer(t, cID)
+			if ok := WaitUntilStarterReady(t, whatSingle, 1, procNew); ok {
+				testSingle(t, ep, false)
+			}
+			if tc.shouldHaveErr {
+				err = procNew.ExpectTimeout(context.Background(), time.Second*3, re, t.Name())
+			} else {
+				err = procNew.EnsureNoMatches(context.Background(), time.Second*3, re, t.Name())
+			}
+			require.NoError(t, err)
+			waitForCallFunction(t, ShutdownStarterCall(ep))
+		})
+	}
 }

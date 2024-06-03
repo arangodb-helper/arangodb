@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
@@ -28,20 +26,23 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
+
+	"github.com/arangodb/go-driver"
+	driverhttp "github.com/arangodb/go-driver/http"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/service"
-	"github.com/arangodb/go-driver"
-	driverhttp "github.com/arangodb/go-driver/http"
 )
 
 const (
-	basePort            = service.DefaultMasterPort
-	syncMonitoringToken = "syncMonitoringSecretToken"
+	basePort = service.DefaultMasterPort
 )
 
 var (
@@ -79,30 +80,20 @@ func secureStarterEndpoint(portOffset int) string {
 
 // testCluster runs a series of tests to verify a good cluster.
 func testCluster(t *testing.T, starterEndpoint string, isSecure bool) client.API {
-	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, false, 0, 0)
-	return c
+	return testClusterPeer(t, starterEndpoint, isSecure, 0)
 }
 
-// testClusterWithSync runs a series of tests to verify a good cluster with synchronization enabled.
-func testClusterWithSync(t *testing.T, starterEndpoint string, isSecure bool) client.API {
+// testClusterPeer runs a series of tests to verify a cluster peer.
+func testClusterPeer(t *testing.T, starterEndpoint string, isSecure bool, reachableTimeout time.Duration) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, true, 0, time.Minute*5)
+	testProcesses(t, c, "cluster", starterEndpoint, isSecure, false, 0, reachableTimeout)
 	return c
 }
 
 // testSingle runs a series of tests to verify a good single server.
 func testSingle(t *testing.T, starterEndpoint string, isSecure bool) client.API {
 	c := NewStarterClient(t, starterEndpoint)
-	testProcesses(t, c, "single", starterEndpoint, isSecure, false, false, 0, 0)
-	return c
-}
-
-// testResilientSingle runs a series of tests to verify good resilientsingle servers.
-func testResilientSingle(t *testing.T, starterEndpoint string, isSecure bool, expectAgencyOnly bool) client.API {
-	c := NewStarterClient(t, starterEndpoint)
-
-	testProcesses(t, c, "resilientsingle", starterEndpoint, isSecure, expectAgencyOnly, false, time.Second*30, time.Minute*2)
+	testProcesses(t, c, "single", starterEndpoint, isSecure, false, 0, 0)
 	return c
 }
 
@@ -124,8 +115,7 @@ func waitForStarter(t *testing.T, c client.API) {
 }
 
 // testProcesses runs a series of tests to verify a good series of database servers.
-func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool,
-	expectAgencyOnly bool, syncEnabled bool, singleTimeout, reachableTimeout time.Duration) {
+func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isSecure bool, expectAgencyOnly bool, singleTimeout, reachableTimeout time.Duration) {
 	// Give the deployment a little bit of time:
 	ctx := context.Background()
 
@@ -227,40 +217,6 @@ func testProcesses(t *testing.T, c client.API, mode, starterEndpoint string, isS
 			break
 		}
 	}
-
-	// Check syncmaster
-	if sp, ok := processes.ServerByType(client.ServerTypeSyncMaster); ok {
-		if sp.IsSecure != isSecure {
-			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
-		}
-		if mode != "cluster" || !syncEnabled {
-			t.Errorf("Found syncmaster, not allowed in cluster mode without sync")
-		} else {
-			if isVerbose {
-				t.Logf("Found syncmaster at %s:%d", sp.IP, sp.Port)
-			}
-			testArangoSyncReachable(t, sp, reachableTimeout)
-		}
-	} else if (mode == "cluster") && syncEnabled {
-		t.Errorf("No syncmaster found in %s", starterEndpoint)
-	}
-
-	// Check syncworker
-	if sp, ok := processes.ServerByType(client.ServerTypeSyncWorker); ok {
-		if sp.IsSecure != isSecure {
-			t.Errorf("Invalid IsSecure on single. Expected %v, got %v", isSecure, sp.IsSecure)
-		}
-		if mode != "cluster" || !syncEnabled {
-			t.Errorf("Found syncworker, not allowed in cluster mode without sync")
-		} else {
-			if isVerbose {
-				t.Logf("Found syncworker at %s:%d", sp.IP, sp.Port)
-			}
-			testArangoSyncReachable(t, sp, reachableTimeout)
-		}
-	} else if (mode == "cluster") && syncEnabled {
-		t.Errorf("No syncworker found in %s", starterEndpoint)
-	}
 }
 
 // testArangodReachable tries to call some HTTP API methods of the given server process to make sure
@@ -273,35 +229,13 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess, timeout time.Du
 	start := time.Now()
 	for {
 		url := fmt.Sprintf("%s://%s:%d/_api/version", scheme, sp.IP, sp.Port)
-		_, err := httpClient.Get(url)
+		resp, err := httpClient.Get(url)
 		if err == nil {
+			resp.Body.Close()
 			return
 		}
 		if timeout == 0 || time.Since(start) > timeout {
-			t.Errorf("Failed to reach arangod at %s:%d %s", sp.IP, sp.Port, describe(err))
-			return
-		}
-		time.Sleep(time.Second)
-	}
-}
-
-// testArangoSyncReachable tries to call some HTTP API methods of the given server process to make sure
-// it is reachable.
-func testArangoSyncReachable(t *testing.T, sp client.ServerProcess, timeout time.Duration) {
-	start := time.Now()
-	for {
-		url := fmt.Sprintf("https://%s:%d/_api/version", sp.IP, sp.Port)
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			t.Fatalf("NewRequest failed: %s", describe(err))
-		}
-		req.Header.Set("Authorization", "bearer "+syncMonitoringToken)
-		_, err = httpClient.Do(req)
-		if err == nil {
-			return
-		}
-		if timeout == 0 || time.Since(start) > timeout {
-			t.Errorf("Failed to reach arangosync at %s:%d %s", sp.IP, sp.Port, describe(err))
+			t.Errorf("Failed to reach arangod %s at %s:%d %s", sp.Type, sp.IP, sp.Port, describe(err))
 			return
 		}
 		time.Sleep(time.Second)
@@ -319,7 +253,7 @@ func CreateClient(t *testing.T, starterEndpoint string, serverType client.Server
 
 	sp, ok := processes.ServerByType(serverType)
 	if !ok {
-		return nil, errors.Errorf("failed to server of type %s", string(serverType))
+		return nil, errors.Errorf("failed to find server of type %s", string(serverType))
 	}
 
 	config := driverhttp.ConnectionConfig{
@@ -342,4 +276,113 @@ func CreateClient(t *testing.T, starterEndpoint string, serverType client.Server
 		return nil, errors.Wrap(err, "failed to create a new client")
 	}
 	return client, nil
+}
+
+// startCluster runs starter instance for each entry in peerDirs slice.
+func startCluster(t *testing.T, ip string, args []string, peerDirs []string) ([]*SubProcess, func()) {
+	var procs []*SubProcess
+	for i, p := range peerDirs {
+		require.NoError(t, os.Setenv("DATA_DIR", p))
+		args := args
+		if i > 0 {
+			// run slaves
+			args = append(args, "--starter.join="+ip)
+		}
+		procs = append(procs, Spawn(t, strings.Join(args, " ")))
+	}
+	return procs, func() {
+		for _, p := range procs {
+			p.Close()
+		}
+	}
+}
+
+// startClusterInDocker runs starter instance using Docker for each entry in volumeIDs slice.
+func startClusterInDocker(t *testing.T, certsDir string, args []string, volumeIDs []string) ([]*SubProcess, func()) {
+	var procs []*SubProcess
+	var containers []string
+	for i, v := range volumeIDs {
+		cID := createDockerID(fmt.Sprintf("starter-test-cluster-sync%d-", i))
+		mounts := map[string]string{
+			"/data":  v,
+			"/certs": certsDir,
+		}
+		proc := runStarterInContainer(t, i > 0, cID, basePort+(i*portIncrement), mounts, args)
+		procs = append(procs, proc)
+		containers = append(containers, cID)
+	}
+	return procs, func() {
+		for _, p := range procs {
+			p.Close()
+		}
+		for _, c := range containers {
+			removeDockerContainer(t, c)
+		}
+	}
+}
+
+// runStarterInContainer runs starter instance using Docker
+func runStarterInContainer(t *testing.T, isSlave bool, cID string, port int, mounts map[string]string, args []string) *SubProcess {
+	baseArgs := []string{
+		"docker run -i",
+		"--label starter-test=true",
+		"--name=" + cID,
+		"--rm",
+		createLicenseKeyOption(),
+		fmt.Sprintf("-p %d:%d", port, basePort),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+	}
+	for dst, src := range mounts {
+		baseArgs = append(baseArgs, fmt.Sprintf("-v %s:%s", src, dst))
+	}
+	baseArgs = append(baseArgs,
+		"arangodb/arangodb-starter",
+		"--docker.container="+cID,
+	)
+	if isSlave {
+		baseArgs = append(baseArgs, fmt.Sprintf("--starter.join=$IP:%d", basePort))
+	}
+	baseArgs = append(baseArgs, args...)
+	return Spawn(t, strings.Join(baseArgs, " "))
+}
+
+func waitForClusterHealthy(t *testing.T, endpoint string, timeout time.Duration) {
+	auth := driver.BasicAuthentication("root", "")
+	client, err := CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	clusterClient, err := client.Cluster(ctx)
+	require.NoError(t, err)
+
+	logVerbose(t, "Starting wait for cluster healthy")
+	start := time.Now()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		h := getHealth(t, ctx, clusterClient)
+		allHealthy := true
+		for serverID, sh := range h.Health {
+			statusGood := sh.Status == driver.ServerStatusGood
+			if !statusGood && time.Since(start) > timeout {
+				t.Fatalf("Cluster unhealthy after %s: server %s status is %s", timeout.String(), serverID, sh.Status)
+				return
+			}
+			allHealthy = allHealthy && statusGood
+		}
+		if allHealthy {
+			logVerbose(t, "Cluster is healthy!")
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+func getHealth(t *testing.T, ctx context.Context, client driver.Cluster) driver.ClusterHealth {
+	reqCtx, cancel := context.WithTimeout(ctx, time.Second*2)
+	defer cancel()
+	h, err := client.Health(reqCtx)
+	require.NoError(t, err)
+	return h
 }

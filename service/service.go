@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,9 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-// Author Tomasz Mielech
-//
 
 package service
 
@@ -29,7 +26,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"net"
 	"net/http"
@@ -42,19 +38,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/service/options"
-
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
 	"github.com/arangodb/go-driver/jwt"
-	"github.com/pkg/errors"
-	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
+	"github.com/arangodb-helper/arangodb/pkg/utils"
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
 const (
@@ -65,7 +61,6 @@ const (
 type Config struct {
 	ArangodPath          string
 	ArangodJSPath        string
-	ArangoSyncPath       string
 	AdvertisedEndpoint   string
 	MasterPort           int
 	RrPath               string
@@ -83,25 +78,9 @@ type Config struct {
 	LogRotateInterval    time.Duration
 	InstanceUpTimeout    time.Duration
 
-	DockerContainerName   string // Name of the container running this process
-	DockerEndpoint        string // Where to reach the docker daemon
-	DockerArangodImage    string // Name of Arangodb docker image
-	DockerArangoSyncImage string // Name of Arangodb docker image
-	DockerImagePullPolicy ImagePullPolicy
-	DockerStarterImage    string
-	DockerUser            string
-	DockerGCDelay         time.Duration
-	DockerNetworkMode     string
-	DockerPrivileged      bool
-	DockerTTY             bool
-	RunningInDocker       bool
-
-	SyncEnabled             bool   // If set, arangosync servers are activated
-	SyncMasterKeyFile       string // TLS keyfile of local sync master
-	SyncMasterClientCAFile  string // CA Certificate used for client certificate verification
-	SyncMasterJWTSecretFile string // File containing JWT secret used to access the Sync Master (from Sync Worker)
-	SyncMonitoringToken     string // Bearer token used for arangosync --monitoring.token
-	SyncMQType              string // MQType used by sync master
+	DockerConfig       DockerConfig
+	DockerStarterImage string
+	RunningInDocker    bool
 
 	ProjectVersion string
 	ProjectBuild   string
@@ -110,7 +89,7 @@ type Config struct {
 // UseDockerRunner returns true if the docker runner should be used.
 // (instead of the local process runner).
 func (c Config) UseDockerRunner() bool {
-	return c.DockerEndpoint != "" && c.DockerArangodImage != ""
+	return c.DockerConfig.Endpoint != "" && c.DockerConfig.ImageArangoD != ""
 }
 
 // GuessOwnAddress fills in the OwnAddress field if needed and returns an update config.
@@ -135,22 +114,22 @@ func (c Config) GetNetworkEnvironment(log zerolog.Logger) (Config, int, bool) {
 		if c.OwnAddress == "" {
 			log.Fatal().Msg("starter.address must be specified")
 		}
-		if c.DockerContainerName == "" {
+		if c.DockerConfig.HostContainerName == "" {
 			log.Fatal().Msg("docker.container must be specified")
 		}
-		if c.DockerEndpoint == "" {
+		if c.DockerConfig.Endpoint == "" {
 			log.Fatal().Msg("docker.endpoint must be specified")
 		}
-		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(c.DockerEndpoint, c.DockerContainerName, c.MasterPort)
+		hostPort, isNetHost, networkMode, hasTTY, err := findDockerExposedAddress(c.DockerConfig.Endpoint, c.DockerConfig.HostContainerName, c.MasterPort)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to detect port mapping")
 		}
-		if c.DockerNetworkMode == "" && networkMode != "" && networkMode != "default" {
+		if c.DockerConfig.NetworkMode == "" && networkMode != "" && networkMode != "default" && networkMode != "bridge" {
 			log.Info().Msgf("Auto detected network mode: %s", networkMode)
-			c.DockerNetworkMode = networkMode
+			c.DockerConfig.NetworkMode = networkMode
 		}
 		if !hasTTY {
-			c.DockerTTY = false
+			c.DockerConfig.TTY = false
 		}
 		return c, hostPort, isNetHost
 	}
@@ -163,9 +142,7 @@ func (c Config) GetNetworkEnvironment(log zerolog.Logger) (Config, int, bool) {
 func (c Config) CreateRunner(log zerolog.Logger) (Runner, Config, bool) {
 	var runner Runner
 	if c.UseDockerRunner() {
-		runner, err := NewDockerRunner(log, c.DockerEndpoint, c.DockerArangodImage, c.DockerArangoSyncImage,
-			c.DockerImagePullPolicy, c.DockerUser, c.DockerContainerName,
-			c.DockerGCDelay, c.DockerNetworkMode, c.DockerPrivileged, c.DockerTTY)
+		runner, err := NewDockerRunner(log, c.DockerConfig)
 		if err != nil {
 			log.Fatal().Err(err).Msg("Failed to create docker runner")
 		}
@@ -173,7 +150,6 @@ func (c Config) CreateRunner(log zerolog.Logger) (Runner, Config, bool) {
 		// Set executables to their image path's
 		c.ArangodPath = "/usr/sbin/arangod"
 		c.ArangodJSPath = "/usr/share/arangodb3/js"
-		c.ArangoSyncPath = "/usr/sbin/arangosync"
 		// Docker setup uses different volumes with same dataDir, allow that
 		allowSameDataDir := true
 
@@ -217,7 +193,7 @@ type Service struct {
 	tlsConfig             *tls.Config // Server side TLS config (if any)
 	isNetHost             bool        // Is this process running in a container with `--net=host` or running outside a container?
 	mutex                 sync.Mutex  // Mutex used to protect access to this datastructure
-	allowSameDataDir      bool        // If set, multiple arangdb instances are allowed to have the same dataDir (docker case)
+	allowSameDataDir      bool        // If set, multiple arangodb instances are allowed to have the same dataDir (docker case)
 	isLocalSlave          bool
 	learnOwnAddress       bool   // If set, the HTTP server will update my peer with address information gathered from a /hello request.
 	recoveryFile          string // Path of RECOVERY file (if any)
@@ -553,21 +529,6 @@ func (s *Service) serverContainerLogFile(serverType definitions.ServerType) (str
 	return filepath.Join(containerDir, serverType.ProcessType().LogFileName(suffix)), nil
 }
 
-// serverExecutable returns the path of the server's executable.
-func (c *Config) serverExecutable(processType definitions.ProcessType) string {
-	switch processType {
-	case definitions.ProcessTypeArangod:
-		if c.RrPath != "" {
-			return c.RrPath
-		}
-		return c.ArangodPath
-	case definitions.ProcessTypeArangoSync:
-		return c.ArangoSyncPath
-	default:
-		return ""
-	}
-}
-
 // UpgradeManager returns the upgrade manager service.
 func (s *Service) UpgradeManager() UpgradeManager {
 	return s.upgradeManager
@@ -581,15 +542,14 @@ type StatusItem struct {
 }
 
 type instanceUpInfo struct {
-	Version  string
-	Role     string
-	Mode     string
-	IsLeader bool
+	Version string
+	Role    string
+	Mode    string
 }
 
 // TestInstance checks the `up` status of an arangod server instance.
 func (s *Service) TestInstance(ctx context.Context, serverType definitions.ServerType, address string, port int,
-	statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, isLeader bool, statusTrail []int, cancelled bool) {
+	statusChanged chan StatusItem) (up, correctRole bool, version, role, mode string, statusTrail []int, cancelled bool) {
 	instanceUp := make(chan instanceUpInfo)
 	statusCodes := make(chan int)
 	if statusChanged != nil {
@@ -598,14 +558,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 	go func() {
 		defer close(instanceUp)
 		defer close(statusCodes)
-		client := &http.Client{
-			Timeout: time.Second * 10,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		}
+
 		scheme := "http"
 		if s.IsSecure() {
 			scheme = "https"
@@ -613,12 +566,12 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 		makeArangodVersionRequest := func() (string, int, error) {
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 
-			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
+			clientDb, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
 			if err != nil {
 				return "", -1, maskAny(err)
 			}
 
-			c := client.Connection()
+			c := clientDb.Connection()
 
 			req, err := c.NewRequest("GET", "/_api/version")
 			if err != nil {
@@ -630,7 +583,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 				return "", -3, maskAny(err)
 			}
 			if resp.StatusCode() != 200 {
-				return "", resp.StatusCode(), maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
+				return "", resp.StatusCode(), maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode()))
 			}
 			versionResponse := struct {
 				Version string `json:"version"`
@@ -640,56 +593,23 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			}
 			return versionResponse.Version, resp.StatusCode(), nil
 		}
-		makeArangoSyncVersionRequest := func() (string, int, error) {
-			addr := net.JoinHostPort(address, strconv.Itoa(port))
-			url := fmt.Sprintf("https://%s/_api/version", addr)
-			req, err := http.NewRequest("GET", url, nil)
-			if err != nil {
-				return "", -1, maskAny(err)
-			}
-			if err := addBearerTokenHeader(req, s.cfg.SyncMonitoringToken); err != nil {
-				return "", -2, maskAny(err)
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				return "", -3, maskAny(err)
-			}
-			if resp.StatusCode != 200 {
-				return "", resp.StatusCode, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
-			}
-			versionResponse := struct {
-				Version string `json:"version"`
-				Build   string `json:"build"`
-			}{}
-			defer resp.Body.Close()
-			decoder := json.NewDecoder(resp.Body)
-			if err := decoder.Decode(&versionResponse); err != nil {
-				return "", -4, maskAny(fmt.Errorf("Unexpected version response: %#v", err))
-			}
-			return versionResponse.Version, resp.StatusCode, nil
-		}
 		makeVersionRequest := func() (string, int, error) {
 			switch serverType.ProcessType() {
 			case definitions.ProcessTypeArangod:
 				return makeArangodVersionRequest()
-			case definitions.ProcessTypeArangoSync:
-				return makeArangoSyncVersionRequest()
 			default:
 				return "", 0, maskAny(fmt.Errorf("Unknown process type '%s'", serverType.ProcessType()))
 			}
 		}
 		makeRoleRequest := func() (string, string, int, error) {
-			if serverType.ProcessType() == definitions.ProcessTypeArangoSync {
-				return "", "", 200, nil
-			}
 			addr := net.JoinHostPort(address, strconv.Itoa(port))
 
-			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
+			clientDB, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
 			if err != nil {
 				return "", "", -1, maskAny(err)
 			}
 
-			c := client.Connection()
+			c := clientDB.Connection()
 			req, err := c.NewRequest("GET", "/_admin/server/role")
 			if err != nil {
 				return "", "", -1, maskAny(err)
@@ -711,63 +631,17 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			}
 			return roleResponse.Role, roleResponse.Mode, resp.StatusCode(), nil
 		}
-		makeIsLeaderRequest := func() (bool, error) {
-			if serverType != definitions.ServerTypeResilientSingle {
-				return false, nil
-			}
-			addr := net.JoinHostPort(address, strconv.Itoa(port))
-
-			client, err := s.CreateClient([]string{fmt.Sprintf("%s://%s", scheme, addr)}, ConnectionTypeDatabase, serverType)
-			if err != nil {
-				return false, maskAny(err)
-			}
-
-			c := client.Connection()
-
-			req, err := c.NewRequest("GET", "/_api/database")
-			if err != nil {
-				return false, maskAny(err)
-			}
-
-			resp, err := c.Do(ctx, req)
-			if err != nil {
-				if driver.IsNoLeader(err) {
-					// Server is up, just not the leader
-					return false, nil
-				}
-				return false, maskAny(err)
-			}
-			if resp.StatusCode() == 200 {
-				return true, nil
-			}
-
-			var data driver.ArangoError
-
-			if err := resp.ParseBody("", &data); err != nil {
-				return false, maskAny(err)
-			}
-
-			if IsNoLeaderError(data) {
-				// Server is up, just not the leader
-				return false, nil
-			}
-
-			return false, maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode))
-		}
 
 		checkInstanceOnce := func() bool {
 			if version, statusCode, err := makeVersionRequest(); err == nil {
 				var role, mode string
 				if role, mode, statusCode, err = makeRoleRequest(); err == nil {
-					if isLeader, err := makeIsLeaderRequest(); err == nil {
-						instanceUp <- instanceUpInfo{
-							Version:  version,
-							Role:     role,
-							Mode:     mode,
-							IsLeader: isLeader,
-						}
-						return true
+					instanceUp <- instanceUpInfo{
+						Version: version,
+						Role:    role,
+						Mode:    mode,
 					}
+					return true
 				}
 				statusCodes <- statusCode
 			}
@@ -793,7 +667,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			up = instanceInfo.Version != ""
 			correctRole = instanceInfo.Role == expectedRole || expectedRole == ""
 			correctMode := instanceInfo.Mode == expectedMode || expectedMode == ""
-			return up, correctRole && correctMode, instanceInfo.Version, instanceInfo.Role, instanceInfo.Mode, instanceInfo.IsLeader, statusTrail, false
+			return up, correctRole && correctMode, instanceInfo.Version, instanceInfo.Role, instanceInfo.Mode, statusTrail, false
 		case statusCode := <-statusCodes:
 			lastStatusCode := math.MinInt32
 			if len(statusTrail) > 0 {
@@ -810,7 +684,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 				}
 			}
 		case <-ctx.Done():
-			return false, false, "", "", "", false, statusTrail, true
+			return false, false, "", "", "", statusTrail, true
 		}
 	}
 }
@@ -915,8 +789,9 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			// ID already found, update peer data
 			for i, p := range s.myPeers.AllPeers {
 				if p.ID == req.SlaveID {
+					peer := &s.myPeers.AllPeers[i]
 					if s.cfg.AllPortOffsetsUnique {
-						s.myPeers.AllPeers[i].Address = slaveAddr
+						peer.Address = slaveAddr
 					} else {
 						// Need to check if this particular address does appear in
 						// another peer, if so, we forbid to change the address:
@@ -932,14 +807,18 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 							return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot change slave address while using an existing ID."))
 						}
 						// We accept the new address (it might be the old one):
-						s.myPeers.AllPeers[i].Address = slaveAddr
+						peer.Address = slaveAddr
 						// However, since we also accept the port, we must set the
 						// port ofset of that replaced peer to 0 such that the AllPeers
 						// information actually contains the right port.
-						s.myPeers.AllPeers[i].PortOffset = 0
+						peer.PortOffset = 0
 					}
-					s.myPeers.AllPeers[i].Port = req.SlavePort
-					s.myPeers.AllPeers[i].DataDir = req.DataDir
+					peer.Port = req.SlavePort
+					peer.DataDir = req.DataDir
+
+					peer.HasAgentFlag = boolFromRef(req.Agent, peer.HasAgentFlag)
+					peer.HasCoordinatorFlag = utils.NotNilDefault(req.Coordinator, peer.HasCoordinatorFlag)
+					peer.HasDBServerFlag = utils.NotNilDefault(req.DBServer, peer.HasDBServerFlag)
 				}
 			}
 		} else {
@@ -951,39 +830,27 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			// ID not yet found, add it
 			portOffset := s.myPeers.GetFreePortOffset(slaveAddr, slavePort, s.cfg.AllPortOffsetsUnique)
 			s.log.Debug().Msgf("Set slave port offset to %d, got slaveAddr=%s, slavePort=%d", portOffset, slaveAddr, slavePort)
-			hasAgent := !s.myPeers.HaveEnoughAgents()
+
+			servers := peerServers{
+				HasAgentFlag:       !s.myPeers.HaveEnoughAgents(),
+				HasDBServerFlag:    nil,
+				HasCoordinatorFlag: nil,
+			}
 			if req.Agent != nil {
-				hasAgent = *req.Agent
+				servers.HasAgentFlag = *req.Agent
 			}
-			hasDBServer := true
-			if req.DBServer != nil {
-				hasDBServer = *req.DBServer
+			if req.DBServer != nil && *req.DBServer != true {
+				servers.HasDBServerFlag = req.DBServer
 			}
-			hasCoordinator := true
-			if req.Coordinator != nil {
-				hasCoordinator = *req.Coordinator
+			if req.Coordinator != nil && *req.Coordinator != true {
+				servers.HasCoordinatorFlag = req.Coordinator
 			}
-			hasResilientSingle := s.mode.IsActiveFailoverMode()
-			if req.ResilientSingle != nil {
-				hasResilientSingle = *req.ResilientSingle
-			}
-			hasSyncMaster := s.mode.SupportsArangoSync() && s.cfg.SyncEnabled
-			if req.SyncMaster != nil {
-				hasSyncMaster = *req.SyncMaster
-			}
-			hasSyncWorker := s.mode.SupportsArangoSync() && s.cfg.SyncEnabled
-			if req.SyncWorker != nil {
-				hasSyncWorker = *req.SyncWorker
-			}
-			newPeer := NewPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir,
-				hasAgent, hasDBServer, hasCoordinator, hasResilientSingle,
-				hasSyncMaster, hasSyncWorker,
-				req.IsSecure)
+			newPeer := newPeer(req.SlaveID, slaveAddr, slavePort, portOffset, req.DataDir, servers, req.IsSecure)
 			s.myPeers.AddPeer(newPeer)
 			s.log.Info().Msgf("Added new peer '%s': %s, portOffset: %d", newPeer.ID, newPeer.Address, newPeer.PortOffset)
 		}
 
-		// Start the running the servers if we have enough agents
+		// Start running if we have enough agents
 		if s.myPeers.HaveEnoughAgents() {
 			// Save updated configuration
 			s.saveSetup()
@@ -1075,7 +942,7 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 func (s *Service) getGlobalToken() (string, error) {
 	p := s.GetLocalFolder()
 
-	token, err := ioutil.ReadFile(path.Join(p, definitions.ArangodJWTSecretActive))
+	token, err := os.ReadFile(path.Join(p, definitions.ArangodJWTSecretActive))
 	if err != nil {
 		return "", err
 	}
@@ -1091,7 +958,7 @@ func (s *Service) getFolderToken(serverTypes ...definitions.ServerType) (string,
 			continue
 		}
 
-		token, err := ioutil.ReadFile(path.Join(p, definitions.ArangodJWTSecretFolderName, definitions.ArangodJWTSecretActive))
+		token, err := os.ReadFile(path.Join(p, definitions.ArangodJWTSecretFolderName, definitions.ArangodJWTSecretActive))
 		if err != nil {
 			currentErr = err
 			continue
@@ -1121,16 +988,6 @@ func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) {
 		s.log.Debug().Msg("Updated cluster config")
 	} else {
 		s.log.Debug().Msg("Updating cluster config is not needed")
-	}
-}
-
-// MasterChangedCallback interrupts the runtime cluster manager
-func (s *Service) MasterChangedCallback() {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if s.state == stateRunningSlave {
-		go s.runtimeClusterManager.Interrupt()
 	}
 }
 
@@ -1246,7 +1103,7 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 }
 
 // Run runs the service in either master or slave mode.
-func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers ClusterConfig, shouldRelaunch bool) error {
+func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterConfig ClusterConfig, shouldRelaunch bool) error {
 	// Prepare a context that is cancelled when we need to stop
 	s.stopPeer.ctx, s.stopPeer.trigger = context.WithCancel(rootCtx)
 
@@ -1258,7 +1115,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	s.sslKeyFile = bsCfg.SslKeyFile
 
 	// Check mode & flags
-	if bsCfg.Mode.IsClusterMode() || bsCfg.Mode.IsActiveFailoverMode() {
+	if bsCfg.Mode.IsClusterMode() {
 		if bsCfg.AgencySize < 1 {
 			return maskAny(fmt.Errorf("AgentSize must be >= 1"))
 		}
@@ -1300,7 +1157,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 					return err
 				}
 
-				if err := ioutil.WriteFile(bsCfg.JWTFolderDirFile(definitions.ArangodJWTSecretActive), []byte(s.jwtSecret), 0600); err != nil {
+				if err := os.WriteFile(bsCfg.JWTFolderDirFile(definitions.ArangodJWTSecretActive), []byte(s.jwtSecret), 0600); err != nil {
 					return err
 				}
 			}
@@ -1319,8 +1176,11 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 
 	// Is this a new start or a restart?
 	if shouldRelaunch {
-		s.myPeers = myPeers
-		s.log.Info().Msgf("Relaunching service with id '%s' on %s:%d...", s.id, s.cfg.OwnAddress, s.announcePort)
+		s.myPeers = clusterConfig
+
+		s.adjustClusterConfigForRelaunch(bsCfg)
+		s.saveSetup()
+
 		storageEngine, err := s.readActualStorageEngine()
 		if err != nil {
 			return maskAny(err)
@@ -1331,7 +1191,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 		s.startHTTPServer(s.cfg)
 		wg := &sync.WaitGroup{}
 		if bsCfg.StartLocalSlaves {
-			s.startLocalSlaves(wg, s.cfg, bsCfg, myPeers.AllPeers)
+			s.startLocalSlaves(wg, s.cfg, bsCfg, clusterConfig.AllPeers)
 		}
 		s.startRunning(runner, s.cfg, bsCfg)
 		wg.Wait()
@@ -1352,4 +1212,18 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, myPeers Cl
 	}
 
 	return nil
+}
+
+func (s *Service) adjustClusterConfigForRelaunch(bsCfg BootstrapConfig) {
+	if !s.mode.IsClusterMode() {
+		return
+	}
+
+	s.myPeers.ForEachPeer(func(p Peer) Peer {
+		if bsCfg.ID == p.ID {
+			s.log.Debug().Msgf("Adjusting current memeber cluster config after restart (port: %d)", p.Port)
+			p.peerServers = preparePeerServers(s.mode, bsCfg, s.cfg)
+		}
+		return p
+	})
 }

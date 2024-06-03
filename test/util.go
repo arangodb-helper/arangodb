@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
@@ -28,35 +26,33 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	shell "github.com/kballard/go-shellquote"
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
+
 	"github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/client"
-	shell "github.com/kballard/go-shellquote"
-	"github.com/pkg/errors"
 )
 
 const (
-	ctrlC                                         = "\u0003"
-	whatCluster                                   = "cluster"
-	whatSingle                                    = "single server"
-	whatResilientSingle                           = "resilient single server"
-	testModeProcess                               = "localprocess"
-	testModeDocker                                = "docker"
-	starterModeCluster                            = "cluster"
-	starterModeSingle                             = "single"
-	starterModeActiveFailover                     = "activefailover"
-	portIncrement                                 = 10
-	travisEnv                 EnvironmentVariable = "TRAVIS"
+	whatCluster        = "cluster"
+	whatSingle         = "single server"
+	testModeProcess    = "localprocess"
+	testModeDocker     = "docker"
+	starterModeCluster = "cluster"
+	starterModeSingle  = "single"
+	portIncrement      = 10
 )
 
 type EnvironmentVariable string
@@ -69,22 +65,14 @@ func (e EnvironmentVariable) Lookup() (string, bool) {
 	return os.LookupEnv(e.String())
 }
 
-func SkipOnTravis(t *testing.T, format string, args ...interface{}) {
-	if _, ok := travisEnv.Lookup(); ok {
-		t.Skipf(format, args...)
-	}
-}
-
 var (
 	isVerbose    bool
-	isEnterprise bool
 	testModes    []string
 	starterModes []string
 )
 
 func init() {
 	isVerbose = strings.TrimSpace(os.Getenv("VERBOSE")) != ""
-	isEnterprise = strings.TrimSpace(os.Getenv("ENTERPRISE")) != ""
 	testModes = strings.Split(strings.TrimSpace(os.Getenv("TEST_MODES")), ",")
 	if len(testModes) == 1 && testModes[0] == "" {
 		testModes = nil
@@ -95,7 +83,13 @@ func init() {
 	}
 }
 
-func needTestMode(t *testing.T, testMode string) {
+func logVerbose(t *testing.T, format string, args ...interface{}) {
+	if isVerbose || testing.Verbose() {
+		t.Logf(format, args...)
+	}
+}
+
+func needTestMode(t *testing.T, testMode string, needEnterprise bool) {
 	for _, x := range testModes {
 		if x == testMode {
 			return
@@ -105,45 +99,68 @@ func needTestMode(t *testing.T, testMode string) {
 		return
 	}
 	t.Skipf("Test mode '%s' not set", testMode)
+
+	if needEnterprise {
+		f := getSupportedDatabaseFeatures(t, testMode)
+		if f.Enterprise {
+			return
+		}
+		t.Skip("Enterprise is not available")
+	}
 }
 
-func needStarterMode(t *testing.T, starterMode string) {
+func testMatch(t *testing.T, testMode, starterMode string, needEnterprise bool) {
+	needTestMode(t, testMode, needEnterprise)
+	needStarterMode(t, testMode, starterMode)
+}
+
+func needStarterMode(t *testing.T, testMode, starterMode string) {
 	for _, x := range starterModes {
 		if x == starterMode {
+			needModeSupportedByVersion(t, testMode, starterMode)
 			return
 		}
 	}
 	if len(starterModes) == 0 {
+		needModeSupportedByVersion(t, testMode, starterMode)
 		return
 	}
 	t.Skipf("Starter mode '%s' not set, have %v", starterMode, starterModes)
 }
 
-func needEnterprise(t *testing.T) {
-	if isEnterprise {
-		return
+func needModeSupportedByVersion(t *testing.T, testMode, starterMode string) {
+	if !isModeSupportedByVersion(t, testMode, starterMode) {
+		t.Skipf("Starter mode '%s' is not supported by provided ArangoDB version", starterMode)
 	}
-	t.Skip("Enterprise is not available")
 }
 
-// Spawn a command an return its process and expand envs.
+func isModeSupportedByVersion(t *testing.T, testMode, starterMode string) bool {
+	/*f := getSupportedDatabaseFeatures(t, testMode)
+
+	if starterMode == starterModeActiveFailover {
+		if !f.SupportsActiveFailover() {
+			return false
+		}
+	}*/
+
+	return true
+}
+
+// Spawn spawns a command and returns its process with optionally expanded envs.
 func Spawn(t *testing.T, command string) *SubProcess {
 	return SpawnWithExpand(t, command, true)
 }
 
-// Spawn a command an return its process with optionally expanded envs.
+// SpawnWithExpand spawns a command and returns its process with optionally expanded envs.
 func SpawnWithExpand(t *testing.T, command string, expand bool) *SubProcess {
 	command = strings.TrimSpace(command)
 	if expand {
 		command = os.ExpandEnv(command)
 	}
-	t.Logf("Executing command: %s", command)
+	logVerbose(t, "Executing command: %s", command)
 	args, err := shell.Split(command)
 	if err != nil {
 		t.Fatal(describe(err))
-	}
-	if isVerbose {
-		t.Log(args, len(args))
 	}
 	p, err := NewSubProcess(args[0], args[1:]...)
 	if err != nil {
@@ -158,12 +175,28 @@ func SpawnWithExpand(t *testing.T, command string, expand bool) *SubProcess {
 
 // SetUniqueDataDir creates a temp dir and sets the DATA_DIR environment variable to it.
 func SetUniqueDataDir(t *testing.T) string {
-	dataDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatal(describe(err))
-	}
+	dataDir, err := os.MkdirTemp("", "")
+	require.NoError(t, err)
 	os.Setenv("DATA_DIR", dataDir)
 	return dataDir
+}
+
+// WaitUntilStarterExit waits until given starter process will finish and checks for exit code
+func WaitUntilStarterExit(t *testing.T, timeout time.Duration, exitCode int, starter *SubProcess) {
+	err := starter.WaitTimeout(timeout)
+	if exitCode == 0 {
+		require.NoError(t, err)
+		return
+	}
+
+	require.Error(t, err)
+	err = errors.Cause(err)
+	require.Error(t, err)
+
+	exitErr, ok := err.(*exec.ExitError)
+	require.True(t, ok, "Expected ExitError, got %+v", err)
+
+	require.Equalf(t, exitCode, exitErr.ExitCode(), "starter should have failed")
 }
 
 // WaitUntilStarterReady waits until all given starter processes have reached the "Your cluster is ready state"
@@ -180,9 +213,7 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 	for id, starter := range starters {
 		go func(i int, s *SubProcess) {
 			defer wg.Done()
-			defer cancel()
 			id := fmt.Sprintf("starter-%d", i+1)
-
 			results[i] = s.ExpectTimeout(ctx, time.Minute*3, regexp.MustCompile(fmt.Sprintf("Your %s can now be accessed with a browser at", what)), id)
 		}(id, starter)
 	}
@@ -196,8 +227,9 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		}
 	}
 
-	if failed <= requiredGoodResults {
-		GetLogger(t).Log("Starter Started")
+	readyStarters := len(starters) - failed
+	if readyStarters >= requiredGoodResults || requiredGoodResults == 0 {
+		GetLogger(t).Log("%d starters ready", readyStarters)
 		return true
 	}
 
@@ -209,7 +241,9 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		}
 	}
 	for _, msg := range results {
-		t.Error(msg)
+		if msg != nil {
+			t.Error(msg)
+		}
 	}
 
 	return false
@@ -265,6 +299,22 @@ func WaitUntilServiceReady(t *testing.T, c driver.Client, checkFunc ServiceReady
 	}
 }
 
+// WaitUntilCoordinatorReadyAPI creates client with default root/password and waits until good response.
+// Returns client
+func WaitUntilCoordinatorReadyAPI(t *testing.T, endpoint string) driver.Client {
+	if isVerbose {
+		t.Logf("Waiting coordinator at %s is ready", endpoint)
+	}
+	auth := driver.BasicAuthentication("root", "")
+	coordinatorClient, err := CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 30*time.Second, 500*time.Millisecond)
+	return coordinatorClient
+}
+
 // ServiceReadyCheckVersion checks if version can be fetched
 func ServiceReadyCheckVersion() ServiceReadyCheckFunc {
 	return func(t *testing.T, ctx context.Context, c driver.Client) error {
@@ -283,8 +333,9 @@ func ServiceReadyCheckDatabase(databaseName string) ServiceReadyCheckFunc {
 
 func WaitForHttpPortClosed(log Logger, throttle Throttle, url string) TimeoutFunc {
 	return func() error {
-		_, err := http.Get(url)
+		resp, err := http.Get(url)
 		if err == nil {
+			resp.Body.Close()
 			throttle.Execute(func() {
 				log.Log("Got empty response")
 			})
@@ -307,6 +358,8 @@ func WaitForHttpPortClosed(log Logger, throttle Throttle, url string) TimeoutFun
 func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 	g := sync.WaitGroup{}
 	result := true
+
+	t.Logf("Stopping %d starters", len(starters))
 	for _, starter := range starters {
 		starter := starter // Used in nested function
 		g.Add(1)
@@ -321,7 +374,6 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 	time.Sleep(time.Second)
 	for _, starter := range starters {
 		starter.SendIntr()
-		//starter.Send(ctrlC)
 	}
 	g.Wait()
 	return result

@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -35,14 +33,11 @@ package service
 //
 
 import (
-	"io/ioutil"
-	"os"
 	"runtime"
-	"strings"
-
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
 
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 type optionPair struct {
@@ -67,8 +62,6 @@ func collectServerConfigVolumes(serverType definitions.ServerType, config config
 		addVolumeForSetting("ssl", "keyfile")
 		addVolumeForSetting("ssl", "cafile")
 		addVolumeForSetting("rocksdb", "encryption-keyfile")
-	case definitions.ProcessTypeArangoSync:
-		// TODO
 	}
 
 	return result
@@ -81,20 +74,8 @@ func createServerArgs(log zerolog.Logger, config Config, clusterConfig ClusterCo
 	switch serverType.ProcessType() {
 	case definitions.ProcessTypeArangod:
 		return createArangodArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, arangodConfig, agentRecoveryID, databaseAutoUpgrade, clusterJWTSecretFile, features), nil
-	case definitions.ProcessTypeArangoSync:
-		return createArangoSyncArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeerID, myAddress, myPort, serverType, clusterJWTSecretFile, features)
 	default:
 		return nil, nil
-	}
-}
-
-// writeCommand writes the command used to start a server in a file with given path.
-func writeCommand(log zerolog.Logger, filename string, executable string, args []string) {
-	content := strings.Join(args, " \\\n") + "\n"
-	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		if err := ioutil.WriteFile(filename, []byte(content), 0755); err != nil {
-			log.Error().Err(err).Msgf("Failed to write command to %s", filename)
-		}
 	}
 }
 
@@ -102,7 +83,7 @@ func writeCommand(log zerolog.Logger, filename string, executable string, args [
 func addVolume(configVolumes []Volume, hostPath, containerPath string, readOnly bool) []Volume {
 	if runtime.GOOS == "linux" {
 		return []Volume{
-			Volume{
+			{
 				HostPath:      hostPath,
 				ContainerPath: containerPath,
 				ReadOnly:      readOnly,

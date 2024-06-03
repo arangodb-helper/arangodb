@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package service
@@ -35,7 +33,7 @@ import (
 var (
 	// SetupConfigVersion is the semantic version of the process that created this.
 	// If the structure of SetupConfigFile (or any underlying fields) or its semantics change, you must increase this version.
-	setupConfigVersion    = *semver.New("0.2.2") // Current version
+	setupConfigVersion    = *semver.New("0.2.3") // Current version
 	minSetupConfigVersion = *semver.New("0.2.1") // Minimum version that we can support
 )
 
@@ -79,46 +77,38 @@ func (s *Service) saveSetup() error {
 
 // ReadSetupConfig tries to read a setup.json config file and relaunch when that file exists and is valid.
 // Returns true on relaunch or false to continue with a fresh start.
-func ReadSetupConfig(log zerolog.Logger, dataDir string, bsCfg BootstrapConfig) (BootstrapConfig, ClusterConfig, bool, error) {
+func ReadSetupConfig(log zerolog.Logger, dataDir string) (SetupConfigFile, bool, error) {
 	// Is this a new start or a restart?
-	setupContent, err := ioutil.ReadFile(filepath.Join(dataDir, setupFileName))
+	confFile := filepath.Join(dataDir, setupFileName)
+	setupContent, err := os.ReadFile(confFile)
 	if err != nil {
-		return bsCfg, ClusterConfig{}, false, nil
+		log.Info().Err(err).Msgf("Failed to read configuration file \"%s\"", confFile)
+		return SetupConfigFile{}, false, nil
 	}
+	return VerifySetupConfig(log, setupContent)
+}
+
+func VerifySetupConfig(log zerolog.Logger, setupContent []byte) (SetupConfigFile, bool, error) {
 	// Could read file
 	var cfg SetupConfigFile
 	if err := json.Unmarshal(setupContent, &cfg); err != nil {
 		log.Warn().Err(err).Msgf("Failed to unmarshal existing %s", setupFileName)
-		return bsCfg, ClusterConfig{}, false, nil
+		return SetupConfigFile{}, false, nil
 	}
 	// Parse version
 	version, err := semver.NewVersion(cfg.Version)
 	if err != nil {
 		log.Warn().Err(err).Msgf("Failed to parse version '%s' in %s", cfg.Version, setupFileName)
-		return bsCfg, ClusterConfig{}, false, nil
+		return SetupConfigFile{}, false, nil
 	}
 
 	// If version recent enough?
 	if version.LessThan(minSetupConfigVersion) {
 		log.Warn().Msgf("%s is outdated (version %s). Starting fresh...", setupFileName, cfg.Version)
-		return bsCfg, ClusterConfig{}, false, nil
+		return SetupConfigFile{}, false, nil
 	}
 
-	// Reload data from config
-	bsCfg.ID = cfg.ID
-	if cfg.Mode != "" {
-		bsCfg.Mode = cfg.Mode
-	}
-	bsCfg.StartLocalSlaves = cfg.StartLocalSlaves
-	if cfg.SslKeyFile != "" {
-		bsCfg.SslKeyFile = cfg.SslKeyFile
-	}
-	if cfg.JwtSecret != "" {
-		bsCfg.JwtSecret = cfg.JwtSecret
-	}
-	bsCfg.AgencySize = cfg.Peers.AgencySize
-
-	return bsCfg, cfg.Peers, true, nil
+	return cfg, true, nil
 }
 
 // RemoveSetupConfig tries to remove a setup.json config file.

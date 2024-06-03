@@ -25,8 +25,9 @@ package features
 import (
 	"fmt"
 
-	"github.com/arangodb/go-driver"
 	flag "github.com/spf13/pflag"
+
+	"github.com/arangodb/go-driver"
 )
 
 type Version struct {
@@ -36,6 +37,7 @@ type Version struct {
 
 type Feature interface {
 	Register(i *flag.FlagSet) error
+	RegisterDeprecated(i *flag.FlagSet) error
 
 	Enabled(v Version) bool
 }
@@ -55,10 +57,22 @@ type feature struct {
 	check             func(v Version) bool
 }
 
+func (f *feature) flagName() string {
+	return fmt.Sprintf("feature.%s", f.name)
+}
+
 func (f *feature) Register(i *flag.FlagSet) error {
-	i.BoolVar(&f.enabled, fmt.Sprintf("feature.%s", f.name), f.enabled, f.description)
+	i.BoolVar(&f.enabled, f.flagName(), f.enabled, f.description)
 
 	return nil
+}
+
+func (f *feature) RegisterDeprecated(i *flag.FlagSet) error {
+	err := f.Register(i)
+	if err != nil {
+		return err
+	}
+	return i.MarkDeprecated(f.flagName(), "Deprecated. Providing any value to this flag will not affect starter behaviour.")
 }
 
 func (f feature) Enabled(v Version) bool {

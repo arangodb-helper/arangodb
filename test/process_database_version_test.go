@@ -33,8 +33,7 @@ import (
 // and tries a /database-version request.
 func TestProcessDatabaseVersion(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeSingle)
+	testMatch(t, testModeProcess, starterModeSingle, false)
 	dataDir := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDir)
 

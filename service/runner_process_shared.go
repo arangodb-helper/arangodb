@@ -20,11 +20,13 @@
 // Author Adam Janikowski
 //
 
+//go:build !windows
 // +build !windows
 
 package service
 
 import (
+	"fmt"
 	"syscall"
 )
 
@@ -37,6 +39,8 @@ func (p *process) Terminate() error {
 			}
 			return maskAny(err)
 		}
+	} else {
+		return fmt.Errorf("could not send signal: process handle is missing")
 	}
 	return nil
 }

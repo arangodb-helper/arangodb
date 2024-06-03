@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,8 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
 //
 
 package test
@@ -35,9 +33,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -202,12 +199,41 @@ func (sp *SubProcess) ExpectTimeout(ctx context.Context, timeout time.Duration, 
 
 		stdoutMutex.Lock()
 		defer stdoutMutex.Unlock()
-		fmt.Printf("Timeout while waiting for '%s' in %s\nOutput so far:\n", re, id)
+		errMsg := fmt.Sprintf("Timeout while waiting for '%s' in %s", re, id)
+		fmt.Printf("%s\nOutput so far:\n", errMsg)
 		os.Stdout.Write(output)
-		return errors.New("Timeout")
+		return errors.New(errMsg)
 	case <-found:
 		// Success
 		return nil
+	}
+}
+
+// EnsureNoMatches returns error only if matches were found
+func (sp *SubProcess) EnsureNoMatches(ctx context.Context, timeout time.Duration, re *regexp.Regexp, id string) error {
+	found := make(chan struct{})
+
+	sp.matchExpressionAsync(ctx, found, re)
+
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-time.After(timeout):
+		// Success
+		return nil
+	case <-found:
+		// Matches found:
+		var output []byte
+		sp.mutex.Lock()
+		output = sp.output.Bytes()
+		sp.mutex.Unlock()
+
+		stdoutMutex.Lock()
+		defer stdoutMutex.Unlock()
+		errMsg := fmt.Sprintf("Unexpected matches found for '%s' in %s", re, id)
+		fmt.Printf("%s\nOutput so far:\n", errMsg)
+		os.Stdout.Write(output)
+		return errors.New(errMsg)
 	}
 }
 

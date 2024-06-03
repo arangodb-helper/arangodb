@@ -20,7 +20,7 @@
 // Author Ewout Prangsma
 //
 
-package main
+package docker
 
 import (
 	"fmt"
@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	docker "github.com/fsouza/go-dockerclient"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -36,13 +37,13 @@ const (
 	cgroupDockerCEMarker = ":/docker-ce/docker/"
 )
 
-type containerInfo struct {
+type ContainerInfo struct {
 	Name      string
 	ImageName string
 }
 
-// isRunningInDocker checks if the process is running in a docker container.
-func isRunningInDocker() bool {
+// IsRunningInDocker checks if the process is running in a docker container.
+func IsRunningInDocker() bool {
 	if os.Getenv("RUNNING_IN_DOCKER") != "true" {
 		return false
 	}
@@ -52,49 +53,32 @@ func isRunningInDocker() bool {
 	return true
 }
 
-// findDockerContainerInfo find information (name or if not possible the ID, image-name) of the container that is used to run this process.
-func findDockerContainerInfo(dockerEndpoint string) (containerInfo, error) {
-	findID := func() (string, error) {
-		raw, err := ioutil.ReadFile("/proc/self/cgroup")
-		if err != nil {
-			return "", maskAny(err)
-		}
-		lines := strings.Split(string(raw), "\n")
-		for _, line := range lines {
-
-			if i := strings.Index(line, cgroupDockerCEMarker); i > 0 {
-				id := strings.TrimSpace(line[i+len(cgroupDockerCEMarker):])
-				if id != "" {
-					return id, nil
-				}
-			} else if i := strings.Index(line, cgroupDockerMarker); i > 0 {
-				id := strings.TrimSpace(line[i+len(cgroupDockerMarker):])
-				if id != "" {
-					return id, nil
-				}
-			}
-		}
-		return "", maskAny(fmt.Errorf("Cannot find docker marker"))
-	}
-
-	id, err := findID()
+// FindDockerContainerInfo find information (name or if not possible the ID, image-name) of the container that is used to run this process.
+func FindDockerContainerInfo(dockerEndpoint string) (ContainerInfo, error) {
+	id, err := findRunningContainerID()
 	if err != nil {
-		return containerInfo{}, maskAny(err)
+		// Determining the container ID in unified-hierarchy mode is impossible.
+		// Falling back to hostname if available
+		id = os.Getenv("HOSTNAME")
+		if !IsCGroup2UnifiedMode() || id == "" {
+			return ContainerInfo{}, errors.WithMessagef(err, "hostname env val %s", id)
+		}
 	}
-	info := containerInfo{Name: id}
+	info := ContainerInfo{Name: id}
 
 	// Find name for container with ID.
 	client, err := docker.NewClient(dockerEndpoint)
 	if err != nil {
-		return info, nil // fallback to ID
+		return info, nil
 	}
 	container, err := client.InspectContainer(id)
 	if err != nil {
-		return info, nil // fallback to ID
+		return info, nil
 	}
 
-	if name := container.Name; name != "" {
-		info.Name = name
+	info.Name = container.ID
+	if container.Name != "" {
+		info.Name = container.Name
 	}
 	info.ImageName = container.Image
 
@@ -105,4 +89,26 @@ func findDockerContainerInfo(dockerEndpoint string) (containerInfo, error) {
 	}
 
 	return info, nil
+}
+
+func findRunningContainerID() (string, error) {
+	raw, err := ioutil.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return "", errors.WithStack(err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	for _, line := range lines {
+		if i := strings.Index(line, cgroupDockerCEMarker); i > 0 {
+			id := strings.TrimSpace(line[i+len(cgroupDockerCEMarker):])
+			if id != "" {
+				return id, nil
+			}
+		} else if i := strings.Index(line, cgroupDockerMarker); i > 0 {
+			id := strings.TrimSpace(line[i+len(cgroupDockerMarker):])
+			if id != "" {
+				return id, nil
+			}
+		}
+	}
+	return "", errors.WithStack(fmt.Errorf("cannot find docker marker"))
 }

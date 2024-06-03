@@ -24,8 +24,9 @@
 package service
 
 import (
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	driver "github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 type ConnectionType int

@@ -28,8 +28,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/client"
 	"github.com/spf13/cobra"
+
+	"github.com/arangodb-helper/arangodb/client"
 )
 
 var (
@@ -51,10 +52,10 @@ func cmdStopRun(cmd *cobra.Command, args []string) {
 
 	// Create starter client
 	scheme := "http"
-	if sslAutoKeyFile || sslKeyFile != "" {
+	if opts.ssl.autoKeyFile || opts.ssl.keyFile != "" {
 		scheme = "https"
 	}
-	starterURL, err := url.Parse(fmt.Sprintf("%s://127.0.0.1:%d", scheme, masterPort))
+	starterURL, err := url.Parse(fmt.Sprintf("%s://127.0.0.1:%d", scheme, opts.starter.masterPort))
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create starter URL")
 	}

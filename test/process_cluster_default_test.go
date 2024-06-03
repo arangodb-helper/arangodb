@@ -31,8 +31,7 @@ import (
 // TestProcessClusterDefault starts a master starter, followed by 2 slave starters.
 func TestProcessClusterDefault(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -48,7 +47,7 @@ func TestProcessClusterDefault(t *testing.T) {
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 --args.all.temp.path=@ARANGODB_SERVER_DIR@/temp "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
@@ -67,8 +66,7 @@ func TestProcessClusterDefault(t *testing.T) {
 // TestProcessClusterDefaultShutdownViaAPI starts a master starter, followed by 2 slave starters, shutting all down through the API.
 func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 
@@ -103,8 +101,7 @@ func TestProcessClusterDefaultShutdownViaAPI(t *testing.T) {
 // TestOldProcessClusterDefault starts a master starter, followed by 2 slave starters.
 func TestOldProcessClusterDefault(t *testing.T) {
 	removeArangodProcesses(t)
-	needTestMode(t, testModeProcess)
-	needStarterMode(t, starterModeCluster)
+	testMatch(t, testModeProcess, starterModeCluster, false)
 	dataDirMaster := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirMaster)
 

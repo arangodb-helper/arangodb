@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,14 +17,13 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package service
 
 import (
-	"github.com/arangodb-helper/arangodb/pkg/features"
 	driver "github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/pkg/features"
 )
 
 // DatabaseFeatures provides information about the features provided by the
@@ -40,6 +39,7 @@ const (
 	v33_22 driver.Version = "3.3.22"
 	v34    driver.Version = "3.4.0"
 	v34_2  driver.Version = "3.4.2"
+	v312   driver.Version = "3.12.0"
 )
 
 // NewDatabaseFeatures returns a new DatabaseFeatures based on
@@ -92,4 +92,14 @@ func (v DatabaseFeatures) GetJWTFolderOption() bool {
 		Version:    v.Version,
 		Enterprise: v.Enterprise,
 	})
+}
+
+// SupportsActiveFailover returns true if Active-Failover (resilient-single) mode is supported
+func (v DatabaseFeatures) SupportsActiveFailover() bool {
+	return v.Version.CompareTo(v312) < 0
+}
+
+// SupportsArangoSync returns true if ArangoSync is supported
+func (v DatabaseFeatures) SupportsArangoSync() bool {
+	return v.Version.CompareTo(v312) < 0
 }

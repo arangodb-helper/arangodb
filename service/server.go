@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,9 +16,6 @@
 // limitations under the License.
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
-//
-// Author Ewout Prangsma
-// Author Tomasz Mielech
 //
 
 package service
@@ -36,11 +33,13 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/rs/zerolog"
+
+	driver "github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/client"
-	driver "github.com/arangodb/go-driver"
-	"github.com/rs/zerolog"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/pkg/logging"
 )
 
 var (
@@ -53,17 +52,14 @@ const (
 
 // HelloRequest is the data structure send of the wire in a `/hello` POST request.
 type HelloRequest struct {
-	SlaveID         string // Unique ID of the slave
-	SlaveAddress    string // IP address used to reach the slave (if empty, this will be derived from the request)
-	SlavePort       int    // Port used to reach the slave
-	DataDir         string // Directory used for data by this slave
-	IsSecure        bool   // If set, servers started by this peer are using an SSL connection
-	Agent           *bool  `json:",omitempty"` // If not nil, sets if server gets an agent or not. If nil, default handling applies
-	DBServer        *bool  `json:",omitempty"` // If not nil, sets if server gets an dbserver or not. If nil, default handling applies
-	Coordinator     *bool  `json:",omitempty"` // If not nil, sets if server gets an coordinator or not. If nil, default handling applies
-	ResilientSingle *bool  `json:",omitempty"` // If not nil, sets if server gets an resilient single or not. If nil, default handling applies
-	SyncMaster      *bool  `json:",omitempty"` // If not nil, sets if server gets an sync master or not. If nil, default handling applies
-	SyncWorker      *bool  `json:",omitempty"` // If not nil, sets if server gets an sync master or not. If nil, default handling applies
+	SlaveID      string // Unique ID of the slave
+	SlaveAddress string // IP address used to reach the slave (if empty, this will be derived from the request)
+	SlavePort    int    // Port used to reach the slave
+	DataDir      string // Directory used for data by this slave
+	IsSecure     bool   // If set, servers started by this peer are using an SSL connection
+	Agent        *bool  `json:",omitempty"` // If not nil, sets if server gets an agent or not. If nil, default handling applies
+	DBServer     *bool  `json:",omitempty"` // If not nil, sets if server gets an dbserver or not. If nil, default handling applies
+	Coordinator  *bool  `json:",omitempty"` // If not nil, sets if server gets an coordinator or not. If nil, default handling applies
 }
 
 type httpServer struct {
@@ -101,16 +97,13 @@ type httpServerContext interface {
 	// UpgradeManager returns the database upgrade manager
 	UpgradeManager() UpgradeManager
 
-	// Handle a hello request.
+	// HandleHello - handle a hello request.
 	// If req==nil, this is a GET request, otherwise it is a POST request.
 	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error)
 
 	// HandleGoodbye removes the database servers started by the peer with given id
 	// from the cluster and alters the cluster configuration, removing the peer.
 	HandleGoodbye(id string, force bool) (peerRemoved bool, err error)
-
-	// Called by an agency callback
-	MasterChangedCallback()
 
 	// DatabaseVersion returns the version of the `arangod` binary that is being
 	// used by this starter.
@@ -129,7 +122,9 @@ func newHTTPServer(log zerolog.Logger, context httpServerContext, runtimeServerM
 	return &httpServer{
 		log:     log,
 		context: context,
-		server:  &http.Server{},
+		server: &http.Server{
+			ErrorLog: logging.NewAdapter(log.With().Str("logger", "http-server").Logger()),
+		},
 		idInfo: client.IDInfo{
 			ID: serverID,
 		},
@@ -172,15 +167,10 @@ func (s *httpServer) Run(hostAddr, containerAddr string, tlsConfig *tls.Config, 
 		mux.HandleFunc("/logs/dbserver", s.dbserverLogsHandler)
 		mux.HandleFunc("/logs/coordinator", s.coordinatorLogsHandler)
 		mux.HandleFunc("/logs/single", s.singleLogsHandler)
-		mux.HandleFunc("/logs/syncmaster", s.syncMasterLogsHandler)
-		mux.HandleFunc("/logs/syncworker", s.syncWorkerLogsHandler)
 		mux.HandleFunc("/version", s.versionHandler)
 		mux.HandleFunc("/database-version", s.databaseVersionHandler)
 		mux.HandleFunc("/shutdown", s.shutdownHandler)
 		mux.HandleFunc("/database-auto-upgrade", s.databaseAutoUpgradeHandler)
-		// Agency callback
-		mux.HandleFunc("/cb/masterChanged", s.cbMasterChanged)
-		mux.HandleFunc("/cb/upgradePlanChanged", s.cbUpgradePlanChanged)
 
 		// JWT Rotation
 		s.registerJWTFunctions(mux)
@@ -369,12 +359,6 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 		if myPeer.HasCoordinator() {
 			expectedServers++
 		}
-		if myPeer.HasSyncMaster() {
-			expectedServers++
-		}
-		if myPeer.HasSyncWorker() {
-			expectedServers++
-		}
 
 		createServerProcess := func(serverType definitions.ServerType, p Process) client.ServerProcess {
 			return client.ServerProcess{
@@ -406,16 +390,6 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 		if w := s.runtimeServerManager.singleProc; w != nil {
 			if p := w.Process(); p != nil {
 				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeSingle, p))
-			}
-		}
-		if w := s.runtimeServerManager.syncMasterProc; w != nil {
-			if p := w.Process(); p != nil {
-				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeSyncMaster, p))
-			}
-		}
-		if w := s.runtimeServerManager.syncWorkerProc; w != nil {
-			if p := w.Process(); p != nil {
-				resp.Servers = append(resp.Servers, createServerProcess(definitions.ServerTypeSyncWorker, p))
 			}
 		}
 	}
@@ -530,28 +504,6 @@ func (s *httpServer) coordinatorLogsHandler(w http.ResponseWriter, r *http.Reque
 // singleLogsHandler serves the entire single server log.
 func (s *httpServer) singleLogsHandler(w http.ResponseWriter, r *http.Request) {
 	s.logsHandler(w, r, definitions.ServerTypeSingle)
-}
-
-// syncMasterLogsHandler serves the entire sync master log.
-func (s *httpServer) syncMasterLogsHandler(w http.ResponseWriter, r *http.Request) {
-	_, myPeer, _ := s.context.ClusterConfig()
-
-	if myPeer != nil && myPeer.HasSyncMaster() {
-		s.logsHandler(w, r, definitions.ServerTypeSyncMaster)
-	} else {
-		w.WriteHeader(http.StatusNotFound)
-	}
-}
-
-// syncWorkerLogsHandler serves the entire sync worker log.
-func (s *httpServer) syncWorkerLogsHandler(w http.ResponseWriter, r *http.Request) {
-	_, myPeer, _ := s.context.ClusterConfig()
-
-	if myPeer != nil && myPeer.HasSyncWorker() {
-		s.logsHandler(w, r, definitions.ServerTypeSyncWorker)
-	} else {
-		w.WriteHeader(http.StatusNotFound)
-	}
 }
 
 func (s *httpServer) logsHandler(w http.ResponseWriter, r *http.Request, serverType definitions.ServerType) {
@@ -748,34 +700,6 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-}
-
-// cbMasterChanged is a callback called by the agency when the master URL is modified.
-func (s *httpServer) cbMasterChanged(w http.ResponseWriter, r *http.Request) {
-	s.log.Debug().Msgf("Master changed callback from %s", r.RemoteAddr)
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Interrupt runtime cluster manager
-	s.context.MasterChangedCallback()
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
-}
-
-// cbUpgradePlanChanged is a callback called by the agency when the upgrade plan is modified.
-func (s *httpServer) cbUpgradePlanChanged(w http.ResponseWriter, r *http.Request) {
-	s.log.Debug().Msgf("Upgrade plan changed callback from %s", r.RemoteAddr)
-	if r.Method != "POST" {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Interrupt upgrade manager
-	s.context.UpgradeManager().UpgradePlanChangedCallback()
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
 }
 
 func handleError(w http.ResponseWriter, err error) {

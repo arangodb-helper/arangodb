@@ -1,10 +1,17 @@
 # Maintainer Instructions
 
+## Init
+
+Before starting any actions on repo, please do 
+```bash
+make init
+```
+
 ## Running tests
 
-A subset of all tests are frequently run in Travis.
+A subset of all tests are run in CI pipeline.
 
-To run the entire test set, set the following environment variables,
+To run the entire test set, set the following environment variables:
 
   - `ARANGODB`: name of Docker image for ArangoDB to use
   - `VERBOSE` (optional): set to `1` for more output
@@ -13,17 +20,14 @@ To run the entire test set, set the following environment variables,
     run only some tests
 
 Then run:
-
 ```bash
 make run-tests
 ```
 
-## Preparing a release
-
-To prepare for a release, do the following:
-
-- Update CHANGELOG.md. Update the first title (master -> new version). Commit it.
-- Make sure all tests are OK.
+To run only unit tests, execute:
+```bash
+make run-unit-tests
+```
 
 ## Building a release
 
@@ -39,6 +43,16 @@ To make a release you must have:
   for the `arangodb` docker hub namespace.
 - The latest checked out `master` branch of this repository.
 
+To create preview:
+```bash
+make prerelease-patch
+# or
+make prerelease-minor
+# or
+make prerelease-major
+```
+
+To create final version:
 ```bash
 make release-patch
 # or
@@ -49,10 +63,10 @@ make release-major
 
 If successful, a new version will be:
 
-- Build for Mac, Windows & Linux (all amd64).
-- Tagged in github
-- Uploaded as github release
-- Pushed as docker image to docker hub
+- Built for Mac, Windows & Linux.
+- Tagged in GitHub
+- Uploaded as GitHub release
+- Pushed as Docker image to Docker Hub
 - `./VERSION` will be updated to a `+git` version (after the release process)
 
 If the release process fails, it may leave:
@@ -61,12 +75,12 @@ If the release process fails, it may leave:
   the original value and commit to master.
 - A git tag named `<major>.<minor>.<patch>` in your repository.
   To resolve remove it using `git tag -d ...`.
-- A git tag named `<major>.<minor>.<patch>` in this repository in github.
+- A git tag named `<major>.<minor>.<patch>` in this repository in GitHub.
   To resolve remove it manually.
 
-## Completing after a release
+## Finalizing the release
 
-After the release has been build (which includes publication) the following
+After the release has been built (which includes publication) the following
 has to be done:
 
-- Update CHANGELOG.md. Add a new first title (released version -> master). Commit it.
+- Update CHANGELOG.md. Add a new first title (released version -> master). Commit and push it.

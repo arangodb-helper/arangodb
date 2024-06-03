@@ -183,7 +183,7 @@ Status codes:
 
 ### GET `/id` 
 
-Internap API used to get the ID number of the starter. Not for external use.
+Internal API used to get the ID number of the starter. Not for external use.
 
 ### GET `/hello` 
 

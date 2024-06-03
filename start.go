@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package main
 
@@ -32,11 +30,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
-	"github.com/arangodb-helper/arangodb/client"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 var (
@@ -118,10 +116,10 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 
 	// Create starter client
 	scheme := "http"
-	if sslAutoKeyFile || sslKeyFile != "" {
+	if opts.ssl.autoKeyFile || opts.ssl.keyFile != "" {
 		scheme = "https"
 	}
-	starterURL, err := url.Parse(fmt.Sprintf("%s://127.0.0.1:%d", scheme, masterPort))
+	starterURL, err := url.Parse(fmt.Sprintf("%s://127.0.0.1:%d", scheme, opts.starter.masterPort))
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create starter URL")
 	}
@@ -156,7 +154,7 @@ func cmdStartRun(cmd *cobra.Command, args []string) {
 				allUp := true
 				for _, server := range list.Servers {
 					ctx, cancel := context.WithTimeout(rootCtx, time.Second)
-					up, _, _, _, _, _, _, _ := service.TestInstance(ctx, definitions.ServerType(server.Type), server.IP, server.Port, nil)
+					up, _, _, _, _, _, _ := service.TestInstance(ctx, definitions.ServerType(server.Type), server.IP, server.Port, nil)
 					cancel()
 					if !up {
 						allUp = false

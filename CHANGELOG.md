@@ -1,6 +1,100 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix for Docker default Network Mode
+- Bump Go version (1.22.3) and dependencies for CVE fixes
+
+## [v0.19.1](https://github.com/arangodb-helper/arangodb/tree/0.19.1) (2024-04-20)
+- Bump Go version (1.22.2) and dependencies for CVE fixes
+- Fix issue with restart if member is using 'cluster.start-agent=false' feature
+- Remove MacOS and Windows support
+
+## [v0.19.0](https://github.com/arangodb-helper/arangodb/tree/0.19.0) (2024-03-11)
+- Remove deprecated ArangoSync component and ActiveFailover mode
+- Bump Go version (1.21.8) and dependencies for CVE fixes
+
+## [v0.18.3](https://github.com/arangodb-helper/arangodb/tree/0.18.3) (2024-03-05)
+- Mark ArangoSync component as deprecated
+- Do not allow starting ArangoDB v3.12+ with ArangoSync component
+- Do not allow upgrade if the cluster is using ArangoSync component (if the new version is v3.12 or newer)
+- Bump Go version (v1.21.6) and dependencies for CVE fixes
+
+## [v0.18.2](https://github.com/arangodb-helper/arangodb/tree/0.18.2) (2024-02-13)
+- Fix waiting for local slaves to terminate
+
+## [v0.18.1](https://github.com/arangodb-helper/arangodb/tree/0.18.1) (2024-01-26)
+- Add version meta-info for Windows binary
+
+## [v0.18.0](https://github.com/arangodb-helper/arangodb/tree/0.18.0) (2024-01-19)
+- Redirect HTTP server warnings into log file, skip TLS handshake errors
+- Bump Go version (v1.21.5) and dependencies for CVE fixes
+- Update setup.json config on relaunch with current enumeration of running servers
+- Mark activefailover mode as deprecated
+- Do not allow starting ArangoDB v3.12+ in active-failover mode
+- Do not allow upgrade of active-failover mode if the new version is v3.12 or newer
+- Adjust tests to skip active-failover mode for v3.12
+
+## [v0.17.2](https://github.com/arangodb-helper/arangodb/tree/0.17.2) (2023-11-23)
+- Bump Go version (1.21.4) and dependencies for CVE fixes
+- Use proper semver tags for releases
+
+## [0.17.1](https://github.com/arangodb-helper/arangodb/tree/0.17.1) (2023-09-07)
+- Retry server upgrade if requested by exit code (EXIT_UPGRADE_REQUIRED)
+- Fix possible deadlock and goroutine leak while waiting for child process termination
+- Change INF level to WRN or ERR when child process terminated with non-zero
+- Use proper semver tags (vX.X.X) for releases
+
+## [0.17.0](https://github.com/arangodb-helper/arangodb/tree/0.17.0) (2023-08-07)
+- Update go to 1.20.7 to fix known CVEs
+
+## [0.16.0](https://github.com/arangodb-helper/arangodb/tree/0.16.0) (2023-07-21)
+- Add sanity check for pass-through args usage
+- Fix printing --starter.instance-up-timeout instead of hardcoded value
+- Fix context handling in WaitUntilStarterReady for tests
+- Show error when user tries to change value of "persistent" option
+- Proper leader election and cluster upgrade without using observe and TTL features
+
+## [0.15.8](https://github.com/arangodb-helper/arangodb/tree/0.15.8) (2023-06-02)
+- Add passing ARANGODB_SERVER_DIR env variable when starting arangod instances
+- Improve ArangoDB version detection
+- Update containerd package
+- Update go to 1.20.3, add vulncheck to pipeline
+
+## [0.15.7](https://github.com/arangodb-helper/arangodb/tree/0.15.7) (2023-02-17)
+- Improve deprecated notice for old passthrough flags
+- Improve detection of arangod binary when running local installation (use --server.use-local-bin)
+- Upgrade base Alpine image and Go dependencies to fix CVEs
+- Remove `netgo` build tag for Windows to disable new Go resolver behaviour: https://github.com/golang/go/issues/57757
+- Add `rocksdb.encryption-key-generator` CLI option
+- Add docker container name auto-detection when running under cgroups v2 unified hierarchy mode
+
+## [0.15.6](https://github.com/arangodb-helper/arangodb/tree/0.15.6) (2023-01-20)
+- Fix restarting cluster with arangosync enabled
+- Upgrade Go to v1.19.4 to fix CVEs
+- Fix passing-through boolean flags to arangosync
+
+## [0.15.5](https://github.com/arangodb-helper/arangodb/tree/0.15.5) (2022-09-19)
+- Fix project CI: linter, tests, build, release
+- Add pass-through options usage hint
+- Return correct exit code when wrong CLI params supplied
+- Cleanup Travis config and make it use the list of actual ArangoD versions
+- Add documentation header to generated command files
+- Add support for ArangoD exit codes. Do not try to restart instance if exit code is unrecoverable
+- Show process output in case there was an error during process startup
+- Deprecate --feature.jwt.rotation CLI option
+- Add support for config file
+- Upgrade to Go 1.17.13 and alpine3.16 for build image
+- Unpin x/sys pkg and upgrade dependencies to mitigate CVEs
+
+## [0.15.4](https://github.com/arangodb-helper/arangodb/tree/0.15.4) (2022-03-22)
+- Use github.com/golang-jwt/jwt
+- Upgrade Go version to 1.17.5
+
+## [0.15.3](https://github.com/arangodb-helper/arangodb/tree/0.15.3) (2021-10-25)
+- Fix use of --args.all together with --args.<group> (<group> will override all flags in all)
+
+## [0.15.2](https://github.com/arangodb-helper/arangodb/tree/0.15.2) (2021-09-03)
+- Disable Maintenance Mode after upgrade, before health check
 
 ## [0.15.1](https://github.com/arangodb-helper/arangodb/tree/0.15.1) (2021-07-29)
 - Allow to pass environment variables to processes and standardize argument pass (--envs.<group>.<ENV>=<VALUE> and --args.<group>.<ARG>=<VALUE>)

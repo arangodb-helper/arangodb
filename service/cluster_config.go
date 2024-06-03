@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2021 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,9 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-// Author Tomasz Mielech
-//
 
 package service
 
@@ -32,22 +29,24 @@ import (
 	"strings"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
 	"github.com/arangodb/go-driver/jwt"
+
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service/options"
 )
 
-// ClusterConfig contains all the informtion of a cluster from a starter's point of view.
+// ClusterConfig contains all the information of a cluster from a starter's point of view.
 // When this type (or any of the types used in here) is changed, increase `SetupConfigVersion`.
 type ClusterConfig struct {
-	AllPeers            []Peer     `json:"Peers"` // All peers
-	AgencySize          int        // Number of agents
-	LastModified        *time.Time `json:"LastModified,omitempty"`        // Time of last modification
-	PortOffsetIncrement int        `json:"PortOffsetIncrement,omitempty"` // Increment of port offsets for peers on same address
-	ServerStorageEngine string     `json:ServerStorageEngine,omitempty"`  // Storage engine being used
+	AllPeers            []Peer                    `json:"Peers"` // All peers
+	AgencySize          int                       // Number of agents
+	LastModified        *time.Time                `json:"LastModified,omitempty"`        // Time of last modification
+	PortOffsetIncrement int                       `json:"PortOffsetIncrement,omitempty"` // Increment of port offsets for peers on same address
+	ServerStorageEngine string                    `json:"ServerStorageEngine,omitempty"` // Storage engine being used
+	PersistentOptions   options.PersistentOptions `json:"PersistentOptions,omitempty"`   // Options which were used during first start of DB and can't be changed anymore
 }
 
 // PeerByID returns a peer with given id & true, or false if not found.
@@ -83,11 +82,12 @@ func (p ClusterConfig) AllAgents() []Peer {
 }
 
 // Initialize a new cluster configuration
-func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int, storageEngine string) {
+func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int, storageEngine string, persistentOptions options.PersistentOptions) {
 	p.AllPeers = []Peer{initialPeer}
 	p.AgencySize = agencySize
 	p.PortOffsetIncrement = definitions.PortOffsetIncrementNew
 	p.ServerStorageEngine = storageEngine
+	p.PersistentOptions = persistentOptions
 	p.updateLastModified()
 }
 
@@ -101,6 +101,13 @@ func (p *ClusterConfig) UpdatePeerByID(update Peer) bool {
 		}
 	}
 	return false
+}
+
+// ForEachPeer updates all peers using predicate
+func (p *ClusterConfig) ForEachPeer(updateFunc func(p Peer) Peer) {
+	for i, peer := range p.AllPeers {
+		p.AllPeers[i] = updateFunc(peer)
+	}
 }
 
 // AddPeer adds the given peer to the list of all peers, only if the id is not yet one of the peers.
@@ -252,45 +259,16 @@ func (p ClusterConfig) GetCoordinatorEndpoints() ([]string, error) {
 	return endpoints, nil
 }
 
-// GetAllSingleEndpoints creates a list of URL's for all single servers.
-func (p ClusterConfig) GetAllSingleEndpoints() ([]string, error) {
-	result, err := p.GetSingleEndpoints(true)
-	if err != nil {
-		return nil, maskAny(err)
-	}
-	return result, nil
-}
-
-// GetResilientSingleEndpoints creates a list of URL's for all resilient single servers.
-func (p ClusterConfig) GetResilientSingleEndpoints() ([]string, error) {
-	return p.GetSingleEndpoints(false)
-}
-
 // GetSingleEndpoints creates a list of URL's for all single servers.
-func (p ClusterConfig) GetSingleEndpoints(all bool) ([]string, error) {
+func (p ClusterConfig) GetSingleEndpoints() ([]string, error) {
 	// Build endpoint list
 	var endpoints []string
 	for _, p := range p.AllPeers {
-		if all || p.HasResilientSingle() {
-			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeSingle).PortOffset()
-			scheme := NewURLSchemes(p.IsSecure).Browser
-			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
-			endpoints = append(endpoints, ep)
-		}
-	}
-	return endpoints, nil
-}
+		port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeSingle).PortOffset()
+		scheme := NewURLSchemes(p.IsSecure).Browser
+		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+		endpoints = append(endpoints, ep)
 
-// GetSyncMasterEndpoints creates a list of URL's for all sync masters.
-func (p ClusterConfig) GetSyncMasterEndpoints() ([]string, error) {
-	// Build endpoint list
-	var endpoints []string
-	for _, p := range p.AllPeers {
-		if p.HasSyncMaster() {
-			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeSyncMaster).PortOffset()
-			ep := fmt.Sprintf("https://%s", net.JoinHostPort(p.Address, strconv.Itoa(port)))
-			endpoints = append(endpoints, ep)
-		}
 	}
 	return endpoints, nil
 }
