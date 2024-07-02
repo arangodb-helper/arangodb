@@ -9,7 +9,7 @@ parameters:
     default: "gcr.io/gcr-for-testing/arangodb/enterprise-preview:devel-nightly"
   alpineImage:
     type: string
-    default: "gcr.io/gcr-for-testing/alpine:3.18"
+    default: "gcr.io/gcr-for-testing/alpine:3.19"
   starterModes:
     type: string
     default: "single,cluster"
