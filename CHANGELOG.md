@@ -1,7 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
-- Bump Go version (1.22.3) and dependencies for CVE fixes
+- Bump Go version (1.22.5) and dependencies for CVE fixes
+- Bump Go version (1.22.4) and dependencies for CVE fixes
 
 ## [v0.19.2](https://github.com/arangodb-helper/arangodb/tree/0.19.2) (2024-06-07)
 - Fix for Docker default Network Mode
