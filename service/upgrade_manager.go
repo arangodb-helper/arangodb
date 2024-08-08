@@ -40,7 +40,6 @@ import (
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
-	"github.com/arangodb-helper/arangodb/pkg/trigger"
 )
 
 // UpgradeManager is the API of a service used to control the upgrade process from 1 database version to the next.
@@ -212,7 +211,6 @@ type upgradeManager struct {
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     definitions.ServerType
 	updateNeeded          bool
-	cbTrigger             trigger.Trigger
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
