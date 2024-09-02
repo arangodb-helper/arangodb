@@ -20,7 +20,7 @@ executors:
       - image: gcr.io/gcr-for-testing/golang:1.22.6
   machine-executor:
     machine:
-      image: ubuntu-2204:current
+      image: defualt
       docker_layer_caching: true
 
 jobs:
