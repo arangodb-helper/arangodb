@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [v0.18.9](https://github.com/arangodb-helper/arangodb/tree/0.18.9) (2024-09-02)
 - Security fixes
 
 ## [v0.18.8](https://github.com/arangodb-helper/arangodb/tree/0.18.8) (2024-08-13)
