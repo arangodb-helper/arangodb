@@ -451,7 +451,7 @@ func WaitUntilStarterGone(t *testing.T, endpoint string) {
 }
 
 func createEnvironmentStarterOptions(skipDockerImage ...bool) string {
-	result := []string{"--starter.debug-cluster"}
+	result := []string{"--starter.debug-cluster", "--log.verbose=true", "--log.console=true"}
 	if image := os.Getenv("ARANGODB"); image != "" {
 		if len(skipDockerImage) == 0 || !skipDockerImage[0] {
 			result = append(result, fmt.Sprintf("--docker.image=%s", image))
