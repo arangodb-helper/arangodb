@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix for member discovery during leader election
 
 ## [v0.18.9](https://github.com/arangodb-helper/arangodb/tree/0.18.9) (2024-09-02)
 - Security fixes

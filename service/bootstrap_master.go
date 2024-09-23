@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	servers := preparePeerServers(s.mode, bsCfg, config)
 
 	me := newPeer(s.id, config.OwnAddress, s.announcePort, 0, config.DataDir, servers, s.IsSecure())
-	s.myPeers.Initialize(me, bsCfg.AgencySize, storageEngine, s.cfg.Configuration.PersistentOptions)
+	s.runtimeClusterManager.myPeers.Initialize(me, bsCfg.AgencySize, storageEngine, s.cfg.Configuration.PersistentOptions)
 	s.learnOwnAddress = config.OwnAddress == ""
 
 	// Start HTTP listener
@@ -66,11 +66,11 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 	needMorePeers := true
 	if s.mode.IsSingleMode() {
 		needMorePeers = false
-	} else if !s.myPeers.HaveEnoughAgents() {
+	} else if !s.runtimeClusterManager.myPeers.HaveEnoughAgents() {
 		needMorePeers = true
 	} else if bsCfg.StartLocalSlaves {
 		peersNeeded := bsCfg.PeersNeeded()
-		needMorePeers = len(s.myPeers.AllPeers) < peersNeeded
+		needMorePeers = len(s.runtimeClusterManager.myPeers.AllPeers) < peersNeeded
 	}
 	if !needMorePeers {
 		// We have all the agents that we need, start a single server/cluster right now
@@ -86,7 +86,7 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 		s.createAndStartLocalSlaves(&wg, config, bsCfg)
 	} else {
 		// Show commands needed to start slaves
-		s.log.Info().Msgf("Waiting for %d servers to show up.\n", s.myPeers.AgencySize)
+		s.log.Info().Msgf("Waiting for %d servers to show up.\n", s.runtimeClusterManager.myPeers.AgencySize)
 		s.showSlaveStartCommands(runner, config)
 	}
 
@@ -113,12 +113,12 @@ func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Con
 func (s *Service) showSlaveStartCommands(runner Runner, config Config) {
 	s.log.Info().Msg("Use the following commands to start other servers:")
 	fmt.Println()
-	for index := 2; index <= s.myPeers.AgencySize; index++ {
+	for index := 2; index <= s.runtimeClusterManager.myPeers.AgencySize; index++ {
 		port := ""
 		if s.announcePort != config.MasterPort || config.MasterPort != DefaultMasterPort {
 			port = strconv.Itoa(s.announcePort)
 		}
-		fmt.Println(runner.CreateStartArangodbCommand(config.DataDir, index, config.OwnAddress, port, config.DockerStarterImage, s.myPeers))
+		fmt.Println(runner.CreateStartArangodbCommand(config.DataDir, index, config.OwnAddress, port, config.DockerStarterImage, s.runtimeClusterManager.myPeers))
 		fmt.Println()
 	}
 }
