@@ -113,7 +113,7 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		t.Logf("Restart all members, iteration: %d", i)
 		t.Run("Restart all members", func(t *testing.T) {
-			for k, _ := range members {
+			for k := range members {
 				require.NoError(t, members[k].Process.Kill())
 			}
 
