@@ -70,10 +70,10 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 			master := s.runtimeClusterManager.myPeers.AllPeers[0] // TODO replace with bootstrap master
 			r, err := httpClient.Get(master.CreateStarterURL("/hello"))
 			if err != nil {
-				s.log.Error().Err(err).Msg("Failed to connect to master")
+				s.log.Error().Err(err).Msg("Failed to connect to the leader")
 				time.Sleep(time.Second * 2)
 			} else if r.StatusCode != 200 {
-				s.log.Warn().Msgf("Invalid status received from master: %d", r.StatusCode)
+				s.log.Warn().Msgf("Invalid status received from leader: %d", r.StatusCode)
 			} else {
 				defer r.Body.Close()
 				body, _ := io.ReadAll(r.Body)
@@ -84,7 +84,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 		}
 	}
 
-	s.log.Info().Msgf("Serving as slave with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
+	s.log.Info().Msgf("Serving as follower with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
 	s.log.Info().Msgf("Using storage engine '%s'", bsCfg.ServerStorageEngine)
 	s.saveSetup()
 	s.startRunning(runner, config, bsCfg)
@@ -92,7 +92,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 
 func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) ClusterConfig {
 	for {
-		log.Info().Msgf("Contacting master %s...", masterURL)
+		log.Info().Msgf("Contacting leader %s...", masterURL)
 
 		encoded, err := json.Marshal(req)
 		if err != nil {
@@ -104,7 +104,7 @@ func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) Cluste
 		}
 		r, err := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
 		if err != nil {
-			log.Info().Err(err).Msg("Initial handshake with master failed")
+			log.Info().Err(err).Msg("Initial handshake with leader failed")
 			time.Sleep(time.Second)
 			continue
 		}
@@ -112,7 +112,7 @@ func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) Cluste
 		body, err := io.ReadAll(r.Body)
 		r.Body.Close()
 		if err != nil {
-			log.Info().Err(err).Msg("Cannot start because HTTP response from master was bad")
+			log.Info().Err(err).Msg("Cannot start because HTTP response from the leader was bad")
 			time.Sleep(time.Second)
 			continue
 		}
@@ -133,21 +133,21 @@ func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) Cluste
 
 		if r.StatusCode != http.StatusOK {
 			err := client.ParseResponseError(r, body)
-			log.Fatal().Msgf("Cannot start because of HTTP error from master: code=%d, message=%s\n", r.StatusCode, err.Error())
+			log.Fatal().Msgf("Cannot start because of HTTP error from leader: code=%d, message=%s\n", r.StatusCode, err.Error())
 			return result
 		}
 
 		if err := json.Unmarshal(body, &result); err != nil {
-			log.Warn().Err(err).Msg("Cannot parse body from master")
+			log.Warn().Err(err).Msg("Cannot parse body from leader")
 			return result
 		}
 		// Check result
 		if _, found := result.PeerByID(req.SlaveID); !found {
-			log.Fatal().Msg("Master responded with cluster config that does not contain my ID, please check master")
+			log.Fatal().Msg("Leader responded with cluster config that does not contain my ID, please check the leader")
 			return result
 		}
 		if result.ServerStorageEngine == "" {
-			log.Fatal().Msg("Master responded with cluster config that does not contain a ServerStorageEngine, please update master first")
+			log.Fatal().Msg("Leader responded with cluster config that does not contain a ServerStorageEngine, please update leader first")
 			return result
 		}
 
