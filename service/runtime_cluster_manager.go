@@ -107,6 +107,13 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 		s.log.Error().Err(err).Msg("Failed to update cluster configuration, Trying to register peer again")
 		cfg := RegisterPeer(s.log, masterURL, req)
 		s.myPeers = cfg
+
+		// retry to update cluster configuration
+		err = s.runtimeContext.UpdateClusterConfig(cfg)
+		if err != nil {
+			s.log.Error().Err(err).Msg("Failed to update cluster configuration after registering peer")
+			return maskAny(err)
+		}
 	}
 
 	return nil
