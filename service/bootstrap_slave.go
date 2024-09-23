@@ -36,7 +36,7 @@ import (
 func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Config, bsCfg BootstrapConfig) {
 	masterURL := s.createBootstrapMasterURL(peerAddress, config)
 
-	containerHTTPPort, hostPort, err := s.getHTTPServerPort()
+	containerHTTPPort, hostPort, err := s.GetHTTPServerPort()
 	if err != nil {
 		s.log.Fatal().Err(err).Msg("Failed to get HTTP server port")
 	}

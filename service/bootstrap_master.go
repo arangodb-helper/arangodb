@@ -33,7 +33,7 @@ import (
 // bootstrapMaster starts the Service as master and begins bootstrapping the cluster from nothing.
 func (s *Service) bootstrapMaster(ctx context.Context, runner Runner, config Config, bsCfg BootstrapConfig) {
 	// Check HTTP server port
-	containerHTTPPort, _, err := s.getHTTPServerPort()
+	containerHTTPPort, _, err := s.GetHTTPServerPort()
 	if err != nil {
 		s.log.Fatal().Err(err).Msg("Cannot find HTTP server info")
 	}

@@ -739,7 +739,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 
 	// Learn my own address (if needed)
 	if s.learnOwnAddress {
-		_, hostPort, _ := s.getHTTPServerPort()
+		_, hostPort, _ := s.GetHTTPServerPort()
 		myPeer, found := s.runtimeClusterManager.myPeers.PeerByID(s.id)
 		if found {
 			myPeer.Address = ownAddress
@@ -1022,7 +1022,7 @@ func (s *Service) RestartServer(serverType definitions.ServerType) error {
 	return nil
 }
 
-func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
+func (s *Service) GetHTTPServerPort() (containerPort, hostPort int, err error) {
 	containerPort = s.cfg.MasterPort
 	hostPort = s.announcePort
 	s.log.Debug().Msgf("hostPort=%d masterPort=%d #AllPeers=%d", hostPort, s.cfg.MasterPort, len(s.runtimeClusterManager.myPeers.AllPeers))
@@ -1042,7 +1042,7 @@ func (s *Service) getHTTPServerPort() (containerPort, hostPort int, err error) {
 // createHTTPServer initializes an HTTP server.
 func (s *Service) createHTTPServer(config Config) (srv *httpServer, containerPort int, hostAddr, containerAddr string, err error) {
 	// Create address to listen on
-	containerPort, hostPort, err := s.getHTTPServerPort()
+	containerPort, hostPort, err := s.GetHTTPServerPort()
 	if err != nil {
 		return nil, 0, "", "", maskAny(err)
 	}
@@ -1095,12 +1095,7 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 	go func() {
 		defer wg.Done()
 
-		_, hostPort, err := s.getHTTPServerPort()
-		if err != nil {
-			s.log.Fatal().Err(err).Msg("Failed to get HTTP server port during runtime cluster manager start")
-		}
-
-		s.runtimeClusterManager.Run(s.stopPeer.ctx, s.log, s, BuildHelloRequest(s.id, hostPort, s.IsSecure(), config, bsCfg))
+		s.runtimeClusterManager.Run(s.stopPeer.ctx, s.log, s, BuildHelloRequest(s.id, 0, s.IsSecure(), config, bsCfg))
 	}()
 
 	// Start the upgrade manager

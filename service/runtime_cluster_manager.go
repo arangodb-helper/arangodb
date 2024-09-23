@@ -66,6 +66,8 @@ type runtimeClusterManagerContext interface {
 
 	// UpdateClusterConfig updates the current cluster configuration.
 	UpdateClusterConfig(ClusterConfig) error
+
+	GetHTTPServerPort() (containerPort, hostPort int, err error)
 }
 
 // Create a client for the agency
@@ -105,6 +107,13 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 	err = s.runtimeContext.UpdateClusterConfig(clusterConfig)
 	if err != nil {
 		s.log.Error().Err(err).Msg("Failed to update cluster configuration, Trying to register peer again")
+
+		_, hostPort, err := s.runtimeContext.GetHTTPServerPort()
+		if err != nil {
+			s.log.Fatal().Err(err).Msg("Failed to get HTTP server port during runtime cluster manager start")
+		}
+		req.SlavePort = hostPort
+
 		cfg := RegisterPeer(s.log, masterURL, req)
 		s.myPeers = cfg
 
@@ -245,7 +254,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 		masterURL := s.GetMasterURL()
 		if masterURL != "" && masterURL != ownURL {
 			log.Debug().Msgf("Updating cluster configuration master URL: %s", masterURL)
-			// We are slave, try to update cluster configuration from master
+			// We are a follower, try to update cluster configuration from leader
 			if err := s.updateClusterConfiguration(ctx, masterURL, req); err != nil {
 				delay = time.Second * 5
 				log.Warn().Err(err).Msgf("Failed to load cluster configuration from %s", masterURL)
