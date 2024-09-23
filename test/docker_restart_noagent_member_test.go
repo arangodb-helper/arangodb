@@ -75,13 +75,13 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 
 		for j := 0; j < 0; j++ {
 			t.Run("Restart all members", func(t *testing.T) {
-				for k, _ := range members {
+				for k := range members {
 					require.NoError(t, members[k].Process.Kill())
 				}
 
 				time.Sleep(3 * time.Second)
 
-				for k, _ := range members {
+				for k := range members {
 					logDockerLogs(t, members[k].ID)
 					removeDockerContainer(t, members[k].ID)
 				}
