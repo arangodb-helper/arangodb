@@ -23,7 +23,6 @@ package test
 import (
 	"context"
 	"fmt"
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/service"
 )
 
@@ -80,8 +80,10 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 		verifySetupJson(t, members)
 	})
 
-	// TODO fix-me: GT-608
-	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
+	for _, m := range members {
+		defer m.Process.Close()
+	}
+	SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
 }
 
 func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
@@ -98,7 +100,6 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 
 	joins := "localhost:6000,localhost:7000,localhost:8000"
 	for k, m := range members {
-		m.DataDir = SetUniqueDataDir(t)
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
 		members[k] = m
 	}
