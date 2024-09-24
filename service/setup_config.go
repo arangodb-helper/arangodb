@@ -22,7 +22,6 @@ package service
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -57,7 +56,7 @@ func (s *Service) saveSetup() error {
 	cfg := SetupConfigFile{
 		Version:          setupConfigVersion.String(),
 		ID:               s.id,
-		Peers:            s.myPeers,
+		Peers:            s.runtimeClusterManager.myPeers,
 		StartLocalSlaves: s.startedLocalSlaves,
 		Mode:             s.mode,
 		SslKeyFile:       s.sslKeyFile,
@@ -68,7 +67,7 @@ func (s *Service) saveSetup() error {
 		s.log.Error().Err(err).Msg("Cannot serialize config")
 		return maskAny(err)
 	}
-	if err := ioutil.WriteFile(filepath.Join(s.cfg.DataDir, setupFileName), b, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(s.cfg.DataDir, setupFileName), b, 0644); err != nil {
 		s.log.Error().Err(err).Msg("Error writing setup")
 		return maskAny(err)
 	}

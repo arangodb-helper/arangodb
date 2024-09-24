@@ -361,13 +361,14 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 
 	t.Logf("Stopping %d starters", len(starters))
 	for _, starter := range starters {
-		starter := starter // Used in nested function
+		p := starter // Used in nested function
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			if err := starter.WaitTimeout(time.Second * 300); err != nil {
+			if err := p.WaitTimeout(time.Second * 300); err != nil {
 				result = false
-				t.Errorf("Starter is not stopped in time: %s", describe(err))
+				t.Errorf("Starter (label: %s) is not stopped in time: %s", p.label, describe(err))
+				showProcessLogs(t, p, p.label)
 			}
 		}()
 	}
@@ -375,7 +376,16 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 	for _, starter := range starters {
 		starter.SendIntr()
 	}
+
+	t.Logf("Waiting for %d starters to stop", len(starters))
 	g.Wait()
+
+	if result {
+		t.Logf("All starters gone")
+	} else {
+		t.Logf("Some starters did not stop in time")
+	}
+
 	return result
 }
 
@@ -451,7 +461,7 @@ func WaitUntilStarterGone(t *testing.T, endpoint string) {
 }
 
 func createEnvironmentStarterOptions(skipDockerImage ...bool) string {
-	result := []string{"--starter.debug-cluster"}
+	result := []string{"--starter.debug-cluster", "--log.verbose=true", "--log.console=true"}
 	if image := os.Getenv("ARANGODB"); image != "" {
 		if len(skipDockerImage) == 0 || !skipDockerImage[0] {
 			result = append(result, fmt.Sprintf("--docker.image=%s", image))

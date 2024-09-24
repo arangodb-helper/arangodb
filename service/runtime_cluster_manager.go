@@ -51,6 +51,7 @@ type runtimeClusterManager struct {
 	lastMasterURL    string
 	avoidBeingMaster bool // If set, this peer will not try to become master
 	interruptChan    chan struct{}
+	myPeers          ClusterConfig
 }
 
 // runtimeClusterManagerContext provides a context for the runtimeClusterManager.
@@ -64,7 +65,9 @@ type runtimeClusterManagerContext interface {
 	ChangeState(newState State)
 
 	// UpdateClusterConfig updates the current cluster configuration.
-	UpdateClusterConfig(ClusterConfig)
+	UpdateClusterConfig(ClusterConfig) error
+
+	GetHTTPServerPort() (containerPort, hostPort int, err error)
 }
 
 // Create a client for the agency
@@ -76,7 +79,7 @@ func (s *runtimeClusterManager) createAgencyAPI() (agency.Agency, error) {
 }
 
 // updateClusterConfiguration asks the master at given URL for the latest cluster configuration.
-func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, masterURL string) error {
+func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, masterURL string, req HelloRequest) error {
 	helloURL, err := getURLWithPath(masterURL, "/hello?update=1")
 	if err != nil {
 		return maskAny(err)
@@ -88,7 +91,7 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 	}
 	// Check status
 	if r.StatusCode != 200 {
-		return maskAny(fmt.Errorf("Invalid status %d from master", r.StatusCode))
+		return maskAny(fmt.Errorf("invalid status %d from master", r.StatusCode))
 	}
 	// Parse result
 	defer r.Body.Close()
@@ -101,7 +104,26 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 		return maskAny(err)
 	}
 	// We've received a cluster config
-	s.runtimeContext.UpdateClusterConfig(clusterConfig)
+	err = s.runtimeContext.UpdateClusterConfig(clusterConfig)
+	if err != nil {
+		s.log.Error().Err(err).Msg("Failed to update cluster configuration, Trying to register peer again")
+
+		_, hostPort, err := s.runtimeContext.GetHTTPServerPort()
+		if err != nil {
+			s.log.Fatal().Err(err).Msg("Failed to get HTTP server port during runtime cluster manager start")
+		}
+		req.SlavePort = hostPort
+
+		cfg := RegisterPeer(s.log, masterURL, req)
+		s.myPeers = cfg
+
+		// retry to update cluster configuration
+		err = s.runtimeContext.UpdateClusterConfig(cfg)
+		if err != nil {
+			s.log.Error().Err(err).Msg("Failed to update cluster configuration after registering peer")
+			return maskAny(err)
+		}
+	}
 
 	return nil
 }
@@ -161,7 +183,8 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL str
 		var isMaster bool
 
 		s.log.Debug().
-			Str("master_url", myURL).
+			Str("myURL", myURL).
+			Str("masterURL", masterURL).
 			Msg("Updating leadership")
 		masterURL, isMaster, delay, err = le.Update(ctx, agencyClient, myURL)
 		if err != nil {
@@ -202,7 +225,7 @@ func (s *runtimeClusterManager) updateMasterURL(masterURL string, isMaster bool)
 
 // Run keeps the cluster configuration up to date, either as master or as slave
 // during a running state.
-func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, runtimeContext runtimeClusterManagerContext) {
+func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, runtimeContext runtimeClusterManagerContext, req HelloRequest) {
 	s.log = log
 	s.runtimeContext = runtimeContext
 	s.interruptChan = make(chan struct{}, 32)
@@ -231,8 +254,8 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 		masterURL := s.GetMasterURL()
 		if masterURL != "" && masterURL != ownURL {
 			log.Debug().Msgf("Updating cluster configuration master URL: %s", masterURL)
-			// We are slave, try to update cluster configuration from master
-			if err := s.updateClusterConfiguration(ctx, masterURL); err != nil {
+			// We are a follower, try to update cluster configuration from leader
+			if err := s.updateClusterConfiguration(ctx, masterURL, req); err != nil {
 				delay = time.Second * 5
 				log.Warn().Err(err).Msgf("Failed to load cluster configuration from %s", masterURL)
 			} else {
