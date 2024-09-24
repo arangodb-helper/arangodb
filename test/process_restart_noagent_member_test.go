@@ -98,7 +98,6 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 
 	joins := "localhost:6000,localhost:7000,localhost:8000"
 	for k, m := range members {
-		m.DataDir = SetUniqueDataDir(t)
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
 		members[k] = m
 	}
