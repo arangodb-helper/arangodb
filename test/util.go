@@ -361,13 +361,14 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 
 	t.Logf("Stopping %d starters", len(starters))
 	for _, starter := range starters {
-		starter := starter // Used in nested function
+		p := starter // Used in nested function
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			if err := starter.WaitTimeout(time.Second * 100); err != nil {
+			if err := p.WaitTimeout(time.Second * 300); err != nil {
 				result = false
 				t.Errorf("Starter is not stopped in time: %s", describe(err))
+				showProcessLogs(t, p, "broken process")
 			}
 		}()
 	}

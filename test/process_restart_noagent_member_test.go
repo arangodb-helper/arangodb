@@ -82,6 +82,12 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 
 	// TODO fix-me: GT-608
 	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
+	// right now use kill
+
+	t.Logf("Kill all members")
+	for _, m := range members {
+		require.NoError(t, m.Process.Kill())
+	}
 }
 
 func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
@@ -112,10 +118,9 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 	for i := 0; i < 1; i++ {
 		t.Logf("Restart all members, iteration: %d", i)
 		t.Run("Restart all members", func(t *testing.T) {
-			for k := range members {
-				require.NoError(t, members[k].Process.Kill())
+			for port := range members {
+				require.NoError(t, members[port].Process.Kill())
 			}
-
 			time.Sleep(3 * time.Second)
 
 			for port, m := range members {

@@ -141,7 +141,8 @@ func (sp *SubProcess) WaitTimeout(timeout time.Duration) error {
 	err := sp.cmd.Wait()
 
 	if err != nil {
-		if c, ok := err.(*os.SyscallError); ok {
+		var c *os.SyscallError
+		if errors.As(err, &c) {
 			if c.Syscall == "waitid" {
 				return nil
 			}
