@@ -131,8 +131,13 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 			verifySetupJson(t, members)
 			verifyEndpointSetup(t, members, "localhost")
 		})
-
 	}
+
+	for _, m := range members {
+		defer m.Process.Close()
+	}
+	SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
+
 }
 
 func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig, host string) {
