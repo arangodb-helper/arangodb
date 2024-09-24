@@ -43,7 +43,19 @@ type MembersConfig struct {
 	Process  *SubProcess
 }
 
+/*
+Due to issue with permission of handling existing processes in Docker, we have to skip this test.
+
+Reason:
+Once a starter process is killed in Docker it is not possible to assign existing dbserver processes to the new starter process,
+so the shutdown of the dbserver processes is not possible in a graceful way.
+
+All Process tests using restarts are skipped (they are running in single Docker container).
+TODO: GT-608
+*/
 func TestProcessRestartNoAgentMember(t *testing.T) {
+	t.Skipf("Skip test, see GT-608")
+
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, false)
 
@@ -59,6 +71,7 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 	for k, m := range members {
 		m.DataDir = SetUniqueDataDir(t)
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+		m.Process.label = fmt.Sprintf("node-%d", m.Port)
 		members[k] = m
 	}
 
@@ -73,6 +86,7 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 
 		m := members[10000]
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+		m.Process.label = fmt.Sprintf("node-%d", m.Port)
 		members[10000] = m
 		waitForCluster(t, members, time.Now())
 
@@ -82,15 +96,21 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 
 	// TODO fix-me: GT-608
 	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
-	// right now use kill
-
-	t.Logf("Kill all members")
-	for _, m := range members {
-		require.NoError(t, m.Process.Kill())
-	}
 }
 
+/*
+Due to issue with permission of handling existing processes in Docker, we have to skip this test.
+
+Reason:
+Once a starter process is killed in Docker it is not possible to assign existing dbserver processes to the new starter process,
+so the shutdown of the dbserver processes is not possible in a graceful way.
+
+All Process tests using restarts are skipped (they are running in single Docker container).
+TODO: GT-608
+*/
 func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
+	t.Skipf("Skip test, see GT-608")
+
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, false)
 
@@ -138,12 +158,6 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 
 	// TODO fix-me: GT-608
 	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
-	// right now use kill
-
-	t.Logf("Kill all members")
-	for _, m := range members {
-		require.NoError(t, m.Process.Kill())
-	}
 }
 
 func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig, host string) {

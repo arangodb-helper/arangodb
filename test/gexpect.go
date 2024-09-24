@@ -52,6 +52,8 @@ type SubProcess struct {
 	mutex       sync.Mutex
 	output      bytes.Buffer
 	expressions map[*regexp.Regexp]chan struct{}
+
+	label string
 }
 
 // NewSubProcess creates a new process with given name and arguments.

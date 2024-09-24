@@ -367,8 +367,8 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 			defer g.Done()
 			if err := p.WaitTimeout(time.Second * 300); err != nil {
 				result = false
-				t.Errorf("Starter is not stopped in time: %s", describe(err))
-				showProcessLogs(t, p, "broken process")
+				t.Errorf("Starter (label: %s) is not stopped in time: %s", p.label, describe(err))
+				showProcessLogs(t, p, p.label)
 			}
 		}()
 	}
@@ -380,7 +380,11 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 	t.Logf("Waiting for %d starters to stop", len(starters))
 	g.Wait()
 
-	t.Logf("All starters gone")
+	if result {
+		t.Logf("All starters gone")
+	} else {
+		t.Logf("Some starters did not stop in time")
+	}
 
 	return result
 }

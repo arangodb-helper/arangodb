@@ -82,7 +82,6 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 				time.Sleep(3 * time.Second)
 
 				for k := range members {
-					logDockerLogs(t, members[k].ID)
 					removeDockerContainer(t, members[k].ID)
 				}
 
