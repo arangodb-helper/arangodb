@@ -21,7 +21,9 @@
 package test
 
 import (
+	"context"
 	"fmt"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +82,77 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 
 	// TODO fix-me: GT-608
 	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
+}
+
+func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
+	removeArangodProcesses(t)
+	testMatch(t, testModeProcess, starterModeCluster, false)
+
+	members := map[int]MembersConfig{
+		6000:  {"node1", 6000, SetUniqueDataDir(t), true, nil},
+		7000:  {"node2", 7000, SetUniqueDataDir(t), true, nil},
+		8000:  {"node3", 8000, SetUniqueDataDir(t), true, nil},
+		9000:  {"node4", 9000, SetUniqueDataDir(t), false, nil},
+		10000: {"node5", 10000, SetUniqueDataDir(t), false, nil},
+	}
+
+	joins := "localhost:6000,localhost:7000,localhost:8000"
+	for k, m := range members {
+		m.DataDir = SetUniqueDataDir(t)
+		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+		members[k] = m
+	}
+
+	waitForCluster(t, members, time.Now())
+
+	t.Logf("Verify setup.json after fresh start")
+	verifySetupJson(t, members)
+
+	verifyEndpointSetup(t, members, "localhost")
+
+	for i := 0; i < 1; i++ {
+		t.Logf("Restart all members, iteration: %d", i)
+		t.Run("Restart all members", func(t *testing.T) {
+			for k := range members {
+				require.NoError(t, members[k].Process.Kill())
+			}
+
+			time.Sleep(3 * time.Second)
+
+			for port, m := range members {
+				m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+				members[port] = m
+			}
+
+			waitForCluster(t, members, time.Now())
+
+			t.Logf("Verify setup after member restart, iteration: %d", i)
+			verifySetupJson(t, members)
+			verifyEndpointSetup(t, members, "localhost")
+		})
+
+	}
+}
+
+func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig, host string) {
+	for port, m := range members {
+		t.Logf("Verify endpoints for member: %d", m.Port)
+
+		c := NewStarterClient(t, fmt.Sprintf("http://%s:%d", host, port))
+		ctx := context.Background()
+
+		endpoints, err := c.Endpoints(ctx)
+		require.NoError(t, err, "Failed to get endpoints, member: %d", m.Port)
+
+		for _, member := range members {
+			require.Contains(t, endpoints.Starters, fmt.Sprintf("http://%s:%d", host, member.Port), "Starter endpoint not found, member: %d", member.Port)
+			require.Contains(t, endpoints.Coordinators, fmt.Sprintf("http://%s:%d", host, member.Port+definitions.PortOffsetCoordinator), "Coordinator endpoint not found, member: %d", member.Port)
+
+			if member.HasAgent {
+				require.Contains(t, endpoints.Agents, fmt.Sprintf("http://%s:%d", host, member.Port+definitions.PortOffsetAgent), "Agent endpoint not found, member: %d", member.Port)
+			}
+		}
+	}
 }
 
 func spawnMemberProcess(t *testing.T, port int, dataDir, joins, extraArgs string) *SubProcess {
