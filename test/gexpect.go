@@ -52,6 +52,8 @@ type SubProcess struct {
 	mutex       sync.Mutex
 	output      bytes.Buffer
 	expressions map[*regexp.Regexp]chan struct{}
+
+	label string
 }
 
 // NewSubProcess creates a new process with given name and arguments.
@@ -141,7 +143,8 @@ func (sp *SubProcess) WaitTimeout(timeout time.Duration) error {
 	err := sp.cmd.Wait()
 
 	if err != nil {
-		if c, ok := err.(*os.SyscallError); ok {
+		var c *os.SyscallError
+		if errors.As(err, &c) {
 			if c.Syscall == "waitid" {
 				return nil
 			}

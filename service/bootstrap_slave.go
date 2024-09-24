@@ -25,9 +25,12 @@ package service
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/client"
 )
@@ -35,89 +38,26 @@ import (
 // bootstrapSlave starts the Service as slave and begins bootstrapping the cluster from nothing.
 func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Config, bsCfg BootstrapConfig) {
 	masterURL := s.createBootstrapMasterURL(peerAddress, config)
-	for {
-		s.log.Info().Msgf("Contacting master %s...", masterURL)
-		_, hostPort, err := s.getHTTPServerPort()
-		if err != nil {
-			s.log.Fatal().Err(err).Msg("Failed to get HTTP server port")
-		}
-		encoded, err := json.Marshal(HelloRequest{
-			DataDir:         config.DataDir,
-			SlaveID:         s.id,
-			SlaveAddress:    config.OwnAddress,
-			SlavePort:       hostPort,
-			IsSecure:        s.IsSecure(),
-			Agent:           copyBoolRef(bsCfg.StartAgent),
-			DBServer:        copyBoolRef(bsCfg.StartDBserver),
-			Coordinator:     copyBoolRef(bsCfg.StartCoordinator),
-			ResilientSingle: copyBoolRef(bsCfg.StartResilientSingle),
-			SyncMaster:      copyBoolRef(bsCfg.StartSyncMaster),
-			SyncWorker:      copyBoolRef(bsCfg.StartSyncWorker),
-		})
-		if err != nil {
-			s.log.Fatal().Err(err).Msg("Failed to encode Hello request")
-		}
-		helloURL, err := getURLWithPath(masterURL, "/hello")
-		if err != nil {
-			s.log.Fatal().Err(err).Msg("Failed to create Hello URL")
-		}
-		r, err := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
-		if err != nil {
-			s.log.Info().Err(err).Msg("Initial handshake with master failed")
-			time.Sleep(time.Second)
-			continue
-		}
 
-		body, err := ioutil.ReadAll(r.Body)
-		r.Body.Close()
-		if err != nil {
-			s.log.Info().Err(err).Msg("Cannot start because HTTP response from master was bad")
-			time.Sleep(time.Second)
-			continue
-		}
-
-		if r.StatusCode == http.StatusServiceUnavailable {
-			s.log.Info().Err(err).Msg("Cannot start because service unavailable")
-			time.Sleep(time.Second)
-			continue
-		}
-
-		if r.StatusCode == http.StatusNotFound {
-			s.log.Info().Err(err).Msg("Cannot start because service not found")
-			time.Sleep(time.Second)
-			continue
-		}
-
-		if r.StatusCode != http.StatusOK {
-			err := client.ParseResponseError(r, body)
-			s.log.Fatal().Msgf("Cannot start because of HTTP error from master: code=%d, message=%s\n", r.StatusCode, err.Error())
-			return
-		}
-		var result ClusterConfig
-		if err := json.Unmarshal(body, &result); err != nil {
-			s.log.Warn().Err(err).Msg("Cannot parse body from master")
-			return
-		}
-		// Check result
-		if _, found := result.PeerByID(s.id); !found {
-			s.log.Fatal().Msg("Master responsed with cluster config that does not contain my ID, please check master")
-			return
-		}
-		if result.ServerStorageEngine == "" {
-			s.log.Fatal().Msg("Master responsed with cluster config that does not contain a ServerStorageEngine, please update master first")
-			return
-		}
-		// Save cluster config
-		s.myPeers = result
-		bsCfg.ServerStorageEngine = result.ServerStorageEngine
-		break
-	}
-
-	// Check HTTP server port
-	containerHTTPPort, _, err := s.getHTTPServerPort()
+	_, hostPort, err := s.GetHTTPServerPort()
 	if err != nil {
-		s.log.Fatal().Err(err).Msg("Cannot find HTTP server info")
+		s.log.Fatal().Err(err).Msg("Failed to get HTTP server port")
 	}
+
+	req := BuildHelloRequest(s.id, hostPort, s.IsSecure(), config, bsCfg)
+
+	currentConfig := RegisterPeer(s.log, masterURL, req)
+
+	// save result
+	bsCfg.ServerStorageEngine = currentConfig.ServerStorageEngine
+	s.runtimeClusterManager.myPeers = currentConfig
+
+	// refresh port
+	containerHTTPPort, _, err := s.GetHTTPServerPort()
+	if err != nil {
+		s.log.Fatal().Err(err).Msg("Failed to get HTTP server port")
+	}
+
 	if !WaitUntilPortAvailable(config.BindAddress, containerHTTPPort, time.Second*5) {
 		s.log.Fatal().Msgf("Port %d is already in use", containerHTTPPort)
 	}
@@ -126,35 +66,116 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 	s.startHTTPServer(config)
 
 	// Wait until we can start:
-	if s.myPeers.AgencySize > 1 {
-		s.log.Info().Msgf("Waiting for %d servers to show up...", s.myPeers.AgencySize)
+	if s.runtimeClusterManager.myPeers.AgencySize > 1 {
+		s.log.Info().Msgf("Waiting for %d servers to show up...", s.runtimeClusterManager.myPeers.AgencySize)
 	}
 	for {
-		if s.myPeers.HaveEnoughAgents() {
+		if s.runtimeClusterManager.myPeers.HaveEnoughAgents() {
 			// We have enough peers for a valid agency
 			break
 		} else {
 			// Wait a bit until we have enough peers for a valid agency
 			time.Sleep(time.Second)
-			master := s.myPeers.AllPeers[0] // TODO replace with bootstrap master
+			master := s.runtimeClusterManager.myPeers.AllPeers[0] // TODO replace with bootstrap master
 			r, err := httpClient.Get(master.CreateStarterURL("/hello"))
 			if err != nil {
-				s.log.Error().Err(err).Msg("Failed to connect to master")
+				s.log.Error().Err(err).Msg("Failed to connect to the leader")
 				time.Sleep(time.Second * 2)
 			} else if r.StatusCode != 200 {
-				s.log.Warn().Msgf("Invalid status received from master: %d", r.StatusCode)
+				s.log.Warn().Msgf("Invalid status received from leader: %d", r.StatusCode)
 			} else {
 				defer r.Body.Close()
 				body, _ := ioutil.ReadAll(r.Body)
 				var clusterConfig ClusterConfig
 				json.Unmarshal(body, &clusterConfig)
-				s.myPeers = clusterConfig
+				s.runtimeClusterManager.myPeers = clusterConfig
 			}
 		}
 	}
 
-	s.log.Info().Msgf("Serving as slave with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
+	s.log.Info().Msgf("Serving as follower with ID '%s' on %s:%d...", s.id, config.OwnAddress, s.announcePort)
 	s.log.Info().Msgf("Using storage engine '%s'", bsCfg.ServerStorageEngine)
 	s.saveSetup()
 	s.startRunning(runner, config, bsCfg)
+}
+
+func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) ClusterConfig {
+	for {
+		log.Info().Msgf("Contacting leader %s...", masterURL)
+
+		encoded, err := json.Marshal(req)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to encode Hello request")
+		}
+		helloURL, err := getURLWithPath(masterURL, "/hello")
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to create Hello URL")
+		}
+		r, err := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
+		if err != nil {
+			log.Info().Err(err).Msg("Initial handshake with leader failed")
+			time.Sleep(time.Second)
+			continue
+		}
+
+		body, err := io.ReadAll(r.Body)
+		r.Body.Close()
+		if err != nil {
+			log.Info().Err(err).Msg("Cannot start because HTTP response from the leader was bad")
+			time.Sleep(time.Second)
+			continue
+		}
+
+		if r.StatusCode == http.StatusServiceUnavailable {
+			log.Info().Err(err).Msg("Cannot start because service unavailable")
+			time.Sleep(time.Second)
+			continue
+		}
+
+		if r.StatusCode == http.StatusNotFound {
+			log.Info().Err(err).Msg("Cannot start because service not found")
+			time.Sleep(time.Second)
+			continue
+		}
+
+		var result ClusterConfig
+
+		if r.StatusCode != http.StatusOK {
+			err := client.ParseResponseError(r, body)
+			log.Fatal().Msgf("Cannot start because of HTTP error from leader: code=%d, message=%s\n", r.StatusCode, err.Error())
+			return result
+		}
+
+		if err := json.Unmarshal(body, &result); err != nil {
+			log.Warn().Err(err).Msg("Cannot parse body from leader")
+			return result
+		}
+		// Check result
+		if _, found := result.PeerByID(req.SlaveID); !found {
+			log.Fatal().Msg("Leader responded with cluster config that does not contain my ID, please check the leader")
+			return result
+		}
+		if result.ServerStorageEngine == "" {
+			log.Fatal().Msg("Leader responded with cluster config that does not contain a ServerStorageEngine, please update leader first")
+			return result
+		}
+
+		return result
+	}
+}
+
+func BuildHelloRequest(id string, slavePort int, isSecure bool, config Config, bsCfg BootstrapConfig) HelloRequest {
+	return HelloRequest{
+		DataDir:         config.DataDir,
+		SlaveID:         id,
+		SlaveAddress:    config.OwnAddress,
+		SlavePort:       slavePort,
+		IsSecure:        isSecure,
+		Agent:           copyBoolRef(bsCfg.StartAgent),
+		DBServer:        copyBoolRef(bsCfg.StartDBserver),
+		Coordinator:     copyBoolRef(bsCfg.StartCoordinator),
+		ResilientSingle: copyBoolRef(bsCfg.StartResilientSingle),
+		SyncMaster:      copyBoolRef(bsCfg.StartSyncMaster),
+		SyncWorker:      copyBoolRef(bsCfg.StartSyncWorker),
+	}
 }
