@@ -365,7 +365,7 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			if err := starter.WaitTimeout(time.Second * 300); err != nil {
+			if err := starter.WaitTimeout(time.Second * 100); err != nil {
 				result = false
 				t.Errorf("Starter is not stopped in time: %s", describe(err))
 			}
@@ -375,7 +375,12 @@ func SendIntrAndWait(t *testing.T, starters ...*SubProcess) bool {
 	for _, starter := range starters {
 		starter.SendIntr()
 	}
+
+	t.Logf("Waiting for %d starters to stop", len(starters))
 	g.Wait()
+
+	t.Logf("All starters gone")
+
 	return result
 }
 

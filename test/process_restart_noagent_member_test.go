@@ -81,11 +81,13 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 	})
 
 	// TODO fix-me: GT-608
-	for _, m := range members {
-		defer m.Process.Close()
-	}
-	// TODO fix-me: GT-608
 	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
+	// right now use kill
+
+	t.Logf("Kill all members")
+	for _, m := range members {
+		require.NoError(t, m.Process.Kill())
+	}
 }
 
 func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
@@ -101,9 +103,9 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 	}
 
 	joins := "localhost:6000,localhost:7000,localhost:8000"
-	for k, m := range members {
+	for port, m := range members {
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
-		members[k] = m
+		members[port] = m
 	}
 
 	waitForCluster(t, members, time.Now())
@@ -123,8 +125,9 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 			time.Sleep(3 * time.Second)
 
 			for port, m := range members {
-				m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
-				members[port] = m
+				member := members[port]
+				member.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+				members[port] = member
 			}
 
 			waitForCluster(t, members, time.Now())
@@ -135,10 +138,14 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 		})
 	}
 
-	for _, m := range members {
-		defer m.Process.Close()
-	}
+	// TODO fix-me: GT-608
 	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
+	// right now use kill
+
+	t.Logf("Kill all members")
+	for _, m := range members {
+		require.NoError(t, m.Process.Kill())
+	}
 }
 
 func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig, host string) {
