@@ -36,7 +36,7 @@ import (
 func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Config, bsCfg BootstrapConfig) {
 	masterURL := s.createBootstrapMasterURL(peerAddress, config)
 
-	containerHTTPPort, hostPort, err := s.GetHTTPServerPort()
+	_, hostPort, err := s.GetHTTPServerPort()
 	if err != nil {
 		s.log.Fatal().Err(err).Msg("Failed to get HTTP server port")
 	}
@@ -48,6 +48,12 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 	// save result
 	bsCfg.ServerStorageEngine = currentConfig.ServerStorageEngine
 	s.runtimeClusterManager.myPeers = currentConfig
+
+	// refresh port
+	containerHTTPPort, _, err := s.GetHTTPServerPort()
+	if err != nil {
+		s.log.Fatal().Err(err).Msg("Failed to get HTTP server port")
+	}
 
 	if !WaitUntilPortAvailable(config.BindAddress, containerHTTPPort, time.Second*5) {
 		s.log.Fatal().Msgf("Port %d is already in use", containerHTTPPort)
