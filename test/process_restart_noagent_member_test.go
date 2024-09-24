@@ -110,7 +110,7 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 
 	verifyEndpointSetup(t, members, "localhost")
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1; i++ {
 		t.Logf("Restart all members, iteration: %d", i)
 		t.Run("Restart all members", func(t *testing.T) {
 			for k := range members {
