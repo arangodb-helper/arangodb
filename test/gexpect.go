@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -184,7 +184,7 @@ func (sp *SubProcess) Output() []byte {
 // ExpectTimeout waits for the output of the process to match the given expression, or until a timeout occurs.
 // If a match on the given expression is found, the process output is discard until the end of the match and
 // nil is returned, otherwise a timeout error is returned.
-// If the given context is cancelled, nil is returned.
+// If the given context is canceled, nil is returned.
 func (sp *SubProcess) ExpectTimeout(ctx context.Context, timeout time.Duration, re *regexp.Regexp, id string) error {
 	found := make(chan struct{})
 

@@ -22,26 +22,15 @@ package test
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/arangodb-helper/arangodb/service"
 )
 
 // we have a reproducible test case where we start a cluster with 3 agents and 2 non-agents and race conditions
 func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, false)
-	hostIP := os.Getenv("IP")
-
-	if hostIP == "" {
-		t.Fatal("IP envvar must be set to IP address of this machine")
-	}
 
 	// NOTE: Raise the iteration count to 10 to reproduce the issue
 	for i := 0; i < 1; i++ {
@@ -51,29 +40,29 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 		removeDockerVolumesByLabel(t, "starter-test=true")
 
 		members := map[int]MembersConfig{
-			6000: {createDockerID("s6000-"), 6000, SetUniqueDataDir(t), true, nil},
-			6100: {createDockerID("s6100-"), 6100, SetUniqueDataDir(t), true, nil},
-			6200: {createDockerID("s6200-"), 6200, SetUniqueDataDir(t), true, nil},
-			6300: {createDockerID("s6300-"), 6300, SetUniqueDataDir(t), false, nil},
-			6400: {createDockerID("s6400-"), 6400, SetUniqueDataDir(t), false, nil},
+			6000:  {createDockerID("s6000-"), 6000, SetUniqueDataDir(t), BoolPtr(true), nil},
+			7000:  {createDockerID("s7000-"), 7000, SetUniqueDataDir(t), BoolPtr(true), nil},
+			8000:  {createDockerID("s8000-"), 8000, SetUniqueDataDir(t), BoolPtr(true), nil},
+			9000:  {createDockerID("s9000-"), 9000, SetUniqueDataDir(t), BoolPtr(false), nil},
+			10000: {createDockerID("s10000-"), 10000, SetUniqueDataDir(t), BoolPtr(false), nil},
 		}
 
-		joins := "$IP:6000,$IP:6100,$IP:6200"
+		joins := "localhost:6000,localhost:7000,localhost:8000"
 
 		for k, m := range members {
 			createDockerVolume(t, m.ID)
 
-			m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+			m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 			members[k] = m
 		}
 
 		waitForCluster(t, members, time.Now())
 
 		t.Logf("Verify setup.json after fresh start, iteration: %d", i)
-		verifySetupJsonInDocker(t, members)
-		verifyEndpointSetup(t, members, hostIP)
+		verifyDockerSetupJson(t, members, 3)
+		verifyEndpointSetup(t, members)
 
-		for j := 0; j < 0; j++ {
+		for j := 0; j < 1; j++ {
 			t.Run("Restart all members", func(t *testing.T) {
 				for k := range members {
 					require.NoError(t, members[k].Process.Kill())
@@ -86,15 +75,15 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 				}
 
 				for k, m := range members {
-					m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+					m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 					members[k] = m
 				}
 
 				waitForCluster(t, members, time.Now())
 
 				t.Logf("Verify setup member restart")
-				verifySetupJsonInDocker(t, members)
-				verifyEndpointSetup(t, members, hostIP)
+				verifyDockerSetupJson(t, members, 3)
+				verifyEndpointSetup(t, members)
 			})
 		}
 
@@ -105,9 +94,6 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 
 func TestDockerRestartNoAgentMember(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, false)
-	if os.Getenv("IP") == "" {
-		t.Fatal("IP envvar must be set to IP address of this machine")
-	}
 
 	// Cleanup previous tests
 	removeDockerContainersByLabel(t, "starter-test=true")
@@ -115,26 +101,26 @@ func TestDockerRestartNoAgentMember(t *testing.T) {
 	removeDockerVolumesByLabel(t, "starter-test=true")
 
 	members := map[int]MembersConfig{
-		6000: {createDockerID("s6000-"), 6000, SetUniqueDataDir(t), true, nil},
-		6100: {createDockerID("s6100-"), 6100, SetUniqueDataDir(t), true, nil},
-		6200: {createDockerID("s6200-"), 6200, SetUniqueDataDir(t), true, nil},
-		6300: {createDockerID("s6300-"), 6300, SetUniqueDataDir(t), false, nil},
-		6400: {createDockerID("s6400-"), 6400, SetUniqueDataDir(t), false, nil},
+		6000:  {createDockerID("s6000-"), 6000, SetUniqueDataDir(t), BoolPtr(true), nil},
+		7000:  {createDockerID("s7000-"), 7000, SetUniqueDataDir(t), BoolPtr(true), nil},
+		8000:  {createDockerID("s8000-"), 8000, SetUniqueDataDir(t), BoolPtr(true), nil},
+		9000:  {createDockerID("s9000-"), 9000, SetUniqueDataDir(t), BoolPtr(false), nil},
+		10000: {createDockerID("s10000-"), 10000, SetUniqueDataDir(t), BoolPtr(false), nil},
 	}
 
-	joins := "$IP:6000,$IP:6100,$IP:6200"
+	joins := "localhost:6000,localhost:7000,localhost:8000"
 
 	for k, m := range members {
 		createDockerVolume(t, m.ID)
 
-		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 		members[k] = m
 	}
 
 	waitForCluster(t, members, time.Now())
 
 	t.Logf("Verify setup.json after fresh start")
-	verifySetupJsonInDocker(t, members)
+	verifyDockerSetupJson(t, members, 3)
 
 	t.Run("Restart slave4 (6400)", func(t *testing.T) {
 		require.NoError(t, members[6400].Process.Kill())
@@ -143,56 +129,16 @@ func TestDockerRestartNoAgentMember(t *testing.T) {
 		removeDockerContainer(t, members[6400].ID)
 
 		m := members[6400]
-		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", m.HasAgent))
+		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 		members[6400] = m
 		waitForCluster(t, members, time.Now())
 
 		t.Logf("Verify setup.json after member restart")
-		verifySetupJsonInDocker(t, members)
+		verifyDockerSetupJson(t, members, 3)
 	})
 
 	waitForCallFunction(t, getShutdownCalls(members)...)
 	removeDockerVolumesByLabel(t, "starter-test=true")
-}
-
-func spawnMemberInDocker(t *testing.T, port int, cID, joins, extraArgs string) *SubProcess {
-	return Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", port, port),
-		fmt.Sprintf("-v %s:/data", cID),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID,
-		"--starter.address=$IP",
-		fmt.Sprintf("--starter.port=%d", port),
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=%s", joins),
-		extraArgs,
-	}, " "))
-}
-
-// verifySetupJsonInDocker validates setup.json file on all members
-func verifySetupJsonInDocker(t *testing.T, members map[int]MembersConfig) {
-	for _, m := range members {
-		c := Spawn(t, fmt.Sprintf("docker exec %s cat /data/setup.json", m.ID))
-		require.NoError(t, c.Wait())
-		require.NoError(t, c.Close())
-
-		cfg, isRelaunch, err := service.VerifySetupConfig(zerolog.New(zerolog.NewConsoleWriter()), c.Output())
-		require.NoError(t, err, "Failed to read setup.json, member: %d", m.Port)
-		require.True(t, isRelaunch, "Expected relaunch, member: %d", m.Port)
-
-		for _, p := range cfg.Peers.AllPeers {
-			mLocal, ok := members[p.Port]
-			require.True(t, ok, "Member %d not found in members list", p.Port)
-
-			assert.Equal(t, mLocal.HasAgent, p.HasAgent(), "HasAgent mismatch, memberConfig: %s, peerPort: %d", m.Port, p.Port)
-		}
-	}
 }
 
 func getShutdownCalls(members map[int]MembersConfig) []callFunction {

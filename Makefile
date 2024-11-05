@@ -98,6 +98,7 @@ RELEASE_BIN := /usr/code/.gobuild/bin/release
 
 DOCKER_CMD = $(DOCKERCLI) run \
                 --rm \
+                --net=host \
                 -v $(SRCDIR):/usr/code \
                 -u "$(shell id -u):$(shell id -g)" \
                 -e GOCACHE=/usr/code/.gobuild/.cache \
