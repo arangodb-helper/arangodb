@@ -49,7 +49,7 @@ type Peer struct {
 	IsSecure    bool // If set, servers started by this peer are using an SSL connection
 }
 
-func preparePeerServers(mode ServiceMode, bsCfg BootstrapConfig, config Config) peerServers {
+func preparePeerServers(mode ServiceMode, bsCfg BootstrapConfig, p *Peer) peerServers {
 	var hasDBServer *bool
 	if !boolFromRef(bsCfg.StartDBserver, true) {
 		hasDBServer = boolRef(false)
@@ -58,8 +58,14 @@ func preparePeerServers(mode ServiceMode, bsCfg BootstrapConfig, config Config) 
 	if !boolFromRef(bsCfg.StartCoordinator, true) {
 		hasCoordinator = boolRef(false)
 	}
+
+	hasAgent := boolFromRef(bsCfg.StartAgent, !mode.IsSingleMode())
+	if p != nil {
+		hasAgent = boolFromRef(bsCfg.StartAgent, p.HasAgent())
+	}
+
 	return peerServers{
-		HasAgentFlag:       boolFromRef(bsCfg.StartAgent, !mode.IsSingleMode()),
+		HasAgentFlag:       hasAgent,
 		HasDBServerFlag:    hasDBServer,
 		HasCoordinatorFlag: hasCoordinator,
 	}
