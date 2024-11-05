@@ -122,15 +122,15 @@ func TestDockerRestartNoAgentMember(t *testing.T) {
 	t.Logf("Verify setup.json after fresh start")
 	verifyDockerSetupJson(t, members, 3)
 
-	t.Run("Restart slave4 (6400)", func(t *testing.T) {
-		require.NoError(t, members[6400].Process.Kill())
+	t.Run("Restart s9000", func(t *testing.T) {
+		require.NoError(t, members[9000].Process.Kill())
 		time.Sleep(3 * time.Second)
 
-		removeDockerContainer(t, members[6400].ID)
+		removeDockerContainer(t, members[9000].ID)
 
-		m := members[6400]
+		m := members[9000]
 		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
-		members[6400] = m
+		members[9000] = m
 		waitForCluster(t, members, time.Now())
 
 		t.Logf("Verify setup.json after member restart")
