@@ -52,7 +52,7 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 		for k, m := range members {
 			createDockerVolume(t, m.ID)
 
-			m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
+			m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent), "")
 			members[k] = m
 		}
 
@@ -75,7 +75,7 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 				}
 
 				for k, m := range members {
-					m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
+					m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent), "")
 					members[k] = m
 				}
 
@@ -113,7 +113,7 @@ func TestDockerRestartNoAgentMember(t *testing.T) {
 	for k, m := range members {
 		createDockerVolume(t, m.ID)
 
-		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
+		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent), "")
 		members[k] = m
 	}
 
@@ -129,7 +129,7 @@ func TestDockerRestartNoAgentMember(t *testing.T) {
 		removeDockerContainer(t, members[9000].ID)
 
 		m := members[9000]
-		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
+		m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent), "")
 		members[9000] = m
 		waitForCluster(t, members, time.Now())
 
