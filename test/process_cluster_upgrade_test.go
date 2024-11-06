@@ -28,7 +28,7 @@ import (
 )
 
 // TestProcessClusterUpgrade starts a master starter, followed by 2 slave starters.
-// Once running it starts a database upgrade.
+// Once running, it starts a database upgrade.
 func TestProcessClusterUpgrade(t *testing.T) {
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, false)

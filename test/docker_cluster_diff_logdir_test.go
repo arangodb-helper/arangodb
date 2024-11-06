@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,54 +17,37 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestDockerClusterDifferentLogDir runs 3 arangodb starters in docker with a custom log dir.
 func TestDockerClusterDifferentLogDir(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, false)
-	if os.Getenv("IP") == "" {
-		t.Fatal("IP envvar must be set to IP address of this machine")
-	}
-	/*
-		docker volume create arangodb1
-		docker run -i --name=adb1 --rm -p 8528:8528 \
-			-v arangodb1:/data \
-			-v /var/run/docker.sock:/var/run/docker.sock \
-			-v something:something \
-			arangodb/arangodb-starter \
-			--docker.container=adb1 \
-			--starter.address=$IP
-			--log.dir=something
-	*/
-	volID1 := createDockerID("vol-starter-test-cluster-default1-")
-	createDockerVolume(t, volID1)
-	defer removeDockerVolume(t, volID1)
 
-	volID2 := createDockerID("vol-starter-test-cluster-default2-")
-	createDockerVolume(t, volID2)
-	defer removeDockerVolume(t, volID2)
+	cID1 := createDockerID("starter-test-cluster-default1-")
+	createDockerVolume(t, cID1)
+	defer removeDockerVolume(t, cID1)
 
-	volID3 := createDockerID("vol-starter-test-cluster-default3-")
-	createDockerVolume(t, volID3)
-	defer removeDockerVolume(t, volID3)
+	cID2 := createDockerID("starter-test-cluster-default2-")
+	createDockerVolume(t, cID2)
+	defer removeDockerVolume(t, cID2)
 
-	logDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatalf("TempDir failed: %v", err)
-	}
+	cID3 := createDockerID("starter-test-cluster-default3-")
+	createDockerVolume(t, cID3)
+	defer removeDockerVolume(t, cID3)
+
+	logDir, err := os.MkdirTemp("", "")
+	require.NoError(t, err)
 
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
@@ -72,68 +55,27 @@ func TestDockerClusterDifferentLogDir(t *testing.T) {
 
 	start := time.Now()
 
+	joins := fmt.Sprintf("localhost:%d,localhost:%d,localhost:%d", basePort, basePort+(1*portIncrement), basePort+(2*portIncrement))
+
 	masterLogDir := filepath.Join(logDir, "master")
-	cID1 := createDockerID("starter-test-cluster-default1-")
-	dockerRun1 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID1,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort, basePort),
-		fmt.Sprintf("-v %s:/data", volID1),
-		fmt.Sprintf("-v %s:%s", masterLogDir, masterLogDir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID1,
-		"--starter.address=$IP",
-		"--log.dir=" + masterLogDir,
-		createEnvironmentStarterOptions(),
-	}, " "))
+	require.NoError(t, os.Mkdir(masterLogDir, 0755))
+	defer os.RemoveAll(masterLogDir)
+
+	dockerRun1 := spawnMemberInDocker(t, basePort, cID1, joins, "--log.dir="+masterLogDir, fmt.Sprintf("-v %s:%s", masterLogDir, masterLogDir))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
 	slave1LogDir := filepath.Join(logDir, "slave1")
-	cID2 := createDockerID("starter-test-cluster-default2-")
-	dockerRun2 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID2,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+(1*portIncrement), basePort),
-		fmt.Sprintf("-v %s:/data", volID2),
-		fmt.Sprintf("-v %s:%s", slave1LogDir, slave1LogDir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID2,
-		"--starter.address=$IP",
-		"--log.dir=" + slave1LogDir,
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	require.NoError(t, os.Mkdir(slave1LogDir, 0755))
+
+	dockerRun2 := spawnMemberInDocker(t, basePort+(1*portIncrement), cID2, joins, "--log.dir="+slave1LogDir, fmt.Sprintf("-v %s:%s", slave1LogDir, slave1LogDir))
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
 
 	slave2LogDir := filepath.Join(logDir, "slave2")
-	cID3 := createDockerID("starter-test-cluster-default3-")
-	dockerRun3 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID3,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+(2*portIncrement), basePort),
-		fmt.Sprintf("-v %s:/data", volID3),
-		fmt.Sprintf("-v %s:%s", slave2LogDir, slave2LogDir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID3,
-		"--starter.address=$IP",
-		"--log.dir=" + slave2LogDir,
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	require.NoError(t, os.Mkdir(slave2LogDir, 0755))
+
+	dockerRun3 := spawnMemberInDocker(t, basePort+(2*portIncrement), cID3, joins, "--log.dir="+slave2LogDir, fmt.Sprintf("-v %s:%s", slave2LogDir, slave2LogDir))
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
@@ -166,36 +108,21 @@ func TestDockerClusterDifferentLogDir(t *testing.T) {
 // starter log to file.
 func TestDockerClusterDifferentLogDirNoLog2File(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, false)
-	if os.Getenv("IP") == "" {
-		t.Fatal("IP envvar must be set to IP address of this machine")
-	}
-	/*
-		docker volume create arangodb1
-		docker run -i --name=adb1 --rm -p 8528:8528 \
-			-v arangodb1:/data \
-			-v /var/run/docker.sock:/var/run/docker.sock \
-			-v something:something \
-			arangodb/arangodb-starter \
-			--docker.container=adb1 \
-			--starter.address=$IP
-			--log.dir=something
-	*/
-	volID1 := createDockerID("vol-starter-test-cluster-default1-")
-	createDockerVolume(t, volID1)
-	defer removeDockerVolume(t, volID1)
 
-	volID2 := createDockerID("vol-starter-test-cluster-default2-")
-	createDockerVolume(t, volID2)
-	defer removeDockerVolume(t, volID2)
+	cID1 := createDockerID("starter-test-cluster-default1-")
+	createDockerVolume(t, cID1)
+	defer removeDockerVolume(t, cID1)
 
-	volID3 := createDockerID("vol-starter-test-cluster-default3-")
-	createDockerVolume(t, volID3)
-	defer removeDockerVolume(t, volID3)
+	cID2 := createDockerID("starter-test-cluster-default2-")
+	createDockerVolume(t, cID2)
+	defer removeDockerVolume(t, cID2)
 
-	logDir, err := ioutil.TempDir("", "")
-	if err != nil {
-		t.Fatalf("TempDir failed: %v", err)
-	}
+	cID3 := createDockerID("starter-test-cluster-default3-")
+	createDockerVolume(t, cID3)
+	defer removeDockerVolume(t, cID3)
+
+	logDir, err := os.MkdirTemp("", "")
+	require.NoError(t, err)
 
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
@@ -203,71 +130,27 @@ func TestDockerClusterDifferentLogDirNoLog2File(t *testing.T) {
 
 	start := time.Now()
 
+	joins := fmt.Sprintf("localhost:%d,localhost:%d,localhost:%d", basePort, basePort+(1*portIncrement), basePort+(2*portIncrement))
+
 	masterLogDir := filepath.Join(logDir, "master")
-	cID1 := createDockerID("starter-test-cluster-default1-")
-	dockerRun1 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID1,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort, basePort),
-		fmt.Sprintf("-v %s:/data", volID1),
-		fmt.Sprintf("-v %s:%s", masterLogDir, masterLogDir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID1,
-		"--starter.address=$IP",
-		"--log.file=false",
-		"--log.dir=" + masterLogDir,
-		createEnvironmentStarterOptions(),
-	}, " "))
+	require.NoError(t, os.Mkdir(masterLogDir, 0755))
+	defer os.RemoveAll(masterLogDir)
+
+	dockerRun1 := spawnMemberInDocker(t, basePort, cID1, joins, "--log.file=false --log.dir="+masterLogDir, fmt.Sprintf("-v %s:%s", masterLogDir, masterLogDir))
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
 	slave1LogDir := filepath.Join(logDir, "slave1")
-	cID2 := createDockerID("starter-test-cluster-default2-")
-	dockerRun2 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID2,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+(1*portIncrement), basePort),
-		fmt.Sprintf("-v %s:/data", volID2),
-		fmt.Sprintf("-v %s:%s", slave1LogDir, slave1LogDir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID2,
-		"--starter.address=$IP",
-		"--log.file=false",
-		"--log.dir=" + slave1LogDir,
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	require.NoError(t, os.Mkdir(slave1LogDir, 0755))
+
+	dockerRun2 := spawnMemberInDocker(t, basePort+(1*portIncrement), cID2, joins, "--log.file=false --log.dir="+slave1LogDir, fmt.Sprintf("-v %s:%s", slave1LogDir, slave1LogDir))
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
 
 	slave2LogDir := filepath.Join(logDir, "slave2")
-	cID3 := createDockerID("starter-test-cluster-default3-")
-	dockerRun3 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID3,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+(2*portIncrement), basePort),
-		fmt.Sprintf("-v %s:/data", volID3),
-		fmt.Sprintf("-v %s:%s", slave2LogDir, slave2LogDir),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID3,
-		"--starter.address=$IP",
-		"--log.file=false",
-		"--log.dir=" + slave2LogDir,
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	require.NoError(t, os.Mkdir(slave2LogDir, 0755))
+
+	dockerRun3 := spawnMemberInDocker(t, basePort+(2*portIncrement), cID3, joins, "--log.file=false --log.dir="+slave2LogDir, fmt.Sprintf("-v %s:%s", slave2LogDir, slave2LogDir))
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 

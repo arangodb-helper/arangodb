@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2022 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,10 +22,7 @@ package test
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -33,38 +30,19 @@ import (
 )
 
 // TestDockerErrExitCodeHandler runs in 'single' mode with invalid ArangoD configuration and
-// checks that exit code is recognized by starter
+// checks that starter recognizes exit code
 func TestDockerErrExitCodeHandler(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeSingle, false)
-	if os.Getenv("IP") == "" {
-		t.Fatal("IP envvar must be set to IP address of this machine")
-	}
 
-	volID := createDockerID("vol-starter-test-single-")
-	createDockerVolume(t, volID)
-	defer removeDockerVolume(t, volID)
+	cID := createDockerID("starter-test-single-")
+	createDockerVolume(t, cID)
+	defer removeDockerVolume(t, cID)
 
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
 	removeStarterCreatedDockerContainers(t)
 
-	cID := createDockerID("starter-test-single-")
-	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort, basePort),
-		fmt.Sprintf("-v %s:/data", volID),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID,
-		"--starter.address=$IP",
-		"--starter.mode=single",
-		"--args.all.config=invalidvalue",
-		createEnvironmentStarterOptions(),
-	}, " "))
+	dockerRun := spawnMemberInDocker(t, basePort, cID, "", "--starter.mode=single --args.all.config=invalidvalue", "")
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
@@ -73,6 +51,5 @@ func TestDockerErrExitCodeHandler(t *testing.T) {
 
 	require.NoError(t, dockerRun.WaitTimeout(time.Second*10), "Starter is not stopped in time")
 
-	waitForCallFunction(t,
-		ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)))
+	waitForCallFunction(t, ShutdownStarterCall(insecureStarterEndpoint(0*portIncrement)))
 }

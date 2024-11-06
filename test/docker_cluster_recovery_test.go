@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2018 ArangoDB GmbH, Cologne, Germany
+// Copyright 2018-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,15 +17,12 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -37,89 +34,36 @@ func TestDockerClusterRecovery(t *testing.T) {
 	log := GetLogger(t)
 
 	testMatch(t, testModeDocker, starterModeCluster, false)
-	if os.Getenv("IP") == "" {
-		t.Fatal("IP envvar must be set to IP address of this machine")
-	}
-	/*
-		docker volume create arangodb1
-		docker run -i --name=adb1 --rm -p 8528:8528 \
-			-v arangodb1:/data \
-			-v /var/run/docker.sock:/var/run/docker.sock \
-			arangodb/arangodb-starter \
-			--docker.container=adb1 \
-			--starter.address=$IP
-	*/
-	volID1 := createDockerID("vol-starter-test-cluster-recovery1-")
-	createDockerVolume(t, volID1)
-	defer removeDockerVolume(t, volID1)
 
-	volID2 := createDockerID("vol-starter-test-cluster-recovery2-")
-	createDockerVolume(t, volID2)
-	defer removeDockerVolume(t, volID2)
+	cID1 := createDockerID("starter-test-cluster-default1-")
+	createDockerVolume(t, cID1)
+	defer removeDockerVolume(t, cID1)
 
-	volID3 := createDockerID("vol-starter-test-cluster-recovery3-")
-	createDockerVolume(t, volID3)
-	defer removeDockerVolume(t, volID3)
+	cID2 := createDockerID("starter-test-cluster-default2-")
+	createDockerVolume(t, cID2)
+	defer removeDockerVolume(t, cID2)
+
+	cID3 := createDockerID("starter-test-cluster-default3-")
+	createDockerVolume(t, cID3)
+	defer removeDockerVolume(t, cID3)
 
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
 	removeStarterCreatedDockerContainers(t)
 
+	joins := fmt.Sprintf("localhost:%d", basePort)
+
 	start := time.Now()
 
-	cID1 := createDockerID("starter-test-cluster-recovery1-")
-	dockerRun1 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID1,
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort, basePort),
-		fmt.Sprintf("-v %s:/data", volID1),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID1,
-		fmt.Sprintf("--starter.port=%d", basePort),
-		"--starter.address=$IP",
-		createEnvironmentStarterOptions(),
-	}, " "))
+	dockerRun1 := spawnMemberInDocker(t, basePort, cID1, "", "", "")
 	defer dockerRun1.Close()
 	defer removeDockerContainer(t, cID1)
 
-	cID2 := createDockerID("starter-test-cluster-recovery2-")
-	dockerRun2 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID2,
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+100, basePort+100),
-		fmt.Sprintf("-v %s:/data", volID2),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID2,
-		fmt.Sprintf("--starter.port=%d", basePort+100),
-		"--starter.address=$IP",
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	dockerRun2 := spawnMemberInDocker(t, basePort+100, cID2, joins, "", "")
 	defer dockerRun2.Close()
 	defer removeDockerContainer(t, cID2)
 
-	cID3 := createDockerID("starter-test-cluster-recovery3-")
-	dockerRun3 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID3,
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+200, basePort+200),
-		fmt.Sprintf("-v %s:/data", volID3),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID3,
-		fmt.Sprintf("--starter.port=%d", basePort+200),
-		"--starter.address=$IP",
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	dockerRun3 := spawnMemberInDocker(t, basePort+200, cID3, joins, "", "")
 	defer dockerRun3.Close()
 	defer removeDockerContainer(t, cID3)
 
@@ -160,22 +104,22 @@ func TestDockerClusterRecovery(t *testing.T) {
 	dockerRun2.Wait()
 
 	// Remove entire docker volume
-	removeDockerVolume(t, volID2)
+	removeDockerVolume(t, cID2)
 
 	checkpoint.Log("Recovery")
 
 	// Create new volume
-	recVolID2 := createDockerID("vol-starter-test-cluster-recovery2-recovery-")
-	createDockerVolume(t, recVolID2)
-	defer removeDockerVolume(t, recVolID2)
+	recCID2 := createDockerID("starter-test-cluster-recovery2-recovery-")
+	createDockerVolume(t, recCID2)
+	defer removeDockerVolume(t, recCID2)
 
 	// Create RECOVERY file in new volume
-	recoveryContent := fmt.Sprintf("%s:%d", os.Getenv("IP"), basePort+(100))
+	recoveryContent := fmt.Sprintf("localhost:%d", basePort+(100))
 	dockerBuildRecoveryRun := Spawn(t, strings.Join([]string{
 		"docker run -i",
 		"--label starter-test=true",
 		"--name=" + cID2 + "recovery-builder",
-		fmt.Sprintf("-v %s:/data", recVolID2),
+		fmt.Sprintf("-v %s:/data", recCID2),
 		"alpine",
 		fmt.Sprintf("sh -c \"echo %s > /data/RECOVERY\"", recoveryContent),
 	}, " "))
@@ -186,25 +130,9 @@ func TestDockerClusterRecovery(t *testing.T) {
 
 	checkpoint.Log("Start docker container")
 	// Restart dockerRun2
-	recCID2 := createDockerID("starter-test-cluster-recovery2-recovery-")
-	recDockerRun2 := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + recCID2,
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort+100, basePort+100),
-		fmt.Sprintf("-v %s:/data", recVolID2),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + recCID2,
-		fmt.Sprintf("--starter.port=%d", basePort+100),
-		"--starter.address=$IP",
-		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=$IP:%d", basePort),
-	}, " "))
+	recDockerRun2 := spawnMemberInDocker(t, basePort+100, recCID2, joins, "", "")
 	defer recDockerRun2.Close()
 	defer removeDockerContainer(t, recCID2)
-	checkpoint.Log("Docker container started")
 
 	// Wait until recovered
 	if ok := WaitUntilStarterReady(t, whatCluster, 1, recDockerRun2); ok {

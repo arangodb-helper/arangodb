@@ -139,7 +139,11 @@ func createDockerID(prefix string) string {
 	return prefix + hex.EncodeToString(b)
 }
 
-func spawnMemberInDocker(t *testing.T, port int, cID, joins, extraArgs string) *SubProcess {
+func spawnMemberInDocker(t *testing.T, port int, cID, joinArg, extraArgs, dockerArgs string) *SubProcess {
+	if joinArg != "" {
+		joinArg = fmt.Sprintf("--starter.join=%s", joinArg)
+	}
+
 	return Spawn(t, strings.Join([]string{
 		"docker run -i --net=host",
 		"--label starter-test=true",
@@ -148,12 +152,13 @@ func spawnMemberInDocker(t *testing.T, port int, cID, joins, extraArgs string) *
 		createLicenseKeyOption(),
 		fmt.Sprintf("-v %s:/data", cID),
 		"-v /var/run/docker.sock:/var/run/docker.sock",
+		dockerArgs,
 		"arangodb/arangodb-starter",
 		"--docker.container=" + cID,
 		"--starter.address=localhost",
 		fmt.Sprintf("--starter.port=%d", port),
 		createEnvironmentStarterOptions(),
-		fmt.Sprintf("--starter.join=%s", joins),
+		joinArg,
 		extraArgs,
 	}, " "))
 }
