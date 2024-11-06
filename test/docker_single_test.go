@@ -166,6 +166,12 @@ func TestDockerSingleCheckPersistentOptions(t *testing.T) {
 			shouldHaveErr: true,
 		},
 	}
+
+	absTestDataPath, err := filepath.Abs("test/testdata")
+	require.NoError(t, err)
+
+	ep := insecureStarterEndpoint(0)
+
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			cID := createDockerID("starter-test-cluster-default1-")
@@ -176,34 +182,23 @@ func TestDockerSingleCheckPersistentOptions(t *testing.T) {
 			removeDockerContainersByLabel(t, "starter-test=true")
 			removeStarterCreatedDockerContainers(t)
 
-			t.Logf("Starting first container with old option: %s", tc.oldOption)
-			absTestDataPath, err := filepath.Abs("test/testdata")
-			require.NoError(t, err)
-
+			t.Logf("Starting container with old option: %s", tc.oldOption)
 			dockerRunOld := spawnMemberInDocker(t, basePort, cID, "", "--starter.mode=single "+tc.oldOption, fmt.Sprintf("-v %s:/test/testdata", absTestDataPath))
 			defer dockerRunOld.Close()
 			defer removeDockerContainer(t, cID)
 
-			ep := insecureStarterEndpoint(0 * portIncrement)
-
-			t.Logf("Waiting for starter to be ready")
 			if ok := WaitUntilStarterReady(t, whatSingle, 1, dockerRunOld); ok {
 				testSingle(t, ep, false)
 			}
 
-			t.Logf("Checking for error")
 			err = dockerRunOld.EnsureNoMatches(context.Background(), time.Second*3, re, t.Name())
 			require.NoError(t, err)
 			waitForCallFunction(t, ShutdownStarterCall(ep))
 
-			t.Logf("Starting second container with new option: %s", tc.newOption)
-			cID2 := createDockerID("starter-test-cluster-default2-")
-			createDockerVolume(t, cID2)
-			defer removeDockerVolume(t, cID2)
-
-			dockerRunNew := spawnMemberInDocker(t, basePort, cID2, "", "--starter.mode=single "+tc.newOption, fmt.Sprintf("-v %s:/test/testdata", absTestDataPath))
+			t.Logf("Restarting container with the new option: %s", tc.newOption)
+			dockerRunNew := spawnMemberInDocker(t, basePort, cID, "", "--starter.mode=single "+tc.newOption, fmt.Sprintf("-v %s:/test/testdata", absTestDataPath))
 			defer dockerRunNew.Close()
-			defer removeDockerContainer(t, cID2)
+			defer removeDockerContainer(t, cID)
 
 			if ok := WaitUntilStarterReady(t, whatSingle, 1, dockerRunNew); ok {
 				testSingle(t, ep, false)
