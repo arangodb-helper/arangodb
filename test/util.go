@@ -517,6 +517,14 @@ func waitForCallFunction(t *testing.T, funcs ...callFunction) {
 	wg.Wait()
 }
 
+func getShutdownCalls(members map[int]MembersConfig) []callFunction {
+	var calls []callFunction
+	for _, m := range members {
+		calls = append(calls, ShutdownStarterCall(fmt.Sprintf("http://localhost:%d", m.Port)))
+	}
+	return calls
+}
+
 func logProcessOutput(log Logger, p *SubProcess, prefix string, args ...interface{}) {
 	pre := ""
 	if prefix != "" {
