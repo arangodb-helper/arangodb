@@ -23,6 +23,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -175,28 +176,32 @@ func TestDockerSingleCheckPersistentOptions(t *testing.T) {
 			removeDockerContainersByLabel(t, "starter-test=true")
 			removeStarterCreatedDockerContainers(t)
 
-			joins := fmt.Sprintf("localhost:%d", basePort)
+			t.Logf("Starting first container with old option: %s", tc.oldOption)
+			absTestDataPath, err := filepath.Abs("test/testdata")
+			require.NoError(t, err)
 
-			// first start
-			dockerRunOld := spawnMemberInDocker(t, basePort, cID, joins, "--starter.mode=single "+tc.oldOption, "")
+			dockerRunOld := spawnMemberInDocker(t, basePort, cID, "", "--starter.mode=single "+tc.oldOption, fmt.Sprintf("-v %s:/test/testdata", absTestDataPath))
 			defer dockerRunOld.Close()
 			defer removeDockerContainer(t, cID)
 
 			ep := insecureStarterEndpoint(0 * portIncrement)
 
+			t.Logf("Waiting for starter to be ready")
 			if ok := WaitUntilStarterReady(t, whatSingle, 1, dockerRunOld); ok {
 				testSingle(t, ep, false)
 			}
+
+			t.Logf("Checking for error")
 			err = dockerRunOld.EnsureNoMatches(context.Background(), time.Second*3, re, t.Name())
 			require.NoError(t, err)
 			waitForCallFunction(t, ShutdownStarterCall(ep))
 
-			// second start
+			t.Logf("Starting second container with new option: %s", tc.newOption)
 			cID2 := createDockerID("starter-test-cluster-default2-")
 			createDockerVolume(t, cID2)
 			defer removeDockerVolume(t, cID2)
 
-			dockerRunNew := spawnMemberInDocker(t, basePort, cID2, joins, "--starter.mode=single "+tc.newOption, "")
+			dockerRunNew := spawnMemberInDocker(t, basePort, cID2, "", "--starter.mode=single "+tc.newOption, fmt.Sprintf("-v %s:/test/testdata", absTestDataPath))
 			defer dockerRunNew.Close()
 			defer removeDockerContainer(t, cID2)
 
