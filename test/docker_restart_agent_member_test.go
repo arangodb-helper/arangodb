@@ -52,7 +52,7 @@ func TestDockerMultipleRestartAgentMember(t *testing.T) {
 		for k, m := range members {
 			createDockerVolume(t, m.ID)
 
-			m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, "")
+			m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, "", "")
 			members[k] = m
 		}
 
@@ -75,7 +75,7 @@ func TestDockerMultipleRestartAgentMember(t *testing.T) {
 				}
 
 				for k, m := range members {
-					m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, "")
+					m.Process = spawnMemberInDocker(t, m.Port, m.ID, joins, "", "")
 					members[k] = m
 				}
 

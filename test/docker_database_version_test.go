@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,16 +17,11 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"strings"
 	"testing"
 	"time"
 )
@@ -35,22 +30,10 @@ import (
 // and tries a `/database-version` request.
 func TestDockerDatabaseVersion(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeSingle, false)
-	if os.Getenv("IP") == "" {
-		t.Fatal("IP envvar must be set to IP address of this machine")
-	}
-	/*
-		docker volume create arangodb1
-		docker run -i --name=adb1 --rm -p 8528:8528 \
-			-v arangodb1:/data \
-			-v /var/run/docker.sock:/var/run/docker.sock \
-			arangodb/arangodb-starter \
-			--docker.container=adb1 \
-			--starter.address=$IP \
-			--starter.mode=single
-	*/
-	volID := createDockerID("vol-starter-test-single-")
-	createDockerVolume(t, volID)
-	defer removeDockerVolume(t, volID)
+
+	cID := createDockerID("starter-test-cluster-default1-")
+	createDockerVolume(t, cID)
+	defer removeDockerVolume(t, cID)
 
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
@@ -58,22 +41,7 @@ func TestDockerDatabaseVersion(t *testing.T) {
 
 	start := time.Now()
 
-	cID := createDockerID("starter-test-single-")
-	dockerRun := Spawn(t, strings.Join([]string{
-		"docker run -i",
-		"--label starter-test=true",
-		"--name=" + cID,
-		"--rm",
-		createLicenseKeyOption(),
-		fmt.Sprintf("-p %d:%d", basePort, basePort),
-		fmt.Sprintf("-v %s:/data", volID),
-		"-v /var/run/docker.sock:/var/run/docker.sock",
-		"arangodb/arangodb-starter",
-		"--docker.container=" + cID,
-		"--starter.address=$IP",
-		"--starter.mode=single",
-		createEnvironmentStarterOptions(),
-	}, " "))
+	dockerRun := spawnMemberInDocker(t, basePort, cID, "", "--starter.mode=single", "")
 	defer dockerRun.Close()
 	defer removeDockerContainer(t, cID)
 
