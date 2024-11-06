@@ -28,19 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-/*
-Due to issue with permission of handling existing processes in Docker, we have to skip this test.
-
-Reason:
-Once a starter process is killed in Docker it is not possible to assign existing dbserver processes to the new starter process,
-so the shutdown of the dbserver processes is not possible in a graceful way.
-
-All Process tests using restarts are skipped (they are running in single Docker container).
-TODO: GT-608
-*/
 func TestProcessRestartNoAgentMember(t *testing.T) {
-	t.Skipf("Skip test, see GT-608")
-
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, false)
 
@@ -78,23 +66,10 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 		verifyProcessSetupJson(t, members, 3)
 	})
 
-	// TODO fix-me: GT-608
-	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
+	waitForCallFunction(t, getShutdownCalls(members)...)
 }
 
-/*
-Due to issue with permission of handling existing processes in Docker, we have to skip this test.
-
-Reason:
-Once a starter process is killed in Docker it is not possible to assign existing dbserver processes to the new starter process,
-so the shutdown of the dbserver processes is not possible in a graceful way.
-
-All Process tests using restarts are skipped (they are running in single Docker container).
-TODO: GT-608
-*/
 func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
-	t.Skipf("Skip test, see GT-608")
-
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, false)
 
@@ -140,67 +115,5 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 		})
 	}
 
-	// TODO fix-me: GT-608
-	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
-}
-
-/*
-Due to issue with permission of handling existing processes in Docker, we have to skip this test.
-
-Reason:
-Once a starter process is killed in Docker it is not possible to assign existing dbserver processes to the new starter process,
-so the shutdown of the dbserver processes is not possible in a graceful way.
-
-All Process tests using restarts are skipped (they are running in single Docker container).
-TODO: GT-608
-*/
-func TestProcessAgentsMultipleRestart(t *testing.T) {
-	t.Skipf("Skip test, see GT-608")
-
-	removeArangodProcesses(t)
-	testMatch(t, testModeProcess, starterModeCluster, false)
-
-	members := map[int]MembersConfig{
-		6000:  {"node1", 6000, SetUniqueDataDir(t), nil, nil},
-		7000:  {"node2", 7000, SetUniqueDataDir(t), nil, nil},
-		8000:  {"node3", 8000, SetUniqueDataDir(t), nil, nil},
-		9000:  {"node4", 9000, SetUniqueDataDir(t), nil, nil},
-		10000: {"node5", 10000, SetUniqueDataDir(t), nil, nil},
-	}
-
-	joins := "localhost:6000,localhost:7000,localhost:8000"
-	for port, m := range members {
-		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, "")
-		members[port] = m
-	}
-
-	waitForCluster(t, members, time.Now())
-
-	t.Logf("Verify setup.json after fresh start")
-	verifyProcessSetupJson(t, members, 3)
-	verifyEndpointSetup(t, members)
-
-	for i := 0; i < 1; i++ {
-		t.Logf("Restart all members, iteration: %d", i)
-		t.Run("Restart all members", func(t *testing.T) {
-			for port := range members {
-				require.NoError(t, members[port].Process.Kill())
-			}
-			time.Sleep(3 * time.Second)
-
-			for port, m := range members {
-				m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, "")
-				members[port] = m
-			}
-
-			waitForCluster(t, members, time.Now())
-
-			t.Logf("Verify setup after member restart, iteration: %d", i)
-			verifyProcessSetupJson(t, members, 3)
-			verifyEndpointSetup(t, members)
-		})
-	}
-
-	// TODO fix-me: GT-608
-	//SendIntrAndWait(t, members[10000].Process, members[6000].Process, members[7000].Process, members[8000].Process, members[9000].Process)
+	waitForCallFunction(t, getShutdownCalls(members)...)
 }
