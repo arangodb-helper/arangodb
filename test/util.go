@@ -38,11 +38,14 @@ import (
 
 	shell "github.com/kballard/go-shellquote"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/service"
 )
 
 const (
@@ -57,6 +60,14 @@ const (
 	portIncrement             = 10
 )
 
+type MembersConfig struct {
+	ID       string
+	Port     int
+	DataDir  string
+	HasAgent *bool
+	Process  *SubProcess
+}
+
 type EnvironmentVariable string
 
 func (e EnvironmentVariable) String() string {
@@ -65,6 +76,10 @@ func (e EnvironmentVariable) String() string {
 
 func (e EnvironmentVariable) Lookup() (string, bool) {
 	return os.LookupEnv(e.String())
+}
+
+func BoolPtr(b bool) *bool {
+	return &b
 }
 
 var (
@@ -523,4 +538,60 @@ func logProcessOutput(log Logger, p *SubProcess, prefix string, args ...interfac
 			break
 		}
 	}
+}
+
+func waitForCluster(t *testing.T, members map[int]MembersConfig, start time.Time) {
+	var processes []*SubProcess
+	for _, m := range members {
+		processes = append(processes, m.Process)
+	}
+
+	require.True(t, WaitUntilStarterReady(t, whatCluster, len(processes), processes...))
+	t.Logf("Cluster start took %s", time.Since(start))
+
+	for _, m := range members {
+		testCluster(t, fmt.Sprintf("http://localhost:%d", m.Port), false)
+	}
+}
+
+func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig) {
+	host := "http://localhost:%d"
+
+	for port, m := range members {
+		t.Logf("Verify endpoints for member: %d", m.Port)
+
+		c := NewStarterClient(t, fmt.Sprintf(host, port))
+		ctx := context.Background()
+
+		endpoints, err := c.Endpoints(ctx)
+		require.NoError(t, err, "Failed to get endpoints, member: %d", m.Port)
+
+		for _, member := range members {
+			require.Contains(t, endpoints.Starters, fmt.Sprintf(host, member.Port),
+				"Starter endpoint not found, member: %d", member.Port)
+			require.Contains(t, endpoints.Coordinators, fmt.Sprintf(host, member.Port+definitions.PortOffsetCoordinator),
+				"Coordinator endpoint not found, member: %d", member.Port)
+
+			if member.HasAgent != nil && *member.HasAgent {
+				require.Contains(t, endpoints.Agents, fmt.Sprintf(host, member.Port+definitions.PortOffsetAgent),
+					"Agent endpoint not found, member: %d", member.Port)
+			}
+		}
+	}
+}
+
+func verifySetupJsonForMember(t *testing.T, members map[int]MembersConfig, expectedAgents int, cfg service.SetupConfigFile, m MembersConfig) {
+	agents := 0
+	for _, p := range cfg.Peers.AllPeers {
+		mLocal, ok := members[p.Port]
+		require.True(t, ok, "Member %d not found in members list", p.Port)
+
+		if p.HasAgent() {
+			agents++
+		}
+		if mLocal.HasAgent != nil {
+			assert.Equal(t, *mLocal.HasAgent, p.HasAgent(), "HasAgent mismatch, memberConfig: %d, peerPort: %d", m.Port, p.Port)
+		}
+	}
+	require.Equal(t, expectedAgents, agents, "Agents count mismatch, member: %d", m.Port)
 }

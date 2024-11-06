@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 - Restart improvements
+- Use --net=host mode for Docker in tests. Extend restart tests.
 
 ## [v0.18.10](https://github.com/arangodb-helper/arangodb/tree/0.18.10) (2024-09-26)
 - Fix for member discovery during leader election

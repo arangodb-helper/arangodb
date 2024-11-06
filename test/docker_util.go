@@ -29,7 +29,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+
+	"github.com/arangodb-helper/arangodb/service"
 )
 
 // createDockerVolumes creates docker volume for each provided prefix and returns the list of volume ids and cleanup function
@@ -134,4 +137,38 @@ func createDockerID(prefix string) string {
 		panic(err)
 	}
 	return prefix + hex.EncodeToString(b)
+}
+
+func spawnMemberInDocker(t *testing.T, port int, cID, joins, extraArgs string) *SubProcess {
+	return Spawn(t, strings.Join([]string{
+		"docker run -i --net=host",
+		"--label starter-test=true",
+		"--name=" + cID,
+		"--rm",
+		createLicenseKeyOption(),
+		fmt.Sprintf("-v %s:/data", cID),
+		"-v /var/run/docker.sock:/var/run/docker.sock",
+		"arangodb/arangodb-starter",
+		"--docker.container=" + cID,
+		"--starter.address=localhost",
+		fmt.Sprintf("--starter.port=%d", port),
+		createEnvironmentStarterOptions(),
+		fmt.Sprintf("--starter.join=%s", joins),
+		extraArgs,
+	}, " "))
+}
+
+func verifyDockerSetupJson(t *testing.T, members map[int]MembersConfig, expectedAgents int) {
+	for _, m := range members {
+		c := Spawn(t, fmt.Sprintf("docker exec %s cat /data/setup.json", m.ID))
+		require.NoError(t, c.Wait())
+		require.NoError(t, c.Close())
+
+		cfg, isRelaunch, err := service.VerifySetupConfig(zerolog.New(zerolog.NewConsoleWriter()), c.Output())
+		require.NoError(t, err, "Failed to read setup.json, member: %d", m.Port)
+		require.True(t, isRelaunch, "Expected relaunch, member: %d", m.Port)
+
+		t.Logf("Verify setup.json for member: %d, %s", m.Port, m.DataDir)
+		verifySetupJsonForMember(t, members, expectedAgents, cfg, m)
+	}
 }

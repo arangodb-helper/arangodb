@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,13 +17,18 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package test
 
 import (
+	"fmt"
+	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
+
+	"github.com/arangodb-helper/arangodb/service"
 )
 
 func removeArangodProcesses(t *testing.T) {
@@ -54,4 +59,26 @@ func showProcessLogs(t *testing.T, s *SubProcess, name string) {
 	log := GetLogger(t)
 
 	logProcessOutput(log, s, "Log of process: %s", name)
+}
+
+func spawnMemberProcess(t *testing.T, port int, dataDir, joins, extraArgs string) *SubProcess {
+	return Spawn(t, strings.Join([]string{
+		fmt.Sprintf("${STARTER} --starter.port=%d", port),
+		fmt.Sprintf("--starter.data-dir=%s", dataDir),
+		fmt.Sprintf("--starter.join=%s", joins),
+		createEnvironmentStarterOptions(),
+		extraArgs,
+	}, " "))
+
+}
+
+func verifyProcessSetupJson(t *testing.T, members map[int]MembersConfig, expectedAgents int) {
+	for _, m := range members {
+		cfg, isRelaunch, err := service.ReadSetupConfig(zerolog.New(zerolog.NewConsoleWriter()), m.DataDir)
+		require.NoError(t, err, "Failed to read setup.json, member: %d", m.Port)
+		require.True(t, isRelaunch, "Expected relaunch, member: %d", m.Port)
+
+		t.Logf("Verify setup.json for member: %d, %s", m.Port, m.DataDir)
+		verifySetupJsonForMember(t, members, expectedAgents, cfg, m)
+	}
 }
