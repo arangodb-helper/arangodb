@@ -4,6 +4,7 @@
 - Restart improvements
 - Use --net=host mode for Docker in tests. Extend restart tests.
 - Fix termination issue in Process tests
+- Bump Go version (1.22.8) and dependencies for CVE fixes
 
 ## [v0.19.6](https://github.com/arangodb-helper/arangodb/tree/0.19.6) (2024-09-26)
 - Fix for member discovery during leader election
