@@ -52,8 +52,6 @@ DOCKER_BUILD_CLI := $(DOCKERCLI) build --build-arg "IMAGE=$(ALPINE_IMAGE)" --pla
 
 ARANGODB ?= arangodb/arangodb:latest
 
-IP ?= $(shell hostname -I | cut -d ' ' -f 1)
-
 TEST_TIMEOUT := 1h
 
 BINNAME := arangodb$(GOEXE)
@@ -212,7 +210,7 @@ run-tests-local-process-run:
 	$(DOCKER_CMD) /usr/code/bin/linux/$(GOARCH)/test -test.timeout $(TEST_TIMEOUT) -test.v $(TESTOPTIONS)
 
 _run-tests: build-test build
-	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) IP=$(IP) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.failfast -test.v $(TESTOPTIONS)
+	@TEST_MODES=$(TEST_MODES) STARTER_MODES=$(STARTER_MODES) STARTER=$(BIN) ARANGODB=$(ARANGODB) $(TESTBIN) -test.timeout $(TEST_TIMEOUT) -test.failfast -test.v $(TESTOPTIONS)
 
 run-tests-docker: TEST_MODES=docker
 run-tests-docker: docker _run-tests
