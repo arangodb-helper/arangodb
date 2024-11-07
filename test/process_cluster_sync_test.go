@@ -21,6 +21,7 @@
 package test
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -29,6 +30,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/service"
 )
 
@@ -240,4 +244,61 @@ func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 		testUpgradeProcess(t, insecureStarterEndpoint(0*portIncrement))
 		waitForClusterReadinessAndFinish(t, false, true, procs...)
 	}
+}
+
+// startCluster runs starter instance for each entry in peerDirs slice.
+func startCluster(t *testing.T, ip string, args []string, peerDirs []string) ([]*SubProcess, func()) {
+	var procs []*SubProcess
+	for i, p := range peerDirs {
+		require.NoError(t, os.Setenv("DATA_DIR", p))
+		args := args
+		if i > 0 {
+			// run slaves
+			args = append(args, "--starter.join="+ip)
+		}
+		procs = append(procs, Spawn(t, strings.Join(args, " ")))
+	}
+	return procs, func() {
+		for _, p := range procs {
+			p.Close()
+		}
+	}
+}
+
+func waitForClusterHealthy(t *testing.T, endpoint string, timeout time.Duration) {
+	auth := driver.BasicAuthentication("root", "")
+	client, err := CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
+	require.NoError(t, err)
+	ctx := context.Background()
+	clusterClient, err := client.Cluster(ctx)
+	require.NoError(t, err)
+	logVerbose(t, "Starting wait for cluster healthy")
+	start := time.Now()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		h := getHealth(t, ctx, clusterClient)
+		allHealthy := true
+		for serverID, sh := range h.Health {
+			statusGood := sh.Status == driver.ServerStatusGood
+			if !statusGood && time.Since(start) > timeout {
+				t.Fatalf("Cluster unhealthy after %s: server %s status is %s", timeout.String(), serverID, sh.Status)
+				return
+			}
+			allHealthy = allHealthy && statusGood
+		}
+		if allHealthy {
+			logVerbose(t, "Cluster is healthy!")
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+func getHealth(t *testing.T, ctx context.Context, client driver.Cluster) driver.ClusterHealth {
+	reqCtx, cancel := context.WithTimeout(ctx, time.Second*2)
+	defer cancel()
+	h, err := client.Health(reqCtx)
+	require.NoError(t, err)
+	return h
 }
