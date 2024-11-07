@@ -1,6 +1,5 @@
 ARG IMAGE
 FROM ${IMAGE}
-MAINTAINER Max Neunhoeffer <max@arangodb.com>
 
 ARG TARGETARCH
 COPY bin/linux/${TARGETARCH}/arangodb /app/
