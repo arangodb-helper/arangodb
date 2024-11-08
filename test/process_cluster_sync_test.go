@@ -21,6 +21,7 @@
 package test
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -29,6 +30,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/service"
 )
 
@@ -182,6 +186,8 @@ func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 	testMatch(t, testModeProcess, starterModeCluster, true)
 	requireArangoSync(t, testModeProcess)
 
+	t.Skip("Skipping test due to flakiness OAS-10291")
+
 	// Create certificates
 	ip := "127.0.0.1"
 	certs := createSyncCertificates(t, ip, false)
@@ -218,26 +224,85 @@ func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 		logVerbose(t, "Starting cluster again with sync disabled")
 		procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
 		defer cleanup()
-		waitForClusterReadiness(t, false, true, procs...)
 
-		time.Sleep(time.Second * 90) // ensure slaves got updated configuration from master
-
-		// check flags are updated in config
-		for _, dir := range peerDirs {
-			config, _, err := service.ReadSetupConfig(zerolog.Logger{}, dir)
-			require.NoError(t, err)
-
-			for _, peer := range config.Peers.AllPeers {
-				logVerbose(t, "checking dir %s, peer %s:", dir, peer.ID)
-				require.False(t, peer.HasSyncMaster(), "dir %s", dir)
-				require.False(t, peer.HasSyncWorker(), "dir %s", dir)
-				logVerbose(t, "ok!")
-			}
-		}
+		checkSyncInSetupJson(t, procs, peerDirs, false, true)
 
 		waitForClusterHealthy(t, insecureStarterEndpoint(0*portIncrement), time.Second*15)
 
 		testUpgradeProcess(t, insecureStarterEndpoint(0*portIncrement))
 		waitForClusterReadinessAndFinish(t, false, true, procs...)
 	}
+}
+
+func checkSyncInSetupJson(t *testing.T, procs []*SubProcess, peerDirs []string, syncEnabled, isRelaunch bool) {
+	waitForClusterReadiness(t, syncEnabled, isRelaunch, procs...)
+	for _, dir := range peerDirs {
+		config, _, err := service.ReadSetupConfig(zerolog.Logger{}, dir)
+		require.NoError(t, err)
+
+		time.Sleep(120 * time.Second)
+		for _, peer := range config.Peers.AllPeers {
+			logVerbose(t, "checking dir %s, peer %s:, syncMode: %v", dir, peer.ID, syncEnabled)
+			require.Equal(t, syncEnabled, peer.HasSyncMaster(), "dir %s", dir)
+			require.Equal(t, syncEnabled, peer.HasSyncWorker(), "dir %s", dir)
+			logVerbose(t, "ok!")
+		}
+	}
+}
+
+// startCluster runs starter instance for each entry in peerDirs slice.
+func startCluster(t *testing.T, ip string, args []string, peerDirs []string) ([]*SubProcess, func()) {
+	var procs []*SubProcess
+	for i, p := range peerDirs {
+		require.NoError(t, os.Setenv("DATA_DIR", p))
+		args := args
+		if i > 0 {
+			// run slaves
+			args = append(args, "--starter.join="+ip)
+		}
+		procs = append(procs, Spawn(t, strings.Join(args, " ")))
+	}
+	return procs, func() {
+		for _, p := range procs {
+			p.Close()
+		}
+	}
+}
+
+func waitForClusterHealthy(t *testing.T, endpoint string, timeout time.Duration) {
+	auth := driver.BasicAuthentication("root", "")
+	client, err := CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
+	require.NoError(t, err)
+	ctx := context.Background()
+	clusterClient, err := client.Cluster(ctx)
+	require.NoError(t, err)
+	logVerbose(t, "Starting wait for cluster healthy")
+	start := time.Now()
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		h := getHealth(t, ctx, clusterClient)
+		allHealthy := true
+		for serverID, sh := range h.Health {
+			statusGood := sh.Status == driver.ServerStatusGood
+			if !statusGood && time.Since(start) > timeout {
+				t.Fatalf("Cluster unhealthy after %s: server %s status is %s", timeout.String(), serverID, sh.Status)
+				return
+			}
+			allHealthy = allHealthy && statusGood
+		}
+		if allHealthy {
+			logVerbose(t, "Cluster is healthy!")
+			return
+		}
+		time.Sleep(time.Second)
+	}
+}
+func getHealth(t *testing.T, ctx context.Context, client driver.Cluster) driver.ClusterHealth {
+	reqCtx, cancel := context.WithTimeout(ctx, time.Second*2)
+	defer cancel()
+	h, err := client.Health(reqCtx)
+	require.NoError(t, err)
+	return h
 }

@@ -21,11 +21,11 @@
 package test
 
 import (
-	"os"
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/stretchr/testify/require"
+	"time"
 )
 
 // TestDockerClusterSync runs 3 arangodb starters in docker with arangosync enabled.
@@ -33,15 +33,14 @@ func TestDockerClusterSync(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, true)
 	requireArangoSync(t, testModeDocker)
 
-	ip := os.Getenv("IP")
-	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
-
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
 	removeStarterCreatedDockerContainers(t)
 
 	// Create certificates
-	certs := createSyncCertificates(t, ip, true)
+	certs := createSyncCertificates(t, "localhost", true)
+
+	t.Logf("certs dir: %v", certs.Dir)
 
 	volumeIDs, cleanVolumes := createDockerVolumes(t,
 		"vol-starter-test-cluster-sync1-",
@@ -51,7 +50,6 @@ func TestDockerClusterSync(t *testing.T) {
 	defer cleanVolumes()
 
 	starterArgs := []string{
-		"--starter.address=$IP",
 		"--server.storage-engine=rocksdb",
 		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
 		"--starter.sync",
@@ -59,28 +57,24 @@ func TestDockerClusterSync(t *testing.T) {
 		"--sync.server.client-cafile=/certs/" + filepath.Base(certs.ClientAuth.CACertificate),
 		"--sync.master.jwt-secret=/certs/" + filepath.Base(certs.MasterSecret),
 		"--sync.monitoring.token=" + syncMonitoringToken,
-		createEnvironmentStarterOptions(),
 	}
 
-	procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+	processes, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
 	defer cleanup()
 
-	waitForClusterReadinessAndFinish(t, true, false, procs...)
+	waitForClusterReadinessAndFinish(t, true, false, processes...)
 }
 
 func TestDockerClusterRestartWithSyncOnAndOff(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, true)
 	requireArangoSync(t, testModeDocker)
 
-	ip := os.Getenv("IP")
-	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
-
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
 	removeStarterCreatedDockerContainers(t)
 
 	// Create certificates
-	certs := createSyncCertificates(t, ip, true)
+	certs := createSyncCertificates(t, "localhost", true)
 
 	volumeIDs, cleanVolumes := createDockerVolumes(t,
 		"vol-starter-test-cluster-sync1-",
@@ -90,9 +84,7 @@ func TestDockerClusterRestartWithSyncOnAndOff(t *testing.T) {
 	defer cleanVolumes()
 
 	starterArgs := []string{
-		"--starter.address=$IP",
 		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
-		createEnvironmentStarterOptions(),
 	}
 	{
 		logVerbose(t, "Starting cluster with sync disabled")
@@ -109,15 +101,15 @@ func TestDockerClusterRestartWithSyncOnAndOff(t *testing.T) {
 			"--sync.monitoring.token=" + syncMonitoringToken,
 		}
 		logVerbose(t, "Starting cluster with sync enabled")
-		procs, cleanup := startClusterInDocker(t, certs.Dir, append(starterArgs, syncArgs...), volumeIDs)
+		processes, cleanup := startClusterInDocker(t, certs.Dir, append(starterArgs, syncArgs...), volumeIDs)
 		defer cleanup()
-		waitForClusterReadinessAndFinish(t, true, true, procs...)
+		waitForClusterReadinessAndFinish(t, true, true, processes...)
 	}
 	{
 		logVerbose(t, "Starting cluster again with sync disabled")
-		procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+		processes, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
 		defer cleanup()
-		waitForClusterReadinessAndFinish(t, false, true, procs...)
+		waitForClusterReadinessAndFinish(t, false, true, processes...)
 	}
 }
 
@@ -125,30 +117,25 @@ func TestDockerLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 	testMatch(t, testModeDocker, starterModeCluster, true)
 	requireArangoSync(t, testModeDocker)
 
-	ip := os.Getenv("IP")
-	require.NotEmpty(t, ip, "IP envvar must be set to IP address of this machine")
-
 	// Cleanup of left over tests
 	removeDockerContainersByLabel(t, "starter-test=true")
 	removeStarterCreatedDockerContainers(t)
 
 	// Create certificates
-	certs := createSyncCertificates(t, ip, true)
+	certs := createSyncCertificates(t, "localhost", true)
 
 	volumeIDs, cleanVolumes := createDockerVolumes(t, "vol-starter-test-cluster-sync-")
 	defer cleanVolumes()
 
 	starterArgs := []string{
 		"--starter.local",
-		"--starter.address=$IP",
 		"--auth.jwt-secret=/certs/" + filepath.Base(certs.ClusterSecret),
-		createEnvironmentStarterOptions(),
 	}
 	{
 		logVerbose(t, "Starting cluster with sync disabled")
-		procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+		processes, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
 		defer cleanup()
-		waitForClusterReadinessAndFinish(t, false, false, procs...)
+		waitForClusterReadinessAndFinish(t, false, false, processes...)
 	}
 	{
 		syncArgs := []string{
@@ -160,15 +147,56 @@ func TestDockerLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 			"--args.syncmasters.debug.profile=true",
 		}
 		logVerbose(t, "Starting cluster with sync enabled")
-		procs, cleanup := startClusterInDocker(t, certs.Dir, append(starterArgs, syncArgs...), volumeIDs)
+		processes, cleanup := startClusterInDocker(t, certs.Dir, append(starterArgs, syncArgs...), volumeIDs)
 		defer cleanup()
 
-		waitForClusterReadinessAndFinish(t, true, true, procs...)
+		waitForClusterReadinessAndFinish(t, true, true, processes...)
 	}
 	{
 		logVerbose(t, "Starting cluster again with sync disabled")
-		procs, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
+		processes, cleanup := startClusterInDocker(t, certs.Dir, starterArgs, volumeIDs)
 		defer cleanup()
-		waitForClusterReadinessAndFinish(t, false, true, procs...)
+		waitForClusterReadinessAndFinish(t, false, true, processes...)
 	}
+}
+
+func startClusterInDocker(t *testing.T, certsDir string, args []string, volumeIDs []string) ([]*SubProcess, func()) {
+	var processes []*SubProcess
+	var containers []string
+
+	joins := fmt.Sprintf("localhost:%d,localhost:%d,localhost:%d", basePort, basePort+(1*portIncrement), basePort+(2*portIncrement))
+
+	for i, volumeID := range volumeIDs {
+		proc := spawnMemberInDocker(t, basePort+(i*portIncrement), volumeID, joins, strings.Join(args, " "), fmt.Sprintf("-v %s:/certs", certsDir))
+		processes = append(processes, proc)
+		containers = append(containers, volumeID)
+	}
+	return processes, func() {
+		for _, p := range processes {
+			p.Close()
+		}
+		for _, c := range containers {
+			removeDockerContainer(t, c)
+		}
+	}
+}
+
+func waitForClusterReadiness(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
+	WaitUntilStarterReady(t, whatCluster, len(procs), procs...)
+	var timeout time.Duration
+	if syncEnabled {
+		timeout = time.Minute
+	}
+	if isRelaunch {
+		timeout = time.Second * 5
+	}
+	for i := range procs {
+		testClusterPeer(t, insecureStarterEndpoint(i*portIncrement), false, syncEnabled, timeout)
+	}
+}
+
+func waitForClusterReadinessAndFinish(t *testing.T, syncEnabled, isRelaunch bool, procs ...*SubProcess) {
+	waitForClusterReadiness(t, syncEnabled, isRelaunch, procs...)
+	logVerbose(t, "Waiting for termination")
+	SendIntrAndWait(t, procs...)
 }

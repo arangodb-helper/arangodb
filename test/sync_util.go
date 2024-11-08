@@ -61,7 +61,7 @@ func createSyncCertificates(t *testing.T, ip string, useDocker bool) syncCertifi
 		t.Fatal("Need ARANGODB envvar with name of ArangoDB docker image")
 	}
 
-	dir, err := ioutil.TempDir("", "starter-test")
+	dir, err := os.MkdirTemp("", "starter-test")
 	if err != nil {
 		t.Fatalf("TempDir failed: %s", err)
 	}
