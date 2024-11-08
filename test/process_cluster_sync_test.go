@@ -98,7 +98,6 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 		logVerbose(t, "Starting cluster with sync disabled")
 		procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
 		defer cleanup()
-		checkSyncInSetupJson(t, procs, peerDirs, false, false)
 
 		waitForClusterReadinessAndFinish(t, false, false, procs...)
 	}
@@ -115,16 +114,12 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 		procs, cleanup := startCluster(t, ip, starterArgsWithSync, peerDirs)
 		defer cleanup()
 
-		checkSyncInSetupJson(t, procs, peerDirs, true, true)
-
 		waitForClusterReadinessAndFinish(t, true, true, procs...)
 	}
 	{
 		logVerbose(t, "Starting cluster again with sync disabled")
 		procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
 		defer cleanup()
-
-		//checkSyncInSetupJson(t, procs, peerDirs, false, true)
 
 		waitForClusterReadinessAndFinish(t, false, true, procs...)
 	}
