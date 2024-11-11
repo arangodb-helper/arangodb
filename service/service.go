@@ -1188,7 +1188,6 @@ func (s *Service) startHTTPServer(config Config) {
 	}
 
 	// Start HTTP server
-	s.log.Info().Msgf("Starting HTTP server on %s:%d...", hostAddr, containerAddr)
 	srv.Start(hostAddr, containerAddr, s.tlsConfig)
 }
 

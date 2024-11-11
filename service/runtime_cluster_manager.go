@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"reflect"
 	"sync"
 	"time"
@@ -114,8 +113,8 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 	latestPeerVersion, _ := s.myPeers.PeerByID(myPeer)
 
 	if !reflect.DeepEqual(latestPeerVersion, myPeerFromMaster) {
-		s.log.Warn().Msgf("Leader responded with cluster config that does contain different peer, re-registering. Old peer: %v, new peer: %v", myPeerFromMaster, latestPeerVersion)
-		clusterConfig = s.reRegisterPeer(masterURL, latestPeerVersion)
+		s.log.Warn().Msgf("Leader responded with cluster config that does contain different peer, re-registering. Peer from master: %v, Local peer: %v", myPeerFromMaster, latestPeerVersion)
+		clusterConfig = RegisterPeer(s.log, masterURL, BuildHelloRequestFromPeer(latestPeerVersion))
 	}
 
 	// We've received a cluster config - let's store it
@@ -126,19 +125,6 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 	}
 
 	return nil
-}
-
-func (s *runtimeClusterManager) reRegisterPeer(masterURL string, p Peer) ClusterConfig {
-	req := BuildHelloRequestFromPeer(p.Address, p.Port, p)
-	cfg := RegisterPeer(s.log, masterURL, req)
-	updatedPeer, exist := cfg.PeerByID(p.ID)
-	if !exist {
-		log.Fatalf("Failed to re-register peer %s", p.ID)
-	}
-	if !reflect.DeepEqual(updatedPeer, p) {
-		log.Fatalf("Failed to re-register peer %s, peer is different. Old peer: %v, new peer: %v", p.ID, p, updatedPeer)
-	}
-	return cfg
 }
 
 func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL string) {

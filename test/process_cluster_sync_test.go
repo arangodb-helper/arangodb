@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/arangodb/go-driver"
@@ -190,8 +189,6 @@ func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 	testMatch(t, testModeProcess, starterModeCluster, true)
 	requireArangoSync(t, testModeProcess)
 
-	t.Skip("Skipping test due to flakiness OAS-10291")
-
 	// Create certificates
 	ip := "127.0.0.1"
 	certs := createSyncCertificates(t, ip, false)
@@ -240,14 +237,18 @@ func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 
 func checkSyncInSetupJson(t *testing.T, procs []*SubProcess, peerDirs []string, syncEnabled, isRelaunch bool) {
 	waitForClusterReadiness(t, syncEnabled, isRelaunch, procs...)
+
+	t.Logf("Waiting for setup.json to be updated")
+	time.Sleep(60 * time.Second)
+
 	for _, dir := range peerDirs {
 		config, _, err := service.ReadSetupConfig(zerolog.Logger{}, dir)
 		require.NoError(t, err)
 
 		for _, peer := range config.Peers.AllPeers {
 			logVerbose(t, "checking dir %s, peer %s:, syncMode: %v", dir, peer.ID, syncEnabled)
-			assert.Equal(t, syncEnabled, peer.HasSyncMaster(), "dir %s", dir)
-			assert.Equal(t, syncEnabled, peer.HasSyncWorker(), "dir %s", dir)
+			require.Equal(t, syncEnabled, peer.HasSyncMaster(), "dir %s", dir)
+			require.Equal(t, syncEnabled, peer.HasSyncWorker(), "dir %s", dir)
 			logVerbose(t, "ok!")
 		}
 	}

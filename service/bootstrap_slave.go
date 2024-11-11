@@ -179,14 +179,14 @@ func BuildHelloRequest(id string, slavePort int, isSecure bool, config Config, b
 	}
 }
 
-func BuildHelloRequestFromPeer(address string, port int, p Peer) HelloRequest {
+func BuildHelloRequestFromPeer(p Peer) HelloRequest {
 	return HelloRequest{
 		DataDir: p.DataDir,
 		SlaveID: p.ID,
 
 		// we can not change the address and port of the peer
-		SlaveAddress: address,
-		SlavePort:    port,
+		SlaveAddress: p.Address,
+		SlavePort:    p.Port,
 
 		IsSecure:        p.IsSecure,
 		Agent:           &p.HasAgentFlag,

@@ -67,9 +67,9 @@ func preparePeerServers(mode ServiceMode, bsCfg BootstrapConfig, config Config, 
 		hasAgent = boolFromRef(bsCfg.StartAgent, p.HasAgent())
 	}
 
-	hasSyncMaster := boolFromRef(bsCfg.StartSyncMaster, p.HasSyncMaster()) && config.SyncEnabled
+	hasSyncMaster := boolFromRef(bsCfg.StartSyncMaster, true) && config.SyncEnabled
 
-	hasSyncWorker := boolFromRef(bsCfg.StartSyncWorker, p.HasSyncWorker()) && config.SyncEnabled
+	hasSyncWorker := boolFromRef(bsCfg.StartSyncWorker, true) && config.SyncEnabled
 
 	return peerServers{
 		HasAgentFlag:           hasAgent,
