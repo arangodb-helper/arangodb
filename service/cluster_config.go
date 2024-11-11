@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -79,6 +79,15 @@ func (p ClusterConfig) AllAgents() []Peer {
 		}
 	}
 	return result
+}
+
+func (p *ClusterConfig) IsPortOffsetInUse() bool {
+	for _, x := range p.AllPeers {
+		if x.PortOffset != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Initialize a new cluster configuration

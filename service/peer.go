@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -67,13 +67,17 @@ func preparePeerServers(mode ServiceMode, bsCfg BootstrapConfig, config Config, 
 		hasAgent = boolFromRef(bsCfg.StartAgent, p.HasAgent())
 	}
 
+	hasSyncMaster := boolFromRef(bsCfg.StartSyncMaster, p.HasSyncMaster()) && config.SyncEnabled
+
+	hasSyncWorker := boolFromRef(bsCfg.StartSyncWorker, p.HasSyncWorker()) && config.SyncEnabled
+
 	return peerServers{
 		HasAgentFlag:           hasAgent,
 		HasDBServerFlag:        hasDBServer,
 		HasCoordinatorFlag:     hasCoordinator,
 		HasResilientSingleFlag: boolFromRef(bsCfg.StartResilientSingle, mode.IsActiveFailoverMode()),
-		HasSyncMasterFlag:      boolFromRef(bsCfg.StartSyncMaster, true) && config.SyncEnabled,
-		HasSyncWorkerFlag:      boolFromRef(bsCfg.StartSyncWorker, true) && config.SyncEnabled,
+		HasSyncMasterFlag:      hasSyncMaster,
+		HasSyncWorkerFlag:      hasSyncWorker,
 	}
 }
 

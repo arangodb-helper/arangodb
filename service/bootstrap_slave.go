@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@
 //
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 //
-// Author Ewout Prangsma
-//
 
 package service
 
@@ -26,7 +24,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"time"
 
@@ -85,7 +82,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 				s.log.Warn().Msgf("Invalid status received from leader: %d", r.StatusCode)
 			} else {
 				defer r.Body.Close()
-				body, _ := ioutil.ReadAll(r.Body)
+				body, _ := io.ReadAll(r.Body)
 				var clusterConfig ClusterConfig
 				json.Unmarshal(body, &clusterConfig)
 				s.runtimeClusterManager.myPeers = clusterConfig
@@ -101,7 +98,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 
 func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) ClusterConfig {
 	for {
-		log.Info().Msgf("Contacting leader %s...", masterURL)
+		log.Info().Msgf("Registering peer with master at %s", masterURL)
 
 		encoded, err := json.Marshal(req)
 		if err != nil {
@@ -160,6 +157,8 @@ func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) Cluste
 			return result
 		}
 
+		log.Info().Msgf("Successfully registered peer (ID: %s) with master at %s", req.SlaveID, masterURL)
+
 		return result
 	}
 }
@@ -177,5 +176,24 @@ func BuildHelloRequest(id string, slavePort int, isSecure bool, config Config, b
 		ResilientSingle: copyBoolRef(bsCfg.StartResilientSingle),
 		SyncMaster:      copyBoolRef(bsCfg.StartSyncMaster),
 		SyncWorker:      copyBoolRef(bsCfg.StartSyncWorker),
+	}
+}
+
+func BuildHelloRequestFromPeer(address string, port int, p Peer) HelloRequest {
+	return HelloRequest{
+		DataDir: p.DataDir,
+		SlaveID: p.ID,
+
+		// we can not change the address and port of the peer
+		SlaveAddress: address,
+		SlavePort:    port,
+
+		IsSecure:        p.IsSecure,
+		Agent:           &p.HasAgentFlag,
+		DBServer:        copyBoolRef(p.HasDBServerFlag),
+		Coordinator:     copyBoolRef(p.HasCoordinatorFlag),
+		ResilientSingle: &p.HasResilientSingleFlag,
+		SyncMaster:      &p.HasSyncMasterFlag,
+		SyncWorker:      &p.HasSyncWorkerFlag,
 	}
 }

@@ -903,27 +903,34 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 								break
 							}
 						}
-						// Slave address may not change in this case
-						if addrFoundInOtherPeer && p.Address != slaveAddr {
-							s.log.Warn().Msgf("Cannot change slave address while using an existing ID. Remote address: %s", remoteAddress)
-							return ClusterConfig{}, maskAny(client.NewBadRequestError("Cannot change slave address while using an existing ID."))
+						if addrFoundInOtherPeer {
+							if isLocalAddress(slaveAddr) && isLocalAddress(p.Address) && s.runtimeClusterManager.myPeers.IsPortOffsetInUse() {
+								// This is a default configuration, where host and port are not set. Keep offset.
+								s.log.Warn().Msgf("Updating slave with local address (%s). Offset (%d) will be kept. Peer id: %s",
+									slaveAddr, p.PortOffset, p.ID)
+								peer.Address = slaveAddr
+							} else if p.Address != slaveAddr {
+								msg := fmt.Sprintf("Cannot change slave address (%s) to an address that is already in use by another peer (id: %s)", slaveAddr, p.ID)
+								s.log.Warn().Msgf(msg)
+								return ClusterConfig{}, maskAny(client.NewBadRequestError(msg))
+							}
+						} else {
+							// We accept the new address (it might be the old one):
+							peer.Address = slaveAddr
+							// However, since we also accept the port, we must set the
+							// port offset of that replaced peer to 0 such that the AllPeers
+							// information actually contains the right port.
+							peer.PortOffset = 0
 						}
-						// We accept the new address (it might be the old one):
-						peer.Address = slaveAddr
-						// However, since we also accept the port, we must set the
-						// port ofset of that replaced peer to 0 such that the AllPeers
-						// information actually contains the right port.
-						peer.PortOffset = 0
 					}
 					peer.Port = req.SlavePort
 					peer.DataDir = req.DataDir
-
 					peer.HasAgentFlag = boolFromRef(req.Agent, peer.HasAgentFlag)
 					peer.HasCoordinatorFlag = utils.NotNilDefault(req.Coordinator, peer.HasCoordinatorFlag)
 					peer.HasDBServerFlag = utils.NotNilDefault(req.DBServer, peer.HasDBServerFlag)
-					peer.HasResilientSingleFlag = boolFromRef(req.ResilientSingle, peer.HasResilientSingleFlag)
-					peer.HasSyncMasterFlag = boolFromRef(req.SyncMaster, peer.HasSyncMasterFlag)
-					peer.HasSyncWorkerFlag = boolFromRef(req.SyncWorker, peer.HasSyncWorkerFlag)
+					peer.HasResilientSingleFlag = boolFromRef(req.ResilientSingle, false)
+					peer.HasSyncMasterFlag = boolFromRef(req.SyncMaster, false)
+					peer.HasSyncWorkerFlag = boolFromRef(req.SyncWorker, false)
 				}
 			}
 		} else {
@@ -978,6 +985,10 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 	}
 
 	return s.runtimeClusterManager.myPeers, nil
+}
+
+func isLocalAddress(addr string) bool {
+	return addr == "127.0.0.1" || addr == "localhost"
 }
 
 // ChangeState alters the current state of the service
@@ -1102,8 +1113,8 @@ func (s *Service) UpdateClusterConfig(newConfig ClusterConfig) error {
 	// Only update when changed
 	if !reflect.DeepEqual(s.runtimeClusterManager.myPeers, newConfig) {
 		s.runtimeClusterManager.myPeers = newConfig
-		s.saveSetup()
-		s.log.Debug().Msg("Updated cluster config")
+		s.log.Debug().Msgf("Updating cluster config - %v", newConfig)
+		return s.saveSetup()
 	} else {
 		s.log.Debug().Msg("Updating cluster config is not needed")
 	}
@@ -1143,7 +1154,7 @@ func (s *Service) GetHTTPServerPort() (containerPort, hostPort int, err error) {
 		if myPeer, ok := s.runtimeClusterManager.myPeers.PeerByID(s.id); ok {
 			containerPort += myPeer.PortOffset
 		} else {
-			return 0, 0, maskAny(fmt.Errorf("No peer information found for ID '%s'", s.id))
+			return 0, 0, maskAny(fmt.Errorf("no peer information found for ID '%s'", s.id))
 		}
 	}
 	if s.isNetHost {
@@ -1163,6 +1174,7 @@ func (s *Service) createHTTPServer(config Config) (srv *httpServer, containerPor
 	hostAddr = net.JoinHostPort(config.OwnAddress, strconv.Itoa(hostPort))
 
 	// Create HTTP server
+	s.log.Debug().Msgf("Creating HTTP server on %s", hostAddr)
 	return newHTTPServer(s.log, s, &s.runtimeServerManager, config, s.id), containerPort, hostAddr, containerAddr, nil
 }
 
@@ -1176,6 +1188,7 @@ func (s *Service) startHTTPServer(config Config) {
 	}
 
 	// Start HTTP server
+	s.log.Info().Msgf("Starting HTTP server on %s:%d...", hostAddr, containerAddr)
 	srv.Start(hostAddr, containerAddr, s.tlsConfig)
 }
 
@@ -1208,7 +1221,7 @@ func (s *Service) startRunning(runner Runner, config Config, bsCfg BootstrapConf
 	go func() {
 		defer wg.Done()
 
-		s.runtimeClusterManager.Run(s.stopPeer.ctx, s.log, s, BuildHelloRequest(s.id, 0, s.IsSecure(), config, bsCfg))
+		s.runtimeClusterManager.Run(s.stopPeer.ctx, s.log, s)
 	}()
 
 	// Start the upgrade manager
@@ -1357,7 +1370,7 @@ func (s *Service) adjustClusterConfigForRelaunch(bsCfg BootstrapConfig) {
 
 	s.runtimeClusterManager.myPeers.ForEachPeer(func(p Peer) Peer {
 		if bsCfg.ID == p.ID {
-			s.log.Debug().Msgf("Adjusting current memeber cluster config after restart (port: %d)", p.Port)
+			s.log.Debug().Msgf("Adjusting current memeber cluster config (locally) after restart (port: %d)", p.Port)
 			p.peerServers = preparePeerServers(s.mode, bsCfg, s.cfg, &p)
 		}
 		return p

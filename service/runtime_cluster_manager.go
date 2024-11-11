@@ -25,6 +25,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"reflect"
 	"sync"
 	"time"
 
@@ -79,7 +81,7 @@ func (s *runtimeClusterManager) createAgencyAPI() (agency.Agency, error) {
 }
 
 // updateClusterConfiguration asks the master at given URL for the latest cluster configuration.
-func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, masterURL string, req HelloRequest) error {
+func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, masterURL string, myPeer string) error {
 	helloURL, err := getURLWithPath(masterURL, "/hello?update=1")
 	if err != nil {
 		return maskAny(err)
@@ -103,29 +105,40 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 	if err := json.Unmarshal(body, &clusterConfig); err != nil {
 		return maskAny(err)
 	}
-	// We've received a cluster config
+
+	myPeerFromMaster, exist := clusterConfig.PeerByID(myPeer)
+	if !exist {
+		return maskAny(fmt.Errorf("leader responded with cluster config that does not contain my ID, please check the leader"))
+	}
+
+	latestPeerVersion, _ := s.myPeers.PeerByID(myPeer)
+
+	if !reflect.DeepEqual(latestPeerVersion, myPeerFromMaster) {
+		s.log.Warn().Msgf("Leader responded with cluster config that does contain different peer, re-registering. Old peer: %v, new peer: %v", myPeerFromMaster, latestPeerVersion)
+		clusterConfig = s.reRegisterPeer(masterURL, latestPeerVersion)
+	}
+
+	// We've received a cluster config - let's store it
 	err = s.runtimeContext.UpdateClusterConfig(clusterConfig)
 	if err != nil {
-		s.log.Error().Err(err).Msg("Failed to update cluster configuration, Trying to register peer again")
-
-		_, hostPort, err := s.runtimeContext.GetHTTPServerPort()
-		if err != nil {
-			s.log.Fatal().Err(err).Msg("Failed to get HTTP server port during runtime cluster manager start")
-		}
-		req.SlavePort = hostPort
-
-		cfg := RegisterPeer(s.log, masterURL, req)
-		s.myPeers = cfg
-
-		// retry to update cluster configuration
-		err = s.runtimeContext.UpdateClusterConfig(cfg)
-		if err != nil {
-			s.log.Error().Err(err).Msg("Failed to update cluster configuration after registering peer")
-			return maskAny(err)
-		}
+		s.log.Warn().Err(err).Msg("Failed to update cluster configuration")
+		return err
 	}
 
 	return nil
+}
+
+func (s *runtimeClusterManager) reRegisterPeer(masterURL string, p Peer) ClusterConfig {
+	req := BuildHelloRequestFromPeer(p.Address, p.Port, p)
+	cfg := RegisterPeer(s.log, masterURL, req)
+	updatedPeer, exist := cfg.PeerByID(p.ID)
+	if !exist {
+		log.Fatalf("Failed to re-register peer %s", p.ID)
+	}
+	if !reflect.DeepEqual(updatedPeer, p) {
+		log.Fatalf("Failed to re-register peer %s, peer is different. Old peer: %v, new peer: %v", p.ID, p, updatedPeer)
+	}
+	return cfg
 }
 
 func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL string) {
@@ -225,7 +238,7 @@ func (s *runtimeClusterManager) updateMasterURL(masterURL string, isMaster bool)
 
 // Run keeps the cluster configuration up to date, either as master or as slave
 // during a running state.
-func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, runtimeContext runtimeClusterManagerContext, req HelloRequest) {
+func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, runtimeContext runtimeClusterManagerContext) {
 	s.log = log
 	s.runtimeContext = runtimeContext
 	s.interruptChan = make(chan struct{}, 32)
@@ -255,7 +268,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 		if masterURL != "" && masterURL != ownURL {
 			log.Debug().Msgf("Updating cluster configuration master URL: %s", masterURL)
 			// We are a follower, try to update cluster configuration from leader
-			if err := s.updateClusterConfiguration(ctx, masterURL, req); err != nil {
+			if err := s.updateClusterConfiguration(ctx, masterURL, myPeer.ID); err != nil {
 				delay = time.Second * 5
 				log.Warn().Err(err).Msgf("Failed to load cluster configuration from %s", masterURL)
 			} else {

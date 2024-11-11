@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/arangodb/go-driver"
@@ -99,6 +100,7 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 		procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
 		defer cleanup()
 
+		checkSyncInSetupJson(t, procs, peerDirs, false, false)
 		waitForClusterReadinessAndFinish(t, false, false, procs...)
 	}
 	{
@@ -114,6 +116,7 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 		procs, cleanup := startCluster(t, ip, starterArgsWithSync, peerDirs)
 		defer cleanup()
 
+		checkSyncInSetupJson(t, procs, peerDirs, true, true)
 		waitForClusterReadinessAndFinish(t, true, true, procs...)
 	}
 	{
@@ -121,6 +124,7 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 		procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
 		defer cleanup()
 
+		checkSyncInSetupJson(t, procs, peerDirs, false, true)
 		waitForClusterReadinessAndFinish(t, false, true, procs...)
 	}
 }
@@ -240,11 +244,10 @@ func checkSyncInSetupJson(t *testing.T, procs []*SubProcess, peerDirs []string, 
 		config, _, err := service.ReadSetupConfig(zerolog.Logger{}, dir)
 		require.NoError(t, err)
 
-		time.Sleep(120 * time.Second)
 		for _, peer := range config.Peers.AllPeers {
 			logVerbose(t, "checking dir %s, peer %s:, syncMode: %v", dir, peer.ID, syncEnabled)
-			require.Equal(t, syncEnabled, peer.HasSyncMaster(), "dir %s", dir)
-			require.Equal(t, syncEnabled, peer.HasSyncWorker(), "dir %s", dir)
+			assert.Equal(t, syncEnabled, peer.HasSyncMaster(), "dir %s", dir)
+			assert.Equal(t, syncEnabled, peer.HasSyncWorker(), "dir %s", dir)
 			logVerbose(t, "ok!")
 		}
 	}
