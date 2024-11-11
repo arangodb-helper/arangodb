@@ -22,13 +22,15 @@ package test
 
 import (
 	"fmt"
-	"github.com/arangodb-helper/arangodb/service"
-	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/require"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
+
+	"github.com/arangodb-helper/arangodb/service"
 )
 
 // TestDockerClusterSync runs 3 arangodb starters in docker with arangosync enabled.
