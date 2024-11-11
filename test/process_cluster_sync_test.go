@@ -249,7 +249,6 @@ func checkSyncInSetupJson(t *testing.T, procs []*SubProcess, peerDirs []string, 
 			logVerbose(t, "checking dir %s, peer %s:, syncMode: %v", dir, peer.ID, syncEnabled)
 			require.Equal(t, syncEnabled, peer.HasSyncMaster(), "dir %s", dir)
 			require.Equal(t, syncEnabled, peer.HasSyncWorker(), "dir %s", dir)
-			logVerbose(t, "ok!")
 		}
 	}
 }
