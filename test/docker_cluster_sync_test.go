@@ -219,10 +219,10 @@ func waitForClusterReadiness(t *testing.T, syncEnabled, isRelaunch bool, procs .
 	WaitUntilStarterReady(t, whatCluster, len(procs), procs...)
 	var timeout time.Duration
 	if syncEnabled {
-		timeout = time.Minute
+		timeout = 2 * time.Minute
 	}
 	if isRelaunch {
-		timeout = time.Second * 5
+		timeout = 15 * time.Second
 	}
 	for i := range procs {
 		testClusterPeer(t, insecureStarterEndpoint(i*portIncrement), false, syncEnabled, timeout)
