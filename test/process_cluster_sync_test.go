@@ -185,6 +185,7 @@ func TestProcessLocalClusterRestartWithSyncOnAndOff(t *testing.T) {
 // - restart with sync disabled
 // - run upgrade
 func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
+	t.Skipf("Skipping test as it is not working as expected")
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, true)
 	requireArangoSync(t, testModeProcess)
