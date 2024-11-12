@@ -903,17 +903,15 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 								break
 							}
 						}
-						if addrFoundInOtherPeer {
-							if isLocalAddress(slaveAddr) && isLocalAddress(p.Address) && s.runtimeClusterManager.myPeers.IsPortOffsetInUse() {
-								// This is a default configuration, where host and port are not set. Keep offset.
-								s.log.Warn().Msgf("Updating slave with local address (%s). Offset (%d) will be kept. Peer id: %s",
-									slaveAddr, p.PortOffset, p.ID)
-								peer.Address = slaveAddr
-							} else if p.Address != slaveAddr {
-								msg := fmt.Sprintf("Cannot change slave address (%s) to an address that is already in use by another peer (id: %s)", slaveAddr, p.ID)
-								s.log.Warn().Msgf(msg)
-								return ClusterConfig{}, maskAny(client.NewBadRequestError(msg))
-							}
+						if addrFoundInOtherPeer && isLocalAddress(slaveAddr) && isLocalAddress(p.Address) && s.runtimeClusterManager.myPeers.IsPortOffsetInUse() {
+							// This is a default configuration, where host and port are not set. Keep offset.
+							s.log.Warn().Msgf("Updating slave with local address (%s). Offset (%d) will be kept. Peer id: %s",
+								slaveAddr, p.PortOffset, p.ID)
+							peer.Address = slaveAddr
+						} else if addrFoundInOtherPeer && p.Address != slaveAddr {
+							msg := fmt.Sprintf("Cannot change slave address (%s) to an address that is already in use by another peer (id: %s)", slaveAddr, p.ID)
+							s.log.Warn().Msgf(msg)
+							return ClusterConfig{}, maskAny(client.NewBadRequestError(msg))
 						} else {
 							// We accept the new address (it might be the old one):
 							peer.Address = slaveAddr
@@ -922,15 +920,16 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 							// information actually contains the right port.
 							peer.PortOffset = 0
 						}
+
 					}
 					peer.Port = req.SlavePort
 					peer.DataDir = req.DataDir
 					peer.HasAgentFlag = boolFromRef(req.Agent, peer.HasAgentFlag)
 					peer.HasCoordinatorFlag = utils.NotNilDefault(req.Coordinator, peer.HasCoordinatorFlag)
 					peer.HasDBServerFlag = utils.NotNilDefault(req.DBServer, peer.HasDBServerFlag)
-					peer.HasResilientSingleFlag = boolFromRef(req.ResilientSingle, false)
-					peer.HasSyncMasterFlag = boolFromRef(req.SyncMaster, false)
-					peer.HasSyncWorkerFlag = boolFromRef(req.SyncWorker, false)
+					peer.HasResilientSingleFlag = boolFromRef(req.ResilientSingle, peer.HasResilientSingleFlag)
+					peer.HasSyncMasterFlag = boolFromRef(req.SyncMaster, peer.HasSyncMasterFlag)
+					peer.HasSyncWorkerFlag = boolFromRef(req.SyncWorker, peer.HasSyncWorkerFlag)
 				}
 			}
 		} else {
