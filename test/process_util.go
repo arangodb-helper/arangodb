@@ -39,8 +39,6 @@ func removeArangodProcesses(t *testing.T) {
 
 func closeProcess(t *testing.T, s *SubProcess, name string) {
 	s.Close()
-
-	showProcessLogs(t, s, name)
 }
 
 func listArangodProcesses(t *testing.T, log Logger) {

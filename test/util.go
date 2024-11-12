@@ -269,6 +269,7 @@ func WaitUntilStarterReady(t *testing.T, what string, requiredGoodResults int, s
 		}
 	}
 
+	t.Fatalf("Cluster not ready in time, %d/%d starters ready", readyStarters, len(starters))
 	return false
 }
 
