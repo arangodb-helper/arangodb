@@ -181,16 +181,19 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL str
 		var masterURL string
 		var isMaster bool
 
-		s.log.Debug().
-			Str("myURL", myURL).
-			Str("masterURL", masterURL).
-			Msg("Updating leadership")
 		masterURL, isMaster, delay, err = le.Update(ctx, agencyClient, myURL)
 		if err != nil {
 			delay = 5 * time.Second
 			s.log.Error().Err(err).Msgf("Update leader election failed. Retrying in %s", delay)
 			continue
 		}
+
+		s.log.Debug().
+			Str("myURL", myURL).
+			Str("masterURL", masterURL).
+			Str("oldMasterURL", oldMasterURL).
+			Msg("Updating leadership")
+
 		if isMaster && masterURL != myURL {
 			s.log.Error().Msgf("Unexpected error: this peer is a master but URL differs. Should be %s got %s", myURL, masterURL)
 		}

@@ -906,8 +906,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 						if addrFoundInOtherPeer && isLocalAddress(slaveAddr) && isLocalAddress(p.Address) && s.runtimeClusterManager.myPeers.IsPortOffsetInUse() {
 							// This is a default configuration, where host and port are not set. Keep offset.
 							s.log.Warn().Msgf("Updating slave with local address (%s). Offset (%d) will be kept. Peer id: %s",
-								slaveAddr, p.PortOffset, p.ID)
-							peer.Address = slaveAddr
+								p.Address, p.PortOffset, p.ID)
 						} else if addrFoundInOtherPeer && p.Address != slaveAddr {
 							msg := fmt.Sprintf("Cannot change slave address (%s) to an address that is already in use by another peer (id: %s)", slaveAddr, p.ID)
 							s.log.Warn().Msgf(msg)
