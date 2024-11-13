@@ -105,12 +105,13 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 		return maskAny(err)
 	}
 
+	latestPeerVersion, _ := s.myPeers.PeerByID(myPeer)
+
 	myPeerFromMaster, exist := clusterConfig.PeerByID(myPeer)
 	if !exist {
-		return maskAny(fmt.Errorf("leader responded with cluster config that does not contain my ID, please check the leader"))
+		s.log.Warn().Msgf("Leader responded with cluster config that does not contain this peer, re-registering. Local peer: %v", latestPeerVersion)
+		clusterConfig = RegisterPeer(s.log, masterURL, BuildHelloRequestFromPeer(latestPeerVersion))
 	}
-
-	latestPeerVersion, _ := s.myPeers.PeerByID(myPeer)
 
 	if !reflect.DeepEqual(latestPeerVersion, myPeerFromMaster) {
 		s.log.Warn().Msgf("Leader responded with cluster config that does contain different peer, re-registering. Peer from master: %v, Local peer: %v", myPeerFromMaster, latestPeerVersion)
