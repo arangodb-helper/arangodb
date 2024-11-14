@@ -40,7 +40,7 @@ func TestProcessClusterLocal(t *testing.T) {
 	child := Spawn(t, "${STARTER} --starter.local "+createEnvironmentStarterOptions())
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, child); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, child); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
@@ -65,7 +65,7 @@ func TestProcessClusterLocalShutdownViaAPI(t *testing.T) {
 	child := Spawn(t, "${STARTER} --starter.local "+createEnvironmentStarterOptions())
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, child); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, child); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
@@ -88,7 +88,7 @@ func TestOldProcessClusterLocal(t *testing.T) {
 	child := Spawn(t, "${STARTER} --local "+createEnvironmentStarterOptions())
 	defer child.Close()
 
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, child); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, child); ok {
 		t.Logf("Cluster start took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0*portIncrement), false)
 		testCluster(t, insecureStarterEndpoint(1*portIncrement), false)
