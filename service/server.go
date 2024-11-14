@@ -47,7 +47,8 @@ var (
 )
 
 const (
-	contentTypeJSON = "application/json"
+	contentTypeHeader = "Content-Type"
+	contentTypeJSON   = "application/json"
 )
 
 // HelloRequest is the data structure send of the wire in a `/hello` POST request.
@@ -227,7 +228,7 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 		// Read request
 		var req HelloRequest
 		defer r.Body.Close()
-		if body, err := ioutil.ReadAll(r.Body); err != nil {
+		if body, err := io.ReadAll(r.Body); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot read request body: %v", err.Error()))
 			return
 		} else if err := json.Unmarshal(body, &req); err != nil {
@@ -401,6 +402,7 @@ func (s *httpServer) processListHandler(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 	} else {
+		w.Header().Set(contentTypeHeader, contentTypeJSON)
 		w.Write(b)
 	}
 }
@@ -462,6 +464,7 @@ func (s *httpServer) endpointsHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 		} else {
+			w.Header().Set(contentTypeHeader, contentTypeJSON)
 			w.Write(b)
 		}
 	}
@@ -694,6 +697,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 			} else {
+				w.Header().Set(contentTypeHeader, contentTypeJSON)
 				w.Write(b)
 			}
 		}
@@ -726,7 +730,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	}
 	resp := client.ErrorResponse{Error: message}
 	b, _ := json.Marshal(resp)
-	w.Header().Set("Content-Type", contentTypeJSON)
+	w.Header().Set(contentTypeHeader, contentTypeJSON)
 	w.WriteHeader(status)
 	w.Write(b)
 }
