@@ -81,6 +81,15 @@ func (p ClusterConfig) AllAgents() []Peer {
 	return result
 }
 
+func (p *ClusterConfig) IsPortOffsetInUse() bool {
+	for _, x := range p.AllPeers {
+		if x.PortOffset != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // Initialize a new cluster configuration
 func (p *ClusterConfig) Initialize(initialPeer Peer, agencySize int, storageEngine string, persistentOptions options.PersistentOptions) {
 	p.AllPeers = []Peer{initialPeer}

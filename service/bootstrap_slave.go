@@ -98,7 +98,7 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 
 func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) ClusterConfig {
 	for {
-		log.Info().Msgf("Contacting leader %s...", masterURL)
+		log.Info().Msgf("Registering peer with master at %s", masterURL)
 
 		encoded, err := json.Marshal(req)
 		if err != nil {
@@ -157,6 +157,8 @@ func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) Cluste
 			return result
 		}
 
+		log.Info().Msgf("Successfully registered peer (ID: %s) with master at %s", req.SlaveID, masterURL)
+
 		return result
 	}
 }
@@ -171,5 +173,21 @@ func BuildHelloRequest(id string, slavePort int, isSecure bool, config Config, b
 		Agent:        copyBoolRef(bsCfg.StartAgent),
 		DBServer:     copyBoolRef(bsCfg.StartDBserver),
 		Coordinator:  copyBoolRef(bsCfg.StartCoordinator),
+	}
+}
+
+func BuildHelloRequestFromPeer(p Peer) HelloRequest {
+	return HelloRequest{
+		DataDir: p.DataDir,
+		SlaveID: p.ID,
+
+		// we can not change the address and port of the peer
+		SlaveAddress: p.Address,
+		SlavePort:    p.Port,
+
+		IsSecure:    p.IsSecure,
+		Agent:       &p.HasAgentFlag,
+		DBServer:    copyBoolRef(p.HasDBServerFlag),
+		Coordinator: copyBoolRef(p.HasCoordinatorFlag),
 	}
 }
