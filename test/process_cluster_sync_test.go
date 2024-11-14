@@ -99,6 +99,7 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 		procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
 		defer cleanup()
 
+		checkSyncInSetupJson(t, procs, peerDirs, false, false)
 		waitForClusterReadinessAndFinish(t, false, false, procs...)
 	}
 	{
@@ -114,6 +115,7 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 		procs, cleanup := startCluster(t, ip, starterArgsWithSync, peerDirs)
 		defer cleanup()
 
+		checkSyncInSetupJson(t, procs, peerDirs, true, true)
 		waitForClusterReadinessAndFinish(t, true, true, procs...)
 	}
 	{
@@ -121,6 +123,7 @@ func TestProcessClusterRestartWithSyncOnAndOff(t *testing.T) {
 		procs, cleanup := startCluster(t, ip, starterArgs, peerDirs)
 		defer cleanup()
 
+		checkSyncInSetupJson(t, procs, peerDirs, false, true)
 		waitForClusterReadinessAndFinish(t, false, true, procs...)
 	}
 }
@@ -186,8 +189,6 @@ func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 	testMatch(t, testModeProcess, starterModeCluster, true)
 	requireArangoSync(t, testModeProcess)
 
-	t.Skip("Skipping test due to flakiness OAS-10291")
-
 	// Create certificates
 	ip := "127.0.0.1"
 	certs := createSyncCertificates(t, ip, false)
@@ -236,16 +237,18 @@ func TestProcessClusterRestartWithSyncDisabledThenUpgrade(t *testing.T) {
 
 func checkSyncInSetupJson(t *testing.T, procs []*SubProcess, peerDirs []string, syncEnabled, isRelaunch bool) {
 	waitForClusterReadiness(t, syncEnabled, isRelaunch, procs...)
+
+	t.Logf("Waiting for setup.json to be updated")
+	time.Sleep(60 * time.Second)
+
 	for _, dir := range peerDirs {
 		config, _, err := service.ReadSetupConfig(zerolog.Logger{}, dir)
 		require.NoError(t, err)
 
-		time.Sleep(120 * time.Second)
 		for _, peer := range config.Peers.AllPeers {
 			logVerbose(t, "checking dir %s, peer %s:, syncMode: %v", dir, peer.ID, syncEnabled)
 			require.Equal(t, syncEnabled, peer.HasSyncMaster(), "dir %s", dir)
 			require.Equal(t, syncEnabled, peer.HasSyncWorker(), "dir %s", dir)
-			logVerbose(t, "ok!")
 		}
 	}
 }

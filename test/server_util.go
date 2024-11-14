@@ -302,7 +302,7 @@ func testArangoSyncReachable(t *testing.T, sp client.ServerProcess, timeout time
 			return
 		}
 		if timeout == 0 || time.Since(start) > timeout {
-			t.Errorf("Failed to reach arangosync at %s:%d %s", sp.IP, sp.Port, describe(err))
+			t.Fatalf("Failed to reach arangosync at %s:%d %s", sp.IP, sp.Port, describe(err))
 			return
 		}
 		time.Sleep(time.Second)
