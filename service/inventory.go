@@ -59,6 +59,7 @@ func (s *httpServer) localInventory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set(contentTypeHeader, contentTypeJSON)
 	w.Write(d)
 }
 
@@ -84,7 +85,7 @@ func (s *httpServer) clusterInventory(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(err.Error()))
 		return
 	}
-
+	w.Header().Set(contentTypeHeader, contentTypeJSON)
 	w.Write(d)
 }
 
