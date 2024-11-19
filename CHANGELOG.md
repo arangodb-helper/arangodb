@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [v0.19.7](https://github.com/arangodb-helper/arangodb/tree/0.19.7) (2024-11-19)
 - Restart improvements
 - Use --net=host mode for Docker in tests. Extend restart tests.
 - Fix termination issue in Process tests
