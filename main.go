@@ -598,6 +598,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		RunningInDocker:      docker.IsRunningInDocker(),
 		DockerConfig:         opts.docker.DockerConfig,
 		DockerStarterImage:   dockerStarterImage,
+		ProjectVersion:       projectVersion,
 		ProjectBuild:         projectBuild,
 		DebugCluster:         opts.starter.debugCluster,
 		Configuration:        passthroughOpts,
