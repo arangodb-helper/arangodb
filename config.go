@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2023 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2025 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -143,4 +143,15 @@ func sanityCheckPassThroughArgs(fs, persistentFs *pflag.FlagSet) {
 	}
 	fs.Visit(sanityCheck)
 	persistentFs.Visit(sanityCheck)
+}
+
+// loadVersionFromFile loads version from specified file
+// print error if the version cannot be read from file
+func loadVersionFromFile(versionFile string) string {
+	contents, err := os.ReadFile(versionFile)
+	if err != nil {
+		log.Fatal().Msg(fmt.Sprintf("Cannot read '%s': %v\n", versionFile, err))
+	}
+	version := strings.TrimSpace(string(contents))
+	return version
 }
