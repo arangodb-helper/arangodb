@@ -2,7 +2,7 @@ module github.com/arangodb-helper/arangodb
 
 go 1.21
 
-toolchain go1.22.6
+toolchain go1.22.11
 
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
