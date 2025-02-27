@@ -72,7 +72,7 @@ const (
 var (
 	defaultInstanceUpTimeout = defaultInstanceUpTimeoutLinux
 	projectVersion           = loadVersionFromFile("VERSION") + "-dev"
-	projectBuild             = "dev+version"
+	projectBuild             = "dev"
 	cmdMain                  = &cobra.Command{
 		Use:   projectName,
 		Short: "Start ArangoDB clusters & single servers with ease",
