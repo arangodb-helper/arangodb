@@ -120,6 +120,10 @@ func init() {
 		defaultInstanceUpTimeout = defaultInstanceUpTimeoutWindows
 	}
 
+	if projectVersion == "dev" {
+		projectVersion = loadVersionFromFile("VERSION") + "-dev"
+	}
+
 	// Prepare commandline parser
 	cmdMain.AddCommand(cmdVersion)
 
