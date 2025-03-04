@@ -147,11 +147,11 @@ func sanityCheckPassThroughArgs(fs, persistentFs *pflag.FlagSet) {
 
 // loadVersionFromFile loads version from specified file
 // print error if the version cannot be read from file
-func loadVersionFromFile(versionFile string) string {
+func loadVersionFromFile(versionFile string) (string, error) {
 	contents, err := os.ReadFile(versionFile)
 	if err != nil {
-		log.Fatal().Msg(fmt.Sprintf("Cannot read '%s': %v\n", versionFile, err))
+		log.Error().Msg(fmt.Sprintf("Cannot read '%s': %v\n", versionFile, err))
 	}
 	version := strings.TrimSpace(string(contents))
-	return version
+	return version, err
 }

@@ -121,7 +121,9 @@ func init() {
 	}
 
 	if projectVersion == "dev" {
-		projectVersion = loadVersionFromFile("VERSION") + "-dev"
+		if pv, pvErr := loadVersionFromFile("VERSION"); pvErr == nil {
+			projectVersion = pv + "-dev"
+		}
 	}
 
 	// Prepare commandline parser
