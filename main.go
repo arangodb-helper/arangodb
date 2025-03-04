@@ -71,7 +71,7 @@ const (
 
 var (
 	defaultInstanceUpTimeout = defaultInstanceUpTimeoutLinux
-	projectVersion           = loadVersionFromFile("VERSION") + "-dev"
+	projectVersion           = "dev"
 	projectBuild             = "dev"
 	cmdMain                  = &cobra.Command{
 		Use:   projectName,
