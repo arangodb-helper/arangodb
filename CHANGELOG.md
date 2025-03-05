@@ -43,10 +43,6 @@
 - Remove deprecated ArangoSync component and ActiveFailover mode
 - Bump Go version (1.21.8) and dependencies for CVE fixes
 
-## [v0.18.4](https://github.com/arangodb-helper/arangodb/tree/0.18.4) (2025-03-05)
-- Bump Go version (v1.22.12) and dependencies for CVE fixes
-- Fix version not appearing in HTTP API /version request
-
 ## [v0.18.3](https://github.com/arangodb-helper/arangodb/tree/0.18.3) (2024-03-05)
 - Mark ArangoSync component as deprecated
 - Do not allow starting ArangoDB v3.12+ with ArangoSync component
