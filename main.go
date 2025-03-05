@@ -1,7 +1,7 @@
 //
 // DISCLAIMER
 //
-// Copyright 2017-2024 ArangoDB GmbH, Cologne, Germany
+// Copyright 2017-2025 ArangoDB GmbH, Cologne, Germany
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,7 +33,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
@@ -120,6 +119,12 @@ func init() {
 
 	if runtime.GOOS == "windows" {
 		defaultInstanceUpTimeout = defaultInstanceUpTimeoutWindows
+	}
+
+	if projectVersion == "dev" {
+		if pv, pvErr := loadVersionFromFile("VERSION"); pvErr == nil {
+			projectVersion = pv + "-dev"
+		}
 	}
 
 	// Prepare commandline parser
@@ -676,6 +681,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 		RunningInDocker:         docker.IsRunningInDocker(),
 		DockerConfig:            opts.docker.DockerConfig,
 		DockerStarterImage:      dockerStarterImage,
+		ProjectVersion:          projectVersion,
 		ProjectBuild:            projectBuild,
 		DebugCluster:            opts.starter.debugCluster,
 		SyncEnabled:             opts.starter.enableSync,
