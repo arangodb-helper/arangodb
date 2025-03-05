@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dchest/uniuri"
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
