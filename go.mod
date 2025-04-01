@@ -7,23 +7,23 @@ toolchain go1.22.12
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
 	github.com/arangodb-helper/go-helper v0.4.2
-	github.com/arangodb/go-driver v1.6.0
+	github.com/arangodb/go-driver v1.6.6
 	github.com/arangodb/go-upgrade-rules v0.0.0-20200605091205-439fb1ee86e7
 	github.com/cenkalti/backoff v2.2.1+incompatible
-	github.com/coreos/go-semver v0.3.0
-	github.com/dchest/uniuri v0.0.0-20200228104902-7aecb25e1fe5
+	github.com/coreos/go-semver v0.3.1
+	github.com/dchest/uniuri v1.2.0
 	github.com/fatih/color v1.9.0
 	github.com/fsouza/go-dockerclient v1.9.7
-	github.com/golang-jwt/jwt v3.2.2+incompatible
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/opencontainers/runc v1.1.14
 	github.com/pkg/errors v0.9.1
-	github.com/rs/zerolog v1.19.0
+	github.com/rs/zerolog v1.33.0
 	github.com/ryanuber/columnize v2.1.0+incompatible
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto v0.31.0
 	gopkg.in/ini.v1 v1.66.6
 )
@@ -45,8 +45,8 @@ require (
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/mattn/go-colorable v0.1.7 // indirect
-	github.com/mattn/go-isatty v0.0.12 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/moby/patternmatcher v0.5.0 // indirect
 	github.com/moby/sys/mountinfo v0.6.2 // indirect
 	github.com/moby/sys/sequential v0.5.0 // indirect
