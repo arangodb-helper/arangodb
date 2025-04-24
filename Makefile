@@ -229,13 +229,13 @@ tools:
 	@echo ">> Fetching gci"
 	@GOBIN=$(GOPATH)/bin go install github.com/daixiang0/gci@v0.3.0
 	@echo ">> Fetching goimports"
-	@GOBIN=$(GOPATH)/bin go install golang.org/x/tools/cmd/goimports@0bb7e5c47b1a31f85d4f173edc878a8e049764a5
+	@GOBIN=$(GOPATH)/bin go install golang.org/x/tools/cmd/goimports@v0.32.0
 	@echo ">> Fetching license check"
 	@GOBIN=$(GOPATH)/bin go install github.com/google/addlicense@6d92264d717064f28b32464f0f9693a5b4ef0239
 	@echo ">> Fetching github release"
 	@GOBIN=$(GOPATH)/bin go install github.com/aktau/github-release@v0.8.1
 	@echo ">> Fetching govulncheck"
-	@GOBIN=$(GOPATH)/bin go install golang.org/x/vuln/cmd/govulncheck@v1.0.4
+	@GOBIN=$(GOPATH)/bin go install golang.org/x/vuln/cmd/govulncheck@v1.1.3
 	@echo ">> Fetching goversioninfo"
 	@GOBIN=$(GOPATH)/bin go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.4.0
 
