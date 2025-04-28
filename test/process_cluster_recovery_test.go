@@ -38,22 +38,25 @@ import (
 func TestProcessClusterRecovery(t *testing.T) {
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, false)
-	dataDirMaster := SetUniqueDataDir(t)
-	defer os.RemoveAll(dataDirMaster)
 
 	start := time.Now()
 
+	dataDirMaster := SetUniqueDataDir(t)
+	defer os.RemoveAll(dataDirMaster)
 	master := Spawn(t, "${STARTER} --starter.port=8528 "+createEnvironmentStarterOptions())
+	master.label = "Master"
 	defer closeProcess(t, master, "Master")
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
 	slave1 := Spawn(t, "${STARTER} --starter.port=8628 --starter.join 127.0.0.1:8528 "+createEnvironmentStarterOptions())
+	slave1.label = "Slave1"
 	defer closeProcess(t, slave1, "Slave1")
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
 	slave2 := Spawn(t, "${STARTER} --starter.port=8728 --starter.join 127.0.0.1:8528 "+createEnvironmentStarterOptions())
+	slave2.label = "Slave2"
 	defer closeProcess(t, slave2, "Slave2")
 
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
@@ -102,20 +105,21 @@ func TestProcessClusterRecovery(t *testing.T) {
 		t.Errorf("Failed to create RECOVERY file: %s", describe(err))
 	}
 
-	// Restart slave1
+	// Restart slave1 (recovery)
 	os.Setenv("DATA_DIR", dataDirSlave1)
-	master = Spawn(t, "${STARTER} --starter.port=8628 --starter.join 127.0.0.1:8528 "+createEnvironmentStarterOptions())
-	defer closeProcess(t, master, "Master 2")
+	slave1Recovery := Spawn(t, "${STARTER} --starter.port=8628 --starter.join 127.0.0.1:8528 "+createEnvironmentStarterOptions())
+	slave1Recovery.label = "Slave1 Recovery"
+	defer closeProcess(t, slave1Recovery, "Slave 1 Recovery")
 
 	// Wait until recovered
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1Recovery, slave2); ok {
 		t.Logf("Cluster start (with recovery) took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0), false)
 		testCluster(t, insecureStarterEndpoint(100), false)
 		testCluster(t, insecureStarterEndpoint(200), false)
 	}
 
-	// RECOVERY file must now be gone within 30s:
+	// The RECOVERY file must now be gone within the 30s:
 	startWait := time.Now()
 	for {
 		if _, err := os.Stat(filepath.Join(dataDirSlave1, "RECOVERY")); os.IsNotExist(err) {
@@ -131,5 +135,12 @@ func TestProcessClusterRecovery(t *testing.T) {
 	if isVerbose {
 		t.Log("Waiting for termination")
 	}
-	SendIntrAndWait(t, master, slave1, slave2)
+
+	t.Log("Listing processes before termination")
+	listArangodProcesses(t, GetLogger(t))
+
+	SendIntrAndWait(t, master, slave1Recovery, slave2)
+
+	t.Log("Listing processes after termination")
+	listArangodProcesses(t, GetLogger(t))
 }

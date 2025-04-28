@@ -528,7 +528,7 @@ func logProcessOutput(log Logger, p *SubProcess, prefix string, args ...interfac
 	for {
 		line, _, err := reader.ReadLine()
 		if len(line) > 0 {
-			if pre != "" {
+			if pre == "" {
 				log.Log(string(line))
 			} else {
 				log.Log("%s%s", pre, string(line))
