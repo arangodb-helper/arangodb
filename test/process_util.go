@@ -32,9 +32,16 @@ import (
 )
 
 func removeArangodProcesses(t *testing.T) {
-	c := SpawnWithExpand(t, "sh -c 'PIDS=$(pidof -x arangod); if [ ! -z \"${PIDS}\" ]; then kill -9 ${PIDS}; fi'", false)
+	t.Log("Removing arangod processes")
+	listArangodProcesses(t, GetLogger(t))
+	c := SpawnWithExpand(t, "sh -c 'PIDS=$(pidof arangod); if [ ! -z \"${PIDS}\" ]; then kill -9 ${PIDS}; fi'", false)
 	defer c.Close()
-	c.Wait()
+	err := c.Wait()
+	if err != nil {
+		t.Logf("Failed to kill arangod processes: %v", err)
+	} else {
+		t.Log("Successfully killed arangod processes")
+	}
 }
 
 func closeProcess(t *testing.T, s *SubProcess, name string) {
@@ -44,7 +51,7 @@ func closeProcess(t *testing.T, s *SubProcess, name string) {
 }
 
 func listArangodProcesses(t *testing.T, log Logger) {
-	c := SpawnWithExpand(t, "pidof -x arangod", false)
+	c := SpawnWithExpand(t, "pidof arangod", false)
 	defer c.Close()
 	c.Wait()
 
