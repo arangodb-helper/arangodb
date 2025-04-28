@@ -136,11 +136,5 @@ func TestProcessClusterRecovery(t *testing.T) {
 		t.Log("Waiting for termination")
 	}
 
-	t.Log("Listing processes before termination")
-	listArangodProcesses(t, GetLogger(t))
-
 	SendIntrAndWait(t, master, slave1Recovery, slave2)
-
-	t.Log("Listing processes after termination")
-	listArangodProcesses(t, GetLogger(t))
 }

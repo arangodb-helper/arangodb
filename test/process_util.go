@@ -38,7 +38,7 @@ func removeArangodProcesses(t *testing.T) {
 	defer c.Close()
 	err := c.Wait()
 	if err != nil {
-		t.Logf("Failed to kill arangod processes: %v", err)
+		t.Errorf("Failed to kill arangod processes: %v", err)
 	} else {
 		t.Log("Successfully killed arangod processes")
 	}
