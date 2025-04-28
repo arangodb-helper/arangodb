@@ -2,6 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.18.15](https://github.com/arangodb-helper/arangodb/tree/0.18.15) (2025-04-29)
+-  Bump Go version (1.23.8) and dependencies for CVE fixes
+
 ## [v0.18.14](https://github.com/arangodb-helper/arangodb/tree/0.18.14) (2025-04-01)
 - Switch to jwt-go v5
 
