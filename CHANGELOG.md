@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Bump Go version (1.22.10) and dependencies for CVE fixes
 
 ## [v0.19.11](https://github.com/arangodb-helper/arangodb/tree/0.19.11) (2025-04-29)
 - Bump Go version (1.23.8) and dependencies for CVE fixes
