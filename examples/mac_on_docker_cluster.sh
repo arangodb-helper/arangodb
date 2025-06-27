@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# This exampe shows how to run an ArangoDB cluster all locally in docker on mac.
+# This example shows how to run an ArangoDB cluster all locally in docker on mac.
 # 
 # By default this script uses the latest released ArangoDB docker image.
 # To use another image, set ARANGOIMAGE to the desired image, before calling this script.
@@ -11,7 +11,7 @@
 
 NSCONTAINER=arangodb-on-mac-ns 
 STARTERCONTAINER=arangodb-on-mac
-ARANGOIMAGE=${ARANGOIMAGE:=arangodb/arangodb:latest}
+ARANGOIMAGE=${ARANGOIMAGE:=arangodb/enterprise:latest}
 
 # Create network namespace container.
 # Make sure to expose all ports you want here.
