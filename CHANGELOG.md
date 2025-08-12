@@ -2,7 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
-## [v0.18.16](https://github.com/arangodb-helper/arangodb/tree/0.18.16) (2025-08-12)
+## [v0.18.17](https://github.com/arangodb-helper/arangodb/tree/0.18.17) (2025-08-12)
 - Bump Go version (1.23.12) and dependencies for CVE fixes
 - Bump Go version (1.23.11) and dependencies for CVE fixes
 
