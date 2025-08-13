@@ -50,7 +50,7 @@ DOCKERCLI ?= $(shell which docker)
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
 DOCKER_BUILD_CLI := $(DOCKERCLI) build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS)
 
-ARANGODB ?= arangodb/arangodb:latest
+ARANGODB ?= arangodb/enterprise:latest
 
 TEST_TIMEOUT := 1h
 
