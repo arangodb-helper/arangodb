@@ -23,7 +23,7 @@
 
 package docker
 
-import "github.com/opencontainers/runc/libcontainer/cgroups"
+import "github.com/opencontainers/cgroups"
 
 func IsCGroup2UnifiedMode() bool {
 	return cgroups.IsCgroup2UnifiedMode()
