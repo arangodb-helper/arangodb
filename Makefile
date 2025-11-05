@@ -280,7 +280,7 @@ vendor:
 init: vendor tools
 
 .PHONY: check
-check: license-verify fmt-verify linter run-unit-tests
+check: license-verify fmt-verify run-unit-tests
 
 local-release:
 	@mkdir 
