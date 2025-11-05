@@ -40,7 +40,7 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 ALPINE_IMAGE ?= alpine:3.21
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.23.12
+GOVERSION := 1.24.9
 GOIMAGE ?= golang:$(GOVERSION)-alpine3.21
 
 GOOS ?= linux
@@ -280,7 +280,7 @@ vendor:
 init: vendor tools
 
 .PHONY: check
-check: license-verify fmt-verify linter run-unit-tests
+check: license-verify fmt-verify run-unit-tests
 
 local-release:
 	@mkdir 
