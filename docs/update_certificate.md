@@ -80,25 +80,7 @@ sleep 15
 # Verify all stopped
 ps aux | grep arangod | grep -v grep  # Should be empty
 ```
-
-### Step 4: Delete setup.json Files
-
-**This is the key step** - forces starter to use command-line options:
-
-```bash
-# Delete setup.json from all data directories
-rm -f /path/to/data-dir/setup.json
-
-# Verify deletion
-ls -la /path/to/data-dir/setup.json  # Should show "No such file"
-```
-
-**Why delete setup.json?**
-- Forces fresh configuration with new certificate
-- Eliminates cached state conflicts
-- Ensures command-line options take precedence
-
-### Step 5: Restart Cluster
+### Step 4: Restart Cluster
 
 Restart using the **exact same commands** as original startup:
 
@@ -117,7 +99,7 @@ Wait for startup completion (~30 seconds):
 Your cluster can now be accessed with a browser at `https://hostname:8529`
 ```
 
-### Step 6: Verify New Certificate
+### Step 5: Verify New Certificate
 
 ```bash
 # Check each server type (adjust NODE and PORT for your environment)
@@ -356,14 +338,14 @@ sleep 5
 
 ```bash
 # Force fresh connection to see new certificate
-timeout 2 openssl s_client -connect localhost:8530</dev/null 2>/dev/null | \
+timeout 2 openssl s_client -connect ${NODE}:${STARTER_PORT}</dev/null 2>/dev/null | \
     openssl x509 -noout -subject -dates
 ```
 
 #### Step 4: Verify Cluster Health
 
 ```bash
-curl -k -u root: https://${NODE}:8529/_admin/cluster/health
+curl -k -u root: https://${NODE}:${STARTER_PORT}/_admin/cluster/health
 ```
 
 #### Step 5: Fallback if Needed
@@ -374,7 +356,6 @@ If verification fails:
 # Fall back to Option 1
 curl -k -X POST https://${NODE}:${STARTER_PORT}/shutdown
 sleep 15
-rm -f /path/to/data-dir/setup.json
 # Restart cluster
 ```
 
