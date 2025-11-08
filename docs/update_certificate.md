@@ -151,12 +151,6 @@ for NODE in "${NODES[@]}"; do
 done
 sleep 15
 
-# Delete setup.json on all nodes
-for DIR in "${DATA_DIRS[@]}"; do
-    rm -f "${DIR}/setup.json"
-done
-echo "setup.json files deleted"
-
 echo "Ready to restart cluster. Press Enter after restart..."
 read
 
