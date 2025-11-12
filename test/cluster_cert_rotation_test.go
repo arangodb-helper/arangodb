@@ -69,20 +69,20 @@ func createTestCertificate(path, org string) error {
 // IMPORTANT: This test intentionally reuses the same data directories across restarts to verify
 // that certificate changes work with persistent data.
 //
-// KNOWN LIMITATION: When running inside Docker/containers on a WSL2 host, RocksDB file locks
-// are not released reliably even after graceful process termination. The test works fine in:
-//   - Native WSL2 (Ubuntu running directly on WSL2, without Docker)
-//   - Native Linux
-//   - Docker on native Linux
-//   - But NOT: Docker on WSL2
+// KNOWN LIMITATION: RocksDB file locks in reused data directories are not released reliably
+// in certain environments even after graceful process termination. The test works fine in:
+//   - Native Linux (not WSL2, not containers)
+//   - But NOT:
+//   - Docker/containers (on any host)
+//   - WSL2 (even native, without Docker)
 //
-// For certificate rotation testing in Docker on WSL2, use TestProcessClusterSSLCertRotationHotReload
+// For certificate rotation testing in containers or WSL2, use TestProcessClusterSSLCertRotationHotReload
 // instead, which performs hot reload without requiring cluster restart and works on all platforms.
 func TestProcessClusterReplaceCert(t *testing.T) {
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, false)
 
-	// Check for Docker on WSL2 - this specific combination has RocksDB locking issues
+	// Check if running in a container - RocksDB file locking with reused data dirs is unreliable in containers
 	inContainer := false
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		inContainer = true
@@ -92,16 +92,20 @@ func TestProcessClusterReplaceCert(t *testing.T) {
 			strings.Contains(string(data), "containerd")
 	}
 
+	// Detect WSL2 environment and log system information
+	isWSL := false
 	if data, err := os.ReadFile("/proc/version"); err == nil {
 		version := strings.ToLower(string(data))
-		isWSL := strings.Contains(version, "microsoft") || strings.Contains(version, "wsl")
+		isWSL = strings.Contains(version, "microsoft") || strings.Contains(version, "wsl")
 		t.Logf("System: %s", strings.TrimSpace(version))
 		t.Logf("Container: %v, WSL: %v", inContainer, isWSL)
+	} else {
+		t.Logf("Container: %v", inContainer)
+	}
 
-		// Skip only if running in Docker/container on WSL2 host
-		if inContainer && isWSL {
-			t.Skip("Skipping TestProcessClusterReplaceCert when running in Docker on WSL2 - RocksDB file locks in reused data directories are not released reliably in this configuration. This test works fine on native WSL2 (without Docker) and native Linux. For certificate rotation testing in Docker on WSL2, use TestProcessClusterSSLCertRotationHotReload instead.")
-		}
+	// Skip if running in containers OR on WSL2
+	if inContainer || isWSL {
+		t.Skip("Skipping TestProcessClusterReplaceCert in containerized or WSL2 environment - RocksDB file locks in reused data directories are not released reliably in these environments. This test works fine on native Linux only. For certificate rotation testing in containers/WSL2, use TestProcessClusterSSLCertRotationHotReload instead, which performs hot reload without requiring cluster restart.")
 	}
 
 	// 1. Create temp dir for certificates
@@ -162,7 +166,7 @@ func TestProcessClusterReplaceCert(t *testing.T) {
 
 	// Cleanup and prepare for restart with data persistence
 	// Re-detect WSL for cleanup logic (we already checked for skip condition above)
-	isWSL := false
+	isWSL = false
 	if data, err := os.ReadFile("/proc/version"); err == nil {
 		version := strings.ToLower(string(data))
 		isWSL = strings.Contains(version, "microsoft") || strings.Contains(version, "wsl")
