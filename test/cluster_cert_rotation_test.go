@@ -1,161 +1,22 @@
-// //
-// // DISCLAIMER
-// //
-// // Copyright 2024 ArangoDB GmbH, Cologne, Germany
-// //
-// // Licensed under the Apache License, Version 2.0 (the "License");
-// // you may not use this file except in compliance with the License.
-// // You may obtain a copy of the License at
-// //
-// // http://www.apache.org/licenses/LICENSE-2.0
-// //
-// // Unless required by applicable law or agreed to in writing, software
-// // distributed under the License is distributed on an "AS IS" BASIS,
-// // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// // See the License for the specific language governing permissions and
-// // limitations under the License.
-// //
-// // Copyright holder is ArangoDB GmbH, Cologne, Germany
-// //
-
+// DISCLAIMER
+//
+// # Copyright 2024 ArangoDB GmbH, Cologne, Germany
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Copyright holder is ArangoDB GmbH, Cologne, Germany
 package test
 
-// import (
-// 	"fmt"
-// 	"os"
-// 	"path/filepath"
-// 	"testing"
-// 	"time"
-
-// 	"github.com/stretchr/testify/require"
-
-// 	"github.com/arangodb-helper/arangodb/client"
-// )
-
-// func TestProcessSampeleClusterReplaceCert(t *testing.T) {
-// 	removeArangodProcesses(t)
-// 	testMatch(t, testModeProcess, starterModeCluster, false)
-
-// 	// Create temporary directory for certificates
-// 	certDir, err := os.MkdirTemp("", "ssl-cert-path-test")
-// 	require.NoError(t, err, "Failed to create temp directory")
-// 	defer os.RemoveAll(certDir)
-
-// 	// Create first certificate
-// 	cert1Path := filepath.Join(certDir, "server1.keyfile")
-// 	err = createTestCertificate(cert1Path, "cert-path-1")
-// 	require.NoError(t, err, "Failed to create first certificate")
-
-// 	dataDirMaster := SetUniqueDataDir(t)
-// 	defer os.RemoveAll(dataDirMaster)
-
-// 	start := time.Now()
-
-// 	// Start cluster with SSL enabled using first certificate
-// 	masterCmd := fmt.Sprintf("${STARTER} --ssl.keyfile=%s %s", cert1Path, createEnvironmentStarterOptions())
-// 	master := Spawn(t, masterCmd)
-// 	defer master.Close()
-
-// 	dataDirSlave1 := SetUniqueDataDir(t)
-// 	defer os.RemoveAll(dataDirSlave1)
-// 	slave1Cmd := fmt.Sprintf("${STARTER} --starter.join 127.0.0.1 --ssl.keyfile=%s %s", cert1Path, createEnvironmentStarterOptions())
-// 	slave1 := Spawn(t, slave1Cmd)
-// 	defer slave1.Close()
-
-// 	dataDirSlave2 := SetUniqueDataDir(t)
-// 	defer os.RemoveAll(dataDirSlave2)
-// 	slave2Cmd := fmt.Sprintf("${STARTER} --starter.join 127.0.0.1 --ssl.keyfile=%s %s", cert1Path, createEnvironmentStarterOptions())
-// 	slave2 := Spawn(t, slave2Cmd)
-// 	defer slave2.Close()
-
-// 	// Wait for cluster to be ready
-// 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
-// 		t.Logf("Cluster start with SSL took %s", time.Since(start))
-// 		testCluster(t, secureStarterEndpoint(0*portIncrement), true)
-// 		testCluster(t, secureStarterEndpoint(1*portIncrement), true)
-// 		testCluster(t, secureStarterEndpoint(2*portIncrement), true)
-// 	}
-
-// 	// Get initial certificate info
-// 	t.Log("Checking initial certificate")
-// 	initialCertSerials := getCertificateSerials(t, secureStarterEndpoint(0*portIncrement))
-
-// 	// Shutdown the cluster gracefully FIRST
-// 	t.Log("Shutting down cluster for in-place certificate replacement")
-// 	// SendIntrAndWait(t, master, slave1, slave2)
-// 	waitForCallFunction(t,
-// 		ShutdownStarterCall(secureStarterEndpoint(0*portIncrement)),
-// 		ShutdownStarterCall(secureStarterEndpoint(1*portIncrement)),
-// 		ShutdownStarterCall(secureStarterEndpoint(2*portIncrement)))
-
-// 	time.Sleep(200 * time.Second)
-// 	// Replace the certificate file with new content (same path, new certificate)
-// 	t.Log("Replacing certificate file with new certificate at same path")
-// 	err = createTestCertificate(cert1Path, "ReplacedCert")
-// 	require.NoError(t, err, "Failed to replace certificate")
-// 	t.Log("Certificate file replaced successfully on disk")
-
-// 	// Restart the cluster with the same commands (no configuration changes)
-// 	// The starters and servers should automatically pick up the new certificate
-// 	t.Log("Restarting cluster - should automatically pick up replaced certificate")
-// 	master = Spawn(t, masterCmd)
-// 	defer master.Close()
-
-// 	slave1 = Spawn(t, slave1Cmd)
-// 	defer slave1.Close()
-
-// 	slave2 = Spawn(t, slave2Cmd)
-// 	defer slave2.Close()
-
-// 	// Wait for cluster to be ready again
-// 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
-// 		t.Logf("Cluster restart took %s", time.Since(start))
-// 		testCluster(t, secureStarterEndpoint(0*portIncrement), true)
-// 		testCluster(t, secureStarterEndpoint(1*portIncrement), true)
-// 		testCluster(t, secureStarterEndpoint(2*portIncrement), true)
-// 		// Verify certificates have changed
-// 		t.Log("Verifying certificates have been replaced")
-// 		newCertSerials := getCertificateSerials(t, secureStarterEndpoint(0*portIncrement))
-
-// 		// Check each server type
-// 		for serverType, newSerial := range newCertSerials {
-// 			oldSerial := initialCertSerials[serverType]
-// 			if oldSerial == "" {
-// 				t.Errorf("No initial certificate found for %s", serverType)
-// 				continue
-// 			}
-// 			if newSerial == "" {
-// 				t.Errorf("No new certificate found for %s", serverType)
-// 				continue
-// 			}
-// 			if oldSerial == newSerial {
-// 				t.Errorf("Certificate NOT replaced on %s: serial remained %s", serverType, oldSerial)
-// 			} else {
-// 				t.Logf("Certificate successfully replaced on %s: %s -> %s", serverType, oldSerial[:8], newSerial[:8])
-// 			}
-// 		}
-
-// 		// Ensure all server types were checked
-// 		require.NotEmpty(t, newCertSerials[client.ServerTypeCoordinator], "Coordinator certificate should be present")
-// 		require.NotEmpty(t, newCertSerials[client.ServerTypeDBServer], "DBServer certificate should be present")
-// 		require.NotEmpty(t, newCertSerials[client.ServerTypeAgent], "Agent certificate should be present")
-
-// 		// Ensure all certificates actually changed
-// 		require.NotEqual(t, initialCertSerials[client.ServerTypeCoordinator], newCertSerials[client.ServerTypeCoordinator],
-// 			"Coordinator certificate should have changed")
-// 		require.NotEqual(t, initialCertSerials[client.ServerTypeDBServer], newCertSerials[client.ServerTypeDBServer],
-// 			"DBServer certificate should have changed")
-// 		require.NotEqual(t, initialCertSerials[client.ServerTypeAgent], newCertSerials[client.ServerTypeAgent],
-// 			"Agent certificate should have changed")
-
-// 		t.Log("All certificates successfully replaced after restart")
-// 	}
-
-// 	if isVerbose {
-// 		t.Log("Waiting for termination")
-// 	}
-// 	SendIntrAndWait(t, master, slave1, slave2)
-// }
 import (
 	"context"
 	"crypto/tls"
