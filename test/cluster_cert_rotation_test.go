@@ -457,6 +457,15 @@ func TestProcessClusterSSLCertRotationHotReload(t *testing.T) {
 	err = createTestCertificate(cert1Path, "rotated-cert")
 	require.NoError(t, err, "Failed to create rotated certificate")
 
+	// Force filesystem sync to ensure certificate file is written (important in containers)
+	t.Log("Forcing filesystem sync")
+	syncCmd := exec.Command("sync")
+	if err := syncCmd.Run(); err != nil {
+		t.Logf("Warning: sync command failed: %v", err)
+	}
+	// Give filesystem time to propagate changes (especially in container overlayfs)
+	time.Sleep(10 * time.Second)
+
 	// Hot reload certificates via REST API on all server types
 	t.Log("Triggering hot reload on all server types via /_admin/server/tls")
 	err = reloadCertificatesViaAPI(t, secureStarterEndpoint(0*portIncrement))
@@ -467,8 +476,9 @@ func TestProcessClusterSSLCertRotationHotReload(t *testing.T) {
 	require.NoError(t, err, "Failed to reload certificates via API")
 
 	// Give servers time to reload - DBServers need more time than coordinators/agents
-	t.Log("Waiting 15 seconds for certificates to be reloaded...")
-	time.Sleep(15 * time.Second)
+	// In container environments (CircleCI), filesystem caching can delay the reload
+	t.Log("Waiting 30 seconds for certificates to be reloaded...")
+	time.Sleep(30 * time.Second)
 
 	// Verify certificates were reloaded by checking serial numbers changed
 	t.Log("Verifying certificates were reloaded")
