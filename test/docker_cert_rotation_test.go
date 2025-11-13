@@ -149,12 +149,12 @@ func TestDockerClusterSSLCertRotationHotReload(t *testing.T) {
 	t.Log("Waiting 120 seconds for certificates to be reloaded (Docker OverlayFS propagation delay)...")
 	time.Sleep(120 * time.Second)
 
-	// Verify certificates were reloaded by checking serial numbers changed
-	t.Log("Verifying certificates were reloaded")
+	// First check: Verify certificates were reloaded
+	t.Log("First verification: Checking if certificates were reloaded")
 	newCertSerials := getCertificateSerials(t, secureStarterEndpoint(0*portIncrement))
 	require.NotEmpty(t, newCertSerials, "Should have new certificate serials")
 
-	// Verify the serials are different (certificate was actually rotated)
+	// Check which servers have rotated
 	rotatedServers := make(map[client.ServerType]bool)
 	for serverType, newSerial := range newCertSerials {
 		initialSerial := initialCertSerials[serverType]
@@ -162,7 +162,30 @@ func TestDockerClusterSSLCertRotationHotReload(t *testing.T) {
 			t.Logf("Certificate rotated successfully on %s: %s -> %s", serverType, initialSerial, newSerial)
 			rotatedServers[serverType] = true
 		} else {
-			t.Errorf("Certificate NOT rotated on %s: serial remained %s", serverType, initialSerial)
+			t.Logf("Certificate NOT YET rotated on %s: serial remained %s", serverType, initialSerial)
+		}
+	}
+
+	// If not all servers have rotated, wait longer and check again
+	if !rotatedServers[client.ServerTypeCoordinator] || !rotatedServers[client.ServerTypeDBServer] {
+		t.Log("Some servers haven't rotated yet. Waiting additional 60 seconds for slower Docker OverlayFS propagation...")
+		time.Sleep(60 * time.Second)
+
+		// Second check: Re-verify certificates after additional wait
+		t.Log("Second verification: Re-checking certificates after extended wait")
+		newCertSerials = getCertificateSerials(t, secureStarterEndpoint(0*portIncrement))
+
+		// Update rotatedServers with new check
+		for serverType, newSerial := range newCertSerials {
+			initialSerial := initialCertSerials[serverType]
+			if newSerial != initialSerial {
+				if !rotatedServers[serverType] {
+					t.Logf("Certificate NOW rotated on %s (after extended wait): %s -> %s", serverType, initialSerial, newSerial)
+				}
+				rotatedServers[serverType] = true
+			} else {
+				t.Errorf("Certificate STILL NOT rotated on %s after 180s total wait: serial remained %s", serverType, initialSerial)
+			}
 		}
 	}
 
