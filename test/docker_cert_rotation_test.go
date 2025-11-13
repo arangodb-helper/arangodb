@@ -131,8 +131,10 @@ func TestDockerClusterSSLCertRotationHotReload(t *testing.T) {
 	if err := syncCmd.Run(); err != nil {
 		t.Logf("Warning: sync command failed: %v", err)
 	}
-	// Give filesystem time to propagate changes (especially important for Docker volume mounts)
-	time.Sleep(10 * time.Second)
+	// Give filesystem time to propagate changes through Docker volume mounts and nested containers
+	// Docker has multiple layers: host -> starter container -> nested ArangoDB containers
+	t.Log("Waiting 30 seconds for filesystem to propagate changes through Docker layers...")
+	time.Sleep(30 * time.Second)
 
 	// Trigger hot reload on all Docker nodes with retries
 	t.Log("Triggering hot reload on all Docker nodes (with retries)...")
@@ -142,9 +144,10 @@ func TestDockerClusterSSLCertRotationHotReload(t *testing.T) {
 		reloadCertificatesWithRetry(t, endpoint, 3, 5*time.Second)
 	}
 
-	// Give servers time to reload - DBServers need more time than coordinators/agents
-	t.Log("Waiting 45 seconds for certificates to be reloaded (Docker propagation delay)...")
-	time.Sleep(45 * time.Second)
+	// Give servers time to reload - Docker OverlayFS caching means this takes longer than process mode
+	// Coordinators and DBServers need more time than agents to reload in nested containers
+	t.Log("Waiting 60 seconds for certificates to be reloaded (Docker OverlayFS propagation delay)...")
+	time.Sleep(60 * time.Second)
 
 	// Verify certificates were reloaded by checking serial numbers changed
 	t.Log("Verifying certificates were reloaded")
