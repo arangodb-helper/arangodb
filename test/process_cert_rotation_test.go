@@ -147,9 +147,9 @@ func TestProcessClusterReplaceCert(t *testing.T) {
 	// 6. Wait for cluster readiness
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
 		t.Logf(" Cluster started with SSL in %s", time.Since(start))
-		testCluster(t, secureStarterEndpoint(0*portIncrement), true)
-		testCluster(t, secureStarterEndpoint(1*portIncrement), true)
-		testCluster(t, secureStarterEndpoint(2*portIncrement), true)
+		for i := 0; i < 3; i++ {
+			testCluster(t, secureStarterEndpoint(i*portIncrement), true)
+		}
 	}
 
 	// 7. Record initial cert serials
@@ -246,9 +246,9 @@ func TestProcessClusterReplaceCert(t *testing.T) {
 
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
 		t.Logf(" Cluster restarted with new certs in %s", time.Since(start))
-		testCluster(t, secureStarterEndpoint(0*portIncrement), true)
-		testCluster(t, secureStarterEndpoint(1*portIncrement), true)
-		testCluster(t, secureStarterEndpoint(2*portIncrement), true)
+		for i := 0; i < 3; i++ {
+			testCluster(t, secureStarterEndpoint(i*portIncrement), true)
+		}
 
 		// 11. Verify cert rotation
 		t.Log("Verifying that certificates changed")
@@ -442,9 +442,9 @@ func TestProcessClusterSSLCertRotationHotReload(t *testing.T) {
 	// Wait for cluster to be ready
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
 		t.Logf("Cluster start with SSL took %s", time.Since(start))
-		testCluster(t, secureStarterEndpoint(0*portIncrement), true)
-		testCluster(t, secureStarterEndpoint(1*portIncrement), true)
-		testCluster(t, secureStarterEndpoint(2*portIncrement), true)
+		for i := 0; i < 3; i++ {
+			testCluster(t, secureStarterEndpoint(i*portIncrement), true)
+		}
 	}
 
 	// Get the certificate serial number from all server types before rotation
@@ -468,12 +468,12 @@ func TestProcessClusterSSLCertRotationHotReload(t *testing.T) {
 
 	// Hot reload certificates via REST API on all server types
 	t.Log("Triggering hot reload on all server types via /_admin/server/tls")
-	err = reloadCertificatesViaAPI(t, secureStarterEndpoint(0*portIncrement))
-	require.NoError(t, err, "Failed to reload certificates via API")
-	err = reloadCertificatesViaAPI(t, secureStarterEndpoint(1*portIncrement))
-	require.NoError(t, err, "Failed to reload certificates via API")
-	err = reloadCertificatesViaAPI(t, secureStarterEndpoint(2*portIncrement))
-	require.NoError(t, err, "Failed to reload certificates via API")
+	for i := 0; i < 3; i++ {
+		endpoint := secureStarterEndpoint(i * portIncrement)
+		t.Logf("Attempting hot reload on node-%d (%s)", i+1, endpoint)
+		err = reloadCertificatesViaAPI(t, endpoint)
+		require.NoError(t, err, "Failed to reload certificates via API")
+	}
 
 	// Give servers time to reload - DBServers need more time than coordinators/agents
 	// In container environments (CircleCI), filesystem caching can delay the reload
