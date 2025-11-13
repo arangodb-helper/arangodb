@@ -146,8 +146,8 @@ func TestDockerClusterSSLCertRotationHotReload(t *testing.T) {
 
 	// Give servers time to reload - Docker OverlayFS caching means this takes longer than process mode
 	// Coordinators and DBServers need more time than agents to reload in nested containers
-	t.Log("Waiting 120 seconds for certificates to be reloaded (Docker OverlayFS propagation delay)...")
-	time.Sleep(120 * time.Second)
+	t.Log("Waiting 60 seconds for certificates to be reloaded (Docker OverlayFS propagation delay)...")
+	time.Sleep(60 * time.Second)
 
 	// First check: Verify certificates were reloaded
 	t.Log("First verification: Checking if certificates were reloaded")
