@@ -811,7 +811,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 								p.Address, p.PortOffset, p.ID)
 						} else if addrFoundInOtherPeer && p.Address != slaveAddr {
 							msg := fmt.Sprintf("Cannot change slave address (%s) to an address that is already in use by another peer (id: %s)", slaveAddr, p.ID)
-							s.log.Warn().Msgf(msg)
+							s.log.Warn().Msg(msg)
 							return ClusterConfig{}, maskAny(client.NewBadRequestError(msg))
 						} else {
 							// We accept the new address (it might be the old one):
