@@ -7,24 +7,24 @@ toolchain go1.24.9
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
 	github.com/arangodb-helper/go-helper v0.4.2
-	github.com/arangodb/go-driver v1.6.7
+	github.com/arangodb/go-driver v1.6.9
 	github.com/arangodb/go-upgrade-rules v0.0.0-20200605091205-439fb1ee86e7
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/coreos/go-semver v0.3.1
 	github.com/dchest/uniuri v1.2.0
 	github.com/fatih/color v1.9.0
-	github.com/fsouza/go-dockerclient v1.12.2
+	github.com/fsouza/go-dockerclient v1.12.3
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/opencontainers/cgroups v0.0.6
 	github.com/pkg/errors v0.9.1
-	github.com/rs/zerolog v1.33.0
+	github.com/rs/zerolog v1.34.0
 	github.com/ryanuber/columnize v2.1.0+incompatible
 	github.com/spf13/cobra v1.5.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.43.0
+	golang.org/x/crypto v0.45.0
 	gopkg.in/ini.v1 v1.66.6
 )
 
@@ -36,12 +36,12 @@ require (
 	github.com/coreos/go-systemd/v22 v22.6.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/docker/docker v28.5.1+incompatible // indirect
+	github.com/docker/docker v28.5.2+incompatible // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
-	github.com/klauspost/compress v1.18.1 // indirect
+	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -60,8 +60,8 @@ require (
 	github.com/pavel-v-chernykh/keystore-go v2.1.0+incompatible // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	golang.org/x/sys v0.37.0 // indirect
-	golang.org/x/term v0.36.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/term v0.37.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
