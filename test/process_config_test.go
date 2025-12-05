@@ -113,6 +113,12 @@ func TestProcessConfigFileLoading(t *testing.T) {
 	})
 
 	t.Run("passthrough-options", func(t *testing.T) {
+		// Skip this test if V8 JavaScript is not available (required for fetching config via JavaScript transaction)
+		features := getSupportedDatabaseFeatures(t, testModeProcess)
+		if !features.HasV8JavaScriptSupport() {
+			t.Skip("Skipping passthrough-options test: V8 JavaScript is not available in this build")
+		}
+
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
