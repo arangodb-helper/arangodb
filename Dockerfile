@@ -1,4 +1,4 @@
-ARG IMAGE
+ARG IMAGE=alpine:3.21
 FROM ${IMAGE}
 
 ARG TARGETARCH
@@ -15,6 +15,8 @@ ENV DATA_DIR=/data
 ENV RUNNING_IN_DOCKER=true
 
 # Docker image containing arangod.
-ENV DOCKER_IMAGE=arangodb/enterprise:latest
+# Can be overridden via build arg ARANGODB_IMAGE
+ARG ARANGODB_IMAGE=arangodb/arangodb:latest
+ENV DOCKER_IMAGE=${ARANGODB_IMAGE}
 
 ENTRYPOINT ["/app/arangodb"]
