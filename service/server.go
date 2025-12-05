@@ -106,9 +106,9 @@ type httpServerContext interface {
 	// from the cluster and alters the cluster configuration, removing the peer.
 	HandleGoodbye(id string, force bool) (peerRemoved bool, err error)
 
-	// DatabaseVersion returns the version of the `arangod` binary that is being
-	// used by this starter.
-	DatabaseVersion(context.Context) (driver.Version, bool, error)
+	// DatabaseVersion returns the version, enterprise status, and V8 support status
+	// of the `arangod` binary that is being used by this starter.
+	DatabaseVersion(context.Context) (driver.Version, bool, bool, error)
 
 	GetLocalFolder() string
 
@@ -554,7 +554,7 @@ func (s *httpServer) databaseVersionHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	version, _, err := s.context.DatabaseVersion(r.Context())
+	version, _, _, err := s.context.DatabaseVersion(r.Context())
 	if err != nil {
 		handleError(w, err)
 	} else {

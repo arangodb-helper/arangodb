@@ -46,11 +46,11 @@ func getSupportedDatabaseFeatures(t *testing.T, testMode string) service.Databas
 		log := zerolog.New(zerolog.NewConsoleWriter())
 
 		arangodPath, _ := arangodb.FindExecutable(log, "arangod", "/usr/sbin/arangod", false)
-		v, enterprise, err := service.DatabaseVersion(context.Background(), log, arangodPath, makeRunner(t, log, testMode))
+		v, enterprise, hasV8Support, err := service.DatabaseVersion(context.Background(), log, arangodPath, makeRunner(t, log, testMode))
 		require.NoError(t, err)
-		t.Logf("Detected arangod %s, enterprise: %v", v, enterprise)
+		t.Logf("Detected arangod %s, enterprise: %v, V8 support: %v", v, enterprise, hasV8Support)
 
-		f := service.NewDatabaseFeatures(v, enterprise)
+		f := service.NewDatabaseFeatures(v, enterprise, hasV8Support)
 		supportedDBFeatures[testMode] = &f
 	}
 

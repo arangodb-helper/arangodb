@@ -164,6 +164,14 @@ docker: build
 	@echo ">> Building Docker Image with buildx"
 	$(DOCKER_BUILD_CLI) -t arangodb/arangodb-starter .
 
+docker-local-test: build
+	@echo ">> Building Docker Image for local testing with custom ArangoDB image"
+	@if [ -z "$(ARANGODB_IMAGE)" ]; then \
+		echo "Error: ARANGODB_IMAGE must be set. Example: make docker-local-test ARANGODB_IMAGE=public.ecr.aws/b0b8h2r4/enterprise-preview:2025-12-01-devel-d759089-amd64"; \
+		exit 1; \
+	fi
+	$(DOCKER_BUILD_CLI) --build-arg "ARANGODB_IMAGE=$(ARANGODB_IMAGE)" -t arangodb/arangodb-starter:local-test .
+
 docker-push-version: docker
 	$(DOCKER_BUILD_CLI) --push $(STARTER_TAGS) .
 

@@ -29,8 +29,9 @@ import (
 // DatabaseFeatures provides information about the features provided by the
 // database in a given version.
 type DatabaseFeatures struct {
-	Version    driver.Version
-	Enterprise bool
+	Version      driver.Version
+	Enterprise   bool
+	HasV8Support bool
 }
 
 const (
@@ -44,10 +45,11 @@ const (
 
 // NewDatabaseFeatures returns a new DatabaseFeatures based on
 // the given version.
-func NewDatabaseFeatures(version driver.Version, enterprise bool) DatabaseFeatures {
+func NewDatabaseFeatures(version driver.Version, enterprise bool, hasV8Support bool) DatabaseFeatures {
 	return DatabaseFeatures{
-		Version:    version,
-		Enterprise: enterprise,
+		Version:      version,
+		Enterprise:   enterprise,
+		HasV8Support: hasV8Support,
 	}
 }
 
@@ -102,4 +104,9 @@ func (v DatabaseFeatures) SupportsActiveFailover() bool {
 // SupportsArangoSync returns true if ArangoSync is supported
 func (v DatabaseFeatures) SupportsArangoSync() bool {
 	return v.Version.CompareTo(v312) < 0
+}
+
+// HasV8JavaScriptSupport returns true if V8 JavaScript engine is supported
+func (v DatabaseFeatures) HasV8JavaScriptSupport() bool {
+	return v.HasV8Support
 }

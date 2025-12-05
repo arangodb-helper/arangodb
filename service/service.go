@@ -232,11 +232,11 @@ func NewService(ctx context.Context, log zerolog.Logger, logService logging.Serv
 // detectDatabaseFeatures queries the database version and sets the
 // databaseFeatures field.
 func (s *Service) detectDatabaseFeatures(ctx context.Context) error {
-	v, enterprise, err := s.DatabaseVersion(ctx)
+	v, enterprise, hasV8Support, err := s.DatabaseVersion(ctx)
 	if err != nil {
 		return maskAny(err)
 	}
-	s.databaseFeatures = NewDatabaseFeatures(v, enterprise)
+	s.databaseFeatures = NewDatabaseFeatures(v, enterprise, hasV8Support)
 	return nil
 }
 
