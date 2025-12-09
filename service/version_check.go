@@ -167,13 +167,8 @@ func checkV8InVersionOutput(versionOutput string, log zerolog.Logger) *bool {
 					return &result
 				}
 
-				// Unexpected/malformed v8-version line
+				// Case 3: Unexpected/malformed v8-version line
 				log.Warn().Str("line", line).Msg("Unexpected or malformed v8-version line in version output.")
-
-				// Case 3: Unexpected / malformed v8-version line
-				log.Warn().Msgf("Unexpected v8-version value: '%s'. Defaulting to: V8 enabled=false", lowerLine)
-				result := false
-				return &result
 			}
 		}
 	}
