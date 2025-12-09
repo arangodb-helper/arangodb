@@ -58,14 +58,14 @@ func DatabaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string
 		}
 
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return "", false, true, ctxErr
+			return "", false, false, ctxErr
 		}
 
 		log.Warn().Err(err).Msgf("Error while getting version. Attempt %d of %d", i+1, retries)
 		time.Sleep(time.Second)
 	}
 
-	return "", false, true, fmt.Errorf("unable to get version: %s", err.Error())
+	return "", false, false, fmt.Errorf("unable to get version: %s", err.Error())
 }
 
 func databaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string, runner Runner) (driver.Version, bool, bool, error) {
@@ -76,7 +76,7 @@ func databaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string
 	versionArgs := []string{"--version", "--log.force-direct=true"}
 	p, err := runner.Start(ctx, definitions.ProcessTypeArangod, arangodPath, versionArgs, nil, nil, nil, containerName, ".", output)
 	if err != nil {
-		return "", false, true, errors.WithStack(err)
+		return "", false, false, errors.WithStack(err)
 	}
 	defer p.Cleanup()
 	code := p.Wait()
@@ -86,11 +86,11 @@ func databaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string
 		envs := map[string]string{"ARANGO_NO_AUTH": "1"}
 		p2, err2 := runner.Start(ctx, definitions.ProcessTypeArangod, arangodPath, versionArgs, envs, nil, nil, containerName+"-retry", ".", output)
 		if err2 != nil {
-			return "", false, true, fmt.Errorf("process exited with exit code %d - %s", code, output.String())
+			return "", false, false, fmt.Errorf("process exited with exit code %d - %s", code, output.String())
 		}
 		defer p2.Cleanup()
 		if code2 := p2.Wait(); code2 != 0 {
-			return "", false, true, fmt.Errorf("process exited with exit code %d - %s", code2, output.String())
+			return "", false, false, fmt.Errorf("process exited with exit code %d - %s", code2, output.String())
 		}
 	}
 
@@ -109,7 +109,7 @@ func databaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string
 	var v driver.Version
 
 	if vs, ok := parsedLines["server-version"]; !ok {
-		return "", false, true, fmt.Errorf("no server-version found in '%s'", stdout)
+		return "", false, false, fmt.Errorf("no server-version found in '%s'", stdout)
 	} else {
 		v = driver.Version(vs)
 	}
@@ -121,58 +121,60 @@ func databaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string
 	enterprise := l == "enterprise"
 
 	// Check version output for V8/JavaScript indicators
-	var hasV8Support bool
+	// Default value is false (V8 disabled) when v8-version is not "none"
+	var hasV8Support bool = false
 	v8SupportFromVersion := checkV8InVersionOutput(stdout, log)
 	if v8SupportFromVersion != nil {
 		hasV8Support = *v8SupportFromVersion
 	} else {
-		// If we can't determine from version output, default to true for backward compatibility
-		// This ensures standard V8-enabled images continue to work
-		// If V8 is actually disabled, the server will fail with appropriate errors during startup
-		// which can be detected and handled
-		log.Warn().Msg("Could not determine V8 support from version output, defaulting to true (JavaScript parameters will be added)")
-		hasV8Support = true
+		// If we can't determine from version output, default to false (V8 disabled)
+		// This means JavaScript parameters will NOT be added
+		log.Warn().Msg("Could not determine V8 support from version output, defaulting to false (JavaScript parameters will NOT be added)")
+		hasV8Support = false
 	}
 
 	return v, enterprise, hasV8Support, nil
 }
+
+var v8VersionRegex = regexp.MustCompile(`v8-version:\s*\d+`)
 
 // checkV8InVersionOutput checks the version output for V8/JavaScript indicators
 // Returns nil if unable to determine, true/false if determined
 func checkV8InVersionOutput(versionOutput string, log zerolog.Logger) *bool {
 	lowerOutput := strings.ToLower(versionOutput)
 
-	// First, check for the most reliable indicator: v8-version field
-	// V8-disabled builds show: "v8-version: none"
-	// V8-enabled builds show: "v8-version: 12.1.165" (or similar version number)
 	if strings.Contains(lowerOutput, "v8-version:") {
 
-		v8VersionRegex := regexp.MustCompile(`v8-version:\s*\d+`)
-
-		// Extract the v8-version line
 		lines := strings.Split(versionOutput, "\n")
 
 		for _, line := range lines {
 			lowerLine := strings.ToLower(strings.TrimSpace(line))
+			log.Info().Msgf("Checking line: %s", lowerLine)
 
 			if strings.HasPrefix(lowerLine, "v8-version:") {
 
-				// V8 disabled
+				// Case 1: V8 disabled
 				if strings.Contains(lowerLine, "v8-version: none") {
-					log.Info().Msg("V8 support is disabled based on the version output.")
+					log.Info().Msg("Detected: V8 disabled (none).")
 					result := false
 					return &result
 				}
 
-				// V8 enabled (use precompiled regex)
+				// Case 2: V8 version number present
 				if v8VersionRegex.MatchString(lowerLine) {
-					log.Info().Msg("V8 support is enabled based on the version output.")
+					log.Info().Msg("Detected: V8 enabled (numeric version).")
 					result := true
 					return &result
 				}
+
+				// Case 3: Unexpected / malformed v8-version line
+				log.Warn().Msgf("Unexpected v8-version value: '%s'. Defaulting to: V8 enabled=false", lowerLine)
+				result := false
+				return &result
 			}
 		}
 	}
-	// If we can't determine from output, return nil
+
+	// We did not find any v8-version field
 	return nil
 }
