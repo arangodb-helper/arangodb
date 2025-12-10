@@ -151,7 +151,6 @@ func checkV8InVersionOutput(versionOutput string, log zerolog.Logger) *bool {
 			log.Info().Msgf("Checking line: %s", lowerLine)
 
 			if strings.HasPrefix(lowerLine, "v8-version:") {
-
 				// Case 1: V8 disabled
 				if strings.Contains(lowerLine, "v8-version: none") {
 					log.Info().Msg("Detected: V8 disabled (none).")
