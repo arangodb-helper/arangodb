@@ -144,7 +144,6 @@ func checkV8InVersionOutput(versionOutput string, log zerolog.Logger) *bool {
 	lowerOutput := strings.ToLower(versionOutput)
 
 	if strings.Contains(lowerOutput, "v8-version:") {
-
 		lines := strings.Split(versionOutput, "\n")
 
 		for _, line := range lines {
