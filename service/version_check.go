@@ -121,7 +121,7 @@ func databaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string
 	enterprise := l == "enterprise"
 
 	// Check version output for V8/JavaScript indicators
-	// Default value is false (V8 disabled) when v8-version is not "none"
+	// Default value is false (V8 disabled) unless version output indicates V8 support
 	var hasV8Support bool = false
 	v8SupportFromVersion := checkV8InVersionOutput(stdout, log)
 	if v8SupportFromVersion != nil {
