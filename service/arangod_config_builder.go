@@ -174,11 +174,16 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 
 	opts = append(opts,
 		optionPair{"--database.directory", slasher(filepath.Join(myContainerDir, "data"))},
-		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
-		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
 		optionPair{"--log.file", slasher(myContainerLogFile)},
 		optionPair{"--log.force-direct", "false"},
 	)
+	// Only add JavaScript parameters if V8 is supported
+	if features.HasV8JavaScriptSupport() {
+		opts = append(opts,
+			optionPair{"--javascript.startup-directory", slasher(jsStartup)},
+			optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
+		)
+	}
 	if clusterJWTSecretFile != "" {
 		if !features.GetJWTFolderOption() {
 			opts = append(opts,
@@ -190,7 +195,7 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			)
 		}
 	}
-	if !config.RunningInDocker && features.HasCopyInstallationFiles() {
+	if !config.RunningInDocker && features.HasCopyInstallationFiles() && features.HasV8JavaScriptSupport() {
 		opts = append(opts, optionPair{"--javascript.copy-installation", "true"})
 	}
 
