@@ -86,7 +86,7 @@ func databaseVersion(ctx context.Context, log zerolog.Logger, arangodPath string
 		envs := map[string]string{"ARANGO_NO_AUTH": "1"}
 		p2, err2 := runner.Start(ctx, definitions.ProcessTypeArangod, arangodPath, versionArgs, envs, nil, nil, containerName+"-retry", ".", output)
 		if err2 != nil {
-			return "", false, false, fmt.Errorf("process exited with exit code %d - %s", code, output.String())
+			return "", false, false, fmt.Errorf("failed to start process on retry: %s", err2.Error())
 		}
 		defer p2.Cleanup()
 		if code2 := p2.Wait(); code2 != 0 {
