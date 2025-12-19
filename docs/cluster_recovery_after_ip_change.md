@@ -18,8 +18,7 @@ This document covers **only the recovery steps**, assuming the cluster was alrea
 
   * You can determine the new IPs using `ip addr show`, `hostname -I`, or your cloud provider console
 * Environment variables are set:
-
-  * `$DATA_DIR1`, `$DATA_DIR2`, `$DATA_DIR3`
+  * `$DATA_DIR_X`
 * Each data directory contains a `setup.json`
 
 ---
@@ -27,9 +26,7 @@ This document covers **only the recovery steps**, assuming the cluster was alrea
 ## Step 1: Backup Existing Configuration (Mandatory)
 
 ```bash
-cp "$DATA_DIR1/setup.json" "$DATA_DIR1/setup.json.backup"
-cp "$DATA_DIR2/setup.json" "$DATA_DIR2/setup.json.backup"
-cp "$DATA_DIR3/setup.json" "$DATA_DIR3/setup.json.backup"
+cp "$DATA_DIR_X/setup.json" "$DATA_DIR_X/setup.json.backup"
 ```
 
 ---
@@ -37,7 +34,7 @@ cp "$DATA_DIR3/setup.json" "$DATA_DIR3/setup.json.backup"
 ## Step 2: Verify Old IPs Are Still Present
 
 ```bash
-grep -i "Address" "$DATA_DIR1/setup.json" "$DATA_DIR2/setup.json" "$DATA_DIR3/setup.json"
+grep -i "Address" "$DATA_DIR_X/setup.json"
 ```
 
 You should still see **old IP addresses** at this stage.
@@ -65,39 +62,29 @@ You should still see **old IP addresses** at this stage.
 ## Update Member 1
 
 ```bash
-sed -i 's/"127\.0\.0\.1"/"127.0.1.1"/g' "$DATA_DIR1/setup.json"
-sed -i 's/"127\.0\.0\.2"/"127.0.1.2"/g' "$DATA_DIR1/setup.json"
-sed -i 's/"127\.0\.0\.3"/"127.0.1.3"/g' "$DATA_DIR1/setup.json"
+sed -i 's/"127\.0\.0\.1"/"127.0.1.1"/g' "$DATA_DIR_X/setup.json"
+sed -i 's/"127\.0\.0\.2"/"127.0.1.2"/g' "$DATA_DIR_X/setup.json"
+sed -i 's/"127\.0\.0\.3"/"127.0.1.3"/g' "$DATA_DIR_X/setup.json"
 
 # Handle localhost normalization (ports may vary; inspect setup.json before replacing)
-sed -i 's/"localhost","Port":8628/"127.0.1.2","Port":8628/g' "$DATA_DIR1/setup.json"
-sed -i 's/"localhost","Port":8728/"127.0.1.3","Port":8728/g' "$DATA_DIR1/setup.json"
+sed -i 's/"localhost","Port":8628/"127.0.1.2","Port":8628/g' "$DATA_DIR_X/setup.json"
+sed -i 's/"localhost","Port":8728/"127.0.1.3","Port":8728/g' "$DATA_DIR_X/setup.json"
 ```
 
----
-
-## Similarly Update Member 2 and Member 3
-
-Apply the same replacements to:
-
-* `$DATA_DIR2/setup.json`
-* `$DATA_DIR3/setup.json`
+Repeat this step for each member’s data directory.
 
 ---
 
 ## Verification (Required)
 
 ```bash
-grep -o '"Address":"[^"]*"' "$DATA_DIR1/setup.json"
-grep -o '"Address":"[^"]*"' "$DATA_DIR2/setup.json"
-grep -o '"Address":"[^"]*"' "$DATA_DIR3/setup.json"
+grep -o '"Address":"[^"]*"' "$DATA_DIR_X/setup.json"
 ```
 
 Ensure **no old IPs remain**:
 
 ```bash
-grep -i "127.0.0" "$DATA_DIR1/setup.json" "$DATA_DIR2/setup.json" "$DATA_DIR3/setup.json" \
-  || echo "✓ All old IPs removed"
+grep -i "127.0.0" "$DATA_DIR_X/setup.json" || echo "✓ All old IPs removed"
 ```
 
 ---
@@ -131,13 +118,13 @@ update_setup_json_with_jq() {
 
 ---
 
-## Apply to All Members
+## Apply Update
 
 ```bash
-update_setup_json_with_jq "$DATA_DIR1/setup.json"
-update_setup_json_with_jq "$DATA_DIR2/setup.json"
-update_setup_json_with_jq "$DATA_DIR3/setup.json"
+update_setup_json_with_jq "$DATA_DIR_X/setup.json"
 ```
+
+Repeat for each member’s data directory.
 
 ---
 
@@ -177,9 +164,7 @@ Ensure all Agents, DBServers, and Coordinators report a healthy state.
 ## Rollback (If Needed)
 
 ```bash
-mv "$DATA_DIR1/setup.json.backup" "$DATA_DIR1/setup.json"
-mv "$DATA_DIR2/setup.json.backup" "$DATA_DIR2/setup.json"
-mv "$DATA_DIR3/setup.json.backup" "$DATA_DIR3/setup.json"
+mv "$DATA_DIR_X/setup.json.backup" "$DATA_DIR_X/setup.json"
 ```
 
 Restart the cluster with the original configuration.
