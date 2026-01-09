@@ -22,6 +22,7 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -34,8 +35,11 @@ import (
 	"github.com/ryanuber/columnize"
 
 	"github.com/arangodb-helper/go-helper/pkg/arangod/agency/election"
-	"github.com/arangodb/go-driver"
+	driver_v1 "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
+	driverV1HTTP "github.com/arangodb/go-driver/http"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driverJwt "github.com/arangodb/go-driver/v2/utils/jwt"
 	upgraderules "github.com/arangodb/go-upgrade-rules"
 
 	"github.com/arangodb-helper/arangodb/client"
@@ -144,9 +148,9 @@ func (p UpgradePlan) IsFailed() bool {
 
 // ResetFailures resets all Failures field to 0.
 func (p *UpgradePlan) ResetFailures() {
-	for _, e := range p.Entries {
-		e.Failures = 0
-		e.Reason = ""
+	for i := range p.Entries {
+		p.Entries[i].Failures = 0
+		p.Entries[i].Reason = ""
 	}
 }
 
@@ -251,7 +255,10 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	}
 
 	for _, from := range runningDBVersions {
-		if err := rules(from, toVersion); err != nil {
+		// Convert v2 Version to v1 Version for upgraderules compatibility
+		fromV1 := driver_v1.Version(string(from))
+		toV1 := driver_v1.Version(string(toVersion))
+		if err := rules(fromV1, toV1); err != nil {
 			return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
 		}
 		if from.CompareTo("3.4.6") == 0 {
@@ -269,7 +276,9 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		// Run upgrade without agency (i.e., SingleServer)
 
 		// Create a new context to be independent of ctx
-		timeoutContext, _ := context.WithTimeout(context.Background(), time.Minute*5)
+		timeoutContext, cancel := context.WithTimeout(context.Background(), time.Minute*5)
+		defer cancel()
+
 		go m.runSingleServerUpgradeProcess(timeoutContext, myPeer, mode)
 		return nil
 	}
@@ -310,10 +319,17 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	m.log.Debug().Msg("Reading upgrade plan...")
 	// Check existing plan
 	plan, err := m.readUpgradePlan(ctx)
-	if err != nil && !agency.IsKeyNotFound(err) {
-		// Failed to read upgrade plan
-		m.log.Error().Msg("Failed to read upgrade plan")
-		return errors.Wrap(err, "Failed to read upgrade plan")
+	if err != nil {
+		// Unwrap error to check if it's a key not found error
+		if agency.IsKeyNotFound(errors.Cause(err)) {
+			// Key not found is expected when starting a new upgrade - continue
+			err = nil
+			plan = UpgradePlan{} // Empty plan
+		} else {
+			// Failed to read upgrade plan
+			m.log.Error().Msg("Failed to read upgrade plan")
+			return errors.Wrap(err, "Failed to read upgrade plan")
+		}
 	}
 
 	m.log.Debug().Msg("Checking if plan is ready...")
@@ -326,9 +342,11 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	// Special measure for upgrades from 3.4.6:
 	if specialUpgradeFrom346 {
 		// Write 1000 dummy values into agency to advance the log:
+		dummyKey := []string{"/arangodb-helper/dummy"}
 		for i := 0; i < 1000; i++ {
-			err := api.WriteKey(nil, []string{"/arangodb-helper/dummy"}, 17, 0)
-			if err != nil {
+			transaction := agency.NewTransaction("", agency.TransactionOptions{})
+			transaction.AddKey(agency.NewKeySetV2(dummyKey, 17))
+			if err := api.WriteTransaction(ctx, transaction); err != nil {
 				m.log.Error().Msg("Could not append log entries to agency.")
 				return maskAny(err)
 			}
@@ -346,12 +364,12 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 					m.log.Error().Msgf("Could not create client for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				db, err := cli.Database(nil, "_system")
+				db, err := cli.GetDatabase(ctx, "_system", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not find _system database for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				_, err = db.Query(nil, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
+				_, err = db.Query(ctx, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not repair agent log compaction for agent of peer %s", p.ID)
 				}
@@ -405,7 +423,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	// Save plan
 	m.log.Debug().Msg("Writing upgrade plan")
 	overwrite := true
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); agency.IsKeyNotFound(err) {
 		m.log.Error().Msg("Failed to write upgrade plan because it was outdated or removed.")
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
@@ -464,7 +482,7 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	// Reset failures and write plan
 	plan.ResetFailures()
 	overwrite := false
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); agency.IsKeyNotFound(err) {
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
@@ -758,11 +776,17 @@ func (m *upgradeManager) writeUpgradePlan(ctx context.Context, plan UpgradePlan,
 	oldRevision := plan.Revision
 	plan.Revision++
 	plan.LastModifiedAt = time.Now()
-	var condition agency.WriteCondition
+
+	transaction := agency.NewTransaction("", agency.TransactionOptions{})
+	transaction.AddKey(agency.NewKeySetV2(upgradePlanKey, plan))
+
 	if !overwrite {
-		condition = condition.IfEqualTo(upgradePlanRevisionKey, oldRevision)
+		if err := transaction.AddCondition(upgradePlanRevisionKey, agency.NewConditionIfEqual(oldRevision)); err != nil {
+			return UpgradePlan{}, maskAny(err)
+		}
 	}
-	if err := api.WriteKey(ctx, upgradePlanKey, plan, 0, condition); err != nil {
+
+	if err := api.WriteTransaction(ctx, transaction); err != nil {
 		return UpgradePlan{}, maskAny(err)
 	}
 	return plan, nil
@@ -1174,14 +1198,38 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 	if err != nil {
 		return maskAny(err)
 	}
-	// Build agency clients
-	clients := make([]driver.Connection, 0, len(endpoints))
+	// Get JWT secret from the client builder if available
+	var jwtSecret string
+	if s, ok := m.upgradeManagerContext.(*Service); ok {
+		jwtSecret = s.jwtSecret
+	}
+	// Build v1 connections for agency health check (agency package requires v1 Connection)
+	clients := make([]driver_v1.Connection, 0, len(endpoints))
 	for _, ep := range endpoints {
-		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeAgency, definitions.ServerTypeUnknown)
+		connConfig := driverV1HTTP.ConnectionConfig{
+			Endpoints:          []string{ep},
+			DontFollowRedirect: true,
+			TLSConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+		conn, err := driverV1HTTP.NewConnection(connConfig)
 		if err != nil {
 			return maskAny(err)
 		}
-		clients = append(clients, c.Connection())
+		// Set authentication if JWT secret is available
+		if jwtSecret != "" {
+			jwtBearer, err := driverJwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
+			if err != nil {
+				return maskAny(err)
+			}
+			auth := driver_v1.RawAuthentication(jwtBearer)
+			conn, err = conn.SetAuthentication(auth)
+			if err != nil {
+				return maskAny(err)
+			}
+		}
+		clients = append(clients, conn)
 	}
 	// Check health
 	if err := agency.AreAgentsHealthy(ctx, clients); err != nil {
@@ -1195,21 +1243,12 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 func (m *upgradeManager) isClusterHealthy(ctx context.Context) error {
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
-	// Build endpoint list
-	endpoints, err := clusterConfig.GetCoordinatorEndpoints()
-	if err != nil {
-		return maskAny(err)
-	}
-	// Build client
-	c, err := m.upgradeManagerContext.CreateClient(endpoints, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
+	// Get cluster API (uses CreateClusterAPI which properly handles v2 Client interface)
+	cl, err := clusterConfig.CreateClusterAPI(ctx, m.upgradeManagerContext)
 	if err != nil {
 		return maskAny(err)
 	}
 	// Check health
-	cl, err := c.Cluster(ctx)
-	if err != nil {
-		return maskAny(err)
-	}
 	h, err := cl.Health(ctx)
 	if err != nil {
 		return maskAny(err)

@@ -41,11 +41,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/arangodb/go-driver"
-
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/service"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driverShared "github.com/arangodb/go-driver/v2/arangodb/shared"
+	driverConnection "github.com/arangodb/go-driver/v2/connection"
 )
 
 const (
@@ -287,7 +288,7 @@ func WaitUntilServiceReadyRetryOn503(t *testing.T, c driver.Client, check Servic
 		return true
 	}
 
-	if ae, ok := driver.AsArangoError(err); !ok {
+	if ae, ok := err.(driverShared.ArangoError); !ok {
 		// Ignore unknown errors
 		return true
 	} else {
@@ -320,7 +321,7 @@ func WaitUntilCoordinatorReadyAPI(t *testing.T, endpoint string) driver.Client {
 	if isVerbose {
 		t.Logf("Waiting coordinator at %s is ready", endpoint)
 	}
-	auth := driver.BasicAuthentication("root", "")
+	auth := driverConnection.NewBasicAuth("root", "")
 	coordinatorClient, err := CreateClient(t, endpoint, client.ServerTypeCoordinator, auth)
 	if err != nil {
 		t.Fatal(err.Error())
@@ -341,7 +342,7 @@ func ServiceReadyCheckVersion() ServiceReadyCheckFunc {
 // ServiceReadyCheckDatabase checks if database info can be fetched
 func ServiceReadyCheckDatabase(databaseName string) ServiceReadyCheckFunc {
 	return func(t *testing.T, ctx context.Context, c driver.Client) error {
-		_, err := c.Database(ctx, databaseName)
+		_, err := c.GetDatabase(ctx, databaseName, nil)
 		return err
 	}
 }
@@ -557,14 +558,52 @@ func waitForCluster(t *testing.T, members map[int]MembersConfig, start time.Time
 func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig) {
 	host := "http://localhost:%d"
 
+	// Give master election some time to complete before verifying endpoints
+	time.Sleep(2 * time.Second)
+
 	for port, m := range members {
 		t.Logf("Verify endpoints for member: %d", m.Port)
 
 		c := NewStarterClient(t, fmt.Sprintf(host, port))
-		ctx := context.Background()
 
-		endpoints, err := c.Endpoints(ctx)
-		require.NoError(t, err, "Failed to get endpoints, member: %d", m.Port)
+		// Retry Endpoints call until master election completes
+		var endpoints client.EndpointList
+		var lastErr error
+		var retryCount int
+		NewTimeoutFunc(func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+			defer cancel()
+
+			var err error
+			endpoints, err = c.Endpoints(ctx)
+			if err != nil {
+				lastErr = err
+				retryCount++
+
+				// Only retry on ServiceUnavailable errors (master election in progress)
+				// This is the specific error returned when master election hasn't completed
+				if client.IsServiceUnavailable(err) {
+					errMsg := strings.ToLower(err.Error())
+					// Only retry if error message indicates master election issue
+					if strings.Contains(errMsg, "master") || strings.Contains(errMsg, "no runtime master") {
+						if retryCount%10 == 0 {
+							t.Logf("Retrying Endpoints for member %d (attempt %d): %v", m.Port, retryCount, err)
+						}
+						return nil // Retry
+					}
+				}
+
+				// For all other errors (redirects, connection issues, etc.), fail immediately
+				t.Logf("Non-retryable error from Endpoints for member %d: %v", m.Port, err)
+				return err
+			}
+			return NewInterrupt() // Success
+		}).ExecuteT(t, 60*time.Second, 1*time.Second)
+
+		// If we still don't have endpoints, log the last error for debugging
+		if len(endpoints.Starters) == 0 && lastErr != nil {
+			t.Logf("Failed to get endpoints for member %d after retries. Last error: %v", m.Port, lastErr)
+		}
 
 		for _, member := range members {
 			require.Contains(t, endpoints.Starters, fmt.Sprintf(host, member.Port),

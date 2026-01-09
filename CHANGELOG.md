@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Migrate Starter 0.19.x to go-driver v2 for database operations; agency operations continue using v1 (agency not supported in v2)
 
 ## [v0.19.15](https://github.com/arangodb-helper/arangodb/tree/0.19.15) (2025-12-04)
 - Bump Go version (1.24.11) and dependencies for CVE fixes

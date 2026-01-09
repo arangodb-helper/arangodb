@@ -34,7 +34,7 @@ import (
 	"strings"
 	"time"
 
-	driver "github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
@@ -118,12 +118,7 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 		}
 
 		// Fetch cluster health
-		c, err := client.Cluster(ctx)
-		if err != nil {
-			s.log.Error().Err(err).Msg("Cannot get cluster client")
-			return bsCfg, maskAny(err)
-		}
-		h, err := c.Health(ctx)
+		h, err := client.Health(ctx)
 		if err != nil {
 			s.log.Error().Err(err).Msg("Cannot get cluster health")
 			return bsCfg, maskAny(err)

@@ -24,9 +24,11 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
-	"github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driverConnection "github.com/arangodb/go-driver/v2/connection"
 )
 
 func NewClient(c driver.Client) Client {
@@ -47,49 +49,7 @@ type Client interface {
 }
 
 type client struct {
-	c driver.Connection
-}
-
-func (c *client) parseTLSResponse(response driver.Response) (TLSDetails, error) {
-	if err := response.CheckStatus(http.StatusOK); err != nil {
-		return TLSDetails{}, err
-	}
-
-	var d TLSDetails
-
-	if err := response.ParseBody("", &d); err != nil {
-		return TLSDetails{}, err
-	}
-
-	return d, nil
-}
-
-func (c *client) parseEncryptionResponse(response driver.Response) (EncryptionDetails, error) {
-	if err := response.CheckStatus(http.StatusOK); err != nil {
-		return EncryptionDetails{}, err
-	}
-
-	var d EncryptionDetails
-
-	if err := response.ParseBody("", &d); err != nil {
-		return EncryptionDetails{}, err
-	}
-
-	return d, nil
-}
-
-func (c *client) parseJWTResponse(response driver.Response) (JWTDetails, error) {
-	if err := response.CheckStatus(http.StatusOK); err != nil {
-		return JWTDetails{}, err
-	}
-
-	var d JWTDetails
-
-	if err := response.ParseBody("", &d); err != nil {
-		return JWTDetails{}, err
-	}
-
-	return d, nil
+	c driverConnection.Connection
 }
 
 func (c *client) GetTLS(ctx context.Context) (TLSDetails, error) {
@@ -98,14 +58,14 @@ func (c *client) GetTLS(ctx context.Context) (TLSDetails, error) {
 		return TLSDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
+	var d TLSDetails
+	response, err := c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return TLSDetails{}, err
 	}
 
-	d, err := c.parseTLSResponse(response)
-	if err != nil {
-		return TLSDetails{}, err
+	if response.Code() != http.StatusOK {
+		return TLSDetails{}, fmt.Errorf("unexpected status code: %d", response.Code())
 	}
 
 	return d, nil
@@ -117,14 +77,14 @@ func (c *client) RefreshTLS(ctx context.Context) (TLSDetails, error) {
 		return TLSDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
+	var d TLSDetails
+	response, err := c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return TLSDetails{}, err
 	}
 
-	d, err := c.parseTLSResponse(response)
-	if err != nil {
-		return TLSDetails{}, err
+	if response.Code() != http.StatusOK {
+		return TLSDetails{}, fmt.Errorf("unexpected status code: %d", response.Code())
 	}
 
 	return d, nil
@@ -136,14 +96,14 @@ func (c *client) GetEncryption(ctx context.Context) (EncryptionDetails, error) {
 		return EncryptionDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
+	var d EncryptionDetails
+	response, err := c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return EncryptionDetails{}, err
 	}
 
-	d, err := c.parseEncryptionResponse(response)
-	if err != nil {
-		return EncryptionDetails{}, err
+	if response.Code() != http.StatusOK {
+		return EncryptionDetails{}, fmt.Errorf("unexpected status code: %d", response.Code())
 	}
 
 	return d, nil
@@ -155,14 +115,14 @@ func (c *client) RefreshEncryption(ctx context.Context) (EncryptionDetails, erro
 		return EncryptionDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
+	var d EncryptionDetails
+	response, err := c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return EncryptionDetails{}, err
 	}
 
-	d, err := c.parseEncryptionResponse(response)
-	if err != nil {
-		return EncryptionDetails{}, err
+	if response.Code() != http.StatusOK {
+		return EncryptionDetails{}, fmt.Errorf("unexpected status code: %d", response.Code())
 	}
 
 	return d, nil
@@ -174,14 +134,14 @@ func (c *client) GetJWT(ctx context.Context) (JWTDetails, error) {
 		return JWTDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
+	var d JWTDetails
+	response, err := c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return JWTDetails{}, err
 	}
 
-	d, err := c.parseJWTResponse(response)
-	if err != nil {
-		return JWTDetails{}, err
+	if response.Code() != http.StatusOK {
+		return JWTDetails{}, fmt.Errorf("unexpected status code: %d", response.Code())
 	}
 
 	return d, nil
@@ -193,14 +153,14 @@ func (c *client) RefreshJWT(ctx context.Context) (JWTDetails, error) {
 		return JWTDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
+	var d JWTDetails
+	response, err := c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return JWTDetails{}, err
 	}
 
-	d, err := c.parseJWTResponse(response)
-	if err != nil {
-		return JWTDetails{}, err
+	if response.Code() != http.StatusOK {
+		return JWTDetails{}, fmt.Errorf("unexpected status code: %d", response.Code())
 	}
 
 	return d, nil

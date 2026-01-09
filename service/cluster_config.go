@@ -25,14 +25,17 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	driver "github.com/arangodb/go-driver"
+	driver_v1 "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
-	driver_http "github.com/arangodb/go-driver/http"
-	"github.com/arangodb/go-driver/jwt"
+	driverV1HTTP "github.com/arangodb/go-driver/http"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driverConnection "github.com/arangodb/go-driver/v2/connection"
+	driverJwt "github.com/arangodb/go-driver/v2/utils/jwt"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/service/options"
@@ -289,11 +292,41 @@ func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agen
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := clientBuilder.CreateClient(endpoints, ConnectionTypeAgency, definitions.ServerTypeUnknown)
+
+	// Create a v1 connection for agency operations since agency package requires v1 Connection interface
+	// Get JWT secret from the client builder if available
+	var jwtSecret string
+	if s, ok := clientBuilder.(*Service); ok {
+		jwtSecret = s.jwtSecret
+	}
+
+	connConfig := driverV1HTTP.ConnectionConfig{
+		Endpoints:          endpoints,
+		DontFollowRedirect: true,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+
+	conn, err := driverV1HTTP.NewConnection(connConfig)
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	conn := c.Connection()
+
+	// Set authentication if JWT secret is available
+	if jwtSecret != "" {
+		// Use v2 JWT package for creating auth header (it's compatible)
+		jwtBearer, err := driverJwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		auth := driver_v1.RawAuthentication(jwtBearer)
+		conn, err = conn.SetAuthentication(auth)
+		if err != nil {
+			return nil, maskAny(err)
+		}
+	}
+
 	a, err := agency.NewAgency(conn)
 	if err != nil {
 		return nil, maskAny(err)
@@ -302,7 +335,7 @@ func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agen
 }
 
 // CreateClusterAPI creates a client for the cluster
-func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder ClientBuilder) (driver.Cluster, error) {
+func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder ClientBuilder) (driver.ClientAdminCluster, error) {
 	// Build endpoint list
 	endpoints, err := p.GetCoordinatorEndpoints()
 	if err != nil {
@@ -312,10 +345,11 @@ func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder Clien
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	cluster, err := c.Cluster(ctx)
-	if err != nil {
-		return nil, maskAny(err)
-	}
+	// In v2, Client embeds ClientAdmin which embeds ClientAdminCluster
+	// ClientAdminCluster methods are directly available on Client
+	// Since Client implements ClientAdminCluster interface, we can return it directly
+	// But we need to access it through the ClientAdmin interface
+	var cluster driver.ClientAdminCluster = c
 	return cluster, nil
 }
 
@@ -326,27 +360,26 @@ func (p ClusterConfig) CreateCoordinatorsClient(jwtSecret string) (driver.Client
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	conn, err := driver_http.NewConnection(driver_http.ConnectionConfig{
-		Endpoints: endpoints,
-		TLSConfig: &tls.Config{InsecureSkipVerify: true},
-	})
-	if err != nil {
-		return nil, maskAny(err)
+	endpoint := driverConnection.NewRoundRobinEndpoints(endpoints)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	options := driver.ClientConfig{
-		Connection: conn,
+	connConfig := driverConnection.HttpConfiguration{
+		Endpoint:  endpoint,
+		Transport: transport,
 	}
+	conn := driverConnection.NewHttpConnection(connConfig)
 	if jwtSecret != "" {
-		value, err := jwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
+		value, err := driverJwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
 		if err != nil {
 			return nil, maskAny(err)
 		}
-		options.Authentication = driver.RawAuthentication(value)
+		auth := driverConnection.NewHeaderAuth("Authorization", value)
+		if err := conn.SetAuthentication(auth); err != nil {
+			return nil, maskAny(err)
+		}
 	}
-	c, err := driver.NewClient(options)
-	if err != nil {
-		return nil, maskAny(err)
-	}
+	c := driver.NewClient(conn)
 	return c, nil
 }
 

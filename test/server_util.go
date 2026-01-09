@@ -31,8 +31,8 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/arangodb/go-driver"
-	driverhttp "github.com/arangodb/go-driver/http"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driverConnection "github.com/arangodb/go-driver/v2/connection"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/service"
@@ -241,7 +241,7 @@ func testArangodReachable(t *testing.T, sp client.ServerProcess, timeout time.Du
 
 // CreateClient creates a client to the server of the given type based on the arangodb starter endpoint.
 func CreateClient(t *testing.T, starterEndpoint string, serverType client.ServerType,
-	auth driver.Authentication) (driver.Client, error) {
+	auth driverConnection.Authentication) (driver.Client, error) {
 	c := NewStarterClient(t, starterEndpoint)
 	processes, err := c.Processes(context.Background())
 	if err != nil {
@@ -253,24 +253,22 @@ func CreateClient(t *testing.T, starterEndpoint string, serverType client.Server
 		return nil, errors.Errorf("failed to find server of type %s", string(serverType))
 	}
 
-	config := driverhttp.ConnectionConfig{
-		Endpoints: []string{sp.GetEndpoint()},
-		TLSConfig: &tls.Config{
+	endpoint := driverConnection.NewRoundRobinEndpoints([]string{sp.GetEndpoint()})
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
 	}
-	connection, err := driverhttp.NewConnection(config)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create a new connection")
+	connConfig := driverConnection.HttpConfiguration{
+		Endpoint:  endpoint,
+		Transport: transport,
 	}
-
-	clientCfg := driver.ClientConfig{
-		Connection:     connection,
-		Authentication: auth,
+	conn := driverConnection.NewHttpConnection(connConfig)
+	if auth != nil {
+		if err := conn.SetAuthentication(auth); err != nil {
+			return nil, errors.Wrap(err, "failed to set authentication")
+		}
 	}
-	client, err := driver.NewClient(clientCfg)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create a new client")
-	}
+	client := driver.NewClient(conn)
 	return client, nil
 }

@@ -27,7 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	driver "github.com/arangodb/go-driver"
+	driver_shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 )
 
 var (
@@ -52,18 +52,18 @@ func IsRedirect(err error) (string, bool) {
 // IsArangoErrorWithCodeAndNum returns true when the given raw content
 // contains a valid arangodb error encoded as json with the given
 // code and errorNum values.
-func IsArangoErrorWithCodeAndNum(aerr driver.ArangoError, code, errorNum int) bool {
-	return aerr.HasError && aerr.Code == code && aerr.ErrorNum == errorNum
+func IsArangoErrorWithCodeAndNum(aerr driver_shared.ArangoError, code, errorNum int) bool {
+	return aerr.Code == code && aerr.ErrorNum == errorNum
 }
 
 // IsLeadershipChallengeOngoingError returns true when given response content
 // contains an arango error indicating an ongoing leadership challenge.
-func IsLeadershipChallengeOngoingError(d driver.ArangoError) bool {
+func IsLeadershipChallengeOngoingError(d driver_shared.ArangoError) bool {
 	return IsArangoErrorWithCodeAndNum(d, 503, 1495)
 }
 
 // IsNoLeaderError returns true when given response content
 // contains an arango error indicating an "I'm not the leader" error.
-func IsNoLeaderError(d driver.ArangoError) bool {
+func IsNoLeaderError(d driver_shared.ArangoError) bool {
 	return IsArangoErrorWithCodeAndNum(d, 503, 1496)
 }

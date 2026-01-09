@@ -34,12 +34,9 @@ import (
 	"time"
 
 	homedir "github.com/mitchellh/go-homedir"
-	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-
-	driver "github.com/arangodb/go-driver"
 
 	_ "github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/arangodb"
@@ -101,9 +98,7 @@ var (
 )
 
 func init() {
-	// Setup error functions in go-driver
-	driver.WithStack = errors.WithStack
-	driver.Cause = errors.Cause
+	// Note: WithStack and Cause are no longer needed in go-driver v2
 
 	// Prepare initial logger
 	log, _ = logging.NewRootLogger(logging.LoggerOutputOptions{
@@ -378,7 +373,7 @@ func cmdMainRun(cmd *cobra.Command, args []string) {
 	svc, bsCfg := mustPrepareService(true)
 
 	// Interrupt signal:
-	sigChannel := make(chan os.Signal)
+	sigChannel := make(chan os.Signal, 1)
 	rootCtx, cancel := context.WithCancel(context.Background())
 	signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	go handleSignal(sigChannel, cancel, svc.RotateLogFiles)

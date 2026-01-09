@@ -28,9 +28,9 @@ import (
 	"testing"
 	"time"
 
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driverConnection "github.com/arangodb/go-driver/v2/connection"
 	"github.com/stretchr/testify/require"
-
-	"github.com/arangodb/go-driver"
 
 	"github.com/arangodb-helper/arangodb/client"
 )
@@ -148,21 +148,24 @@ func TestProcessConfigFileLoading(t *testing.T) {
 }
 
 func fetchArangoDConfig(t *testing.T, endpoint string) map[string]interface{} {
-	auth := driver.BasicAuthentication("root", "")
+	auth := driverConnection.NewBasicAuth("root", "")
 	coordinatorClient, err := CreateClient(t, endpoint, client.ServerTypeSingle, auth)
 	require.NoError(t, err)
 
 	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 30*time.Second, 500*time.Millisecond)
 
 	ctx := context.Background()
-	db, err := coordinatorClient.Database(ctx, "_system")
+	db, err := coordinatorClient.GetDatabase(ctx, "_system", nil)
 	require.NoError(t, err)
 
 	jsAction := `
 function() {
     return require("internal").options();
 }`
-	actionResult, err := db.Transaction(ctx, jsAction, nil)
+	actionResult, err := db.TransactionJS(ctx, driver.TransactionJSOptions{
+		Action:      jsAction,
+		Collections: driver.TransactionCollections{},
+	})
 	require.NoError(t, err)
 
 	optionsMap, ok := actionResult.(map[string]interface{})
