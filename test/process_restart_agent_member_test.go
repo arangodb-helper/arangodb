@@ -41,7 +41,7 @@ func TestProcessAgentsMultipleRestart(t *testing.T) {
 		10000: {"node5", 10000, SetUniqueDataDir(t), nil, nil},
 	}
 
-	joins := "localhost:6000,localhost:7000,localhost:8000"
+	joins := "127.0.0.1:6000,127.0.0.1:7000,127.0.0.1:8000"
 	for port, m := range members {
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, "")
 		members[port] = m
@@ -59,7 +59,8 @@ func TestProcessAgentsMultipleRestart(t *testing.T) {
 			for port := range members {
 				require.NoError(t, members[port].Process.Kill())
 			}
-			time.Sleep(3 * time.Second)
+			// Give processes time to fully terminate and ports to be released
+			time.Sleep(5 * time.Second)
 
 			for port, m := range members {
 				m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, "")
@@ -67,6 +68,9 @@ func TestProcessAgentsMultipleRestart(t *testing.T) {
 			}
 
 			waitForCluster(t, members, time.Now())
+
+			// Give cluster time to stabilize after restart (agents need to start, master election needs to complete)
+			time.Sleep(2 * time.Second)
 
 			t.Logf("Verify setup after member restart, iteration: %d", i)
 			verifyProcessSetupJson(t, members, 3)

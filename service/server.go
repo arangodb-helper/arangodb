@@ -690,15 +690,39 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 			}
 		}
 	case "GET":
-		if status, err := s.context.UpgradeManager().Status(ctx); err != nil {
-			handleError(w, err)
-		} else {
-			b, err := json.Marshal(status)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
+		// Get the upgrade status
+		if isRunningMaster || mode.IsSingleMode() {
+			// We're the starter leader, process the request
+			if status, err := s.context.UpgradeManager().Status(ctx); err != nil {
+				handleError(w, err)
 			} else {
-				w.Header().Set(contentTypeHeader, contentTypeJSON)
-				w.Write(b)
+				b, err := json.Marshal(status)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+				} else {
+					w.Header().Set(contentTypeHeader, contentTypeJSON)
+					w.Write(b)
+				}
+			}
+		} else {
+			// We're not the starter leader.
+			// Forward the request to the leader.
+			c, err := createMasterClient(masterURL)
+			if err != nil {
+				handleError(w, err)
+			} else {
+				if status, err := c.UpgradeStatus(ctx); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding UpgradeStatus failed")
+					handleError(w, err)
+				} else {
+					b, err := json.Marshal(status)
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, err.Error())
+					} else {
+						w.Header().Set(contentTypeHeader, contentTypeJSON)
+						w.Write(b)
+					}
+				}
 			}
 		}
 	default:

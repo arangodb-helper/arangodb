@@ -40,7 +40,7 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 		10000: {"node5", 10000, SetUniqueDataDir(t), BoolPtr(false), nil},
 	}
 
-	joins := "localhost:6000,localhost:7000,localhost:8000"
+	joins := "127.0.0.1:6000,127.0.0.1:7000,127.0.0.1:8000"
 	for k, m := range members {
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 		m.Process.label = fmt.Sprintf("node-%d", m.Port)
@@ -54,13 +54,17 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 
 	t.Run("Restart slave4 (10000)", func(t *testing.T) {
 		require.NoError(t, members[10000].Process.Kill())
-		time.Sleep(3 * time.Second)
+		// Give process time to fully terminate and port to be released
+		time.Sleep(5 * time.Second)
 
 		m := members[10000]
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 		m.Process.label = fmt.Sprintf("node-%d", m.Port)
 		members[10000] = m
 		waitForCluster(t, members, time.Now())
+
+		// Give cluster time to stabilize after restart
+		time.Sleep(2 * time.Second)
 
 		t.Logf("Verify setup.json after member restart")
 		verifyProcessSetupJson(t, members, 3)
@@ -81,7 +85,7 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 		10000: {"node5", 10000, SetUniqueDataDir(t), BoolPtr(false), nil},
 	}
 
-	joins := "localhost:6000,localhost:7000,localhost:8000"
+	joins := "127.0.0.1:6000,127.0.0.1:7000,127.0.0.1:8000"
 	for port, m := range members {
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 		members[port] = m
@@ -100,7 +104,8 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 			for port := range members {
 				require.NoError(t, members[port].Process.Kill())
 			}
-			time.Sleep(3 * time.Second)
+			// Give processes time to fully terminate and ports to be released
+			time.Sleep(5 * time.Second)
 
 			for port, m := range members {
 				m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
@@ -108,6 +113,9 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 			}
 
 			waitForCluster(t, members, time.Now())
+
+			// Give cluster time to stabilize after restart (agents need to start, master election needs to complete)
+			time.Sleep(2 * time.Second)
 
 			t.Logf("Verify setup after member restart, iteration: %d", i)
 			verifyProcessSetupJson(t, members, 3)

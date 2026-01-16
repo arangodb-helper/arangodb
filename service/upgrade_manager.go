@@ -423,7 +423,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	// Save plan
 	m.log.Debug().Msg("Writing upgrade plan")
 	overwrite := true
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); agency.IsKeyNotFound(err) {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver_v1.IsPreconditionFailed(err) {
 		m.log.Error().Msg("Failed to write upgrade plan because it was outdated or removed.")
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
@@ -482,7 +482,7 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	// Reset failures and write plan
 	plan.ResetFailures()
 	overwrite := false
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); agency.IsKeyNotFound(err) {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver_v1.IsPreconditionFailed(err) {
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
@@ -696,8 +696,67 @@ func (m *upgradeManager) fetchRunningDatabaseVersions(ctx context.Context) ([]dr
 		return nil
 	}
 
+	// Collect agent versions using v1 driver (v2 doesn't support agency operations)
+	collectAgentsV1 := func(endpointsGetter func() ([]string, error)) error {
+		endpoints, err := endpointsGetter()
+		if err != nil {
+			return maskAny(err)
+		}
+		// Get JWT secret if available
+		var jwtSecret string
+		if s, ok := m.upgradeManagerContext.(*Service); ok {
+			jwtSecret = s.jwtSecret
+		}
+		for _, ep := range endpoints {
+			m.log.Debug().Str("endpoint", ep).Msg("Checking Running Database version (agent)")
+			// Create v1 driver connection for agent
+			connConfig := driverV1HTTP.ConnectionConfig{
+				Endpoints:          []string{ep},
+				DontFollowRedirect: false, // Allow redirects to agency leader
+				TLSConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}
+			conn, err := driverV1HTTP.NewConnection(connConfig)
+			if err != nil {
+				return maskAny(err)
+			}
+			// Set authentication if JWT secret is available
+			if jwtSecret != "" {
+				jwtBearer, err := driverJwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
+				if err != nil {
+					return maskAny(err)
+				}
+				auth := driver_v1.RawAuthentication(jwtBearer)
+				conn, err = conn.SetAuthentication(auth)
+				if err != nil {
+					return maskAny(err)
+				}
+			}
+			// Create v1 driver client
+			c, err := driver_v1.NewClient(driver_v1.ClientConfig{
+				Connection: conn,
+			})
+			if err != nil {
+				return maskAny(err)
+			}
+			v, err := c.Version(ctx)
+			if err != nil {
+				return maskAny(err)
+			}
+			// Convert v1 driver version (string) to v2 driver.Version
+			versionStr := string(v.Version)
+			version := driver.Version(versionStr)
+			if _, found := versionMap[version]; !found {
+				versionMap[version] = struct{}{}
+				versionList = append(versionList, version)
+			}
+		}
+		return nil
+	}
+
 	if mode.HasAgency() {
-		if err := collect(config.GetAgentEndpoints, ConnectionTypeAgency); err != nil {
+		if err := collectAgentsV1(config.GetAgentEndpoints); err != nil {
 			return nil, maskAny(err)
 		}
 	}
@@ -1198,44 +1257,64 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 	if err != nil {
 		return maskAny(err)
 	}
-	// Get JWT secret from the client builder if available
+	// Get JWT secret
 	var jwtSecret string
 	if s, ok := m.upgradeManagerContext.(*Service); ok {
 		jwtSecret = s.jwtSecret
 	}
-	// Build v1 connections for agency health check (agency package requires v1 Connection)
-	clients := make([]driver_v1.Connection, 0, len(endpoints))
-	for _, ep := range endpoints {
-		connConfig := driverV1HTTP.ConnectionConfig{
-			Endpoints:          []string{ep},
-			DontFollowRedirect: true,
-			TLSConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
-		conn, err := driverV1HTTP.NewConnection(connConfig)
+	// Create ONE connection with ALL endpoints (same as CreateAgencyAPI does)
+	connConfig := driverV1HTTP.ConnectionConfig{
+		Endpoints:          endpoints, // :white_check_mark: ALL endpoints together
+		DontFollowRedirect: false,     // Allow redirects to agency leader
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+	conn, err := driverV1HTTP.NewConnection(connConfig)
+	if err != nil {
+		return maskAny(err)
+	}
+	// Set authentication if JWT secret is available
+	if jwtSecret != "" {
+		jwtBearer, err := driverJwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
 		if err != nil {
 			return maskAny(err)
 		}
-		// Set authentication if JWT secret is available
-		if jwtSecret != "" {
-			jwtBearer, err := driverJwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
-			if err != nil {
-				return maskAny(err)
-			}
-			auth := driver_v1.RawAuthentication(jwtBearer)
-			conn, err = conn.SetAuthentication(auth)
-			if err != nil {
-				return maskAny(err)
-			}
+		auth := driver_v1.RawAuthentication(jwtBearer)
+		conn, err = conn.SetAuthentication(auth)
+		if err != nil {
+			return maskAny(err)
 		}
-		clients = append(clients, conn)
 	}
-	// Check health
-	if err := agency.AreAgentsHealthy(ctx, clients); err != nil {
+	// Check health using a single connection that knows about all agents
+	if err := agency.AreAgentsHealthy(ctx, []driver_v1.Connection{conn}); err != nil {
 		return maskAny(err)
 	}
+
+	// Leader check
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return maskAny(err)
+	}
+
+	leader, err := readAgencyLeader(ctx, api)
+	if err != nil {
+		return maskAny(err)
+	}
+	m.log.Info().Msgf("Agency leader: %s", leader)
+	if leader == "" {
+		return errors.New("agency leader unknown")
+	}
+
 	return nil
+}
+
+func readAgencyLeader(ctx context.Context, api agency.Agency) (string, error) {
+	var leader string
+	if err := api.ReadKey(ctx, []string{"Leader"}, &leader); err != nil {
+		return "", err
+	}
+	return leader, nil
 }
 
 // isClusterHealthy performs a check on the cluster health status.
@@ -1332,6 +1411,7 @@ func (m *upgradeManager) areSingleServersResponding(ctx context.Context) error {
 
 // isSuperVisionMaintenanceSupported checks all agents for their version number.
 // If it is to low to support supervision maintenance mode, false is returned.
+// Uses v1 driver since v2 driver doesn't support agency operations.
 func (m *upgradeManager) isSuperVisionMaintenanceSupported(ctx context.Context) (bool, error) {
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
@@ -1340,9 +1420,41 @@ func (m *upgradeManager) isSuperVisionMaintenanceSupported(ctx context.Context) 
 	if err != nil {
 		return false, maskAny(err)
 	}
-	// Check agents
+	// Get JWT secret if available
+	var jwtSecret string
+	if s, ok := m.upgradeManagerContext.(*Service); ok {
+		jwtSecret = s.jwtSecret
+	}
+	// Check agents using v1 driver (v2 doesn't support agency operations)
 	for _, ep := range endpoints {
-		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeAgency, definitions.ServerTypeUnknown)
+		// Create v1 driver connection for agent
+		connConfig := driverV1HTTP.ConnectionConfig{
+			Endpoints:          []string{ep},
+			DontFollowRedirect: false, // Allow redirects to agency leader
+			TLSConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+		conn, err := driverV1HTTP.NewConnection(connConfig)
+		if err != nil {
+			return false, maskAny(err)
+		}
+		// Set authentication if JWT secret is available
+		if jwtSecret != "" {
+			jwtBearer, err := driverJwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
+			if err != nil {
+				return false, maskAny(err)
+			}
+			auth := driver_v1.RawAuthentication(jwtBearer)
+			conn, err = conn.SetAuthentication(auth)
+			if err != nil {
+				return false, maskAny(err)
+			}
+		}
+		// Create v1 driver client
+		c, err := driver_v1.NewClient(driver_v1.ClientConfig{
+			Connection: conn,
+		})
 		if err != nil {
 			return false, maskAny(err)
 		}

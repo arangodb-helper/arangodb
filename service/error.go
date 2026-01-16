@@ -53,7 +53,7 @@ func IsRedirect(err error) (string, bool) {
 // contains a valid arangodb error encoded as json with the given
 // code and errorNum values.
 func IsArangoErrorWithCodeAndNum(aerr driver_shared.ArangoError, code, errorNum int) bool {
-	return aerr.Code == code && aerr.ErrorNum == errorNum
+	return aerr.HasError && aerr.Code == code && aerr.ErrorNum == errorNum
 }
 
 // IsLeadershipChallengeOngoingError returns true when given response content

@@ -217,10 +217,17 @@ func (p ClusterConfig) IsSecure() bool {
 func (p ClusterConfig) GetPeerEndpoints() ([]string, error) {
 	// Build endpoint list
 	var endpoints []string
-	for _, p := range p.AllPeers {
-		port := p.Port + p.PortOffset
-		scheme := NewURLSchemes(p.IsSecure).Browser
-		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+	for _, peer := range p.AllPeers {
+		// Validate peer has valid Address and Port before creating endpoint
+		// Empty Address or Port 0 indicates peer is not yet fully initialized
+		if peer.Address == "" || peer.Port == 0 {
+			// Skip peers that are not yet fully initialized
+			// This prevents returning empty arrays when peers exist but aren't ready
+			continue
+		}
+		port := peer.Port + peer.PortOffset
+		scheme := NewURLSchemes(peer.IsSecure).Browser
+		ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(peer.Address, strconv.Itoa(port)))
 		endpoints = append(endpoints, ep)
 	}
 	return endpoints, nil
@@ -302,7 +309,7 @@ func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agen
 
 	connConfig := driverV1HTTP.ConnectionConfig{
 		Endpoints:          endpoints,
-		DontFollowRedirect: true,
+		DontFollowRedirect: false,
 		TLSConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},

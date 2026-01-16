@@ -585,9 +585,6 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			if err != nil {
 				return "", -3, maskAny(err)
 			}
-			if resp.Code() != 200 {
-				return "", resp.Code(), maskAny(fmt.Errorf("Invalid status %d", resp.Code()))
-			}
 			return versionResponse.Version, resp.Code(), nil
 		}
 		makeVersionRequest := func() (string, int, error) {
@@ -618,9 +615,6 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			resp, err := c.Do(ctx, req, &roleResponse, http.StatusOK)
 			if err != nil {
 				return "", "", -3, maskAny(err)
-			}
-			if resp.Code() != 200 {
-				return "", "", resp.Code(), maskAny(fmt.Errorf("Invalid status %d", resp.Code()))
 			}
 			return roleResponse.Role, roleResponse.Mode, resp.Code(), nil
 		}
@@ -753,8 +747,6 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				return ClusterConfig{}, maskAny(client.NewBadRequestError("SlaveAddress must be set."))
 			}
 			slaveAddr = normalizeHostName(host)
-		} else {
-			slaveAddr = normalizeHostName(slaveAddr)
 		}
 		slavePort := req.SlavePort
 
@@ -904,6 +896,11 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	case ConnectionTypeDatabase:
 		conn = driverConnection.NewHttpConnection(connConfig)
 	case ConnectionTypeAgency:
+		// DEPRECATED: Agency operations are not supported in v2 driver.
+		// This case should not be used - use CreateAgencyAPI instead which uses v1 driver.
+		// The v2 driver's HttpConfiguration doesn't support DontFollowRedirect
+		// like the v1 driver does, and v2 driver doesn't support agency operations.
+		// This is kept for backward compatibility but should be avoided.
 		conn = driverConnection.NewHttpConnection(connConfig)
 	default:
 		return nil, maskAny(fmt.Errorf("Unknown ConnectionType: %d", connectionType))

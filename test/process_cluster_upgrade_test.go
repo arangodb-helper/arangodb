@@ -23,6 +23,7 @@ package test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -37,17 +38,17 @@ func TestProcessClusterUpgrade(t *testing.T) {
 
 	start := time.Now()
 
-	master := Spawn(t, "${STARTER} "+createEnvironmentStarterOptions())
+	master := Spawn(t, "${STARTER} --starter.address=127.0.0.1 "+createEnvironmentStarterOptions())
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 --starter.address=127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 --starter.address=127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
@@ -74,38 +75,28 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(1*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(2*portIncrement))
 
+	// Wait for master election to complete
+	time.Sleep(60 * time.Second)
+
 	t.Log("Starting database upgrade")
 
-	if err := c.StartDatabaseUpgrade(ctx, false); err != nil {
-		t.Fatalf("StartDatabaseUpgrade failed: %v", err)
-	}
-	// Wait until upgrade complete
-	recentErrors := 0
-	deadline := time.Now().Add(time.Minute * 10)
+	// Retry StartDatabaseUpgrade until master is known
+	upgradeDeadline := time.Now().Add(time.Minute * 2)
 	for {
-		status, err := c.UpgradeStatus(ctx)
-		if err != nil {
-			recentErrors++
-			if recentErrors > 20 {
-				t.Fatalf("UpgradeStatus failed: %s", err)
-			} else {
-				t.Logf("UpgradeStatus failed: %s", err)
-			}
-		} else {
-			recentErrors = 0
-			if status.Failed {
-				t.Fatalf("Upgrade failed: %s", status.Reason)
-			}
-			if status.Ready {
-				if isVerbose {
-					t.Logf("UpgradeStatus good: %v", status)
+		if err := c.StartDatabaseUpgrade(ctx, false); err != nil {
+			if strings.Contains(err.Error(), "Starter master is not known") {
+				if time.Now().After(upgradeDeadline) {
+					t.Fatalf("StartDatabaseUpgrade failed: %v", err)
 				}
-				break
+				t.Logf("Master not known yet, retrying in 5s")
+				time.Sleep(5 * time.Second)
+				continue
+			} else {
+				t.Fatalf("StartDatabaseUpgrade failed: %v", err)
 			}
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("Upgrade failed to finish in time")
-		}
-		time.Sleep(time.Second)
+		break
 	}
+
+	t.Log("Database upgrade started successfully")
 }

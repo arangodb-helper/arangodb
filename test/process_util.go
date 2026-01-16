@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -42,6 +43,8 @@ func removeArangodProcesses(t *testing.T) {
 	} else {
 		t.Log("Successfully killed arangod processes")
 	}
+	// <-- Add this small pause to allow OS to release ports
+	time.Sleep(1 * time.Second)
 }
 
 func closeProcess(t *testing.T, s *SubProcess, name string) {
@@ -71,6 +74,7 @@ func showProcessLogs(t *testing.T, s *SubProcess, name string) {
 func spawnMemberProcess(t *testing.T, port int, dataDir, joins, extraArgs string) *SubProcess {
 	return Spawn(t, strings.Join([]string{
 		fmt.Sprintf("${STARTER} --starter.port=%d", port),
+		fmt.Sprintf("--starter.address=127.0.0.1"),
 		fmt.Sprintf("--starter.data-dir=%s", dataDir),
 		fmt.Sprintf("--starter.join=%s", joins),
 		createEnvironmentStarterOptions(),
