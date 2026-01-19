@@ -896,11 +896,21 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	case ConnectionTypeDatabase:
 		conn = driverConnection.NewHttpConnection(connConfig)
 	case ConnectionTypeAgency:
-		// DEPRECATED: Agency operations are not supported in v2 driver.
-		// This case should not be used - use CreateAgencyAPI instead which uses v1 driver.
-		// The v2 driver's HttpConfiguration doesn't support DontFollowRedirect
-		// like the v1 driver does, and v2 driver doesn't support agency operations.
-		// This is kept for backward compatibility but should be avoided.
+		// NOTE: Agency operations are not supported in v2 driver.
+		// This case should NOT be used - use CreateAgencyAPI instead which uses v1 driver.
+		//
+		// Why v2 driver cannot be used for agency operations:
+		// 1. The v2 driver's HttpConfiguration does not support DontFollowRedirect option.
+		//    Agency connections require DontFollowRedirect: false to properly handle agency leader
+		//    redirects. Attempting to set agencyConnConfig.DontFollowRedirect = false would fail
+		//    as this field does not exist in v2 driver's HttpConfiguration struct.
+		// 2. The v2 driver does not provide agency-specific APIs (e.g., agency.ReadKey, agency.WriteKey).
+		// 3. All agency operations must use the v1 driver via CreateAgencyAPI which correctly
+		//    configures DontFollowRedirect: false (to allow redirects to agency leader) using
+		//    driverV1HTTP.ConnectionConfig.
+		//
+		// This case is kept for backward compatibility but should be avoided. If you need to
+		// perform agency operations, use ClusterConfig.CreateAgencyAPI() instead.
 		conn = driverConnection.NewHttpConnection(connConfig)
 	default:
 		return nil, maskAny(fmt.Errorf("Unknown ConnectionType: %d", connectionType))

@@ -51,7 +51,7 @@ func TestProcessAgentsMultipleRestart(t *testing.T) {
 
 	t.Logf("Verify setup.json after fresh start")
 	verifyProcessSetupJson(t, members, 3)
-	verifyEndpointSetup(t, members)
+	verifyEndpointSetup(t, members, "127.0.0.1")
 
 	for i := 0; i < 1; i++ {
 		t.Logf("Restart all members, iteration: %d", i)
@@ -74,7 +74,7 @@ func TestProcessAgentsMultipleRestart(t *testing.T) {
 
 			t.Logf("Verify setup after member restart, iteration: %d", i)
 			verifyProcessSetupJson(t, members, 3)
-			verifyEndpointSetup(t, members)
+			verifyEndpointSetup(t, members, "127.0.0.1")
 		})
 	}
 

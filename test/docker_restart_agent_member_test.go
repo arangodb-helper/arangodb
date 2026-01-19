@@ -59,7 +59,7 @@ func TestDockerMultipleRestartAgentMember(t *testing.T) {
 		waitForCluster(t, members, time.Now())
 
 		t.Logf("Verify setup.json after fresh start, iteration: %d", i)
-		verifyEndpointSetup(t, members)
+		verifyEndpointSetup(t, members, "localhost")
 		verifyDockerSetupJson(t, members, 3)
 
 		for j := 0; j < 1; j++ {
@@ -83,7 +83,7 @@ func TestDockerMultipleRestartAgentMember(t *testing.T) {
 
 				t.Logf("Verify setup member restart")
 				verifyDockerSetupJson(t, members, 3)
-				verifyEndpointSetup(t, members)
+				verifyEndpointSetup(t, members, "localhost")
 			})
 		}
 

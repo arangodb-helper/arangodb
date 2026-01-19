@@ -555,8 +555,8 @@ func waitForCluster(t *testing.T, members map[int]MembersConfig, start time.Time
 	}
 }
 
-func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig) {
-	host := "http://127.0.0.1:%d"
+func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig, address string) {
+	host := fmt.Sprintf("http://%s:%%d", address)
 
 	// Give master election some time to complete before verifying endpoints
 	time.Sleep(2 * time.Second)
