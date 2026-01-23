@@ -337,7 +337,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 				time.Sleep(time.Millisecond * 250)
 			}
 			// Remove dbserver from cluster
-			// In v2, Shutdown method was removed. Use RemoveServer on cluster client instead.
+			// In v2, Shutdown method was not implemented yet. Use RemoveServer on cluster client instead.
 			s.log.Info().Msgf("Removing dbserver %s from cluster", sid)
 			if err := c.RemoveServer(ctx, driver.ServerID(sid)); err != nil {
 				s.log.Warn().Err(err).Msgf("RemoveServer request of dbserver %s failed", sid)
@@ -749,7 +749,6 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 			slaveAddr = normalizeHostName(host)
 		} else {
 			slaveAddr = normalizeHostName(slaveAddr)
-			fmt.Printf("Slave Address: %s", slaveAddr)
 		}
 		slavePort := req.SlavePort
 
