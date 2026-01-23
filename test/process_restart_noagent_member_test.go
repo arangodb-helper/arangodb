@@ -40,7 +40,7 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 		10000: {"node5", 10000, SetUniqueDataDir(t), BoolPtr(false), nil},
 	}
 
-	joins := "127.0.0.1:6000,127.0.0.1:7000,127.0.0.1:8000"
+	joins := "localhost:6000,localhost:7000,localhost:8000"
 	for k, m := range members {
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 		m.Process.label = fmt.Sprintf("node-%d", m.Port)
@@ -85,7 +85,7 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 		10000: {"node5", 10000, SetUniqueDataDir(t), BoolPtr(false), nil},
 	}
 
-	joins := "127.0.0.1:6000,127.0.0.1:7000,127.0.0.1:8000"
+	joins := "localhost:6000,localhost:7000,localhost:8000"
 	for port, m := range members {
 		m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
 		members[port] = m
@@ -96,7 +96,7 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 	t.Logf("Verify setup.json after fresh start")
 	verifyProcessSetupJson(t, members, 3)
 
-	verifyEndpointSetup(t, members, "127.0.0.1")
+	verifyEndpointSetup(t, members)
 
 	for i := 0; i < 1; i++ {
 		t.Logf("Restart all members, iteration: %d", i)
@@ -119,7 +119,7 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 
 			t.Logf("Verify setup after member restart, iteration: %d", i)
 			verifyProcessSetupJson(t, members, 3)
-			verifyEndpointSetup(t, members, "127.0.0.1")
+			verifyEndpointSetup(t, members)
 		})
 	}
 

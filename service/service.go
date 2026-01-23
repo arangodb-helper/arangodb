@@ -368,7 +368,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 				return maskAny(err)
 			}
 			// Remove coordinator from cluster
-			// In v2, Shutdown method was removed. Use RemoveServer on cluster client instead.
+			// In v2, Shutdown method was not implemented yet. Use RemoveServer on cluster client instead.
 			s.log.Info().Msgf("Removing coordinator %s from cluster", sid)
 			if err := c.RemoveServer(ctx, driver.ServerID(sid)); err != nil {
 				s.log.Warn().Err(err).Msgf("RemoveServer request of coordinator %s failed", sid)
@@ -747,6 +747,9 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				return ClusterConfig{}, maskAny(client.NewBadRequestError("SlaveAddress must be set."))
 			}
 			slaveAddr = normalizeHostName(host)
+		} else {
+			slaveAddr = normalizeHostName(slaveAddr)
+			fmt.Printf("Slave Address: %s", slaveAddr)
 		}
 		slavePort := req.SlavePort
 

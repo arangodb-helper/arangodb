@@ -60,7 +60,7 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 
 		t.Logf("Verify setup.json after fresh start, iteration: %d", i)
 		verifyDockerSetupJson(t, members, 3)
-		verifyEndpointSetup(t, members, "localhost")
+		verifyEndpointSetup(t, members)
 
 		for j := 0; j < 1; j++ {
 			t.Run("Restart all members", func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestDockerMultipleRestartNoAgentMember(t *testing.T) {
 
 				t.Logf("Verify setup member restart")
 				verifyDockerSetupJson(t, members, 3)
-				verifyEndpointSetup(t, members, "localhost")
+				verifyEndpointSetup(t, members)
 			})
 		}
 

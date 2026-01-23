@@ -74,7 +74,6 @@ func showProcessLogs(t *testing.T, s *SubProcess, name string) {
 func spawnMemberProcess(t *testing.T, port int, dataDir, joins, extraArgs string) *SubProcess {
 	return Spawn(t, strings.Join([]string{
 		fmt.Sprintf("${STARTER} --starter.port=%d", port),
-		fmt.Sprintf("--starter.address=127.0.0.1"),
 		fmt.Sprintf("--starter.data-dir=%s", dataDir),
 		fmt.Sprintf("--starter.join=%s", joins),
 		createEnvironmentStarterOptions(),

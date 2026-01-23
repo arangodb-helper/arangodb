@@ -38,17 +38,17 @@ func TestProcessClusterUpgrade(t *testing.T) {
 
 	start := time.Now()
 
-	master := Spawn(t, "${STARTER} --starter.address=127.0.0.1 "+createEnvironmentStarterOptions())
+	master := Spawn(t, "${STARTER} "+createEnvironmentStarterOptions())
 	defer master.Close()
 
 	dataDirSlave1 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave1)
-	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 --starter.address=127.0.0.1 "+createEnvironmentStarterOptions())
+	slave1 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave1.Close()
 
 	dataDirSlave2 := SetUniqueDataDir(t)
 	defer os.RemoveAll(dataDirSlave2)
-	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 --starter.address=127.0.0.1 "+createEnvironmentStarterOptions())
+	slave2 := Spawn(t, "${STARTER} --starter.join 127.0.0.1 "+createEnvironmentStarterOptions())
 	defer slave2.Close()
 
 	if ok := WaitUntilStarterReady(t, whatCluster, 3, master, slave1, slave2); ok {
@@ -74,9 +74,6 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(0*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(1*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(2*portIncrement))
-
-	// Wait for master election to complete
-	time.Sleep(60 * time.Second)
 
 	t.Log("Starting database upgrade")
 
