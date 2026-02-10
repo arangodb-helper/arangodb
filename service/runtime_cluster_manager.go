@@ -34,7 +34,6 @@ import (
 	"github.com/arangodb-helper/arangodb/agency"
 )
 
-
 var (
 	masterURLKey = []string{"arangodb-helper", "arangodb", "leader"}
 )

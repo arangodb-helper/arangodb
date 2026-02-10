@@ -109,10 +109,10 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 		// Other error, fail immediately
 		t.Fatalf("StartDatabaseUpgrade failed: %v", err)
 	}
-	
+
 	// Give the upgrade plan time to be written to the agency
 	time.Sleep(1 * time.Second)
-	
+
 	// Wait until upgrade complete
 	recentErrors := 0
 	deadline = time.Now().Add(time.Minute * 10)
