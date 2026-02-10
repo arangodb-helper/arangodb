@@ -186,7 +186,7 @@ func parseArangoDExitCodes(dat string) ([]exitCode, error) {
 
 func getLicenseHeader(root string) (string, error) {
 	headerBoilerplate := fmt.Sprintf("%s/LICENSE.BOILERPLATE", root)
-	b, err := ioutil.ReadFile(headerBoilerplate)
+	b, err := os.ReadFile(headerBoilerplate)
 	if err != nil {
 		return "", err
 	}

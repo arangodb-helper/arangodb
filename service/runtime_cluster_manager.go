@@ -29,16 +29,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff"
 	"github.com/rs/zerolog"
 
-	"github.com/arangodb-helper/go-helper/pkg/arangod/agency/election"
-	"github.com/arangodb/go-driver/agency"
+	"github.com/arangodb-helper/arangodb/agency"
 )
 
-const (
-	masterURLTTL = time.Second * 30
-)
 
 var (
 	masterURLKey = []string{"arangodb-helper", "arangodb", "leader"}
@@ -129,77 +124,92 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 }
 
 func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL string) {
-	le := election.NewLeaderElectionCell[string](masterURLKey, masterURLTTL)
+	delay := time.Second
 
-	delay := time.Microsecond
-	resignErrBackoff := backoff.NewExponentialBackOff()
 	for {
-		timer := time.NewTimer(delay)
-		// Wait a bit
 		select {
-		case <-timer.C:
-			// Delay over, just continue
 		case <-ctx.Done():
-			// We're asked to stop
-			if !timer.Stop() {
-				<-timer.C
-			}
 			return
+		case <-time.After(delay):
 		}
 
-		agencyClient, err := s.createAgencyAPI()
+		api, err := s.createAgencyAPI()
 		if err != nil {
-			delay = time.Second
-			s.log.Debug().Err(err).Msgf("could not create agency client. Retrying in %s", delay)
+			delay = 2 * time.Second
+			s.log.Debug().Err(err).Msg("Failed to create agency API, retrying")
 			continue
 		}
 
-		oldMasterURL := s.GetMasterURL()
+		var current struct {
+			URL      string `json:"url"`
+			Revision int    `json:"revision"`
+		}
+
+		err = api.Read(ctx, masterURLKey, &current)
+		exists := err == nil
+
+		if err != nil && !agency.IsKeyNotFound(err) {
+			s.log.Error().Err(err).Msg("Failed to read master key")
+			delay = 2 * time.Second
+			continue
+		}
+
+		// Handle "avoidBeingMaster" scenario - if set, never become master
 		if s.avoidBeingMaster {
-			if oldMasterURL == "" {
-				s.log.Debug().Msg("Initializing master URL before resigning")
-				currMasterURL, err := le.Read(ctx, agencyClient)
-				if err != nil {
-					delay = 5 * time.Second
-					s.log.Err(err).Msgf("Failed to read current value before resigning. Retrying in %s", delay)
-					continue
-				}
-				s.updateMasterURL(currMasterURL, currMasterURL == myURL)
-			}
-
-			s.log.Debug().Str("master_url", myURL).Msgf("Resigning leadership")
-			err = le.Resign(ctx, agencyClient)
-			if err != nil {
-				delay = resignErrBackoff.NextBackOff()
-				s.log.Err(err).Msgf("Resigning leadership failed. Retrying in %s", delay)
-				continue
+			if exists && current.URL != "" {
+				s.updateMasterURL(current.URL, false)
 			} else {
-				s.runtimeContext.ChangeState(stateRunningSlave)
-				return
+				// No master yet, but we don't want to be master - wait
+				delay = 2 * time.Second
+				continue
 			}
-		}
-
-		var masterURL string
-		var isMaster bool
-
-		masterURL, isMaster, delay, err = le.Update(ctx, agencyClient, myURL)
-		if err != nil {
 			delay = 5 * time.Second
-			s.log.Error().Err(err).Msgf("Update leader election failed. Retrying in %s", delay)
 			continue
 		}
 
-		s.log.Debug().
-			Str("myURL", myURL).
-			Str("masterURL", masterURL).
-			Str("oldMasterURL", oldMasterURL).
-			Msg("Updating leadership")
+		isMaster := false
+		newMasterURL := current.URL
 
-		if isMaster && masterURL != myURL {
-			s.log.Error().Msgf("Unexpected error: this peer is a master but URL differs. Should be %s got %s", myURL, masterURL)
+		if !exists || current.URL == "" {
+			isMaster = true
+			newMasterURL = myURL
+		} else if current.URL == myURL {
+			isMaster = true
 		}
 
-		s.updateMasterURL(masterURL, isMaster)
+		if isMaster {
+			next := struct {
+				URL      string `json:"url"`
+				Revision int    `json:"revision"`
+			}{
+				URL:      myURL,
+				Revision: current.Revision + 1,
+			}
+
+			tx := &agency.Transaction{
+				Ops: []agency.KeyChanger{
+					agency.SetKey(masterURLKey, next),
+				},
+			}
+
+			if exists {
+				tx.Conds = []agency.WriteCondition{
+					agency.IfEqualTo(masterURLKey, current),
+				}
+			}
+
+			if err := api.Write(ctx, tx); err != nil {
+				s.updateMasterURL(current.URL, current.URL == myURL)
+				delay = 2 * time.Second
+				continue
+			}
+
+			s.updateMasterURL(myURL, true)
+		} else {
+			s.updateMasterURL(newMasterURL, false)
+		}
+
+		delay = 5 * time.Second
 	}
 }
 

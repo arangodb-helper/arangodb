@@ -25,7 +25,7 @@ package service
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 	"strings"
 )
 
@@ -86,7 +86,7 @@ func (s *configSection) WriteTo(w io.Writer) (int64, error) {
 
 // readConfigFile loads the content of a config file.
 func readConfigFile(path string) (configFile, error) {
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, maskAny(err)
 	}

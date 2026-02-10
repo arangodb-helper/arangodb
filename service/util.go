@@ -30,7 +30,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/arangodb/go-driver"
+	driver_shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 )
 
 // createUniqueID creates a new random ID.
@@ -100,7 +100,7 @@ type causer interface {
 }
 
 func getErrorCodeFromError(err error) int {
-	if e, ok := err.(driver.ArangoError); ok {
+	if e, ok := err.(driver_shared.ArangoError); ok {
 		return e.Code
 	}
 

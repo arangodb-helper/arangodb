@@ -35,7 +35,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	driver "github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
@@ -308,7 +308,9 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
-			writeError(w, http.StatusServiceUnavailable, "No runtime master known")
+			// Master URL not yet known (leader election may not have completed yet)
+			// Return service unavailable so client can retry
+			writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
 		}
 	} else {
 		// Remove the peer
@@ -431,7 +433,9 @@ func (s *httpServer) endpointsHandler(w http.ResponseWriter, r *http.Request) {
 				handleError(w, RedirectError{Location: location})
 			}
 		} else {
-			writeError(w, http.StatusServiceUnavailable, "No runtime master known")
+			// Master URL not yet known (leader election may not have completed yet)
+			// Return service unavailable so client can retry
+			writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
 		}
 	} else {
 		// Gather & send endpoints list
@@ -624,6 +628,12 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		} else {
 			// We're not the starter leader.
 			// Forward the request to the leader.
+			// Wait for master URL to be available (leader election may not have completed yet)
+			if masterURL == "" {
+				// Master URL not yet known, return service unavailable so client can retry
+				writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
+				return
+			}
 			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)
@@ -642,6 +652,12 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		if !isRunningMaster {
 			// We're not the starter leader.
 			// Forward the request to the leader.
+			// Wait for master URL to be available (leader election may not have completed yet)
+			if masterURL == "" {
+				// Master URL not yet known, return service unavailable so client can retry
+				writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
+				return
+			}
 			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)
@@ -668,6 +684,12 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		if !isRunningMaster {
 			// We're not the starter leader.
 			// Forward the request to the leader.
+			// Wait for master URL to be available (leader election may not have completed yet)
+			if masterURL == "" {
+				// Master URL not yet known, return service unavailable so client can retry
+				writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
+				return
+			}
 			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)

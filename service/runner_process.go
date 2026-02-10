@@ -26,7 +26,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
@@ -85,7 +84,7 @@ func (r *processRunner) GetContainerDir(hostDir, _ string) string {
 // Otherwise nil is returned.
 func (r *processRunner) GetRunningServer(serverDir string) (Process, error) {
 	lockFile := getLockFilePath(serverDir)
-	lockContent, err := ioutil.ReadFile(lockFile)
+	lockContent, err := os.ReadFile(lockFile)
 	if os.IsNotExist(err) {
 		r.log.Debug().Msgf("Cannot find %s", lockFile)
 		return nil, nil

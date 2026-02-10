@@ -34,7 +34,7 @@ import (
 	"strings"
 	"time"
 
-	driver "github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
@@ -48,7 +48,7 @@ const (
 // a recovery of such a file exists.
 func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (BootstrapConfig, error) {
 	recoveryPath := filepath.Join(s.cfg.DataDir, recoveryFileName)
-	recoveryContent, err := ioutil.ReadFile(recoveryPath)
+	recoveryContent, err := os.ReadFile(recoveryPath)
 	if os.IsNotExist(err) {
 		// Recovery file does not exist. We're done.
 		return bsCfg, nil
@@ -108,22 +108,23 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 	s.runtimeClusterManager.myPeers = clusterConfig
 	bsCfg.ID = peer.ID
 
+	// Set JWT secret for client creation (needed for CreateClusterAPI)
+	if bsCfg.JwtSecret != "" {
+		s.jwtSecret = bsCfg.JwtSecret
+	}
+
 	// Do we have an agent on our peer?
 	if peer.HasAgent() {
 		// Ask cluster for its health in order to find the ID of our agent
-		client, err := clusterConfig.CreateCoordinatorsClient(bsCfg.JwtSecret)
+		// Use CreateClusterAPI to get cluster client (go-driver v2 migration)
+		clusterClient, err := clusterConfig.CreateClusterAPI(ctx, s)
 		if err != nil {
-			s.log.Error().Err(err).Msg("Cannot create coordinator client")
+			s.log.Error().Err(err).Msg("Cannot create cluster client")
 			return bsCfg, maskAny(err)
 		}
 
-		// Fetch cluster health
-		c, err := client.Cluster(ctx)
-		if err != nil {
-			s.log.Error().Err(err).Msg("Cannot get cluster client")
-			return bsCfg, maskAny(err)
-		}
-		h, err := c.Health(ctx)
+		// Fetch cluster health using go-driver v2 API
+		health, err := clusterClient.Health(ctx)
 		if err != nil {
 			s.log.Error().Err(err).Msg("Cannot get cluster health")
 			return bsCfg, maskAny(err)
@@ -133,8 +134,8 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 		found := false
 		agentPort := peer.Port + peer.PortOffset + definitions.ServerType(definitions.ServerTypeAgent).PortOffset()
 		expectedAgentHost := strings.ToLower(net.JoinHostPort(peer.Address, strconv.Itoa(agentPort)))
-		foundAgentHosts := make([]string, 0, len(h.Health))
-		for id, server := range h.Health {
+		foundAgentHosts := make([]string, 0, len(health.Health))
+		for id, server := range health.Health {
 			if server.Role == driver.ServerRoleAgent {
 				ep, err := url.Parse(server.Endpoint)
 				if err != nil {
