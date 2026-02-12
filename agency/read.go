@@ -60,7 +60,7 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 	// 1. An array: [<value_at_key_path>] - where the first element is a map containing the agency tree
 	// 2. A map directly: {<agency_tree>} - the agency tree starting from the root
 	var root map[string]any
-	
+
 	if arr, ok := rawResponse.([]any); ok {
 		// Response is an array
 		if len(arr) == 0 {

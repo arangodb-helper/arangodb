@@ -180,7 +180,7 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL str
 		if err != nil {
 			delay = 5 * time.Second
 			s.log.Error().Err(err).Msgf("Update leader election failed. Retrying in %s", delay)
-			
+
 			// If we don't have a master URL yet and Update failed, try to use a fallback
 			// from the cluster config to allow the cluster to bootstrap
 			if oldMasterURL == "" {
@@ -265,7 +265,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 	}
 
 	ownURL := myPeer.CreateStarterURL("/")
-	
+
 	// Initialize master URL with fallback from cluster config to allow immediate operation
 	// Leader election will update this with the actual elected master
 	clusterConfig, _, _ := runtimeContext.ClusterConfig()
@@ -275,7 +275,7 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 			s.updateMasterURL(fallbackURL, fallbackURL == ownURL)
 		}
 	}
-	
+
 	go s.runLeaderElection(ctx, ownURL)
 
 	for {
