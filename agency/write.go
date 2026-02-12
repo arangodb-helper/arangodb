@@ -68,21 +68,28 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 	if err != nil {
 		return fmt.Errorf("agency write request failed: %w", err)
 	}
-	if resp == nil {
-		return fmt.Errorf("agency write response is nil")
-	}
 
 	statusCode := resp.Code()
-	if statusCode != 200 && statusCode != 201 {
-		return fmt.Errorf("agency write returned non-success status code %d: Results: %v", statusCode, result.Results)
+	if resp == nil {
+		return fmt.Errorf("agency write response is nil")
 	}
 
 	if len(result.Results) == 0 {
 		return fmt.Errorf("agency write failed: no results returned")
 	}
 
+	// Check results[0] first - 0 means precondition failed, 1 means success
+	// Status code 412 (Precondition Failed) is a valid response indicating precondition didn't match
+	// Status codes 200/201 with results[0] == 0 also indicate precondition failed
 	if result.Results[0] == 0 {
-		return fmt.Errorf("agency write failed: results=%v (result[0]=0 means failure)", result.Results)
+		// Precondition failed - this is expected during leader election and other concurrent operations
+		return fmt.Errorf("agency write precondition failed: statusCode=%d, results=%v", statusCode, result.Results)
+	}
+
+	// If we got here, results[0] == 1 (success)
+	// Accept 200, 201, or 412 as valid status codes when results indicate success
+	if statusCode != 200 && statusCode != 201 && statusCode != 412 {
+		return fmt.Errorf("agency write returned non-success status code %d: Results: %v", statusCode, result.Results)
 	}
 
 	// Write succeeded - return success

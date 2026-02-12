@@ -23,11 +23,8 @@ package test
 import (
 	"context"
 	"os"
-	"strings"
 	"testing"
 	"time"
-
-	"github.com/arangodb-helper/arangodb/client"
 )
 
 // TestProcessClusterUpgrade starts a master starter, followed by 2 slave starters.
@@ -76,59 +73,21 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(0*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(1*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(2*portIncrement))
+	time.Sleep(5 * time.Second)
 
 	t.Log("Starting database upgrade")
 
-	// Retry StartDatabaseUpgrade if master is not yet known or lock is held (leader election may not have completed)
-	deadline := time.Now().Add(30 * time.Second)
-	for {
-		err := c.StartDatabaseUpgrade(ctx, false)
-		if err == nil {
-			// Success!
-			break
-		}
-		// Check if it's a service unavailable error (master not known yet)
-		if client.IsServiceUnavailable(err) {
-			if time.Now().After(deadline) {
-				t.Fatalf("StartDatabaseUpgrade failed: master not available after 30 seconds: %v", err)
-			}
-			t.Logf("Master not yet known, retrying StartDatabaseUpgrade in 500ms...")
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-		// Check if it's a lock already held error - retry as another starter might be upgrading
-		errStr := err.Error()
-		if strings.Contains(errStr, "lock already held") || strings.Contains(errStr, "already held") {
-			if time.Now().After(deadline) {
-				t.Fatalf("StartDatabaseUpgrade failed: lock still held after 30 seconds: %v", err)
-			}
-			t.Logf("Lock already held, retrying StartDatabaseUpgrade in 1s...")
-			time.Sleep(1 * time.Second)
-			continue
-		}
-		// Other error, fail immediately
+	if err := c.StartDatabaseUpgrade(ctx, false); err != nil {
 		t.Fatalf("StartDatabaseUpgrade failed: %v", err)
 	}
-
-	// Give the upgrade plan time to be written to the agency
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// Wait until upgrade complete
 	recentErrors := 0
-	deadline = time.Now().Add(time.Minute * 10)
+	deadline := time.Now().Add(time.Minute * 10)
 	for {
 		status, err := c.UpgradeStatus(ctx)
 		if err != nil {
-			// Check if it's a "no upgrade plan" error - retry as plan might not be written yet
-			errStr := err.Error()
-			if strings.Contains(errStr, "no upgrade plan") || strings.Contains(errStr, "There is no upgrade plan") {
-				if time.Now().After(deadline) {
-					t.Fatalf("UpgradeStatus failed: upgrade plan not found after 30 seconds: %s", err)
-				}
-				t.Logf("Upgrade plan not found yet, retrying UpgradeStatus in 500ms...")
-				time.Sleep(500 * time.Millisecond)
-				continue
-			}
 			recentErrors++
 			if recentErrors > 20 {
 				t.Fatalf("UpgradeStatus failed: %s", err)

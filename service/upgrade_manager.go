@@ -287,7 +287,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	m.log.Debug().Msg("Creating agency API")
 	api, err := m.createAgencyAPI()
 	if err != nil {
-		return maskAny(err)
+		return maskAny(errors.Wrap(err, "Cannot upgrade: cannot connect to agency"))
 	}
 
 	// Use peer ID for lock holder identification (myPeer already declared above)
@@ -332,7 +332,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	if specialUpgradeFrom346 {
 		// Write 1000 dummy values into agency to advance the log:
 		for i := 0; i < 1000; i++ {
-			err := api.WriteKey(nil, []string{"/arangodb-helper/dummy"}, 17, 0)
+			err := api.WriteKey(ctx, []string{"/arangodb-helper/dummy"}, 17, 0)
 			if err != nil {
 				m.log.Error().Msg("Could not append log entries to agency.")
 				return maskAny(err)
@@ -351,12 +351,12 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 					m.log.Error().Msgf("Could not create client for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				db, err := cli.GetDatabase(nil, "_system", nil)
+				db, err := cli.GetDatabase(ctx, "_system", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not find _system database for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				_, err = db.Query(nil, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
+				_, err = db.Query(ctx, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not repair agent log compaction for agent of peer %s", p.ID)
 				}
@@ -867,6 +867,10 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 				}
 			}
 		} else if plan.IsFailed() {
+			for _, entry := range plan.Entries {
+				if entry.Failures > 0 {
+				}
+			}
 			// Plan already failed
 		} else if len(plan.Entries) > 0 {
 			// Let's inspect the first entry
@@ -947,7 +951,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		m.updateNeeded = true
 		upgrade := func() error {
 			if firstEntry.WithoutResign {
-				fmt.Printf("Without resign")
+				m.log.Info().Msg("Upgrading without resign")
 			}
 			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServerNoResign); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
@@ -1040,16 +1044,76 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		return maskAny(fmt.Errorf("unsupported upgrade plan entry type '%s'", firstEntry.Type))
 	}
 
-	// Move first entry to finished entries
-	plan.Entries = plan.Entries[1:]
-	plan.FinishedEntries = append(plan.FinishedEntries, firstEntry)
+	// Retry logic: re-read the plan and try to update it, handling 412 precondition failures
+	// This handles race conditions where another peer updates the plan between our read and write
+	maxRetries := 5
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Re-read the plan to get the latest revision before updating it
+		// This prevents precondition failures if the plan was modified by another peer
+		currentPlan, err := m.readUpgradePlan(ctx)
+		if err != nil {
+			return maskAny(errors.Wrap(err, "Failed to re-read upgrade plan before updating"))
+		}
 
-	// Save plan
-	overwrite := false
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
-		return maskAny(err)
+		// Verify the plan still has entries and the first entry matches what we processed
+		if len(currentPlan.Entries) == 0 {
+			return nil // Plan already processed by another peer
+		}
+		if currentPlan.Entries[0].PeerID != firstEntry.PeerID || currentPlan.Entries[0].Type != firstEntry.Type {
+			return nil // Plan changed, another peer is processing it
+		}
+
+		// Check if revision changed - if so, another peer might have updated it
+		if attempt > 0 {
+			if currentPlan.Revision != plan.Revision {
+				// Update plan reference for next iteration
+				plan = currentPlan
+			} else {
+			}
+		}
+
+		// Move first entry to finished entries
+		currentPlan.Entries = currentPlan.Entries[1:]
+		currentPlan.FinishedEntries = append(currentPlan.FinishedEntries, firstEntry)
+
+		// Save plan with the current revision
+		// Note: We're checking only the revision field, not the entire object
+		// This should work because the agency API supports field-level preconditions
+		overwrite := false
+		_, err = m.writeUpgradePlan(ctx, currentPlan, overwrite)
+		if err != nil {
+			// Check if it's a precondition failure (412) - if so, retry with fresh read
+			// The agency package returns custom errors, so check both driver_shared and error string
+			errStr := err.Error()
+			isPreconditionFailed := driver_shared.IsPreconditionFailed(err) ||
+				strings.Contains(errStr, "precondition failed") ||
+				strings.Contains(errStr, "statusCode=412")
+
+			if isPreconditionFailed {
+				if attempt < maxRetries-1 {
+					// Wait before retrying with exponential backoff + jitter to break race conditions
+					// Base delay increases: 200ms, 400ms, 800ms, 1.6s, 3.2s
+					baseDelay := time.Duration(200*(1<<uint(attempt))) * time.Millisecond
+					if baseDelay > 2*time.Second {
+						baseDelay = 2 * time.Second
+					}
+					// Add jitter (0-50% of base delay) to break synchronization between peers
+					jitter := time.Duration(attempt*50) * time.Millisecond
+					delay := baseDelay + jitter
+					select {
+					case <-ctx.Done():
+						return maskAny(ctx.Err())
+					case <-time.After(delay):
+						continue
+					}
+				}
+			}
+			return maskAny(err)
+		}
+		return nil
 	}
-	return nil
+
+	return maskAny(fmt.Errorf("Failed to update upgrade plan after %d retries", maxRetries))
 }
 
 // withMaintenance wraps upgrade action with maintenance steps

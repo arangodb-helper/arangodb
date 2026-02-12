@@ -36,6 +36,7 @@ import (
 
 var (
 	masterURLKey = []string{"arangodb-helper", "arangodb", "leader"}
+	masterURLTTL = 5 * time.Minute // TTL for master URL in agency
 )
 
 // runtimeClusterManager keeps the cluster configuration up to date during a running state.
@@ -123,92 +124,103 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 }
 
 func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL string) {
-	delay := time.Second
+	le := agency.NewLeaderElectionCell[string](masterURLKey, masterURLTTL)
+	delay := time.Microsecond
 
 	for {
+		timer := time.NewTimer(delay)
+		// Wait a bit
 		select {
+		case <-timer.C:
+			// Delay over, just continue
 		case <-ctx.Done():
+			// We're asked to stop
+			if !timer.Stop() {
+				<-timer.C
+			}
 			return
-		case <-time.After(delay):
 		}
 
-		api, err := s.createAgencyAPI()
+		agencyClient, err := s.createAgencyAPI()
 		if err != nil {
-			delay = 2 * time.Second
-			s.log.Debug().Err(err).Msg("Failed to create agency API, retrying")
+			delay = time.Second
+			s.log.Debug().Err(err).Msgf("could not create agency client. Retrying in %s", delay)
 			continue
 		}
 
-		var current struct {
-			URL      string `json:"url"`
-			Revision int    `json:"revision"`
-		}
+		oldMasterURL := s.GetMasterURL()
 
-		err = api.Read(ctx, masterURLKey, &current)
-		exists := err == nil
-
-		if err != nil && !agency.IsKeyNotFound(err) {
-			s.log.Error().Err(err).Msg("Failed to read master key")
-			delay = 2 * time.Second
-			continue
-		}
-
-		// Handle "avoidBeingMaster" scenario - if set, never become master
 		if s.avoidBeingMaster {
-			if exists && current.URL != "" {
-				s.updateMasterURL(current.URL, false)
-			} else {
-				// No master yet, but we don't want to be master - wait
-				delay = 2 * time.Second
+			if oldMasterURL == "" {
+				s.log.Debug().Msg("Initializing master URL before resigning")
+				currMasterURL, err := le.Read(ctx, agencyClient)
+				if err != nil {
+					delay = 5 * time.Second
+					s.log.Err(err).Msgf("Failed to read current value before resigning. Retrying in %s", delay)
+					continue
+				}
+				s.updateMasterURL(currMasterURL, currMasterURL == myURL)
+			}
+
+			s.log.Debug().Str("master_url", myURL).Msgf("Resigning leadership")
+			err = le.Resign(ctx, agencyClient)
+			if err != nil {
+				delay = 5 * time.Second
+				s.log.Err(err).Msgf("Resigning leadership failed. Retrying in %s", delay)
 				continue
+			} else {
+				s.runtimeContext.ChangeState(stateRunningSlave)
+				return
 			}
+		}
+
+		var masterURL string
+		var isMaster bool
+		masterURL, isMaster, delay, err = le.Update(ctx, agencyClient, myURL)
+		if err != nil {
 			delay = 5 * time.Second
-			continue
-		}
-
-		isMaster := false
-		newMasterURL := current.URL
-
-		if !exists || current.URL == "" {
-			isMaster = true
-			newMasterURL = myURL
-		} else if current.URL == myURL {
-			isMaster = true
-		}
-
-		if isMaster {
-			next := struct {
-				URL      string `json:"url"`
-				Revision int    `json:"revision"`
-			}{
-				URL:      myURL,
-				Revision: current.Revision + 1,
-			}
-
-			tx := &agency.Transaction{
-				Ops: []agency.KeyChanger{
-					agency.SetKey(masterURLKey, next),
-				},
-			}
-
-			if exists {
-				tx.Conds = []agency.WriteCondition{
-					agency.IfEqualTo(masterURLKey, current),
+			s.log.Error().Err(err).Msgf("Update leader election failed. Retrying in %s", delay)
+			
+			// If we don't have a master URL yet and Update failed, try to use a fallback
+			// from the cluster config to allow the cluster to bootstrap
+			if oldMasterURL == "" {
+				clusterConfig, _, _ := s.runtimeContext.ClusterConfig()
+				if len(clusterConfig.AllPeers) > 0 {
+					// Use first peer as temporary fallback until leader election succeeds
+					fallbackURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
+					if fallbackURL != "" && fallbackURL != myURL {
+						s.log.Debug().Str("fallback_master_url", fallbackURL).Msg("Using fallback master URL from cluster config")
+						s.updateMasterURL(fallbackURL, false)
+					}
 				}
 			}
-
-			if err := api.Write(ctx, tx); err != nil {
-				s.updateMasterURL(current.URL, current.URL == myURL)
-				delay = 2 * time.Second
-				continue
-			}
-
-			s.updateMasterURL(myURL, true)
-		} else {
-			s.updateMasterURL(newMasterURL, false)
+			continue
 		}
 
-		delay = 5 * time.Second
+		// If Update succeeded but returned empty masterURL, use fallback
+		if masterURL == "" && oldMasterURL == "" {
+			clusterConfig, _, _ := s.runtimeContext.ClusterConfig()
+			if len(clusterConfig.AllPeers) > 0 {
+				fallbackURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
+				if fallbackURL != "" && fallbackURL != myURL {
+					s.log.Debug().Str("fallback_master_url", fallbackURL).Msg("Update returned empty masterURL, using fallback from cluster config")
+					masterURL = fallbackURL
+					isMaster = false
+				}
+			}
+		}
+
+		s.log.Debug().
+			Str("myURL", myURL).
+			Str("masterURL", masterURL).
+			Str("oldMasterURL", oldMasterURL).
+			Msg("Updating leadership")
+
+		if isMaster && masterURL != myURL {
+			s.log.Error().Msgf("Unexpected error: this peer is a master but URL differs. Should be %s got %s", myURL, masterURL)
+		}
+
+		s.updateMasterURL(masterURL, isMaster)
 	}
 }
 
@@ -253,6 +265,17 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 	}
 
 	ownURL := myPeer.CreateStarterURL("/")
+	
+	// Initialize master URL with fallback from cluster config to allow immediate operation
+	// Leader election will update this with the actual elected master
+	clusterConfig, _, _ := runtimeContext.ClusterConfig()
+	if len(clusterConfig.AllPeers) > 0 {
+		fallbackURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
+		if fallbackURL != "" {
+			s.updateMasterURL(fallbackURL, fallbackURL == ownURL)
+		}
+	}
+	
 	go s.runLeaderElection(ctx, ownURL)
 
 	for {
@@ -264,6 +287,15 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 		}
 
 		masterURL := s.GetMasterURL()
+		if masterURL == "" || masterURL == ownURL {
+			clusterConfig, _, _ := runtimeContext.ClusterConfig()
+			if len(clusterConfig.AllPeers) > 0 {
+				fallbackURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
+				if fallbackURL != "" && fallbackURL != ownURL {
+					masterURL = fallbackURL
+				}
+			}
+		}
 		if masterURL != "" && masterURL != ownURL {
 			log.Debug().Msgf("Updating cluster configuration master URL: %s", masterURL)
 			// We are a follower, try to update cluster configuration from leader

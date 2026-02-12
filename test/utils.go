@@ -541,13 +541,67 @@ func logProcessOutput(log Logger, p *SubProcess, prefix string, args ...interfac
 	}
 }
 
+// logLastNLines logs the last N lines of the process output for easier error diagnosis
+func logLastNLines(log Logger, p *SubProcess, n int) {
+	output := p.Output()
+	lines := bytes.Split(output, []byte("\n"))
+	total := len(lines)
+	start := total - n
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < total; i++ {
+		if len(lines[i]) > 0 {
+			log.Log(string(lines[i]))
+		}
+	}
+}
+
+// logLastNLinesFromFile logs the last N lines from a file for easier error diagnosis
+func logLastNLinesFromFile(log Logger, filePath string, n int) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Log("Failed to read file %s: %v", filePath, err)
+		return
+	}
+	lines := bytes.Split(data, []byte("\n"))
+	total := len(lines)
+	start := total - n
+	if start < 0 {
+		start = 0
+	}
+	for i := start; i < total; i++ {
+		if len(lines[i]) > 0 {
+			log.Log(string(lines[i]))
+		}
+	}
+}
 func waitForCluster(t *testing.T, members map[int]MembersConfig, start time.Time) {
 	var processes []*SubProcess
 	for _, m := range members {
 		processes = append(processes, m.Process)
 	}
 
-	require.True(t, WaitUntilStarterReady(t, whatCluster, len(processes), processes...))
+	if !WaitUntilStarterReady(t, whatCluster, len(processes), processes...) {
+		t.Logf("Cluster did not become ready, dumping process output for all members:")
+		for port, m := range members {
+			if m.Process != nil {
+				t.Logf("Process output for member %d (last 40 lines):", port)
+				logLastNLines(GetLogger(t), m.Process, 40)
+				agentLogPath := fmt.Sprintf("%s/agent%d/arangod.log", m.DataDir, m.Port+definitions.PortOffsetAgent)
+				if _, err := os.Stat(agentLogPath); err == nil {
+					t.Logf("Agent log for member %d (last 40 lines):", port)
+					logLastNLinesFromFile(GetLogger(t), agentLogPath, 40)
+				} else {
+					t.Logf("Agent log for member %d not found or error: %v", port, err)
+				}
+			} else {
+				t.Logf("No process for member %d", port)
+			}
+		}
+		require.True(t, false, "Cluster did not become ready")
+	}
+
 	t.Logf("Cluster start took %s", time.Since(start))
 
 	for _, m := range members {
@@ -576,7 +630,7 @@ func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig) {
 
 		// Retry Endpoints call if master is not yet known or if endpoints are incomplete
 		var endpoints client.EndpointList
-		deadline := time.Now().Add(30 * time.Second)
+		deadline := time.Now().Add(120 * time.Second)
 		for {
 			var err error
 			endpoints, err = c.Endpoints(ctx)

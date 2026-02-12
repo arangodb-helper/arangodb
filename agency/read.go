@@ -35,9 +35,9 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		return ErrKeyNotFound
 	}
 
-	reqBody := map[string]any{
-		"keys": [][]string{key},
-	}
+	// Agency read API expects the request body to be an array of key arrays directly
+	// Format: [["key", "path", "to", "key"]]
+	reqBody := [][]string{key}
 
 	req, err := c.conn.NewRequest(http.MethodPost, "/_api/agency/read")
 	if err != nil {
@@ -56,14 +56,28 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		return ErrKeyNotFound
 	}
 
-	arr, ok := rawResponse.([]any)
-	if !ok || len(arr) == 0 {
-		return ErrKeyNotFound
-	}
-
-	root, ok := arr[0].(map[string]any)
-	if !ok {
-		return ErrKeyNotFound
+	// Agency read API can return either:
+	// 1. An array: [<value_at_key_path>] - where the first element is a map containing the agency tree
+	// 2. A map directly: {<agency_tree>} - the agency tree starting from the root
+	var root map[string]any
+	
+	if arr, ok := rawResponse.([]any); ok {
+		// Response is an array
+		if len(arr) == 0 {
+			return ErrKeyNotFound
+		}
+		// The first element should be a map containing the agency tree starting from the root
+		var ok2 bool
+		root, ok2 = arr[0].(map[string]any)
+		if !ok2 {
+			// If it's not a map, the key might not exist or the response format is different
+			return ErrKeyNotFound
+		}
+	} else if rootMap, ok := rawResponse.(map[string]any); ok {
+		// Response is a map directly - this is the agency tree starting from the root
+		root = rootMap
+	} else {
+		return fmt.Errorf("agency read response is neither an array nor a map: %T", rawResponse)
 	}
 
 	current := any(root)
