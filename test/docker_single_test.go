@@ -28,9 +28,8 @@ import (
 	"testing"
 	"time"
 
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/stretchr/testify/require"
-
-	"github.com/arangodb/go-driver"
 )
 
 // TestDockerSingleAutoKeyFile runs the arangodb starter in docker with `--starter.mode=single` && `--ssl.auto-key`

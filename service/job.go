@@ -29,7 +29,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/arangodb/go-driver/agency"
+	"github.com/arangodb-helper/arangodb/agency"
 
 	"github.com/arangodb-helper/arangodb/service/actions"
 )

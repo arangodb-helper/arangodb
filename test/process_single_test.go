@@ -29,7 +29,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 )
 
 // TestProcessSingle runs `arangodb --starter.mode=single`

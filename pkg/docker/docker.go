@@ -24,7 +24,6 @@ package docker
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -92,7 +91,7 @@ func FindDockerContainerInfo(dockerEndpoint string) (ContainerInfo, error) {
 }
 
 func findRunningContainerID() (string, error) {
-	raw, err := ioutil.ReadFile("/proc/self/cgroup")
+	raw, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		return "", errors.WithStack(err)
 	}

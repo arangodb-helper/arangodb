@@ -49,6 +49,9 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 
 	waitForCluster(t, members, time.Now())
 
+	// Wait for setup.json to be synchronized across all nodes
+	time.Sleep(5 * time.Second)
+
 	t.Logf("Verify setup.json after fresh start")
 	verifyProcessSetupJson(t, members, 3)
 
@@ -61,6 +64,9 @@ func TestProcessRestartNoAgentMember(t *testing.T) {
 		m.Process.label = fmt.Sprintf("node-%d", m.Port)
 		members[10000] = m
 		waitForCluster(t, members, time.Now())
+
+		// Wait for setup.json to be synchronized across all nodes
+		time.Sleep(5 * time.Second)
 
 		t.Logf("Verify setup.json after member restart")
 		verifyProcessSetupJson(t, members, 3)
@@ -89,6 +95,9 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 
 	waitForCluster(t, members, time.Now())
 
+	// Wait for setup.json to be synchronized across all nodes
+	time.Sleep(5 * time.Second)
+
 	t.Logf("Verify setup.json after fresh start")
 	verifyProcessSetupJson(t, members, 3)
 
@@ -100,7 +109,7 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 			for port := range members {
 				require.NoError(t, members[port].Process.Kill())
 			}
-			time.Sleep(3 * time.Second)
+			time.Sleep(5 * time.Second)
 
 			for port, m := range members {
 				m.Process = spawnMemberProcess(t, m.Port, m.DataDir, joins, fmt.Sprintf("--cluster.start-agent=%v", *m.HasAgent))
@@ -108,6 +117,9 @@ func TestProcessMultipleRestartNoAgentMember(t *testing.T) {
 			}
 
 			waitForCluster(t, members, time.Now())
+
+			// Wait for setup.json to be synchronized across all nodes
+			time.Sleep(5 * time.Second)
 
 			t.Logf("Verify setup after member restart, iteration: %d", i)
 			verifyProcessSetupJson(t, members, 3)

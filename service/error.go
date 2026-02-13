@@ -27,7 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	driver "github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb/shared"
 )
 
 var (

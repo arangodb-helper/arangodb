@@ -26,7 +26,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driver_http "github.com/arangodb/go-driver/v2/connection"
 )
 
 func NewClient(c driver.Client) Client {
@@ -47,49 +48,7 @@ type Client interface {
 }
 
 type client struct {
-	c driver.Connection
-}
-
-func (c *client) parseTLSResponse(response driver.Response) (TLSDetails, error) {
-	if err := response.CheckStatus(http.StatusOK); err != nil {
-		return TLSDetails{}, err
-	}
-
-	var d TLSDetails
-
-	if err := response.ParseBody("", &d); err != nil {
-		return TLSDetails{}, err
-	}
-
-	return d, nil
-}
-
-func (c *client) parseEncryptionResponse(response driver.Response) (EncryptionDetails, error) {
-	if err := response.CheckStatus(http.StatusOK); err != nil {
-		return EncryptionDetails{}, err
-	}
-
-	var d EncryptionDetails
-
-	if err := response.ParseBody("", &d); err != nil {
-		return EncryptionDetails{}, err
-	}
-
-	return d, nil
-}
-
-func (c *client) parseJWTResponse(response driver.Response) (JWTDetails, error) {
-	if err := response.CheckStatus(http.StatusOK); err != nil {
-		return JWTDetails{}, err
-	}
-
-	var d JWTDetails
-
-	if err := response.ParseBody("", &d); err != nil {
-		return JWTDetails{}, err
-	}
-
-	return d, nil
+	c driver_http.Connection
 }
 
 func (c *client) GetTLS(ctx context.Context) (TLSDetails, error) {
@@ -98,12 +57,8 @@ func (c *client) GetTLS(ctx context.Context) (TLSDetails, error) {
 		return TLSDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
-	if err != nil {
-		return TLSDetails{}, err
-	}
-
-	d, err := c.parseTLSResponse(response)
+	var d TLSDetails
+	_, err = c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return TLSDetails{}, err
 	}
@@ -117,12 +72,8 @@ func (c *client) RefreshTLS(ctx context.Context) (TLSDetails, error) {
 		return TLSDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
-	if err != nil {
-		return TLSDetails{}, err
-	}
-
-	d, err := c.parseTLSResponse(response)
+	var d TLSDetails
+	_, err = c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return TLSDetails{}, err
 	}
@@ -136,12 +87,8 @@ func (c *client) GetEncryption(ctx context.Context) (EncryptionDetails, error) {
 		return EncryptionDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
-	if err != nil {
-		return EncryptionDetails{}, err
-	}
-
-	d, err := c.parseEncryptionResponse(response)
+	var d EncryptionDetails
+	_, err = c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return EncryptionDetails{}, err
 	}
@@ -155,12 +102,8 @@ func (c *client) RefreshEncryption(ctx context.Context) (EncryptionDetails, erro
 		return EncryptionDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
-	if err != nil {
-		return EncryptionDetails{}, err
-	}
-
-	d, err := c.parseEncryptionResponse(response)
+	var d EncryptionDetails
+	_, err = c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return EncryptionDetails{}, err
 	}
@@ -174,12 +117,8 @@ func (c *client) GetJWT(ctx context.Context) (JWTDetails, error) {
 		return JWTDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
-	if err != nil {
-		return JWTDetails{}, err
-	}
-
-	d, err := c.parseJWTResponse(response)
+	var d JWTDetails
+	_, err = c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return JWTDetails{}, err
 	}
@@ -193,12 +132,8 @@ func (c *client) RefreshJWT(ctx context.Context) (JWTDetails, error) {
 		return JWTDetails{}, err
 	}
 
-	response, err := c.c.Do(ctx, r)
-	if err != nil {
-		return JWTDetails{}, err
-	}
-
-	d, err := c.parseJWTResponse(response)
+	var d JWTDetails
+	_, err = c.c.Do(ctx, r, &d, http.StatusOK)
 	if err != nil {
 		return JWTDetails{}, err
 	}

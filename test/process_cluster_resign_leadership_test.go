@@ -32,7 +32,8 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driver_http "github.com/arangodb/go-driver/v2/connection"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/service"
@@ -75,7 +76,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		}
 	}
 
-	auth := driver.BasicAuthentication("root", "")
+	auth := driver_http.NewBasicAuth("root", "")
 	starterEndpointForCoordinator := insecureStarterEndpoint(1 * portIncrement)
 	coordinatorClient, err := CreateClient(t, starterEndpointForCoordinator, client.ServerTypeCoordinator, auth)
 	if err != nil {
@@ -98,15 +99,17 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 
 	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckDatabase(databaseName)).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
 
-	database, err := coordinatorClient.Database(context.Background(), databaseName)
+	database, err := coordinatorClient.GetDatabase(context.Background(), databaseName, nil)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
-	options := &driver.CreateCollectionOptions{
-		ReplicationFactor: 2,
-		NumberOfShards:    1,
+	replicationFactor := driver.ReplicationFactor(2)
+	numberOfShards := 1
+	options := &driver.CreateCollectionPropertiesV2{
+		ReplicationFactor: &replicationFactor,
+		NumberOfShards:    &numberOfShards,
 	}
-	collection, err := database.CreateCollection(context.Background(), collectionName, options)
+	collection, err := database.CreateCollectionV2(context.Background(), collectionName, options)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -119,11 +122,23 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		documents = append(documents, &book{Title: fmt.Sprintf("Title %d", i)})
 	}
-	documentsMetaData, _, err := collection.CreateDocuments(context.Background(), documents)
+	documentsMetaData, err := collection.CreateDocuments(context.Background(), documents)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
-	keys := documentsMetaData.Keys()
+
+	var keys []string
+	for {
+		response, err := documentsMetaData.Read()
+		if err != nil {
+			// EOF or other error means no more documents to read
+			break
+		}
+		keys = append(keys, response.DocumentMeta.Key)
+	}
+	if len(keys) == 0 {
+		t.Fatal("No documents were created")
+	}
 
 	dbServerLeader, err := getServerIDLeaderForFirstShard(coordinatorClient, database, collectionName)
 	if err != nil {
@@ -150,11 +165,11 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 			}
 			WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckDatabase(databaseName)).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
 
-			database, err = coordinatorClient.Database(context.Background(), databaseName)
+			database, err = coordinatorClient.GetDatabase(context.Background(), databaseName, nil)
 			if err != nil {
 				t.Fatal(err.Error())
 			}
-			collection, err = database.Collection(context.Background(), collectionName)
+			collection, err = database.GetCollection(context.Background(), collectionName, nil)
 			if err != nil {
 				t.Fatal(err.Error())
 			}
@@ -222,7 +237,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 // getStarterEndpointByServerID gets starter endpoint for the given server ID.
 func getStarterEndpointByServerID(t *testing.T, serverID driver.ServerID, startersEndpoints ...string) (string, error) {
 	for _, endpoint := range startersEndpoints {
-		auth := driver.BasicAuthentication("root", "")
+		auth := driver_http.NewBasicAuth("root", "")
 		dbServerClient, err := CreateClient(t, endpoint, client.ServerTypeDBServer, auth)
 		if err != nil {
 			return "", errors.Wrap(err, "CreateClient")
@@ -244,14 +259,14 @@ func getStarterEndpointByServerID(t *testing.T, serverID driver.ServerID, starte
 // getShardsForCollection returns shards for the given collection name.
 func getShardsForCollection(client driver.Client, database driver.Database,
 	collectionName string) (map[driver.ShardID][]driver.ServerID, error) {
-	cluster, err := client.Cluster(context.Background())
+	// In go-driver v2, Client implements ClientAdminCluster interface directly
+	// So we can call DatabaseInventory on the client itself
+	// DatabaseInventory takes a database name (string) instead of Database object
+	var clusterClient driver.ClientAdminCluster = client
+	dbName := database.Name()
+	inventory, err := clusterClient.DatabaseInventory(context.Background(), dbName)
 	if err != nil {
-		return nil, errors.Wrap(err, "Cluster")
-	}
-
-	inventory, err := cluster.DatabaseInventory(context.Background(), database)
-	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "DatabaseInventory")
 	}
 
 	for _, c := range inventory.Collections {

@@ -141,7 +141,7 @@ func (j jwtManager) tokens() (tokens, error) {
 	m := map[string][]byte{}
 
 	for _, f := range files {
-		d, err := ioutil.ReadFile(path.Join(j.dir, f.Name()))
+		d, err := os.ReadFile(path.Join(j.dir, f.Name()))
 		if err != nil {
 			return nil, err
 		}

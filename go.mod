@@ -6,9 +6,8 @@ toolchain go1.24.13
 
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
-	github.com/arangodb-helper/go-helper v0.4.2
-	github.com/arangodb/go-driver v1.6.9
-	github.com/arangodb/go-upgrade-rules v0.0.0-20200605091205-439fb1ee86e7
+	github.com/arangodb/go-driver/v2 v2.1.7-0.20260121124235-18030b704add
+	github.com/arangodb/go-upgrade-rules v0.0.0-20260209121052-e177e29f5cf0
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/coreos/go-semver v0.3.1
 	github.com/dchest/uniuri v1.2.0
@@ -28,6 +27,12 @@ require (
 	gopkg.in/ini.v1 v1.66.6
 )
 
+// Use master branch of go-driver v2 for testing Shutdown method
+// TODO: Remove this replace directive once Shutdown is released in a stable version
+// To use master branch, run: go get github.com/arangodb/go-driver/v2@master
+// Or use a specific commit hash: replace github.com/arangodb/go-driver/v2 => github.com/arangodb/go-driver/v2 v0.0.0-YYYYMMDDHHMMSS-COMMIT_HASH
+// For now, keeping v2.1.6 - update via go get command above when ready to test
+
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -36,11 +41,14 @@ require (
 	github.com/coreos/go-systemd/v22 v22.6.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/docker/docker v28.5.2+incompatible // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
+	github.com/kkdai/maglev v0.2.0 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -60,8 +68,10 @@ require (
 	github.com/pavel-v-chernykh/keystore-go v2.1.0+incompatible // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

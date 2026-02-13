@@ -29,7 +29,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/service/actions"
@@ -137,8 +137,9 @@ func (a *ActionResignLeadership) resignLeadership(ctx context.Context, serverID 
 			return errors.Wrap(err, "failed to create cluster API")
 		}
 
-		jobCtx := driver.WithJobIDResponse(ctx, &jobID)
-		if err := clusterClient.ResignServer(jobCtx, serverID); err != nil {
+		// In v2, ResignServer returns the JobID directly instead of using context
+		jobID, err = clusterClient.ResignServer(ctx, driver.ServerID(serverID))
+		if err != nil {
 			return errors.Wrap(err, "failed to send request for resigning leadership")
 		}
 

@@ -24,7 +24,7 @@ import (
 	"context"
 	"fmt"
 
-	driver "github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 
 	"github.com/arangodb-helper/arangodb/pkg/api"
 )

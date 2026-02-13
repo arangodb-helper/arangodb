@@ -27,7 +27,7 @@ import (
 
 	flag "github.com/spf13/pflag"
 
-	"github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 )
 
 type Version struct {
