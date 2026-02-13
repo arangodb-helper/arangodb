@@ -28,3 +28,21 @@ var ErrKeyNotFound = errors.New("key not found")
 func IsKeyNotFound(err error) bool {
 	return err == ErrKeyNotFound || (err != nil && strings.Contains(err.Error(), "key not found"))
 }
+
+// PreconditionFailedError is returned when an agency write precondition check fails.
+type PreconditionFailedError struct {
+	message string
+}
+
+func (e *PreconditionFailedError) Error() string {
+	return e.message
+}
+
+// IsPreconditionFailed returns true if the given error indicates an agency precondition failure.
+func IsPreconditionFailed(err error) bool {
+	var pfe *PreconditionFailedError
+	if errors.As(err, &pfe) {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), "precondition failed")
+}

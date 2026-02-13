@@ -889,6 +889,11 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 			InsecureSkipVerify: true,
 		},
 	}
+	// For agency connections, disable keep-alives to prevent TLS connection pooling
+	// which can cache connections with old certificates after certificate rotation
+	if connectionType == ConnectionTypeAgency {
+		transport.DisableKeepAlives = true
+	}
 	connConfig := driver_http.HttpConfiguration{
 		Endpoint:  endpoint,
 		Transport: transport,

@@ -84,24 +84,40 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 
 	// Wait until upgrade complete
 	recentErrors := 0
+	totalErrors := 0
+	firstSuccessTime := time.Time{}
 	deadline := time.Now().Add(time.Minute * 10)
+	upgradeStatusStart := time.Now()
 	for {
 		status, err := c.UpgradeStatus(ctx)
 		if err != nil {
 			recentErrors++
+			totalErrors++
 			if recentErrors > 20 {
-				t.Fatalf("UpgradeStatus failed: %s", err)
+				t.Fatalf("UpgradeStatus failed after %d consecutive errors (total: %d): %s", recentErrors, totalErrors, err)
 			} else {
-				t.Logf("UpgradeStatus failed: %s", err)
+				t.Logf("UpgradeStatus failed (consecutive error %d/20, total errors: %d): %s", recentErrors, totalErrors, err)
 			}
 		} else {
+			consecutiveErrorsBeforeSuccess := recentErrors
+			if recentErrors > 0 {
+				// Log when we succeed after previous failures
+				if firstSuccessTime.IsZero() {
+					firstSuccessTime = time.Now()
+					t.Logf("UpgradeStatus succeeded after %d consecutive errors (total: %d errors, took %s since first call)", consecutiveErrorsBeforeSuccess, totalErrors, time.Since(upgradeStatusStart))
+				} else {
+					t.Logf("UpgradeStatus succeeded after %d consecutive errors (total: %d errors since start)", consecutiveErrorsBeforeSuccess, totalErrors)
+				}
+			}
 			recentErrors = 0
 			if status.Failed {
 				t.Fatalf("Upgrade failed: %s", status.Reason)
 			}
 			if status.Ready {
-				if isVerbose {
-					t.Logf("UpgradeStatus good: %v", status)
+				if totalErrors > 0 {
+					t.Logf("Upgrade completed successfully (encountered %d total errors, %d consecutive errors before final success, total time: %s)", totalErrors, consecutiveErrorsBeforeSuccess, time.Since(upgradeStatusStart))
+				} else {
+					t.Logf("Upgrade completed successfully (no errors, total time: %s)", time.Since(upgradeStatusStart))
 				}
 				break
 			}

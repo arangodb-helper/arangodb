@@ -21,7 +21,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"time"
 )
 
 func (c *client) Read(ctx context.Context, key []string, out any) error {
@@ -39,21 +41,50 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 	// Format: [["key", "path", "to", "key"]]
 	reqBody := [][]string{key}
 
-	req, err := c.conn.NewRequest(http.MethodPost, "/_api/agency/read")
-	if err != nil {
-		return fmt.Errorf("failed to create agency read request: %w", err)
-	}
-	if err := req.SetBody(reqBody); err != nil {
-		return fmt.Errorf("failed to set request body: %w", err)
-	}
-
+	// Retry on connection-level errors (connection refused, timeout, EOF) to handle
+	// agency endpoint failover. The RoundRobinEndpoints rotates to the next
+	// endpoint on each new request, so retrying naturally tries a different agent.
 	var rawResponse any
-	resp, err := c.conn.Do(ctx, req, &rawResponse)
-	if err != nil {
-		return fmt.Errorf("agency read request failed: %w", err)
+	var lastErr error
+	for attempt := 0; attempt < c.endpointCount; attempt++ {
+		// Exponential backoff: wait before retry (except on first attempt)
+		if attempt > 0 {
+			backoffDuration := time.Duration(math.Pow(2, float64(attempt-1))) * 100 * time.Millisecond
+			// Cap backoff at 2 seconds
+			if backoffDuration > 2*time.Second {
+				backoffDuration = 2 * time.Second
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoffDuration):
+			}
+		}
+
+		req, err := c.conn.NewRequest(http.MethodPost, "/_api/agency/read")
+		if err != nil {
+			return fmt.Errorf("failed to create agency read request: %w", err)
+		}
+		if err := req.SetBody(reqBody); err != nil {
+			return fmt.Errorf("failed to set request body: %w", err)
+		}
+
+		resp, err := c.conn.Do(ctx, req, &rawResponse)
+		if err != nil {
+			if isConnectionError(err) && attempt < c.endpointCount-1 {
+				lastErr = err
+				continue
+			}
+			return fmt.Errorf("agency read request failed: %w", err)
+		}
+		if resp == nil {
+			return ErrKeyNotFound
+		}
+		lastErr = nil
+		break
 	}
-	if resp == nil {
-		return ErrKeyNotFound
+	if lastErr != nil {
+		return fmt.Errorf("agency read request failed after %d attempts: %w", c.endpointCount, lastErr)
 	}
 
 	// Agency read API can return either:

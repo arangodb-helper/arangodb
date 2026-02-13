@@ -35,7 +35,6 @@ import (
 
 	"github.com/arangodb-helper/arangodb/agency"
 	driver "github.com/arangodb/go-driver/v2/arangodb"
-	driver_shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	driver_http "github.com/arangodb/go-driver/v2/connection"
 	upgraderules "github.com/arangodb/go-upgrade-rules"
 
@@ -212,6 +211,7 @@ type upgradeManager struct {
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     definitions.ServerType
 	updateNeeded          bool
+	agencyAPI             agency.Agency
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
@@ -410,7 +410,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	// Save plan
 	m.log.Debug().Msg("Writing upgrade plan")
 	overwrite := true
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver_shared.IsPreconditionFailed(err) {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); agency.IsPreconditionFailed(err) {
 		m.log.Error().Msg("Failed to write upgrade plan because it was outdated or removed.")
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
@@ -469,7 +469,7 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	// Reset failures and write plan
 	plan.ResetFailures()
 	overwrite := false
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver_shared.IsPreconditionFailed(err) {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); agency.IsPreconditionFailed(err) {
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
@@ -732,8 +732,13 @@ func (m *upgradeManager) ServerDatabaseAutoUpgradeStarter(serverType definitions
 	}
 }
 
-// Create a client for the agency
+// Create a client for the agency. The client is cached so that the
+// underlying RoundRobinEndpoints state persists across calls, allowing
+// automatic rotation to healthy agents when one is unreachable.
 func (m *upgradeManager) createAgencyAPI() (agency.Agency, error) {
+	if m.agencyAPI != nil {
+		return m.agencyAPI, nil
+	}
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Create client
@@ -741,6 +746,7 @@ func (m *upgradeManager) createAgencyAPI() (agency.Agency, error) {
 	if err != nil {
 		return nil, maskAny(err)
 	}
+	m.agencyAPI = a
 	return a, nil
 }
 
@@ -1082,14 +1088,8 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		overwrite := false
 		_, err = m.writeUpgradePlan(ctx, currentPlan, overwrite)
 		if err != nil {
-			// Check if it's a precondition failure (412) - if so, retry with fresh read
-			// The agency package returns custom errors, so check both driver_shared and error string
-			errStr := err.Error()
-			isPreconditionFailed := driver_shared.IsPreconditionFailed(err) ||
-				strings.Contains(errStr, "precondition failed") ||
-				strings.Contains(errStr, "statusCode=412")
-
-			if isPreconditionFailed {
+			// Check if it's a precondition failure - if so, retry with fresh read
+			if agency.IsPreconditionFailed(err) {
 				if attempt < maxRetries-1 {
 					// Wait before retrying with exponential backoff + jitter to break race conditions
 					// Base delay increases: 200ms, 400ms, 800ms, 1.6s, 3.2s

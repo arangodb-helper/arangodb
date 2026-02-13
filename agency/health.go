@@ -33,7 +33,7 @@ func AreAgentsHealthy(ctx context.Context, conns []driver_http.Connection) error
 	var result any
 
 	for _, conn := range conns {
-		client := &client{conn: conn}
+		client := &client{conn: conn, endpointCount: 1}
 
 		if err := client.ReadKey(ctx, testKey, &result); err != nil {
 			if IsKeyNotFound(err) {

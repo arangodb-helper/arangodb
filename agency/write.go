@@ -20,6 +20,7 @@ package agency
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -35,11 +36,11 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		return fmt.Errorf("transaction is nil")
 	}
 
-	// Convert operations to nested map format by key path
-	// Agency API expects nested structure: {"key": {"path": {"to": {"key": value}}}}
-	operations := c.buildOperationsMap(tx.Ops)
+	// Convert operations to flat key path format with operation descriptors
+	// Agency API expects: {"/key/path": {"op": "set", "new": value, "ttl": N}}
+	operations := c.buildOperationsMap(tx.Ops, tx.TTLs)
 
-	// Convert conditions to nested map format for preconditions
+	// Convert conditions to flat key path format for preconditions
 	preconditions := c.buildPreconditionsMap(tx.Conds)
 
 	// Agency write API expects: [[{operations}, {preconditions}, "clientId"]]
@@ -51,104 +52,110 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		},
 	}
 
-	req, err := c.conn.NewRequest("POST", "/_api/agency/write")
-	if err != nil {
-		return fmt.Errorf("failed to create agency write request: %w", err)
-	}
+	// Retry on connection-level errors (connection refused, timeout, EOF) to handle
+	// agency endpoint failover. The RoundRobinEndpoints rotates to the next
+	// endpoint on each new request, so retrying naturally tries a different agent.
+	var lastErr error
+	for attempt := 0; attempt < c.endpointCount; attempt++ {
+		// Exponential backoff: wait before retry (except on first attempt)
+		if attempt > 0 {
+			backoffDuration := time.Duration(math.Pow(2, float64(attempt-1))) * 100 * time.Millisecond
+			// Cap backoff at 2 seconds
+			if backoffDuration > 2*time.Second {
+				backoffDuration = 2 * time.Second
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoffDuration):
+			}
+		}
 
-	if err := req.SetBody(body); err != nil {
-		return fmt.Errorf("failed to set request body: %w", err)
-	}
+		req, err := c.conn.NewRequest("POST", "/_api/agency/write")
+		if err != nil {
+			return fmt.Errorf("failed to create agency write request: %w", err)
+		}
 
-	var result struct {
-		Results []int `json:"results"`
-	}
+		if err := req.SetBody(body); err != nil {
+			return fmt.Errorf("failed to set request body: %w", err)
+		}
 
-	resp, err := c.conn.Do(ctx, req, &result)
-	if err != nil {
-		return fmt.Errorf("agency write request failed: %w", err)
-	}
+		var result struct {
+			Results []int `json:"results"`
+		}
 
-	statusCode := resp.Code()
-	if resp == nil {
-		return fmt.Errorf("agency write response is nil")
-	}
+		resp, err := c.conn.Do(ctx, req, &result)
+		if err != nil {
+			if isConnectionError(err) && attempt < c.endpointCount-1 {
+				lastErr = err
+				continue
+			}
+			return fmt.Errorf("agency write request failed: %w", err)
+		}
 
-	if len(result.Results) == 0 {
-		return fmt.Errorf("agency write failed: no results returned")
-	}
+		statusCode := resp.Code()
+		if resp == nil {
+			return fmt.Errorf("agency write response is nil")
+		}
 
-	// Check results[0] first - 0 means precondition failed, 1 means success
-	// Status code 412 (Precondition Failed) is a valid response indicating precondition didn't match
-	// Status codes 200/201 with results[0] == 0 also indicate precondition failed
-	if result.Results[0] == 0 {
-		// Precondition failed - this is expected during leader election and other concurrent operations
-		return fmt.Errorf("agency write precondition failed: statusCode=%d, results=%v", statusCode, result.Results)
-	}
+		if len(result.Results) == 0 {
+			return fmt.Errorf("agency write failed: no results returned")
+		}
 
-	// If we got here, results[0] == 1 (success)
-	// Accept 200, 201, or 412 as valid status codes when results indicate success
-	if statusCode != 200 && statusCode != 201 && statusCode != 412 {
-		return fmt.Errorf("agency write returned non-success status code %d: Results: %v", statusCode, result.Results)
-	}
+		// Check results[0] first - 0 means precondition failed, 1 means success
+		// Status code 412 (Precondition Failed) is a valid response indicating precondition didn't match
+		// Status codes 200/201 with results[0] == 0 also indicate precondition failed
+		if result.Results[0] == 0 {
+			// Precondition failed - this is expected during leader election and other concurrent operations
+			return &PreconditionFailedError{
+				message: fmt.Sprintf("agency write precondition failed: statusCode=%d, results=%v", statusCode, result.Results),
+			}
+		}
 
-	// Write succeeded - return success
+		// If we got here, results[0] == 1 (success)
+		// Accept 200, 201, or 412 as valid status codes when results indicate success
+		if statusCode != 200 && statusCode != 201 && statusCode != 412 {
+			return fmt.Errorf("agency write returned non-success status code %d: Results: %v", statusCode, result.Results)
+		}
+
+		// Write succeeded - return success
+		return nil
+	}
+	if lastErr != nil {
+		return fmt.Errorf("agency write request failed after %d attempts: %w", c.endpointCount, lastErr)
+	}
 	return nil
 }
 
-// buildOperationsMap converts KeyChanger operations to nested map format
-// Expected format: {"key": {"path": {"to": {"key": value}}}}
-func (c *client) buildOperationsMap(ops []KeyChanger) map[string]any {
+// buildOperationsMap converts KeyChanger operations to flat key path format
+// with operation descriptors as expected by the ArangoDB Agency write API.
+// Expected format: {"/key/path/to/key": {"op": "set", "new": value, "ttl": N}}
+func (c *client) buildOperationsMap(ops []KeyChanger, ttls map[string]time.Duration) map[string]any {
 	result := make(map[string]any)
 
 	for _, op := range ops {
-		keyStr := op.GetKey()
-		// Remove leading slash if present
-		keyStr = strings.TrimPrefix(keyStr, "/")
-		keyPath := strings.Split(keyStr, "/")
-		if len(keyPath) == 0 || (len(keyPath) == 1 && keyPath[0] == "") {
-			continue
+		keyStr := "/" + strings.TrimPrefix(op.GetKey(), "/")
+
+		opMap := map[string]any{
+			"op": op.GetOperation(),
 		}
-
-		current := result
-		for i, part := range keyPath {
-			if part == "" {
-				continue
-			}
-
-			if i == len(keyPath)-1 {
-				// Last part - set the value based on operation type
-				switch op.GetOperation() {
-				case "set":
-					current[part] = op.GetNew()
-				case "delete":
-					// For delete, agency expects null
-					current[part] = nil
-				default:
-					current[part] = op.GetNew()
-				}
-			} else {
-				// Intermediate parts - create nested maps
-				if _, exists := current[part]; !exists {
-					current[part] = make(map[string]any)
-				}
-				// Type assert to ensure we can continue nesting
-				if nestedMap, ok := current[part].(map[string]any); ok {
-					current = nestedMap
-				} else {
-					// Overwrite with a new map
-					current[part] = make(map[string]any)
-					current = current[part].(map[string]any)
-				}
+		if op.GetOperation() != "delete" {
+			opMap["new"] = op.GetNew()
+		}
+		if ttls != nil {
+			if ttl, ok := ttls[op.GetKey()]; ok && ttl > 0 {
+				opMap["ttl"] = int(ttl.Seconds())
 			}
 		}
+		result[keyStr] = opMap
 	}
 
 	return result
 }
 
-// buildPreconditionsMap converts WriteCondition slice to nested map format
-// Expected format: {"key": {"path": {"to": {"key": {"old": value}}}}}
+// buildPreconditionsMap converts WriteCondition slice to flat key path format
+// as expected by the ArangoDB Agency write API.
+// Expected format: {"/key/path/to/key": {"old": value}}
 func (c *client) buildPreconditionsMap(conds []WriteCondition) map[string]any {
 	if len(conds) == 0 {
 		// Return empty map (not nil) - agency expects {} for empty preconditions
@@ -158,34 +165,17 @@ func (c *client) buildPreconditionsMap(conds []WriteCondition) map[string]any {
 	result := make(map[string]any)
 
 	for _, cond := range conds {
-		// Skip nil conditions
 		if cond == nil {
 			continue
 		}
-		// Get the full key path from the condition
 		keyPath := cond.GetKey()
 		if len(keyPath) == 0 {
 			continue
 		}
 
-		condValue := cond.GetValue()
-
-		// Build nested structure for the key path
-		current := result
-		for i, part := range keyPath {
-			if i == len(keyPath)-1 {
-				// Last part - set the condition
-				// For now, assume it's an "old" condition (ifEqual)
-				current[part] = map[string]any{
-					"old": condValue,
-				}
-			} else {
-				// Intermediate parts - create nested maps
-				if _, exists := current[part]; !exists {
-					current[part] = make(map[string]any)
-				}
-				current = current[part].(map[string]any)
-			}
+		keyStr := "/" + strings.Join(keyPath, "/")
+		result[keyStr] = map[string]any{
+			"old": cond.GetValue(),
 		}
 	}
 
@@ -199,13 +189,17 @@ func (c *client) WriteKey(
 	ttl time.Duration,
 	conditions ...WriteCondition,
 ) error {
+	op := SetKey(key, value)
 	tx := &Transaction{
-		Ops:   []KeyChanger{SetKey(key, value)},
+		Ops:   []KeyChanger{op},
 		Conds: conditions,
 	}
-
-	err := c.Write(ctx, tx)
-	return err
+	if ttl > 0 {
+		tx.TTLs = map[string]time.Duration{
+			op.GetKey(): ttl,
+		}
+	}
+	return c.Write(ctx, tx)
 }
 
 func (c *client) RemoveKey(
@@ -221,14 +215,4 @@ func (c *client) RemoveKey(
 	}
 
 	return c.Write(ctx, tx)
-}
-
-func (c *client) WriteKeyIfEmpty(ctx context.Context, key []string, value interface{}, ttl time.Duration) error {
-	// implement the logic
-	return nil
-}
-
-func (c *client) WriteKeyIfEqualTo(ctx context.Context, key []string, newValue, oldValue interface{}, ttl time.Duration) error {
-	// implement the logic
-	return nil
 }
