@@ -1,6 +1,9 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Migrate from go-driver v1 to go-driver v2 across service, client, and test code
+- Add internal agency client utilities (read/write, lock acquisition, leader election) and related reliability fixes for upgrade/test flows
+- Update go-upgrade-rules dependency for go-driver v2 compatibility
 
 ## [v0.19.17](https://github.com/arangodb-helper/arangodb/tree/0.19.17) (2026-02-11)
 - Bump Go version (1.24.13) and dependencies for CVE fixes
