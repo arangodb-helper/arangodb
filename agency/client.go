@@ -125,12 +125,17 @@ func NewAgency(conn driver_http.Connection, endpointCount int) (Agency, error) {
 }
 
 func (c *client) RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue interface{}) error {
+	if len(key) == 0 {
+		return fmt.Errorf("agency.RemoveKeyIfEqualTo: key cannot be empty")
+	}
+	parentPath := key[:len(key)-1]
+	lastElement := key[len(key)-1]
 	tx := &Transaction{
 		Ops: []KeyChanger{
 			RemoveKey(key),
 		},
 		Conds: []WriteCondition{
-			KeyEquals(key, "", oldValue), // adjust depending on your condition struct
+			KeyEquals(parentPath, lastElement, oldValue), // adjust depending on your condition struct
 		},
 	}
 	return c.Write(ctx, tx)

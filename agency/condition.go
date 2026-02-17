@@ -54,7 +54,9 @@ func KeyEquals(key []string, field string, value any) WriteCondition {
 // KeyMissingOrExpired checks key missing or expired
 func KeyMissingOrExpired(key []string, now time.Time) WriteCondition {
 	return writeCondition{
-		Key:   append(key, "expires"),
-		Value: now,
+		// Key:   append(key, "expires"),
+		// Value: now,
+		Key:   key,
+		Value: nil,
 	}
 }

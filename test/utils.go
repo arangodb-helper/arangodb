@@ -650,7 +650,7 @@ func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig) {
 				}
 				// Some endpoints missing, retry
 				if time.Now().After(deadline) {
-					t.Fatalf("Not all endpoints present after 30 seconds for member: %d. Got: %v", m.Port, endpoints.Starters)
+					t.Fatalf("Not all endpoints present after 120 seconds for member: %d. Got: %v", m.Port, endpoints.Starters)
 				}
 				t.Logf("Not all endpoints present for member %d (got %d, expected %d), retrying Endpoints in 500ms...", m.Port, len(endpoints.Starters), len(members))
 				time.Sleep(500 * time.Millisecond)

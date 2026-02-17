@@ -338,10 +338,8 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 				// Wait a bit
 				time.Sleep(time.Millisecond * 250)
 			}
-			// Remove dbserver from cluster - V2 MIGRATION HERE
-			// In go-driver v2, Shutdown is available via ClientAdmin interface
 			if err := sc.Shutdown(ctx, sid, &graceful); err != nil {
-				s.log.Warn().Err(err).Msgf("RemoveServer request of dbserver %s failed", sid)
+				s.log.Warn().Err(err).Msgf("Shutdown request of coordinator %s failed", sid)
 				return maskAny(err)
 			}
 			return nil

@@ -134,7 +134,9 @@ func (l *lock) Release(ctx context.Context) error {
 		},
 	}
 
-	_ = l.agency.Write(ctx, tx)
+	if err := l.agency.Write(ctx, tx); err != nil {
+		return err
+	}
 	l.isLeader = false
 	return nil
 }

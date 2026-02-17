@@ -183,17 +183,17 @@ func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL str
 
 			// If we don't have a master URL yet and Update failed, try to use a fallback
 			// from the cluster config to allow the cluster to bootstrap
-			if oldMasterURL == "" {
-				clusterConfig, _, _ := s.runtimeContext.ClusterConfig()
-				if len(clusterConfig.AllPeers) > 0 {
-					// Use first peer as temporary fallback until leader election succeeds
-					fallbackURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
-					if fallbackURL != "" && fallbackURL != myURL {
-						s.log.Debug().Str("fallback_master_url", fallbackURL).Msg("Using fallback master URL from cluster config")
-						s.updateMasterURL(fallbackURL, false)
-					}
-				}
-			}
+			// if oldMasterURL == "" {
+			// 	clusterConfig, _, _ := s.runtimeContext.ClusterConfig()
+			// 	if len(clusterConfig.AllPeers) > 0 {
+			// 		// Use first peer as temporary fallback until leader election succeeds
+			// 		fallbackURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
+			// 		if fallbackURL != "" && fallbackURL != myURL {
+			// 			s.log.Debug().Str("fallback_master_url", fallbackURL).Msg("Using fallback master URL from cluster config")
+			// 			s.updateMasterURL(fallbackURL, false)
+			// 		}
+			// 	}
+			// }
 			continue
 		}
 
