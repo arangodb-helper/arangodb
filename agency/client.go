@@ -135,7 +135,8 @@ func (c *client) RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue 
 			RemoveKey(key),
 		},
 		Conds: []WriteCondition{
-			KeyEquals(parentPath, lastElement, oldValue), // adjust depending on your condition struct
+			// Only remove the key if its current value in the agency matches oldValue.
+			KeyEquals(parentPath, lastElement, oldValue),
 		},
 	}
 	return c.Write(ctx, tx)
