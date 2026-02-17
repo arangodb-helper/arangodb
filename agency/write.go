@@ -93,11 +93,11 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 			return fmt.Errorf("agency write request failed: %w", err)
 		}
 
-		statusCode := resp.Code()
 		if resp == nil {
 			return fmt.Errorf("agency write response is nil")
 		}
 
+		statusCode := resp.Code()
 		if len(result.Results) == 0 {
 			return fmt.Errorf("agency write failed: no results returned")
 		}
