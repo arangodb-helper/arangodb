@@ -27,13 +27,6 @@ require (
 	gopkg.in/ini.v1 v1.66.6
 )
 
-// Use master branch of go-driver v2 for testing Shutdown method if needed.
-// TODO: Once Shutdown is released in a stable version, update the required version accordingly.
-// To use the master branch temporarily, run: go get github.com/arangodb/go-driver/v2@master
-// Or use a specific commit hash with a replace directive in a local branch, for example:
-//   replace github.com/arangodb/go-driver/v2 => github.com/arangodb/go-driver/v2 v0.0.0-YYYYMMDDHHMMSS-COMMIT_HASH
-// The current required version is v2.1.7-0.20260121124235-18030b704add; adjust via the go get command above when ready to test.
-
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
