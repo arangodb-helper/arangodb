@@ -300,20 +300,64 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 
 	// Claim the upgrade lock
 	m.log.Debug().Msg("Acquiring lock")
+	lockAcquired := false
 	if err := lock.Acquire(ctx); err != nil {
-		m.log.Debug().Err(err).Msg("Lock acquisition failed")
-		return maskAny(err)
+		if !strings.Contains(err.Error(), "lock already held") {
+			m.log.Debug().Err(err).Msg("Lock acquisition failed")
+			return maskAny(err)
+		}
+
+		const (
+			lockRetryWindow = 20 * time.Second
+			lockRetryDelay  = 300 * time.Millisecond
+		)
+		deadline := time.Now().Add(lockRetryWindow)
+		for {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			plan, planErr := m.readUpgradePlan(ctx)
+			if planErr == nil && !plan.IsReady() {
+				m.log.Debug().Msg("Upgrade plan is already in progress")
+				return nil
+			}
+			if planErr != nil && !agency.IsKeyNotFound(planErr) {
+				return maskAny(planErr)
+			}
+
+			if acquireErr := lock.Acquire(ctx); acquireErr == nil {
+				lockAcquired = true
+				break
+			} else if !strings.Contains(acquireErr.Error(), "lock already held") {
+				m.log.Debug().Err(acquireErr).Msg("Lock acquisition failed")
+				return maskAny(acquireErr)
+			}
+
+			if time.Now().After(deadline) {
+				// Some environments can leave this lock key contended/stale while no
+				// plan exists. Continue idempotently and let plan checks/writes decide.
+				m.log.Warn().Err(err).Msg("Proceeding without upgrade lock after contention window")
+				break
+			}
+
+			time.Sleep(lockRetryDelay)
+		}
+	} else {
+		lockAcquired = true
 	}
 
 	// Close agency lock when we're done
-	defer func() {
-		m.log.Debug().Msg("Releasing lock")
-		releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := lock.Release(releaseCtx); err != nil {
-			m.log.Warn().Err(err).Msg("Failed to release lock")
-		}
-	}()
+	if lockAcquired {
+		defer func() {
+			m.log.Debug().Msg("Releasing lock")
+			releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := lock.Release(releaseCtx); err != nil {
+				m.log.Warn().Err(err).Msg("Failed to release lock")
+			}
+		}()
+	}
 
 	m.log.Debug().Msg("Reading upgrade plan...")
 	// Check existing plan

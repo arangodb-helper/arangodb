@@ -17,8 +17,6 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 package agency
 
-import "time"
-
 type WriteCondition interface {
 	GetName() string
 	GetValue() any
@@ -45,18 +43,30 @@ func IfEqualTo(key []string, value any) WriteCondition {
 
 // KeyEquals checks a field equals a value
 func KeyEquals(key []string, field string, value any) WriteCondition {
+	fullKey := make([]string, 0, len(key)+1)
+	fullKey = append(fullKey, key...)
+	fullKey = append(fullKey, field)
+
 	return writeCondition{
-		Key:   append(key, field),
+		Key:   fullKey,
 		Value: value,
 	}
 }
 
-// KeyMissingOrExpired checks key missing or expired
-func KeyMissingOrExpired(key []string, now time.Time) WriteCondition {
+// KeyMissing is a precondition that the key path does not exist (empty/absent).
+// The agency treats "old": null as matching when the key is missing.
+func KeyMissing(key []string) WriteCondition {
 	return writeCondition{
-		// Key:   append(key, "expires"),
-		// Value: now,
 		Key:   key,
 		Value: nil,
+	}
+}
+
+// KeyMissingEmpty is like KeyMissing but sends "old": [] for agencies that expect
+// an empty array for absent keys instead of null.
+func KeyMissingEmpty(key []string) WriteCondition {
+	return writeCondition{
+		Key:   key,
+		Value: []any{},
 	}
 }

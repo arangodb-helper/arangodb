@@ -65,7 +65,7 @@ func (l *LeaderElectionCell[T]) tryBecomeLeader(ctx context.Context, cli Agency,
 
 	if assumeEmpty {
 		trx.Conds = []WriteCondition{
-			KeyMissingOrExpired(l.key, time.Now()),
+			KeyMissing(l.key),
 		}
 	} else {
 		trx.Conds = []WriteCondition{

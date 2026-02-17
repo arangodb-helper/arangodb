@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"time"
 )
 
@@ -72,51 +71,176 @@ func NewLock(
 	}, nil
 }
 
-// Acquire tries to acquire leadership
+// Acquire tries to acquire leadership using agency write preconditions so that
+// only one contender can succeed (atomic compare-and-swap style).
 func (l *lock) Acquire(ctx context.Context) error {
-	now := time.Now()
-	expires := now.Add(l.ttl)
-
-	log.Printf("[LOCK] Acquire key=%v holder=%s", l.key, l.id)
-
-	// Try to read current lock state for optimistic check
+	// Read current lock for fast-fail and for expired-case CAS
 	var raw json.RawMessage
 	err := l.agency.ReadKey(ctx, l.key, &raw)
-
+	var current lockValue
+	var currentValid bool
+	var currentRaw any
+	var currentRawValid bool
+	now := time.Now()
 	if err == nil {
-		var current lockValue
-		if err := json.Unmarshal(raw, &current); err == nil {
-			// If lock is held by someone else and not expired, fail early
-			if current.Expires.After(now) && current.Holder != l.id {
-				return errors.New("lock already held")
+		if jsonErr := json.Unmarshal(raw, &currentRaw); jsonErr == nil {
+			currentRawValid = true
+		}
+		if jsonErr := json.Unmarshal(raw, &current); jsonErr == nil {
+			currentValid = true
+			// If holder is empty and expires is zero, this may be a non-lock payload
+			// (or bootstrap sentinel). Treat as unknown so we can use whole-value CAS.
+			if current.Holder == "" && current.Expires.IsZero() {
+				currentValid = false
 			}
-			// If lock is expired or we're the holder, proceed to atomic write
 		} else {
-			// old-format lock → MUST remove it first
-			_ = l.agency.RemoveKey(ctx, l.key)
+			return errors.New("lock value is invalid")
 		}
 	} else if !IsKeyNotFound(err) {
 		return err
 	}
 
-	// Atomic write: try to acquire lock
-	// Note: We've already checked if lock is held and not expired above
-	// If we get here, either lock doesn't exist, is expired, or we're the holder
-	tx := &Transaction{
-		Ops: []KeyChanger{
-			RemoveKey(l.key),
-			SetKey(l.key, lockValue{Holder: l.id, Expires: expires}),
-		},
+	now = time.Now()
+	expires := now.Add(l.ttl)
+	newVal := lockValue{Holder: l.id, Expires: expires}
+
+	if currentValid && current.Expires.After(now) && current.Holder != l.id {
+		return errors.New("lock already held")
 	}
 
-	if err := l.agency.Write(ctx, tx); err != nil {
-		log.Printf("[LOCK] Acquire FAILED: %v", err)
+	// 1) We already hold: only we can pass holder == l.id
+	tx := &Transaction{
+		Ops: []KeyChanger{
+			SetKey(l.key, newVal),
+		},
+		Conds: []WriteCondition{
+			KeyEquals(l.key, "holder", l.id),
+		},
+	}
+	if err := l.agency.Write(ctx, tx); err == nil {
+		l.isLeader = true
+		return nil
+	}
+	if err != nil && !IsPreconditionFailed(err) && !IsKeyNotFound(err) {
 		return err
 	}
 
-	log.Printf("[LOCK] Acquire SUCCESS")
-	l.isLeader = true
-	return nil
+	// 1b) Unknown/legacy payload at this key: CAS on whole key value.
+	if currentRawValid && !currentValid {
+		tx = &Transaction{
+			Ops: []KeyChanger{
+				SetKey(l.key, newVal),
+			},
+			Conds: []WriteCondition{
+				IfEqualTo(l.key, currentRaw),
+			},
+		}
+		if err := l.agency.Write(ctx, tx); err == nil {
+			l.isLeader = true
+			return nil
+		}
+		if err != nil && !IsPreconditionFailed(err) && !IsKeyNotFound(err) {
+			return err
+		}
+	}
+
+	// 2) Key missing bootstrap: initialize with an empty sentinel using a missing-key
+	// precondition so this step remains atomic. Try both null and empty-array forms
+	// because agency variants can differ on absent-key encoding.
+	if !currentValid {
+		sentinel := lockValue{Holder: "", Expires: time.Time{}}
+
+		bootstrapTx := &Transaction{
+			Ops: []KeyChanger{SetKey(l.key, sentinel)},
+			Conds: []WriteCondition{
+				KeyMissing(l.key),
+			},
+		}
+		if err := l.agency.Write(ctx, bootstrapTx); err == nil {
+			currentValid = true
+			current = sentinel
+			currentRaw = sentinel
+			currentRawValid = true
+		} else if !IsPreconditionFailed(err) && !IsKeyNotFound(err) {
+			return err
+		} else {
+			bootstrapTx = &Transaction{
+				Ops: []KeyChanger{SetKey(l.key, sentinel)},
+				Conds: []WriteCondition{
+					KeyMissingEmpty(l.key),
+				},
+			}
+			if err := l.agency.Write(ctx, bootstrapTx); err == nil {
+				currentValid = true
+				current = sentinel
+				currentRaw = sentinel
+				currentRawValid = true
+			} else if !IsPreconditionFailed(err) && !IsKeyNotFound(err) {
+				return err
+			} else {
+				if readErr := l.agency.ReadKey(ctx, l.key, &raw); readErr == nil {
+					currentRawValid = false
+					if jsonErr := json.Unmarshal(raw, &currentRaw); jsonErr == nil {
+						currentRawValid = true
+					}
+					if jsonErr := json.Unmarshal(raw, &current); jsonErr == nil {
+						currentValid = true
+						if current.Holder == "" && current.Expires.IsZero() {
+							currentValid = false
+						}
+					}
+				} else if !IsKeyNotFound(readErr) {
+					return readErr
+				}
+			}
+		}
+	}
+
+	now = time.Now()
+	if currentValid && current.Expires.After(now) && current.Holder != l.id {
+		return errors.New("lock already held")
+	}
+
+	// 3) Key exists but expired: CAS on expires so only one wins
+	if currentValid && !current.Expires.After(now) {
+		tx = &Transaction{
+			Ops: []KeyChanger{
+				SetKey(l.key, newVal),
+			},
+			Conds: []WriteCondition{
+				KeyEquals(l.key, "expires", current.Expires),
+			},
+		}
+		if err := l.agency.Write(ctx, tx); err == nil {
+			l.isLeader = true
+			return nil
+		}
+		if err != nil && !IsPreconditionFailed(err) && !IsKeyNotFound(err) {
+			return err
+		}
+
+		// Fallback for expired lock payloads where field-level CAS may not match
+		// due JSON shape differences; whole-value CAS keeps atomicity.
+		if currentRawValid {
+			tx = &Transaction{
+				Ops: []KeyChanger{
+					SetKey(l.key, newVal),
+				},
+				Conds: []WriteCondition{
+					IfEqualTo(l.key, currentRaw),
+				},
+			}
+			if err := l.agency.Write(ctx, tx); err == nil {
+				l.isLeader = true
+				return nil
+			}
+			if err != nil && !IsPreconditionFailed(err) && !IsKeyNotFound(err) {
+				return err
+			}
+		}
+	}
+
+	return errors.New("lock already held")
 }
 
 // Release releases the lock if we are leader
