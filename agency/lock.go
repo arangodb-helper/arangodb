@@ -24,19 +24,20 @@ import (
 	"time"
 )
 
-// Lock represents a distributed agency-backed lock
+// Lock represents a distributed agency-backed lock.
+// Same pattern as master: lock is created with key/id/ttl; agency is passed at acquire time (Lock(ctx, api)).
 type Lock interface {
-	Acquire(ctx context.Context) error
+	Acquire(ctx context.Context, api Agency) error
 	Renew(ctx context.Context) error
 	Release(ctx context.Context) error
 	IsLeader() bool
 }
 
 type lock struct {
-	agency   Agency
 	key      []string
 	id       string
 	ttl      time.Duration
+	agency   Agency // set on successful Acquire for Release/Renew
 	isLeader bool
 }
 
@@ -46,37 +47,27 @@ type lockValue struct {
 	Expires time.Time `json:"expires"`
 }
 
-// NewLock creates a new agency-backed lock
-func NewLock(
-	agency Agency,
-	key []string,
-	id string,
-	ttl time.Duration,
-) (Lock, error) {
-	if agency == nil {
-		return nil, errors.New("agency client is nil")
-	}
+// NewLock creates a new agency-backed lock (key, id, ttl only; agency passed at Acquire(ctx, api) like master Lock(ctx, api)).
+func NewLock(key []string, id string, ttl time.Duration) (Lock, error) {
 	if len(key) == 0 {
 		return nil, errors.New("lock key is empty")
 	}
 	if ttl <= 0 {
 		return nil, errors.New("invalid ttl")
 	}
-
-	return &lock{
-		agency: agency,
-		key:    key,
-		id:     id,
-		ttl:    ttl,
-	}, nil
+	return &lock{key: key, id: id, ttl: ttl}, nil
 }
 
 // Acquire tries to acquire leadership using agency write preconditions so that
 // only one contender can succeed (atomic compare-and-swap style).
-func (l *lock) Acquire(ctx context.Context) error {
+// api is the agency to use (same as master's lock.Lock(ctx, api)).
+func (l *lock) Acquire(ctx context.Context, api Agency) error {
+	if api == nil {
+		return errors.New("agency is nil")
+	}
 	// Read current lock for fast-fail and for expired-case CAS
 	var raw json.RawMessage
-	err := l.agency.ReadKey(ctx, l.key, &raw)
+	err := api.ReadKey(ctx, l.key, &raw)
 	var current lockValue
 	var currentValid bool
 	var currentRaw any
@@ -117,7 +108,8 @@ func (l *lock) Acquire(ctx context.Context) error {
 			KeyEquals(l.key, "holder", l.id),
 		},
 	}
-	if err := l.agency.Write(ctx, tx); err == nil {
+	if err := api.Write(ctx, tx); err == nil {
+		l.agency = api
 		l.isLeader = true
 		return nil
 	}
@@ -126,16 +118,22 @@ func (l *lock) Acquire(ctx context.Context) error {
 	}
 
 	// 1b) Unknown/legacy payload at this key: CAS on whole key value.
+	// Use raw JSON from read when available so precondition matches agency's exact encoding.
 	if currentRawValid && !currentValid {
+		condVal := any(currentRaw)
+		if len(raw) > 0 {
+			condVal = json.RawMessage(raw)
+		}
 		tx = &Transaction{
 			Ops: []KeyChanger{
 				SetKey(l.key, newVal),
 			},
 			Conds: []WriteCondition{
-				IfEqualTo(l.key, currentRaw),
+				IfEqualTo(l.key, condVal),
 			},
 		}
-		if err := l.agency.Write(ctx, tx); err == nil {
+		if err := api.Write(ctx, tx); err == nil {
+			l.agency = api
 			l.isLeader = true
 			return nil
 		}
@@ -156,7 +154,7 @@ func (l *lock) Acquire(ctx context.Context) error {
 				KeyMissing(l.key),
 			},
 		}
-		if err := l.agency.Write(ctx, bootstrapTx); err == nil {
+		if err := api.Write(ctx, bootstrapTx); err == nil {
 			currentValid = true
 			current = sentinel
 			currentRaw = sentinel
@@ -170,7 +168,7 @@ func (l *lock) Acquire(ctx context.Context) error {
 					KeyMissingEmpty(l.key),
 				},
 			}
-			if err := l.agency.Write(ctx, bootstrapTx); err == nil {
+			if err := api.Write(ctx, bootstrapTx); err == nil {
 				currentValid = true
 				current = sentinel
 				currentRaw = sentinel
@@ -178,7 +176,7 @@ func (l *lock) Acquire(ctx context.Context) error {
 			} else if !IsPreconditionFailed(err) && !IsKeyNotFound(err) {
 				return err
 			} else {
-				if readErr := l.agency.ReadKey(ctx, l.key, &raw); readErr == nil {
+				if readErr := api.ReadKey(ctx, l.key, &raw); readErr == nil {
 					currentRawValid = false
 					if jsonErr := json.Unmarshal(raw, &currentRaw); jsonErr == nil {
 						currentRawValid = true
@@ -193,6 +191,30 @@ func (l *lock) Acquire(ctx context.Context) error {
 					return readErr
 				}
 			}
+		}
+	}
+
+	// 2b) Key exists with sentinel (re-read after bootstrap failed): CAS using exact JSON from agency.
+	if !currentValid && currentRawValid {
+		condVal := any(currentRaw)
+		if len(raw) > 0 {
+			condVal = json.RawMessage(raw)
+		}
+		tx = &Transaction{
+			Ops: []KeyChanger{
+				SetKey(l.key, newVal),
+			},
+			Conds: []WriteCondition{
+				IfEqualTo(l.key, condVal),
+			},
+		}
+		if err := api.Write(ctx, tx); err == nil {
+			l.agency = api
+			l.isLeader = true
+			return nil
+		}
+		if err != nil && !IsPreconditionFailed(err) && !IsKeyNotFound(err) {
+			return err
 		}
 	}
 
@@ -211,7 +233,8 @@ func (l *lock) Acquire(ctx context.Context) error {
 				KeyEquals(l.key, "expires", current.Expires),
 			},
 		}
-		if err := l.agency.Write(ctx, tx); err == nil {
+		if err := api.Write(ctx, tx); err == nil {
+			l.agency = api
 			l.isLeader = true
 			return nil
 		}
@@ -220,17 +243,22 @@ func (l *lock) Acquire(ctx context.Context) error {
 		}
 
 		// Fallback for expired lock payloads where field-level CAS may not match
-		// due JSON shape differences; whole-value CAS keeps atomicity.
+		// due JSON shape differences; use exact raw JSON when available.
 		if currentRawValid {
+			condVal := any(currentRaw)
+			if len(raw) > 0 {
+				condVal = json.RawMessage(raw)
+			}
 			tx = &Transaction{
 				Ops: []KeyChanger{
 					SetKey(l.key, newVal),
 				},
 				Conds: []WriteCondition{
-					IfEqualTo(l.key, currentRaw),
+					IfEqualTo(l.key, condVal),
 				},
 			}
-			if err := l.agency.Write(ctx, tx); err == nil {
+			if err := api.Write(ctx, tx); err == nil {
+				l.agency = api
 				l.isLeader = true
 				return nil
 			}

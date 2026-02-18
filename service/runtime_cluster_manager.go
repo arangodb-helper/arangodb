@@ -244,8 +244,14 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 
 	ownURL := myPeer.CreateStarterURL("/")
 
-	// Initialize master URL with fallback from cluster config to allow immediate operation
-	// Leader election will update this with the actual elected master
+	// Initialize master URL from cluster config so the first peer can act as master
+	// before leader election has run (see startRunning: we start as stateRunningSlave;
+	// only updateMasterURL sets stateRunningMaster). Master branch has no fallback
+	// (https://github.com/arangodb-helper/arangodb/blob/master/service/runtime_cluster_manager.go):
+	// there, go-helper leader election typically completes before the upgrade API is
+	// called. With v2 agency, the first le.Update() can be delayed, so without this
+	// we get "Starter master is not known" when upgrade is requested early. Leader
+	// election will overwrite with the actual elected master.
 	clusterConfig, _, _ := runtimeContext.ClusterConfig()
 	if len(clusterConfig.AllPeers) > 0 {
 		fallbackURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
@@ -265,15 +271,6 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 		}
 
 		masterURL := s.GetMasterURL()
-		if masterURL == "" || masterURL == ownURL {
-			clusterConfig, _, _ := runtimeContext.ClusterConfig()
-			if len(clusterConfig.AllPeers) > 0 {
-				fallbackURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
-				if fallbackURL != "" && fallbackURL != ownURL {
-					masterURL = fallbackURL
-				}
-			}
-		}
 		if masterURL != "" && masterURL != ownURL {
 			log.Debug().Msgf("Updating cluster configuration master URL: %s", masterURL)
 			// We are a follower, try to update cluster configuration from leader

@@ -291,74 +291,25 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 
 	// Use peer ID for lock holder identification (myPeer already declared above)
 	m.log.Debug().Msg("Creating lock")
-	lock, err := agency.NewLock(api, upgradeManagerLockKey, myPeer.ID, upgradeManagerLockTTL)
+	lock, err := agency.NewLock(upgradeManagerLockKey, myPeer.ID, upgradeManagerLockTTL)
 	if err != nil {
 		return maskAny(err)
 	}
 
-	// Claim the upgrade lock
+	// Claim the upgrade lock (same as master: lock.Lock(ctx, api); on error return)
 	m.log.Debug().Msg("Locking lock")
-	lockAcquired := false
-	if err := lock.Acquire(ctx); err != nil {
-		if !agency.IsLockAlreadyHeld(err) {
-			m.log.Debug().Err(err).Msg("Lock failed")
-			return maskAny(err)
-		}
-
-		const (
-			lockRetryWindow = 20 * time.Second
-			lockRetryDelay  = 300 * time.Millisecond
-		)
-		deadline := time.Now().Add(lockRetryWindow)
-		lastAcquireErr := err
-		for {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
-			plan, planErr := m.readUpgradePlan(ctx)
-			if planErr == nil && !plan.IsReady() {
-				m.log.Debug().Msg("Upgrade plan is already in progress")
-				return nil
-			}
-			if planErr != nil && !agency.IsKeyNotFound(planErr) {
-				return maskAny(planErr)
-			}
-
-			if acquireErr := lock.Acquire(ctx); acquireErr == nil {
-				lockAcquired = true
-				break
-			} else if !agency.IsLockAlreadyHeld(acquireErr) {
-				m.log.Debug().Err(acquireErr).Msg("Lock failed")
-				return maskAny(acquireErr)
-			} else {
-				lastAcquireErr = acquireErr
-			}
-
-			if time.Now().After(deadline) {
-				// Some environments can leave this lock key contended/stale while no
-				// plan exists. Continue idempotently and let plan checks/writes decide.
-				m.log.Warn().Err(lastAcquireErr).Msg("Proceeding without upgrade lock after contention window")
-				break
-			}
-
-			time.Sleep(lockRetryDelay)
-		}
-	} else {
-		lockAcquired = true
+	if err := lock.Acquire(ctx, api); err != nil {
+		m.log.Debug().Err(err).Msg("Lock failed")
+		return maskAny(err)
 	}
-
-	// Close agency lock when we're done
-	if lockAcquired {
-		defer func() {
-			m.log.Debug().Msg("Unlocking lock")
-			releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := lock.Release(releaseCtx); err != nil {
-				m.log.Warn().Err(err).Msg("Failed to unlock lock")
-			}
-		}()
-	}
+	defer func() {
+		m.log.Debug().Msg("Unlocking lock")
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := lock.Release(releaseCtx); err != nil {
+			m.log.Warn().Err(err).Msg("Failed to unlock lock")
+		}
+	}()
 
 	m.log.Debug().Msg("Reading upgrade plan...")
 	// Check existing plan
@@ -556,14 +507,14 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	// Get peer ID for lock holder identification
 	_, myPeer, _ := m.upgradeManagerContext.ClusterConfig()
 	m.log.Debug().Msg("Creating lock")
-	lock, err := agency.NewLock(api, upgradeManagerLockKey, myPeer.ID, upgradeManagerLockTTL)
+	lock, err := agency.NewLock(upgradeManagerLockKey, myPeer.ID, upgradeManagerLockTTL)
 	if err != nil {
 		return maskAny(err)
 	}
 
-	// Claim the upgrade lock
+	// Claim the upgrade lock (same as master: lock.Lock(ctx, api))
 	m.log.Debug().Msg("Locking lock")
-	if err := lock.Acquire(ctx); err != nil {
+	if err := lock.Acquire(ctx, api); err != nil {
 		m.log.Debug().Err(err).Msg("Lock failed")
 		return maskAny(err)
 	}

@@ -886,8 +886,9 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 			InsecureSkipVerify: true,
 		},
 	}
-	// For agency connections, disable keep-alives to prevent TLS connection pooling
-	// which can cache connections with old certificates after certificate rotation
+	// Master (go-driver v1) uses DontFollowRedirect for agency in ConnectionConfig (service.go#L899).
+	// That is not present in go-driver v2; equivalent behavior: disable keep-alives for agency
+	// to prevent TLS connection pooling that can cache connections with old certs after rotation.
 	if connectionType == ConnectionTypeAgency {
 		transport.DisableKeepAlives = true
 	}

@@ -112,13 +112,22 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 	}
 
 	current := any(root)
-	for _, part := range key {
+	for i, part := range key {
 		m, ok := current.(map[string]any)
 		if !ok {
 			return ErrKeyNotFound
 		}
 		v, ok := m[part]
 		if !ok {
+			// Agency may return value-at-path as arr[0] (e.g. {"Holder":"","Expires":"..."} for lock key).
+			// Then root has no key[0]; treat current as the value at path and return it.
+			if i == 0 {
+				data, err := json.Marshal(current)
+				if err != nil {
+					return err
+				}
+				return json.Unmarshal(data, out)
+			}
 			return ErrKeyNotFound
 		}
 		current = v
