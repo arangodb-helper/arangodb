@@ -886,12 +886,9 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 			InsecureSkipVerify: true,
 		},
 	}
-	// Master (go-driver v1) uses DontFollowRedirect for agency in ConnectionConfig (service.go#L899).
-	// That is not present in go-driver v2; equivalent behavior: disable keep-alives for agency
-	// to prevent TLS connection pooling that can cache connections with old certs after rotation.
-	if connectionType == ConnectionTypeAgency {
-		transport.DisableKeepAlives = true
-	}
+	// Master (go-driver v1) sets DontFollowRedirect for agency in ConnectionConfig (service.go#L899).
+	// go-driver v2 HttpConfiguration has no DontFollowRedirect field, so we use the same transport for all.
+	// We do not set DisableKeepAlives for agency so connections can be reused (matches master's effective behavior).
 	connConfig := driver_http.HttpConfiguration{
 		Endpoint:  endpoint,
 		Transport: transport,
