@@ -21,9 +21,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
+	"net/url"
 	"time"
+
+	driver_http "github.com/arangodb/go-driver/v2/connection"
+)
+
+const (
+	agencyConnectionRetryWindow = 20 * time.Second
+	agencyConnectionRetryDelay  = 100 * time.Millisecond
 )
 
 func (c *client) Read(ctx context.Context, key []string, out any) error {
@@ -46,18 +53,13 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 	// endpoint on each new request, so retrying naturally tries a different agent.
 	var rawResponse any
 	var lastErr error
-	for attempt := 0; attempt < c.endpointCount; attempt++ {
-		// Exponential backoff: wait before retry (except on first attempt)
+	deadline := time.Now().Add(agencyConnectionRetryWindow)
+	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
-			backoffDuration := time.Duration(math.Pow(2, float64(attempt-1))) * 100 * time.Millisecond
-			// Cap backoff at 2 seconds
-			if backoffDuration > 2*time.Second {
-				backoffDuration = 2 * time.Second
-			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(backoffDuration):
+			case <-time.After(agencyConnectionRetryDelay):
 			}
 		}
 
@@ -71,7 +73,7 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 
 		resp, err := c.conn.Do(ctx, req, &rawResponse)
 		if err != nil {
-			if isConnectionError(err) && attempt < c.endpointCount-1 {
+			if isConnectionError(err) && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
@@ -80,11 +82,21 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		if resp == nil {
 			return ErrKeyNotFound
 		}
+		// 307 from non-leader returns empty body; follow Location once so leader election completes.
+		if resp.Code() >= 300 && resp.Code() < 400 && c.redirectConfig != nil {
+			if location := resp.Header("Location"); location != "" {
+				absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
+				redirectRaw, redirectErr := c.doReadToEndpoint(ctx, reqBody, absoluteLocation)
+				if redirectErr == nil && redirectRaw != nil {
+					rawResponse = redirectRaw
+				}
+			}
+		}
 		lastErr = nil
 		break
 	}
 	if lastErr != nil {
-		return fmt.Errorf("agency read request failed after %d attempts: %w", c.endpointCount, lastErr)
+		return fmt.Errorf("agency read request failed after retry window %s: %w", agencyConnectionRetryWindow, lastErr)
 	}
 
 	// Agency read API can return either:
@@ -92,6 +104,9 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 	// 2. A map directly: {<agency_tree>} - the agency tree starting from the root
 	var root map[string]any
 
+	if rawResponse == nil {
+		return fmt.Errorf("agency read response is empty (possibly 307 redirect not followed)")
+	}
 	if arr, ok := rawResponse.([]any); ok {
 		// Response is an array
 		if len(arr) == 0 {
@@ -138,6 +153,33 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		return err
 	}
 	return json.Unmarshal(data, out)
+}
+
+func (c *client) doReadToEndpoint(ctx context.Context, reqBody [][]string, locationURL string) (any, error) {
+	u, err := url.Parse(locationURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("redirect Location not absolute: %q", locationURL)
+	}
+	baseURL := u.Scheme + "://" + u.Host
+	config := *c.redirectConfig
+	config.Endpoint = driver_http.NewRoundRobinEndpoints([]string{baseURL})
+	redirectConn := driver_http.NewHttpConnection(config)
+	req, err := redirectConn.NewRequest(http.MethodPost, "/_api/agency/read")
+	if err != nil {
+		return nil, err
+	}
+	if err := req.SetBody(reqBody); err != nil {
+		return nil, err
+	}
+	var rawResponse any
+	resp, err := redirectConn.Do(ctx, req, &rawResponse)
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || resp.Code() < 200 || resp.Code() >= 300 {
+		return nil, fmt.Errorf("redirect read failed: code=%d", resp.Code())
+	}
+	return rawResponse, nil
 }
 
 func (c *client) ReadKey(ctx context.Context, key []string, out any) error {

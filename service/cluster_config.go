@@ -283,26 +283,13 @@ func (p ClusterConfig) GetSingleEndpoints() ([]string, error) {
 	return endpoints, nil
 }
 
-// CreateAgencyAPI creates a client for the agency
+// CreateAgencyAPI creates a client for the agency (uses CreateAgency so 307 redirects are followed and leader election completes).
 func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agency, error) {
-	// Build endpoint list
 	endpoints, err := p.GetAgentEndpoints()
 	if err != nil {
 		return nil, maskAny(err)
 	}
-
-	c, err := clientBuilder.CreateClient(endpoints, ConnectionTypeAgency, definitions.ServerTypeUnknown)
-	if err != nil {
-		return nil, maskAny(err)
-	}
-
-	conn := c.Connection()
-	a, err := agency.NewAgency(conn, len(endpoints))
-	if err != nil {
-		return nil, maskAny(err)
-	}
-
-	return a, nil
+	return clientBuilder.CreateAgency(endpoints)
 }
 
 // CreateClusterAPI creates a client for the cluster

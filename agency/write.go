@@ -20,9 +20,11 @@ package agency
 import (
 	"context"
 	"fmt"
-	"math"
+	"net/url"
 	"strings"
 	"time"
+
+	driver_http "github.com/arangodb/go-driver/v2/connection"
 )
 
 func (c *client) Write(ctx context.Context, tx *Transaction) error {
@@ -56,18 +58,13 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 	// agency endpoint failover. The RoundRobinEndpoints rotates to the next
 	// endpoint on each new request, so retrying naturally tries a different agent.
 	var lastErr error
-	for attempt := 0; attempt < c.endpointCount; attempt++ {
-		// Exponential backoff: wait before retry (except on first attempt)
+	deadline := time.Now().Add(agencyConnectionRetryWindow)
+	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
-			backoffDuration := time.Duration(math.Pow(2, float64(attempt-1))) * 100 * time.Millisecond
-			// Cap backoff at 2 seconds
-			if backoffDuration > 2*time.Second {
-				backoffDuration = 2 * time.Second
-			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(backoffDuration):
+			case <-time.After(agencyConnectionRetryDelay):
 			}
 		}
 
@@ -80,18 +77,17 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 			return fmt.Errorf("failed to set request body: %w", err)
 		}
 
-		var result struct {
-			Results []int `json:"results"`
-		}
+		var result writeResult
 
 		resp, err := c.conn.Do(ctx, req, &result)
 		if err != nil {
-			if isConnectionError(err) && attempt < c.endpointCount-1 {
+			if isConnectionError(err) && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
 			return fmt.Errorf("agency write request failed: %w", err)
 		}
+		lastErr = nil
 
 		if resp == nil {
 			return fmt.Errorf("agency write response is nil")
@@ -99,7 +95,21 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 
 		statusCode := resp.Code()
 		if len(result.Results) == 0 {
-			return fmt.Errorf("agency write failed: no results returned")
+			// 307 from non-leader returns empty body; follow Location once so leader election completes.
+			if statusCode >= 300 && statusCode < 400 && c.redirectConfig != nil {
+				if location := resp.Header("Location"); location != "" {
+					absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
+					redirectResp, redirectResult, redirectErr := c.doWriteToEndpoint(ctx, body, absoluteLocation)
+					if redirectErr == nil && redirectResp != nil && redirectResult != nil && len(redirectResult.Results) > 0 {
+						result = *redirectResult
+						resp = redirectResp
+						statusCode = redirectResp.Code()
+					}
+				}
+			}
+			if len(result.Results) == 0 {
+				return fmt.Errorf("agency write failed: no results returned")
+			}
 		}
 
 		// Check results[0] first - 0 means precondition failed, 1 means success
@@ -118,13 +128,56 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 			return fmt.Errorf("agency write returned non-success status code %d: Results: %v", statusCode, result.Results)
 		}
 
-		// Write succeeded - return success
-		return nil
+		// Write succeeded.
+		break
 	}
 	if lastErr != nil {
-		return fmt.Errorf("agency write request failed after %d attempts: %w", c.endpointCount, lastErr)
+		return fmt.Errorf("agency write request failed after retry window %s: %w", agencyConnectionRetryWindow, lastErr)
 	}
 	return nil
+}
+
+type writeResult struct {
+	Results []int `json:"results"`
+}
+
+func resolveRedirectLocation(location, responseEndpoint string) string {
+	u, err := url.Parse(location)
+	if err != nil {
+		return location
+	}
+	if u.Scheme != "" && u.Host != "" {
+		return location
+	}
+	base, err := url.Parse(responseEndpoint)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return location
+	}
+	return base.ResolveReference(u).String()
+}
+
+func (c *client) doWriteToEndpoint(ctx context.Context, body []any, locationURL string) (driver_http.Response, *writeResult, error) {
+	u, err := url.Parse(locationURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, nil, fmt.Errorf("invalid redirect Location: %q", locationURL)
+	}
+	baseURL := u.Scheme + "://" + u.Host
+	config := *c.redirectConfig
+	config.Endpoint = driver_http.NewRoundRobinEndpoints([]string{baseURL})
+	redirectConn := driver_http.NewHttpConnection(config)
+	req, err := redirectConn.NewRequest("POST", "/_api/agency/write")
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := req.SetBody(body); err != nil {
+		return nil, nil, err
+	}
+	var result writeResult
+	resp, err := redirectConn.Do(ctx, req, &result)
+	if err != nil {
+		return nil, nil, err
+	}
+	return resp, &result, nil
 }
 
 // buildOperationsMap converts KeyChanger operations to flat key path format

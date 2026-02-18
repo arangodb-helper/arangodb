@@ -886,9 +886,7 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 			InsecureSkipVerify: true,
 		},
 	}
-	// Master (go-driver v1) sets DontFollowRedirect for agency in ConnectionConfig (service.go#L899).
-	// go-driver v2 HttpConfiguration has no DontFollowRedirect field, so we use the same transport for all.
-	// We do not set DisableKeepAlives for agency so connections can be reused (matches master's effective behavior).
+
 	connConfig := driver_http.HttpConfiguration{
 		Endpoint:  endpoint,
 		Transport: transport,
@@ -900,9 +898,6 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 		conn = driver_http.NewHttpConnection(connConfig)
 	case ConnectionTypeAgency:
 		conn, err = agency.NewAgencyConnection(connConfig)
-		if err != nil {
-			return nil, maskAny(err)
-		}
 	default:
 		return nil, maskAny(fmt.Errorf("Unknown ConnectionType: %d", connectionType))
 	}
@@ -931,6 +926,9 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 		}
 	}
 
+	if err != nil {
+		return nil, maskAny(err)
+	}
 	jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
 	if err != nil {
 		return nil, maskAny(err)
@@ -941,6 +939,36 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	}
 	c := driver.NewClient(conn)
 	return c, nil
+}
+
+// CreateAgency creates an agency client that can follow 307 redirects so leader election completes when hitting a non-leader.
+func (s *Service) CreateAgency(endpoints []string) (agency.Agency, error) {
+	endpoint := driver_http.NewRoundRobinEndpoints(endpoints)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+	secret := s.jwtSecret
+	if s.DatabaseFeatures().GetJWTFolderOption() && s.jwtSecret != "" {
+		if t, err := s.getFolderToken(definitions.AllServerTypes()...); err == nil {
+			secret = t
+		}
+	}
+	jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	connConfig := driver_http.HttpConfiguration{
+		Endpoint:        endpoint,
+		Transport:       transport,
+		Authentication: driver_http.NewHeaderAuth("Authorization", jwtBearer),
+	}
+	conn, err := agency.NewAgencyConnection(connConfig)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return agency.NewAgency(conn, len(endpoints), &connConfig)
 }
 
 func (s *Service) getGlobalToken() (string, error) {

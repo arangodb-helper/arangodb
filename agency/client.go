@@ -30,9 +30,10 @@ import (
 )
 
 type client struct {
-	conn          driver_http.Connection
-	http          *http.Client
-	endpointCount int
+	conn           driver_http.Connection
+	http           *http.Client
+	endpointCount  int
+	redirectConfig *driver_http.HttpConfiguration // when set, read/write follow 307 to Location (so leader election completes)
 }
 
 // isConnectionError returns true if the error is a TCP-level connection error
@@ -110,7 +111,9 @@ func NewAgencyConnection(config driver_http.HttpConfiguration) (driver_http.Conn
 	return conn, nil
 }
 
-func NewAgency(conn driver_http.Connection, endpointCount int) (Agency, error) {
+// NewAgency creates an agency client. When redirectConfig is non-nil, Read/Write follow
+// a single 307 redirect to the Location URL so leader election completes when hitting a non-leader.
+func NewAgency(conn driver_http.Connection, endpointCount int, redirectConfig *driver_http.HttpConfiguration) (Agency, error) {
 	if conn == nil {
 		return nil, fmt.Errorf("agency.New: connection cannot be nil")
 	}
@@ -118,9 +121,10 @@ func NewAgency(conn driver_http.Connection, endpointCount int) (Agency, error) {
 		endpointCount = 1
 	}
 	return &client{
-		conn:          conn,
-		http:          &http.Client{},
-		endpointCount: endpointCount,
+		conn:           conn,
+		http:           &http.Client{},
+		endpointCount:  endpointCount,
+		redirectConfig: redirectConfig,
 	}, nil
 }
 

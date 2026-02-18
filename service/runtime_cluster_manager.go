@@ -244,12 +244,11 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 
 	ownURL := myPeer.CreateStarterURL("/")
 
-	// Seed the master URL from cluster config so upgrade and other APIs have a valid master
-	// until leader election completes. We use the first peer in the cluster config as the
-	// initial candidate; runLeaderElection will replace this with the actually elected master.
-	// This is required with go-driver v2: the v2 connection layer does not support
-	// DontFollowRedirect (unlike v1), and leader election can finish later than on master,
-	// so without this we would often see "Starter master is not known" when upgrade is requested.
+	go s.runLeaderElection(ctx, ownURL)
+
+	// Seed the master URL from cluster config (from master) so upgrade and other APIs have a valid master
+	// until leader election completes. Agency read/write follow 307 redirects so leader election completes;
+	// we use the first peer as the initial candidate and runLeaderElection replaces it with the elected master.
 	clusterConfig, _, _ := runtimeContext.ClusterConfig()
 	if len(clusterConfig.AllPeers) > 0 {
 		initialMasterURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
@@ -257,8 +256,6 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 			s.updateMasterURL(initialMasterURL, initialMasterURL == ownURL)
 		}
 	}
-
-	go s.runLeaderElection(ctx, ownURL)
 
 	for {
 		delay := time.Microsecond

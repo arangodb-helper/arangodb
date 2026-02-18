@@ -117,8 +117,20 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T)
 			if IsKeyNotFound(err) {
 				assumeEmpty = true
 				result = leaderStruct[T]{} // default empty
+			} else if isConnectionError(err) {
+				select {
+				case <-ctx.Done():
+					return zeroValue, false, 0, ctx.Err()
+				case <-time.After(minUpdateDelay):
+				}
+				continue
 			} else {
-				return zeroValue, false, 0, err
+				select {
+				case <-ctx.Done():
+					return zeroValue, false, 0, ctx.Err()
+				case <-time.After(minUpdateDelay):
+				}
+				continue
 			}
 		}
 
