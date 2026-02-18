@@ -366,8 +366,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 			if err != nil {
 				return maskAny(err)
 			}
-			// Remove coordinator from cluster - V2 MIGRATION HERE
-			// In go-driver v2, Shutdown is available via ClientAdmin interface
+			// Remove coordinator from cluster
 			s.log.Info().Msgf("Removing coordinator %s from cluster", sid)
 			if err := sc.Shutdown(ctx, sid, &graceful); err != nil {
 				s.log.Warn().Err(err).Msgf("Shutdown request of coordinator %s failed", sid)
