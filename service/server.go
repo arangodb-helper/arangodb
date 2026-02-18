@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -269,7 +268,7 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 	force, _ := strconv.ParseBool(r.FormValue("force"))
 	var req client.GoodbyeRequest
 	defer r.Body.Close()
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot read request body: %v", err.Error()))
 		return
@@ -308,9 +307,7 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		} else {
-			// Master URL not yet known (leader election may not have completed yet)
-			// Return service unavailable so client can retry
-			writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
+			writeError(w, http.StatusServiceUnavailable, "No runtime master known")
 		}
 	} else {
 		// Remove the peer
@@ -433,9 +430,7 @@ func (s *httpServer) endpointsHandler(w http.ResponseWriter, r *http.Request) {
 				handleError(w, RedirectError{Location: location})
 			}
 		} else {
-			// Master URL not yet known (leader election may not have completed yet)
-			// Return service unavailable so client can retry
-			writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
+			writeError(w, http.StatusServiceUnavailable, "No runtime master known")
 		}
 	} else {
 		// Gather & send endpoints list
@@ -628,12 +623,6 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		} else {
 			// We're not the starter leader.
 			// Forward the request to the leader.
-			// Wait for master URL to be available (leader election may not have completed yet)
-			if masterURL == "" {
-				// Master URL not yet known, return service unavailable so client can retry
-				writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
-				return
-			}
 			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)
@@ -652,12 +641,6 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		if !isRunningMaster {
 			// We're not the starter leader.
 			// Forward the request to the leader.
-			// Wait for master URL to be available (leader election may not have completed yet)
-			if masterURL == "" {
-				// Master URL not yet known, return service unavailable so client can retry
-				writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
-				return
-			}
 			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)
@@ -684,12 +667,6 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		if !isRunningMaster {
 			// We're not the starter leader.
 			// Forward the request to the leader.
-			// Wait for master URL to be available (leader election may not have completed yet)
-			if masterURL == "" {
-				// Master URL not yet known, return service unavailable so client can retry
-				writeError(w, http.StatusServiceUnavailable, "Starter master is not yet known, please retry")
-				return
-			}
 			c, err := createMasterClient(masterURL)
 			if err != nil {
 				handleError(w, err)

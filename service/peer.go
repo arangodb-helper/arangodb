@@ -58,19 +58,9 @@ func preparePeerServers(mode ServiceMode, bsCfg BootstrapConfig, p *Peer) peerSe
 		hasCoordinator = boolRef(false)
 	}
 
-	// For HasAgent: if bsCfg.StartAgent is explicitly set (not nil), use it.
-	// Otherwise, if we have an existing peer (p != nil), preserve its HasAgent flag.
-	// If no existing peer, default based on mode.
-	var hasAgent bool
-	if bsCfg.StartAgent != nil {
-		// Explicitly set, use the value
-		hasAgent = *bsCfg.StartAgent
-	} else if p != nil {
-		// Not explicitly set, preserve existing value from setup.json
-		hasAgent = p.HasAgent()
-	} else {
-		// New peer, default based on mode
-		hasAgent = !mode.IsSingleMode()
+	hasAgent := boolFromRef(bsCfg.StartAgent, !mode.IsSingleMode())
+	if p != nil {
+		hasAgent = boolFromRef(bsCfg.StartAgent, p.HasAgent())
 	}
 
 	return peerServers{

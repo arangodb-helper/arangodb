@@ -105,7 +105,7 @@ func (l *lock) Acquire(ctx context.Context) error {
 	newVal := lockValue{Holder: l.id, Expires: expires}
 
 	if currentValid && current.Expires.After(now) && current.Holder != l.id {
-		return errors.New("lock already held")
+		return ErrLockAlreadyHeld
 	}
 
 	// 1) We already hold: only we can pass holder == l.id
@@ -198,7 +198,7 @@ func (l *lock) Acquire(ctx context.Context) error {
 
 	now = time.Now()
 	if currentValid && current.Expires.After(now) && current.Holder != l.id {
-		return errors.New("lock already held")
+		return ErrLockAlreadyHeld
 	}
 
 	// 3) Key exists but expired: CAS on expires so only one wins
@@ -240,7 +240,7 @@ func (l *lock) Acquire(ctx context.Context) error {
 		}
 	}
 
-	return errors.New("lock already held")
+	return ErrLockAlreadyHeld
 }
 
 // Release releases the lock if we are leader

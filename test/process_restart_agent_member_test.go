@@ -48,7 +48,6 @@ func TestProcessAgentsMultipleRestart(t *testing.T) {
 	}
 
 	waitForCluster(t, members, time.Now())
-	time.Sleep(5 * time.Second)
 
 	t.Logf("Verify setup.json after fresh start")
 	verifyProcessSetupJson(t, members, 3)
@@ -68,7 +67,6 @@ func TestProcessAgentsMultipleRestart(t *testing.T) {
 			}
 
 			waitForCluster(t, members, time.Now())
-			time.Sleep(5 * time.Second)
 
 			t.Logf("Verify setup after member restart, iteration: %d", i)
 			verifyProcessSetupJson(t, members, 3)

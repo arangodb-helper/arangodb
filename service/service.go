@@ -339,7 +339,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 				time.Sleep(time.Millisecond * 250)
 			}
 			if err := sc.Shutdown(ctx, sid, &graceful); err != nil {
-				s.log.Warn().Err(err).Msgf("Shutdown request of coordinator %s failed", sid)
+				s.log.Warn().Err(err).Msgf("Shutdown request of dbserver %s failed", sid)
 				return maskAny(err)
 			}
 			return nil
@@ -370,7 +370,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 			// In go-driver v2, Shutdown is available via ClientAdmin interface
 			s.log.Info().Msgf("Removing coordinator %s from cluster", sid)
 			if err := sc.Shutdown(ctx, sid, &graceful); err != nil {
-				s.log.Warn().Err(err).Msgf("RemoveServer request of coordinator %s failed", sid)
+				s.log.Warn().Err(err).Msgf("Shutdown request of coordinator %s failed", sid)
 				return maskAny(err)
 			}
 			return nil
@@ -613,7 +613,7 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			}{}
 			resp, err := c.Do(ctx, req, &roleResponse, http.StatusOK)
 			if err != nil {
-				return "", "", -3, maskAny(err)
+				return "", "", -4, maskAny(fmt.Errorf("Unexpected role response: %#v", err))
 			}
 			return roleResponse.Role, roleResponse.Mode, resp.Code(), nil
 		}
@@ -715,7 +715,7 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				return ClusterConfig{}, maskAny(RedirectError{helloURL})
 			}
 		} else if req != nil || isUpdateRequest {
-			// No master know, service unavailable when handling a POST or GET+update request
+			// No master know, service unavailable when handling a POST of GET+update request
 			return ClusterConfig{}, maskAny(errors.Wrap(client.ServiceUnavailableError, "No master known"))
 		} else {
 			// No master know, but initial request.

@@ -25,8 +25,16 @@ import (
 // ErrKeyNotFound is returned when a requested key does not exist in the agency
 var ErrKeyNotFound = errors.New("key not found")
 
+// ErrLockAlreadyHeld indicates lock acquisition failed because another holder owns a valid lock.
+var ErrLockAlreadyHeld = errors.New("lock already held")
+
 func IsKeyNotFound(err error) bool {
 	return err == ErrKeyNotFound || (err != nil && strings.Contains(err.Error(), "key not found"))
+}
+
+// IsLockAlreadyHeld returns true if the error indicates lock contention.
+func IsLockAlreadyHeld(err error) bool {
+	return errors.Is(err, ErrLockAlreadyHeld) || (err != nil && strings.Contains(err.Error(), "lock already held"))
 }
 
 // PreconditionFailedError is returned when an agency write precondition check fails.

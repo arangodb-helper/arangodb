@@ -98,7 +98,7 @@ func NewUpgradeManager(log zerolog.Logger, upgradeManagerContext UpgradeManagerC
 var (
 	upgradeManagerLockKey     = []string{"arangodb-helper", "arangodb", "upgrade-manager"}
 	upgradePlanKey            = []string{"arangodb-helper", "arangodb", "upgrade-plan"}
-	upgradePlanRevisionKey    = []string{"arangodb-helper", "arangodb", "upgrade-plan", "revision"}
+	upgradePlanRevisionKey    = append(upgradePlanKey, "revision")
 	superVisionMaintenanceKey = []string{"arango", "Supervision", "Maintenance"}
 	superVisionStateKey       = []string{"arango", "Supervision", "State"}
 )
@@ -207,12 +207,10 @@ func (e UpgradePlanEntry) CreateStatusServer(upgradeManagerContext UpgradeManage
 // upgradeManager is a helper used to control the upgrade process from 1 database version to the next.
 type upgradeManager struct {
 	mutex                 sync.Mutex
-	agencyAPIMu           sync.Mutex // protects agencyAPI (createAgencyAPI is called from multiple goroutines)
 	log                   zerolog.Logger
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     definitions.ServerType
 	updateNeeded          bool
-	agencyAPI             agency.Agency
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
@@ -288,7 +286,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	m.log.Debug().Msg("Creating agency API")
 	api, err := m.createAgencyAPI()
 	if err != nil {
-		return maskAny(errors.Wrap(err, "Cannot upgrade: cannot connect to agency"))
+		return maskAny(err)
 	}
 
 	// Use peer ID for lock holder identification (myPeer already declared above)
@@ -299,11 +297,11 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	}
 
 	// Claim the upgrade lock
-	m.log.Debug().Msg("Acquiring lock")
+	m.log.Debug().Msg("Locking lock")
 	lockAcquired := false
 	if err := lock.Acquire(ctx); err != nil {
-		if !strings.Contains(err.Error(), "lock already held") {
-			m.log.Debug().Err(err).Msg("Lock acquisition failed")
+		if !agency.IsLockAlreadyHeld(err) {
+			m.log.Debug().Err(err).Msg("Lock failed")
 			return maskAny(err)
 		}
 
@@ -312,6 +310,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 			lockRetryDelay  = 300 * time.Millisecond
 		)
 		deadline := time.Now().Add(lockRetryWindow)
+		lastAcquireErr := err
 		for {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -329,15 +328,17 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 			if acquireErr := lock.Acquire(ctx); acquireErr == nil {
 				lockAcquired = true
 				break
-			} else if !strings.Contains(acquireErr.Error(), "lock already held") {
-				m.log.Debug().Err(acquireErr).Msg("Lock acquisition failed")
+			} else if !agency.IsLockAlreadyHeld(acquireErr) {
+				m.log.Debug().Err(acquireErr).Msg("Lock failed")
 				return maskAny(acquireErr)
+			} else {
+				lastAcquireErr = acquireErr
 			}
 
 			if time.Now().After(deadline) {
 				// Some environments can leave this lock key contended/stale while no
 				// plan exists. Continue idempotently and let plan checks/writes decide.
-				m.log.Warn().Err(err).Msg("Proceeding without upgrade lock after contention window")
+				m.log.Warn().Err(lastAcquireErr).Msg("Proceeding without upgrade lock after contention window")
 				break
 			}
 
@@ -350,11 +351,11 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	// Close agency lock when we're done
 	if lockAcquired {
 		defer func() {
-			m.log.Debug().Msg("Releasing lock")
+			m.log.Debug().Msg("Unlocking lock")
 			releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := lock.Release(releaseCtx); err != nil {
-				m.log.Warn().Err(err).Msg("Failed to release lock")
+				m.log.Warn().Err(err).Msg("Failed to unlock lock")
 			}
 		}()
 	}
@@ -379,7 +380,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	if specialUpgradeFrom346 {
 		// Write 1000 dummy values into agency to advance the log:
 		for i := 0; i < 1000; i++ {
-			err := api.WriteKey(ctx, []string{"/arangodb-helper/dummy"}, 17, 0)
+			err := api.WriteKey(nil, []string{"/arangodb-helper/dummy"}, 17, 0)
 			if err != nil {
 				m.log.Error().Msg("Could not append log entries to agency.")
 				return maskAny(err)
@@ -398,12 +399,12 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 					m.log.Error().Msgf("Could not create client for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				db, err := cli.GetDatabase(ctx, "_system", nil)
+				db, err := cli.GetDatabase(nil, "_system", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not find _system database for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				_, err = db.Query(ctx, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
+				_, err = db.Query(nil, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not repair agent log compaction for agent of peer %s", p.ID)
 				}
@@ -561,19 +562,19 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	}
 
 	// Claim the upgrade lock
-	m.log.Debug().Msg("Acquiring lock")
+	m.log.Debug().Msg("Locking lock")
 	if err := lock.Acquire(ctx); err != nil {
-		m.log.Debug().Err(err).Msg("Lock acquisition failed")
+		m.log.Debug().Err(err).Msg("Lock failed")
 		return maskAny(err)
 	}
 
 	// Close agency lock when we're done
 	defer func() {
-		m.log.Debug().Msg("Releasing lock")
+		m.log.Debug().Msg("Unlocking lock")
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := lock.Release(releaseCtx); err != nil {
-			m.log.Warn().Err(err).Msg("Failed to release lock")
+			m.log.Warn().Err(err).Msg("Failed to unlock lock")
 		}
 	}()
 
@@ -781,16 +782,8 @@ func (m *upgradeManager) ServerDatabaseAutoUpgradeStarter(serverType definitions
 	}
 }
 
-// Create a client for the agency. The client is cached so that the
-// underlying RoundRobinEndpoints state persists across calls, allowing
-// automatic rotation to healthy agents when one is unreachable.
-// Safe for concurrent use from RunWatchUpgradePlan and upgrade endpoints.
+// Create a client for the agency
 func (m *upgradeManager) createAgencyAPI() (agency.Agency, error) {
-	m.agencyAPIMu.Lock()
-	defer m.agencyAPIMu.Unlock()
-	if m.agencyAPI != nil {
-		return m.agencyAPI, nil
-	}
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Create client
@@ -798,7 +791,6 @@ func (m *upgradeManager) createAgencyAPI() (agency.Agency, error) {
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	m.agencyAPI = a
 	return a, nil
 }
 
@@ -828,10 +820,8 @@ func (m *upgradeManager) writeUpgradePlan(ctx context.Context, plan UpgradePlan,
 	plan.LastModifiedAt = time.Now()
 	var condition agency.WriteCondition
 	if !overwrite {
-		// Use optimistic concurrency control: ensure revision hasn't changed
 		condition = agency.IfEqualTo(upgradePlanRevisionKey, oldRevision)
 	}
-	// When overwrite is true, condition is nil and will be skipped by buildPreconditionsMap
 	if err := api.WriteKey(ctx, upgradePlanKey, plan, 0, condition); err != nil {
 		return UpgradePlan{}, maskAny(err)
 	}
@@ -925,7 +915,7 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 				}
 			}
 		} else if plan.IsFailed() {
-			// Plan already failed; no action needed
+			// Plan already failed;
 		} else if len(plan.Entries) > 0 {
 			// Let's inspect the first entry
 			if err := m.processUpgradePlan(ctx, plan); err != nil {
@@ -1005,7 +995,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		m.updateNeeded = true
 		upgrade := func() error {
 			if firstEntry.WithoutResign {
-				m.log.Info().Msg("Upgrading without resign")
+				fmt.Printf("Without resign")
 			}
 			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeDBServerNoResign); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))

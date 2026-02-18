@@ -73,51 +73,32 @@ func testUpgradeProcess(t *testing.T, endpoint string) {
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(0*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(1*portIncrement))
 	WaitUntilCoordinatorReadyAPI(t, insecureStarterEndpoint(2*portIncrement))
-	time.Sleep(5 * time.Second)
 
 	t.Log("Starting database upgrade")
 
 	if err := c.StartDatabaseUpgrade(ctx, false); err != nil {
 		t.Fatalf("StartDatabaseUpgrade failed: %v", err)
 	}
-	time.Sleep(5 * time.Second)
-
 	// Wait until upgrade complete
 	recentErrors := 0
-	totalErrors := 0
-	firstSuccessTime := time.Time{}
 	deadline := time.Now().Add(time.Minute * 10)
-	upgradeStatusStart := time.Now()
 	for {
 		status, err := c.UpgradeStatus(ctx)
 		if err != nil {
 			recentErrors++
-			totalErrors++
 			if recentErrors > 20 {
-				t.Fatalf("UpgradeStatus failed after %d consecutive errors (total: %d): %s", recentErrors, totalErrors, err)
+				t.Fatalf("UpgradeStatus failed: %s", err)
 			} else {
-				t.Logf("UpgradeStatus failed (consecutive error %d/20, total errors: %d): %s", recentErrors, totalErrors, err)
+				t.Logf("UpgradeStatus failed: %s", err)
 			}
 		} else {
-			consecutiveErrorsBeforeSuccess := recentErrors
-			if recentErrors > 0 {
-				// Log when we succeed after previous failures
-				if firstSuccessTime.IsZero() {
-					firstSuccessTime = time.Now()
-					t.Logf("UpgradeStatus succeeded after %d consecutive errors (total: %d errors, took %s since first call)", consecutiveErrorsBeforeSuccess, totalErrors, time.Since(upgradeStatusStart))
-				} else {
-					t.Logf("UpgradeStatus succeeded after %d consecutive errors (total: %d errors since start)", consecutiveErrorsBeforeSuccess, totalErrors)
-				}
-			}
 			recentErrors = 0
 			if status.Failed {
 				t.Fatalf("Upgrade failed: %s", status.Reason)
 			}
 			if status.Ready {
-				if totalErrors > 0 {
-					t.Logf("Upgrade completed successfully (encountered %d total errors, %d consecutive errors before final success, total time: %s)", totalErrors, consecutiveErrorsBeforeSuccess, time.Since(upgradeStatusStart))
-				} else {
-					t.Logf("Upgrade completed successfully (no errors, total time: %s)", time.Since(upgradeStatusStart))
+				if isVerbose {
+					t.Logf("UpgradeStatus good: %v", status)
 				}
 				break
 			}

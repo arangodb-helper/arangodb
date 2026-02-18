@@ -259,12 +259,8 @@ func getStarterEndpointByServerID(t *testing.T, serverID driver.ServerID, starte
 // getShardsForCollection returns shards for the given collection name.
 func getShardsForCollection(client driver.Client, database driver.Database,
 	collectionName string) (map[driver.ShardID][]driver.ServerID, error) {
-	// In go-driver v2, Client implements ClientAdminCluster interface directly
-	// So we can call DatabaseInventory on the client itself
-	// DatabaseInventory takes a database name (string) instead of Database object
 	var clusterClient driver.ClientAdminCluster = client
-	dbName := database.Name()
-	inventory, err := clusterClient.DatabaseInventory(context.Background(), dbName)
+	inventory, err := clusterClient.DatabaseInventory(context.Background(), database.Name())
 	if err != nil {
 		return nil, errors.Wrap(err, "DatabaseInventory")
 	}
