@@ -41,11 +41,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 
-	"github.com/arangodb-helper/arangodb/agency"
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	driver_http "github.com/arangodb/go-driver/v2/connection"
 	driver_jwt "github.com/arangodb/go-driver/v2/utils/jwt"
 
+	"github.com/arangodb-helper/arangodb/agency"
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
@@ -960,8 +960,8 @@ func (s *Service) CreateAgency(endpoints []string) (agency.Agency, error) {
 		return nil, maskAny(err)
 	}
 	connConfig := driver_http.HttpConfiguration{
-		Endpoint:        endpoint,
-		Transport:       transport,
+		Endpoint:       endpoint,
+		Transport:      transport,
 		Authentication: driver_http.NewHeaderAuth("Authorization", jwtBearer),
 	}
 	conn, err := agency.NewAgencyConnection(connConfig)
