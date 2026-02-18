@@ -628,46 +628,8 @@ func verifyEndpointSetup(t *testing.T, members map[int]MembersConfig) {
 		c := NewStarterClient(t, fmt.Sprintf(host, port))
 		ctx := context.Background()
 
-		// Retry Endpoints call if master is not yet known or if endpoints are incomplete
-		var endpoints client.EndpointList
-		deadline := time.Now().Add(120 * time.Second)
-		for {
-			var err error
-			endpoints, err = c.Endpoints(ctx)
-			if err == nil {
-				// Check if all expected endpoints are present
-				allPresent := true
-				for _, member := range members {
-					expectedEndpoint := fmt.Sprintf(host, member.Port)
-					if !contains(endpoints.Starters, expectedEndpoint) {
-						allPresent = false
-						break
-					}
-				}
-				if allPresent {
-					// All endpoints present, success!
-					break
-				}
-				// Some endpoints missing, retry
-				if time.Now().After(deadline) {
-					t.Fatalf("Not all endpoints present after 120 seconds for member: %d. Got: %v", m.Port, endpoints.Starters)
-				}
-				t.Logf("Not all endpoints present for member %d (got %d, expected %d), retrying Endpoints in 500ms...", m.Port, len(endpoints.Starters), len(members))
-				time.Sleep(500 * time.Millisecond)
-				continue
-			}
-			// Check if it's a service unavailable error (master not known yet)
-			if client.IsServiceUnavailable(err) {
-				if time.Now().After(deadline) {
-					require.NoError(t, err, "Failed to get endpoints, member: %d (master not available after 30 seconds)", m.Port)
-				}
-				t.Logf("Master not yet known for member %d, retrying Endpoints in 500ms...", m.Port)
-				time.Sleep(500 * time.Millisecond)
-				continue
-			}
-			// Other error, fail immediately
-			require.NoError(t, err, "Failed to get endpoints, member: %d", m.Port)
-		}
+		endpoints, err := c.Endpoints(ctx)
+		require.NoError(t, err, "Failed to get endpoints, member: %d", m.Port)
 
 		for _, member := range members {
 			require.Contains(t, endpoints.Starters, fmt.Sprintf(host, member.Port),
