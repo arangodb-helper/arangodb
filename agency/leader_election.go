@@ -52,7 +52,10 @@ func NewLeaderElectionCell[T comparable](key []string, ttl time.Duration) *Leade
 
 // GetLeaderCondition returns condition that ensures the value equals current
 func (l *LeaderElectionCell[T]) GetLeaderCondition(dataValue T) WriteCondition {
-	return IfEqualTo(append(l.key, keyData), dataValue)
+	keyWithData := make([]string, len(l.key)+1)
+	copy(keyWithData, l.key)
+	keyWithData[len(l.key)] = keyData
+	return IfEqualTo(keyWithData, dataValue)
 }
 
 func (l *LeaderElectionCell[T]) tryBecomeLeader(ctx context.Context, cli Agency, value T, assumeEmpty bool) error {
