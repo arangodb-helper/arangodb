@@ -7,7 +7,7 @@ toolchain go1.24.13
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
 	github.com/arangodb/go-driver/v2 v2.2.0
-	github.com/arangodb/go-upgrade-rules v0.0.0-20260209121052-e177e29f5cf0
+	github.com/arangodb/go-upgrade-rules v0.0.0-20260217132523-152470b2095a
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/coreos/go-semver v0.3.1
 	github.com/dchest/uniuri v1.2.0

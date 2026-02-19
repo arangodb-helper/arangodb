@@ -10,6 +10,8 @@ github.com/arangodb/go-driver/v2 v2.2.0 h1:ndG0SVwT5kAslp62F1DBywA4KomcjNV78dROA
 github.com/arangodb/go-driver/v2 v2.2.0/go.mod h1:UzpvhTGK5UQpTy29UmJz2jciiq5khct6seRNiqClstI=
 github.com/arangodb/go-upgrade-rules v0.0.0-20260209121052-e177e29f5cf0 h1:v1wOEYJTmCSfgXQJucbBTVOvJC79CFTy/6MhfBvI89w=
 github.com/arangodb/go-upgrade-rules v0.0.0-20260209121052-e177e29f5cf0/go.mod h1:kURnJIb4LhZBjLwMulLrrDPOOeglXQAGej5fTrIPi1s=
+github.com/arangodb/go-upgrade-rules v0.0.0-20260217132523-152470b2095a h1:sorc7dnm9UjxfemenvMROQoVqgejbpGO43B32/Ntq+E=
+github.com/arangodb/go-upgrade-rules v0.0.0-20260217132523-152470b2095a/go.mod h1:kURnJIb4LhZBjLwMulLrrDPOOeglXQAGej5fTrIPi1s=
 github.com/arangodb/go-velocypack v0.0.0-20200318135517-5af53c29c67e h1:Xg+hGrY2LcQBbxd0ZFdbGSyRKTYMZCfBbw/pMJFOk1g=
 github.com/arangodb/go-velocypack v0.0.0-20200318135517-5af53c29c67e/go.mod h1:mq7Shfa/CaixoDxiyAAc5jZ6CVBAyPaNQCGS7mkj4Ho=
 github.com/cenkalti/backoff v2.2.1+incompatible h1:tNowT99t7UNflLxfYYSlKYsBpXdEet03Pg2g16Swow4=

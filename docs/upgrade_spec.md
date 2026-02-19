@@ -24,6 +24,8 @@ If the deployment mode is `single`, the Starter will:
 If the deployment mode is `activefailover` or `cluster` the Starters will:
 
 - Perform a version check on all servers, ensuring it supports the upgrade procedure.
+  Upgrade rules are enforced by the go-upgrade-rules library (e.g. minor may only increment by 1, or use force-minor to allow skipping minors).
+  For major upgrades to ArangoDB 4.0, the source version must be at least 3.12.7.
   TODO: Specify minimal patch version for 3.2, 3.3 & 3.4,
 - Turning off supervision in the Agency and wait for it to be confirmed.
 - Create an upgrade plan and store it in the agency.
