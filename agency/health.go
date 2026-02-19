@@ -36,7 +36,7 @@ func AreAgentsHealthy(ctx context.Context, conns []driver_http.Connection) error
 		client := &client{conn: conn, endpointCount: 1}
 
 		if err := client.ReadKey(ctx, testKey, &result); err != nil {
-			if IsKeyNotFound(err) {
+			if IsKeyNotFound(err) || IsRedirectNotFollowed(err) {
 				continue
 			}
 			return fmt.Errorf("agency health check failed: %w", err)

@@ -28,6 +28,9 @@ var ErrKeyNotFound = errors.New("key not found")
 // ErrLockAlreadyHeld indicates lock acquisition failed because another holder owns a valid lock.
 var ErrLockAlreadyHeld = errors.New("lock already held")
 
+// ErrRedirectNotFollowed indicates a request hit an agency redirect response, but redirect handling is disabled.
+var ErrRedirectNotFollowed = errors.New("redirect not followed")
+
 func IsKeyNotFound(err error) bool {
 	return err == ErrKeyNotFound || (err != nil && strings.Contains(err.Error(), "key not found"))
 }
@@ -35,6 +38,11 @@ func IsKeyNotFound(err error) bool {
 // IsLockAlreadyHeld returns true if the error indicates lock contention.
 func IsLockAlreadyHeld(err error) bool {
 	return errors.Is(err, ErrLockAlreadyHeld) || (err != nil && strings.Contains(err.Error(), "lock already held"))
+}
+
+// IsRedirectNotFollowed returns true if the error indicates agency redirect handling is required.
+func IsRedirectNotFollowed(err error) bool {
+	return errors.Is(err, ErrRedirectNotFollowed) || (err != nil && strings.Contains(err.Error(), "redirect not followed"))
 }
 
 // PreconditionFailedError is returned when an agency write precondition check fails.

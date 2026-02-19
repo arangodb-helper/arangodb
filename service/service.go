@@ -929,13 +929,15 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
-	if err != nil {
-		return nil, maskAny(err)
-	}
-	auth := driver_http.NewHeaderAuth("Authorization", jwtBearer)
-	if err := conn.SetAuthentication(auth); err != nil {
-		return nil, maskAny(err)
+	if secret != "" {
+		jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		auth := driver_http.NewHeaderAuth("Authorization", jwtBearer)
+		if err := conn.SetAuthentication(auth); err != nil {
+			return nil, maskAny(err)
+		}
 	}
 	c := driver.NewClient(conn)
 	return c, nil

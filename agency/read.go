@@ -82,6 +82,9 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		if resp == nil {
 			return ErrKeyNotFound
 		}
+		if resp.Code() == http.StatusTemporaryRedirect && c.redirectConfig == nil {
+			return ErrRedirectNotFollowed
+		}
 		// 307 from non-leader returns empty body; follow Location once so leader election completes.
 		if resp.Code() >= 300 && resp.Code() < 400 && c.redirectConfig != nil {
 			if location := resp.Header("Location"); location != "" {
