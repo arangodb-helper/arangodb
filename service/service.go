@@ -955,14 +955,16 @@ func (s *Service) CreateAgency(endpoints []string) (agency.Agency, error) {
 			secret = t
 		}
 	}
-	jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
-	if err != nil {
-		return nil, maskAny(err)
-	}
 	connConfig := driver_http.HttpConfiguration{
-		Endpoint:       endpoint,
-		Transport:      transport,
-		Authentication: driver_http.NewHeaderAuth("Authorization", jwtBearer),
+		Endpoint:  endpoint,
+		Transport: transport,
+	}
+	if secret != "" {
+		jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		connConfig.Authentication = driver_http.NewHeaderAuth("Authorization", jwtBearer)
 	}
 	conn, err := agency.NewAgencyConnection(connConfig)
 	if err != nil {
