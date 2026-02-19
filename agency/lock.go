@@ -85,7 +85,8 @@ func (l *lock) Acquire(ctx context.Context, api Agency) error {
 				currentValid = false
 			}
 		} else {
-			return errors.New("lock value is invalid")
+			// Treat unmarshal failures as unknown/legacy payloads: leave currentValid=false
+			// so that the whole-value CAS fallback can be used later.
 		}
 	} else if !IsKeyNotFound(err) {
 		return err
