@@ -255,6 +255,11 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 			if !IsAllowedCrossMajorUpgrade(from, toVersion) {
 				return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
 			}
+			m.log.Info().
+				Err(err).
+				Str("from_version", string(from)).
+				Str("to_version", string(toVersion)).
+				Msg("Cross-major upgrade explicitly allowed despite generic version rule failure; continuing")
 		}
 		if from.CompareTo("3.4.6") == 0 {
 			specialUpgradeFrom346 = true
