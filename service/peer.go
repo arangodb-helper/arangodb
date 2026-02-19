@@ -26,9 +26,8 @@ import (
 	"strconv"
 	"strings"
 
-	driver "github.com/arangodb/go-driver"
-
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 )
 
 // peerServers

@@ -32,7 +32,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driver_shared "github.com/arangodb/go-driver/v2/arangodb/shared"
+	driver_http "github.com/arangodb/go-driver/v2/connection"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/service"
@@ -75,7 +77,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		}
 	}
 
-	auth := driver.BasicAuthentication("root", "")
+	auth := driver_http.NewBasicAuth("root", "")
 	starterEndpointForCoordinator := insecureStarterEndpoint(1 * portIncrement)
 	coordinatorClient, err := CreateClient(t, starterEndpointForCoordinator, client.ServerTypeCoordinator, auth)
 	if err != nil {
@@ -84,7 +86,9 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 
 	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 30*time.Second, 500*time.Millisecond)
 
-	if version, err := coordinatorClient.Version(context.Background()); err != nil {
+	ctx, cancelCtx := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancelCtx()
+	if version, err := coordinatorClient.Version(ctx); err != nil {
 		t.Fatal(err.Error())
 	} else {
 		t.Log("Found version: ", version.Version)
@@ -98,15 +102,17 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 
 	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckDatabase(databaseName)).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
 
-	database, err := coordinatorClient.Database(context.Background(), databaseName)
+	database, err := coordinatorClient.GetDatabase(ctx, databaseName, nil)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
-	options := &driver.CreateCollectionOptions{
-		ReplicationFactor: 2,
-		NumberOfShards:    1,
+	replicationFactor := driver.ReplicationFactor(2)
+	numberOfShards := 1
+	options := &driver.CreateCollectionPropertiesV2{
+		ReplicationFactor: &replicationFactor,
+		NumberOfShards:    &numberOfShards,
 	}
-	collection, err := database.CreateCollection(context.Background(), collectionName, options)
+	collection, err := database.CreateCollectionV2(ctx, collectionName, options)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -119,19 +125,33 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		documents = append(documents, &book{Title: fmt.Sprintf("Title %d", i)})
 	}
-	documentsMetaData, _, err := collection.CreateDocuments(context.Background(), documents)
+	documentsMetaData, err := collection.CreateDocuments(ctx, documents)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
-	keys := documentsMetaData.Keys()
 
-	dbServerLeader, err := getServerIDLeaderForFirstShard(coordinatorClient, database, collectionName)
+	var keys []string
+	for {
+		response, err := documentsMetaData.Read()
+		if err != nil {
+			if driver_shared.IsEOF(err) {
+				break
+			}
+			t.Fatalf("failed to read CreateDocuments metadata: %v", err)
+		}
+		keys = append(keys, response.DocumentMeta.Key)
+	}
+	if len(keys) == 0 {
+		t.Fatal("No documents were created")
+	}
+
+	dbServerLeader, err := getServerIDLeaderForFirstShard(ctx, coordinatorClient, database, collectionName)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
 	// find the starter for the given DB server ID.
-	starterEndpointWithLeader, err := getStarterEndpointByServerID(t, dbServerLeader, starterEndpoints...)
+	starterEndpointWithLeader, err := getStarterEndpointByServerID(ctx, t, dbServerLeader, starterEndpoints...)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -150,11 +170,11 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 			}
 			WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckDatabase(databaseName)).ExecuteT(t, 15*time.Second, 500*time.Millisecond)
 
-			database, err = coordinatorClient.Database(context.Background(), databaseName)
+			database, err = coordinatorClient.GetDatabase(ctx, databaseName, nil)
 			if err != nil {
 				t.Fatal(err.Error())
 			}
-			collection, err = database.Collection(context.Background(), collectionName)
+			collection, err = database.GetCollection(ctx, collectionName, nil)
 			if err != nil {
 				t.Fatal(err.Error())
 			}
@@ -171,14 +191,16 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 		defer wg.Done()
 		var oneBook book
 		for {
-			for _, key := range keys {
-				if _, errRead = collection.ReadDocument(context.Background(), key, &oneBook); errRead != nil {
-					return
-				}
+			select {
+			case <-ctxShutdown.Done():
+				return
+			default:
 			}
 
-			if _, ok := <-ctxShutdown.Done(); !ok {
-				return
+			for _, key := range keys {
+				if _, errRead = collection.ReadDocument(ctxShutdown, key, &oneBook); errRead != nil {
+					return
+				}
 			}
 		}
 	}()
@@ -195,7 +217,7 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 
 	NewTimeoutFunc(func() error {
 		// check new leader of the shard.
-		newDBServerLeader, err := getServerIDLeaderForFirstShard(coordinatorClient, database, collectionName)
+		newDBServerLeader, err := getServerIDLeaderForFirstShard(ctx, coordinatorClient, database, collectionName)
 		if err != nil {
 			log.Log("Error while fetching shard details: %s", err.Error())
 			return nil
@@ -220,15 +242,15 @@ func TestProcessClusterResignLeadership(t *testing.T) {
 }
 
 // getStarterEndpointByServerID gets starter endpoint for the given server ID.
-func getStarterEndpointByServerID(t *testing.T, serverID driver.ServerID, startersEndpoints ...string) (string, error) {
+func getStarterEndpointByServerID(ctx context.Context, t *testing.T, serverID driver.ServerID, startersEndpoints ...string) (string, error) {
 	for _, endpoint := range startersEndpoints {
-		auth := driver.BasicAuthentication("root", "")
+		auth := driver_http.NewBasicAuth("root", "")
 		dbServerClient, err := CreateClient(t, endpoint, client.ServerTypeDBServer, auth)
 		if err != nil {
 			return "", errors.Wrap(err, "CreateClient")
 		}
 
-		ID, err := dbServerClient.ServerID(context.Background())
+		ID, err := dbServerClient.ServerID(ctx)
 		if err != nil {
 			return "", errors.Wrap(err, "ServerID")
 		}
@@ -242,16 +264,12 @@ func getStarterEndpointByServerID(t *testing.T, serverID driver.ServerID, starte
 }
 
 // getShardsForCollection returns shards for the given collection name.
-func getShardsForCollection(client driver.Client, database driver.Database,
+func getShardsForCollection(ctx context.Context, client driver.Client, database driver.Database,
 	collectionName string) (map[driver.ShardID][]driver.ServerID, error) {
-	cluster, err := client.Cluster(context.Background())
+	var clusterClient driver.ClientAdminCluster = client
+	inventory, err := clusterClient.DatabaseInventory(ctx, database.Name())
 	if err != nil {
-		return nil, errors.Wrap(err, "Cluster")
-	}
-
-	inventory, err := cluster.DatabaseInventory(context.Background(), database)
-	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "DatabaseInventory")
 	}
 
 	for _, c := range inventory.Collections {
@@ -264,9 +282,9 @@ func getShardsForCollection(client driver.Client, database driver.Database,
 }
 
 // getServerIDLeaderForFirstShard returns server ID of the leader shard.
-func getServerIDLeaderForFirstShard(client driver.Client, database driver.Database,
+func getServerIDLeaderForFirstShard(ctx context.Context, client driver.Client, database driver.Database,
 	collectionName string) (driver.ServerID, error) {
-	newShards, err := getShardsForCollection(client, database, collectionName)
+	newShards, err := getShardsForCollection(ctx, client, database, collectionName)
 	if err != nil {
 		return "", errors.Wrap(err, "getShardsForCollection")
 	}

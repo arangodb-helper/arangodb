@@ -89,16 +89,16 @@ func createArangoClusterSecretFile(log zerolog.Logger, bsCfg BootstrapConfig, my
 			}
 
 			for _, f := range files {
-				h, err := ioutil.ReadFile(filepath.Join(bsCfg.JWTFolderDir(), f.Name()))
+				h, err := os.ReadFile(filepath.Join(bsCfg.JWTFolderDir(), f.Name()))
 				if err != nil {
 					return nil, "", err
 				}
 
-				if err := ioutil.WriteFile(filepath.Join(hostSecretFolderName, Sha256sum(h)), h, 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(hostSecretFolderName, Sha256sum(h)), h, 0600); err != nil {
 					return nil, "", err
 				}
 			}
-			h, err := ioutil.ReadFile(filepath.Join(bsCfg.JWTFolderDir(), files[0].Name()))
+			h, err := os.ReadFile(filepath.Join(bsCfg.JWTFolderDir(), files[0].Name()))
 			if err != nil {
 				return nil, "", err
 			}

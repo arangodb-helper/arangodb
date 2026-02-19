@@ -24,7 +24,8 @@
 package service
 
 import (
-	driver "github.com/arangodb/go-driver"
+	"github.com/arangodb-helper/arangodb/agency"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
@@ -38,6 +39,6 @@ const (
 
 // ClientBuilder describes how to create connections to the specific instance of the cluster.
 type ClientBuilder interface {
-	// ClientBuilder creates authenticated go-driver clients with or without follow-redirect.
 	CreateClient(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error)
+	CreateAgency(endpoints []string) (agency.Agency, error)
 }

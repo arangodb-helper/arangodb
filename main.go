@@ -23,7 +23,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"os/signal"
@@ -34,12 +33,9 @@ import (
 	"time"
 
 	homedir "github.com/mitchellh/go-homedir"
-	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-
-	driver "github.com/arangodb/go-driver"
 
 	_ "github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/arangodb"
@@ -101,10 +97,6 @@ var (
 )
 
 func init() {
-	// Setup error functions in go-driver
-	driver.WithStack = errors.WithStack
-	driver.Cause = errors.Cause
-
 	// Prepare initial logger
 	log, _ = logging.NewRootLogger(logging.LoggerOutputOptions{
 		Stderr: true,
@@ -533,7 +525,7 @@ func mustPrepareService(generateAutoKeyFile bool) (*service.Service, service.Boo
 
 	var jwtSecret string
 	if opts.auth.jwtSecretFile != "" {
-		content, err := ioutil.ReadFile(opts.auth.jwtSecretFile)
+		content, err := os.ReadFile(opts.auth.jwtSecretFile)
 		if err != nil {
 			log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", opts.auth.jwtSecretFile)
 		}

@@ -32,8 +32,7 @@ import (
 	"github.com/cenkalti/backoff"
 	"github.com/rs/zerolog"
 
-	"github.com/arangodb-helper/go-helper/pkg/arangod/agency/election"
-	"github.com/arangodb/go-driver/agency"
+	"github.com/arangodb-helper/arangodb/agency"
 )
 
 const (
@@ -129,7 +128,7 @@ func (s *runtimeClusterManager) updateClusterConfiguration(ctx context.Context, 
 }
 
 func (s *runtimeClusterManager) runLeaderElection(ctx context.Context, myURL string) {
-	le := election.NewLeaderElectionCell[string](masterURLKey, masterURLTTL)
+	le := agency.NewLeaderElectionCell[string](masterURLKey, masterURLTTL)
 
 	delay := time.Microsecond
 	resignErrBackoff := backoff.NewExponentialBackOff()
@@ -244,7 +243,19 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 	}
 
 	ownURL := myPeer.CreateStarterURL("/")
+
 	go s.runLeaderElection(ctx, ownURL)
+
+	// Seed the master URL from cluster config (from master) so upgrade and other APIs have a valid master
+	// until leader election completes. Agency read/write follow 307 redirects so leader election completes;
+	// we use the first peer as the initial candidate and runLeaderElection replaces it with the elected master.
+	clusterConfig, _, _ := runtimeContext.ClusterConfig()
+	if len(clusterConfig.AllPeers) > 0 {
+		initialMasterURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
+		if initialMasterURL != "" {
+			s.updateMasterURL(initialMasterURL, initialMasterURL == ownURL)
+		}
+	}
 
 	for {
 		delay := time.Microsecond

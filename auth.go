@@ -24,7 +24,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -84,7 +84,7 @@ func mustAuthCreateJWTToken() string {
 	if authOptions.jwtSecretFile == "" {
 		log.Fatal().Msg("A JWT secret file is required. Set --auth.jwt-secret option.")
 	}
-	content, err := ioutil.ReadFile(authOptions.jwtSecretFile)
+	content, err := os.ReadFile(authOptions.jwtSecretFile)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("Failed to read JWT secret file '%s'", authOptions.jwtSecretFile)
 	}

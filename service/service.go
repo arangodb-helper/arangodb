@@ -41,11 +41,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 
-	driver "github.com/arangodb/go-driver"
-	"github.com/arangodb/go-driver/agency"
-	driver_http "github.com/arangodb/go-driver/http"
-	"github.com/arangodb/go-driver/jwt"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driver_http "github.com/arangodb/go-driver/v2/connection"
+	driver_jwt "github.com/arangodb/go-driver/v2/utils/jwt"
 
+	"github.com/arangodb-helper/arangodb/agency"
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/pkg/logging"
@@ -306,6 +306,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 		return false, maskAny(err)
 	}
 
+	graceful := true
 	// Remove dbserver from cluster (if any)
 	if peer.HasDBServer() {
 		shutdownServer := func() error {
@@ -321,14 +322,14 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 			}
 			// Clean out DB server
 			s.log.Info().Msgf("Starting cleanout of dbserver %s", sid)
-			if err := c.CleanOutServer(ctx, sid); err != nil {
+			if _, err := c.CleanOutServer(ctx, driver.ServerID(sid)); err != nil {
 				s.log.Warn().Err(err).Msgf("Cleanout requested of dbserver %s failed", sid)
 				return maskAny(err)
 			}
 			// Wait until server is cleaned out
 			s.log.Info().Msgf("Waiting for cleanout of dbserver %s to finish", sid)
 			for {
-				if cleanedOut, err := c.IsCleanedOut(ctx, sid); err != nil {
+				if cleanedOut, err := c.IsCleanedOut(ctx, driver.ServerID(sid)); err != nil {
 					s.log.Warn().Err(err).Msgf("IsCleanedOut request of dbserver %s failed", sid)
 					return maskAny(err)
 				} else if cleanedOut {
@@ -337,9 +338,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 				// Wait a bit
 				time.Sleep(time.Millisecond * 250)
 			}
-			// Remove dbserver from cluster
-			s.log.Info().Msgf("Removing dbserver %s from cluster", sid)
-			if err := sc.Shutdown(ctx, true); err != nil {
+			if err := sc.Shutdown(ctx, sid, &graceful); err != nil {
 				s.log.Warn().Err(err).Msgf("Shutdown request of dbserver %s failed", sid)
 				return maskAny(err)
 			}
@@ -369,7 +368,7 @@ func (s *Service) HandleGoodbye(id string, force bool) (peerRemoved bool, err er
 			}
 			// Remove coordinator from cluster
 			s.log.Info().Msgf("Removing coordinator %s from cluster", sid)
-			if err := sc.Shutdown(ctx, true); err != nil {
+			if err := sc.Shutdown(ctx, sid, &graceful); err != nil {
 				s.log.Warn().Err(err).Msgf("Shutdown request of coordinator %s failed", sid)
 				return maskAny(err)
 			}
@@ -577,20 +576,14 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 				return "", -1, maskAny(err)
 			}
 
-			resp, err := c.Do(ctx, req)
+			var versionResponse struct {
+				Version string `json:"version"`
+			}
+			resp, err := c.Do(ctx, req, &versionResponse, http.StatusOK)
 			if err != nil {
 				return "", -3, maskAny(err)
 			}
-			if resp.StatusCode() != 200 {
-				return "", resp.StatusCode(), maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode()))
-			}
-			versionResponse := struct {
-				Version string `json:"version"`
-			}{}
-			if err := resp.ParseBody("", &versionResponse); err != nil {
-				return "", -4, maskAny(fmt.Errorf("Unexpected version response: %#v", err))
-			}
-			return versionResponse.Version, resp.StatusCode(), nil
+			return versionResponse.Version, resp.Code(), nil
 		}
 		makeVersionRequest := func() (string, int, error) {
 			switch serverType.ProcessType() {
@@ -613,22 +606,15 @@ func (s *Service) TestInstance(ctx context.Context, serverType definitions.Serve
 			if err != nil {
 				return "", "", -1, maskAny(err)
 			}
-
-			resp, err := c.Do(ctx, req)
-			if err != nil {
-				return "", "", -3, maskAny(err)
-			}
-			if resp.StatusCode() != 200 {
-				return "", "", resp.StatusCode(), maskAny(fmt.Errorf("Invalid status %d", resp.StatusCode()))
-			}
 			roleResponse := struct {
 				Role string `json:"role,omitempty"`
 				Mode string `json:"mode,omitempty"`
 			}{}
-			if err := resp.ParseBody("", &roleResponse); err != nil {
+			resp, err := c.Do(ctx, req, &roleResponse, http.StatusOK)
+			if err != nil {
 				return "", "", -4, maskAny(fmt.Errorf("Unexpected role response: %#v", err))
 			}
-			return roleResponse.Role, roleResponse.Mode, resp.StatusCode(), nil
+			return roleResponse.Role, roleResponse.Mode, resp.Code(), nil
 		}
 
 		checkInstanceOnce := func() bool {
@@ -894,18 +880,22 @@ func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
 
 // CreateClient creates a go-driver client with authentication for the given endpoints.
 func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error) {
-	connConfig := driver_http.ConnectionConfig{
-		Endpoints:          endpoints,
-		DontFollowRedirect: connectionType == ConnectionTypeAgency,
-		TLSConfig: &tls.Config{
+	endpoint := driver_http.NewRoundRobinEndpoints(endpoints)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
 	}
-	var conn driver.Connection
+
+	connConfig := driver_http.HttpConfiguration{
+		Endpoint:  endpoint,
+		Transport: transport,
+	}
+	var conn driver_http.Connection
 	var err error
 	switch connectionType {
 	case ConnectionTypeDatabase:
-		conn, err = driver_http.NewConnection(connConfig)
+		conn = driver_http.NewHttpConnection(connConfig)
 	case ConnectionTypeAgency:
 		conn, err = agency.NewAgencyConnection(connConfig)
 	default:
@@ -939,18 +929,50 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	jwtBearer, err := jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
-	if err != nil {
-		return nil, maskAny(err)
+	if secret != "" {
+		jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		auth := driver_http.NewHeaderAuth("Authorization", jwtBearer)
+		if err := conn.SetAuthentication(auth); err != nil {
+			return nil, maskAny(err)
+		}
 	}
-	c, err := driver.NewClient(driver.ClientConfig{
-		Connection:     conn,
-		Authentication: driver.RawAuthentication(jwtBearer),
-	})
-	if err != nil {
-		return nil, maskAny(err)
-	}
+	c := driver.NewClient(conn)
 	return c, nil
+}
+
+// CreateAgency creates an agency client that can follow 307 redirects so leader election completes when hitting a non-leader.
+func (s *Service) CreateAgency(endpoints []string) (agency.Agency, error) {
+	endpoint := driver_http.NewRoundRobinEndpoints(endpoints)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+	secret := s.jwtSecret
+	if s.DatabaseFeatures().GetJWTFolderOption() && s.jwtSecret != "" {
+		if t, err := s.getFolderToken(definitions.AllServerTypes()...); err == nil {
+			secret = t
+		}
+	}
+	connConfig := driver_http.HttpConfiguration{
+		Endpoint:  endpoint,
+		Transport: transport,
+	}
+	if secret != "" {
+		jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
+		if err != nil {
+			return nil, maskAny(err)
+		}
+		connConfig.Authentication = driver_http.NewHeaderAuth("Authorization", jwtBearer)
+	}
+	conn, err := agency.NewAgencyConnection(connConfig)
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	return agency.NewAgency(conn, len(endpoints), &connConfig)
 }
 
 func (s *Service) getGlobalToken() (string, error) {

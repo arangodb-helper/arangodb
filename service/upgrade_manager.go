@@ -33,9 +33,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/ryanuber/columnize"
 
-	"github.com/arangodb-helper/go-helper/pkg/arangod/agency/election"
-	"github.com/arangodb/go-driver"
-	"github.com/arangodb/go-driver/agency"
+	"github.com/arangodb-helper/arangodb/agency"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driver_http "github.com/arangodb/go-driver/v2/connection"
 	upgraderules "github.com/arangodb/go-upgrade-rules"
 
 	"github.com/arangodb-helper/arangodb/client"
@@ -288,23 +288,27 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	if err != nil {
 		return maskAny(err)
 	}
+
+	// Use peer ID for lock holder identification (myPeer already declared above)
 	m.log.Debug().Msg("Creating lock")
-	lock, err := election.NewLock(m, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	lock, err := agency.NewLock(upgradeManagerLockKey, myPeer.ID, upgradeManagerLockTTL)
 	if err != nil {
 		return maskAny(err)
 	}
 
-	// Claim the upgrade lock
+	// Claim the upgrade lock (same as master: lock.Lock(ctx, api); on error return)
 	m.log.Debug().Msg("Locking lock")
-	if err := lock.Lock(ctx, api); err != nil {
+	if err := lock.Acquire(ctx, api); err != nil {
 		m.log.Debug().Err(err).Msg("Lock failed")
 		return maskAny(err)
 	}
-
-	// Close agency lock when we're done
 	defer func() {
 		m.log.Debug().Msg("Unlocking lock")
-		lock.Unlock(context.Background(), api)
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := lock.Release(releaseCtx); err != nil {
+			m.log.Warn().Err(err).Msg("Failed to unlock lock")
+		}
 	}()
 
 	m.log.Debug().Msg("Reading upgrade plan...")
@@ -346,12 +350,12 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 					m.log.Error().Msgf("Could not create client for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				db, err := cli.Database(nil, "_system")
+				db, err := cli.GetDatabase(ctx, "_system", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not find _system database for agent of peer %s", p.ID)
 					return maskAny(err)
 				}
-				_, err = db.Query(nil, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
+				_, err = db.Query(ctx, "FOR x IN compact LET old = x.readDB LET new = (FOR i IN 0..LENGTH(old)-1 RETURN i == 1 ? {} : old[i]) UPDATE x._key WITH {readDB: new} IN compact", nil)
 				if err != nil {
 					m.log.Error().Msgf("Could not repair agent log compaction for agent of peer %s", p.ID)
 				}
@@ -405,7 +409,7 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	// Save plan
 	m.log.Debug().Msg("Writing upgrade plan")
 	overwrite := true
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); agency.IsPreconditionFailed(err) {
 		m.log.Error().Msg("Failed to write upgrade plan because it was outdated or removed.")
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
@@ -464,7 +468,7 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	// Reset failures and write plan
 	plan.ResetFailures()
 	overwrite := false
-	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); driver.IsPreconditionFailed(err) {
+	if _, err := m.writeUpgradePlan(ctx, plan, overwrite); agency.IsPreconditionFailed(err) {
 		return errors.Wrap(err, "Failed to write upgrade plan because is was outdated or removed")
 	} else if err != nil {
 		return errors.Wrap(err, "Failed to write upgrade plan")
@@ -499,15 +503,18 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	if err != nil {
 		return maskAny(err)
 	}
+
+	// Get peer ID for lock holder identification
+	_, myPeer, _ := m.upgradeManagerContext.ClusterConfig()
 	m.log.Debug().Msg("Creating lock")
-	lock, err := election.NewLock(m, upgradeManagerLockKey, "", upgradeManagerLockTTL)
+	lock, err := agency.NewLock(upgradeManagerLockKey, myPeer.ID, upgradeManagerLockTTL)
 	if err != nil {
 		return maskAny(err)
 	}
 
-	// Claim the upgrade lock
+	// Claim the upgrade lock (same as master: lock.Lock(ctx, api))
 	m.log.Debug().Msg("Locking lock")
-	if err := lock.Lock(ctx, api); err != nil {
+	if err := lock.Acquire(ctx, api); err != nil {
 		m.log.Debug().Err(err).Msg("Lock failed")
 		return maskAny(err)
 	}
@@ -515,7 +522,11 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	// Close agency lock when we're done
 	defer func() {
 		m.log.Debug().Msg("Unlocking lock")
-		lock.Unlock(context.Background(), api)
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := lock.Release(releaseCtx); err != nil {
+			m.log.Warn().Err(err).Msg("Failed to unlock lock")
+		}
 	}()
 
 	// Check plan
@@ -760,7 +771,7 @@ func (m *upgradeManager) writeUpgradePlan(ctx context.Context, plan UpgradePlan,
 	plan.LastModifiedAt = time.Now()
 	var condition agency.WriteCondition
 	if !overwrite {
-		condition = condition.IfEqualTo(upgradePlanRevisionKey, oldRevision)
+		condition = agency.IfEqualTo(upgradePlanRevisionKey, oldRevision)
 	}
 	if err := api.WriteKey(ctx, upgradePlanKey, plan, 0, condition); err != nil {
 		return UpgradePlan{}, maskAny(err)
@@ -855,7 +866,7 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 				}
 			}
 		} else if plan.IsFailed() {
-			// Plan already failed
+			// Plan already failed;
 		} else if len(plan.Entries) > 0 {
 			// Let's inspect the first entry
 			if err := m.processUpgradePlan(ctx, plan); err != nil {
@@ -1175,7 +1186,7 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 		return maskAny(err)
 	}
 	// Build agency clients
-	clients := make([]driver.Connection, 0, len(endpoints))
+	clients := make([]driver_http.Connection, 0, len(endpoints))
 	for _, ep := range endpoints {
 		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeAgency, definitions.ServerTypeUnknown)
 		if err != nil {
@@ -1195,26 +1206,17 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 func (m *upgradeManager) isClusterHealthy(ctx context.Context) error {
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
-	// Build endpoint list
-	endpoints, err := clusterConfig.GetCoordinatorEndpoints()
+	// Use CreateClusterAPI to get cluster client
+	clusterClient, err := clusterConfig.CreateClusterAPI(ctx, m.upgradeManagerContext)
 	if err != nil {
 		return maskAny(err)
 	}
-	// Build client
-	c, err := m.upgradeManagerContext.CreateClient(endpoints, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
+	// Check health using go-driver v2 API
+	health, err := clusterClient.Health(ctx)
 	if err != nil {
 		return maskAny(err)
 	}
-	// Check health
-	cl, err := c.Cluster(ctx)
-	if err != nil {
-		return maskAny(err)
-	}
-	h, err := cl.Health(ctx)
-	if err != nil {
-		return maskAny(err)
-	}
-	for id, sh := range h.Health {
+	for id, sh := range health.Health {
 		if sh.Role == driver.ServerRoleAgent && sh.Status == "" {
 			continue
 		}

@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,7 +34,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	driver "github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
@@ -269,7 +268,7 @@ func (s *httpServer) goodbyeHandler(w http.ResponseWriter, r *http.Request) {
 	force, _ := strconv.ParseBool(r.FormValue("force"))
 	var req client.GoodbyeRequest
 	defer r.Body.Close()
-	body, err := ioutil.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot read request body: %v", err.Error()))
 		return

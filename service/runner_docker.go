@@ -130,7 +130,7 @@ func (p *dockerContainer) WaitCh() <-chan int {
 // If that is the case, its process is returned.
 // Otherwise nil is returned.
 func (r *dockerRunner) GetRunningServer(serverDir string) (Process, error) {
-	containerContent, err := ioutil.ReadFile(filepath.Join(serverDir, containerFileName))
+	containerContent, err := os.ReadFile(filepath.Join(serverDir, containerFileName))
 	if os.IsNotExist(err) {
 		return nil, nil
 	} else if err != nil {

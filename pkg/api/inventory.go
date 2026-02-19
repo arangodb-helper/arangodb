@@ -23,7 +23,7 @@
 package api
 
 import (
-	"github.com/arangodb/go-driver"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	client "github.com/arangodb-helper/arangodb/service/clients"

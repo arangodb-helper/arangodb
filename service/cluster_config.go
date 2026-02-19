@@ -25,14 +25,15 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	driver "github.com/arangodb/go-driver"
-	"github.com/arangodb/go-driver/agency"
-	driver_http "github.com/arangodb/go-driver/http"
-	"github.com/arangodb/go-driver/jwt"
+	"github.com/arangodb-helper/arangodb/agency"
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	driver_http "github.com/arangodb/go-driver/v2/connection"
+	"github.com/arangodb/go-driver/v2/utils/jwt"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/service/options"
@@ -282,72 +283,73 @@ func (p ClusterConfig) GetSingleEndpoints() ([]string, error) {
 	return endpoints, nil
 }
 
-// CreateAgencyAPI creates a client for the agency
+// CreateAgencyAPI creates a client for the agency (uses CreateAgency so 307 redirects are followed and leader election completes).
 func (p ClusterConfig) CreateAgencyAPI(clientBuilder ClientBuilder) (agency.Agency, error) {
-	// Build endpoint list
 	endpoints, err := p.GetAgentEndpoints()
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	c, err := clientBuilder.CreateClient(endpoints, ConnectionTypeAgency, definitions.ServerTypeUnknown)
-	if err != nil {
-		return nil, maskAny(err)
-	}
-	conn := c.Connection()
-	a, err := agency.NewAgency(conn)
-	if err != nil {
-		return nil, maskAny(err)
-	}
-	return a, nil
+	return clientBuilder.CreateAgency(endpoints)
 }
 
 // CreateClusterAPI creates a client for the cluster
-func (p ClusterConfig) CreateClusterAPI(ctx context.Context, clientBuilder ClientBuilder) (driver.Cluster, error) {
-	// Build endpoint list
+func (p ClusterConfig) CreateClusterAPI(
+	ctx context.Context,
+	clientBuilder ClientBuilder,
+) (driver.ClientAdminCluster, error) {
+
 	endpoints, err := p.GetCoordinatorEndpoints()
 	if err != nil {
 		return nil, maskAny(err)
 	}
+
 	c, err := clientBuilder.CreateClient(endpoints, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	cluster, err := c.Cluster(ctx)
-	if err != nil {
-		return nil, maskAny(err)
-	}
+	// In v2, Client embeds ClientAdmin which embeds ClientAdminCluster
+	// ClientAdminCluster methods are directly available on Client
+	// Since Client implements ClientAdminCluster interface, we can return it directly
+	// But we need to access it through the ClientAdmin interface
+	var cluster driver.ClientAdminCluster = c
+
 	return cluster, nil
 }
 
 // CreateCoordinatorsClient creates go-driver client targeting the coordinators.
 func (p ClusterConfig) CreateCoordinatorsClient(jwtSecret string) (driver.Client, error) {
-	// Build endpoint list
+	// Build coordinator endpoints
 	endpoints, err := p.GetCoordinatorEndpoints()
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	conn, err := driver_http.NewConnection(driver_http.ConnectionConfig{
-		Endpoints: endpoints,
-		TLSConfig: &tls.Config{InsecureSkipVerify: true},
-	})
-	if err != nil {
-		return nil, maskAny(err)
+
+	// Setup round-robin endpoints and transport
+	endpoint := driver_http.NewRoundRobinEndpoints(endpoints)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	options := driver.ClientConfig{
-		Connection: conn,
+	connConfig := driver_http.HttpConfiguration{
+		Endpoint:  endpoint,
+		Transport: transport,
 	}
+	conn := driver_http.NewHttpConnection(connConfig)
+
+	// Add JWT auth if needed
 	if jwtSecret != "" {
-		value, err := jwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
+		header, err := jwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
 		if err != nil {
 			return nil, maskAny(err)
 		}
-		options.Authentication = driver.RawAuthentication(value)
+		auth := driver_http.NewHeaderAuth("Authorization", header)
+		if err := conn.SetAuthentication(auth); err != nil {
+			return nil, maskAny(err)
+		}
 	}
-	c, err := driver.NewClient(options)
-	if err != nil {
-		return nil, maskAny(err)
-	}
-	return c, nil
+
+	// Build the client
+	client := driver.NewClient(conn)
+	return client, nil
 }
 
 // Set the LastModified timestamp to now.
