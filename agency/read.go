@@ -176,7 +176,10 @@ func (c *client) doReadToEndpoint(ctx context.Context, reqBody [][]string, locat
 	if err != nil {
 		return nil, err
 	}
-	if resp == nil || resp.Code() < 200 || resp.Code() >= 300 {
+	if resp == nil {
+		return nil, fmt.Errorf("redirect read failed: no response")
+	}
+	if resp.Code() < 200 || resp.Code() >= 300 {
 		return nil, fmt.Errorf("redirect read failed: code=%d", resp.Code())
 	}
 	return rawResponse, nil
