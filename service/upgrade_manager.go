@@ -252,7 +252,9 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 
 	for _, from := range runningDBVersions {
 		if err := rules(from, toVersion); err != nil {
-			return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
+			if !IsAllowedCrossMajorUpgrade(from, toVersion) {
+				return maskAny(errors.Wrap(err, "Found incompatible upgrade versions"))
+			}
 		}
 		if from.CompareTo("3.4.6") == 0 {
 			specialUpgradeFrom346 = true
@@ -1479,4 +1481,17 @@ func (m *upgradeManager) ShowArangodServerVersions(ctx context.Context) (bool, e
 func IsSpecialUpgradeFrom3614(v driver.Version) bool {
 	return (v.CompareTo("3.6.0") >= 0 && v.CompareTo("3.6.14") <= 0) ||
 		(v.CompareTo("3.7.0") >= 0 && v.CompareTo("3.7.12") <= 0)
+}
+
+// IsAllowedCrossMajorUpgrade determines whether a specific cross-major database
+// upgrade is allowed by starter, even if generic rules reject major upgrades.
+//
+// Allowed path:
+//   - from: 3.12.7 <= v < 3.13.0
+//   - to:   4.0.0 <= v < 5.0.0
+func IsAllowedCrossMajorUpgrade(from driver.Version, to driver.Version) bool {
+	fromInAllowedRange := from.CompareTo("3.12.7") >= 0 && from.CompareTo("3.13.0") < 0
+	toInAllowedRange := to.CompareTo("4.0.0") >= 0 && to.CompareTo("5.0.0") < 0
+
+	return fromInAllowedRange && toInAllowedRange
 }
