@@ -5,6 +5,8 @@
 - Add internal agency client utilities (read/write, lock acquisition, leader election) and related reliability fixes for upgrade/test flows
 - Update go-upgrade-rules dependency for go-driver v2 compatibility
 - Update go-upgrade-rules to latest; adds ArangoDB 4.0 supported upgrade rules (e.g. 3.12.7+ → 4.0)
+- Always pass JavaScript options (--javascript.startup-directory, --javascript.app-path, --javascript.copy-installation when not in Docker) to arangod for compatibility; core (ArangoDB 4.0+) is expected to ignore them when V8-less
+- Mark --server.js-dir as deprecated; kept for compatibility, will be removed in a future major version (e.g. 5.0)
 
 ## [v0.19.17](https://github.com/arangodb-helper/arangodb/tree/0.19.17) (2026-02-11)
 - Bump Go version (1.24.13) and dependencies for CVE fixes

@@ -162,6 +162,7 @@ func init() {
 	f.BoolVar(&opts.server.useLocalBin, "server.use-local-bin", false, "If true, starter will try searching for binaries in local directory first")
 	f.StringVar(&opts.server.arangodPath, "server.arangod", defaultArangodPath, "Path of arangod")
 	f.StringVar(&opts.server.arangodJSPath, "server.js-dir", "/usr/share/arangodb3/js", "Path of arango JS folder")
+	f.Lookup("server.js-dir").Deprecated = "deprecated: ArangoDB 4.0+ is V8-less; kept for compatibility (server ignores). Will be removed in a future major version (e.g. 5.0)"
 	f.StringVar(&opts.server.rrPath, "server.rr", "", "Path of rr")
 	f.IntVar(&opts.server.threads, "server.threads", 0, "Adjust server.threads of each server")
 	f.StringVar(&opts.server.storageEngine, "server.storage-engine", "", "Type of storage engine to use (mmfiles|rocksdb) (3.2 and up)")

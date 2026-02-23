@@ -177,13 +177,12 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 		optionPair{"--log.file", slasher(myContainerLogFile)},
 		optionPair{"--log.force-direct", "false"},
 	)
-	// Only add JavaScript parameters if V8 is supported
-	if features.HasV8JavaScriptSupport() {
-		opts = append(opts,
-			optionPair{"--javascript.startup-directory", slasher(jsStartup)},
-			optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
-		)
-	}
+	// Always add JavaScript parameters for compatibility (e.g. upgrade from 3.12).
+	// ArangoDB 4.0+ (V8-less) ignores them; core logs deprecation.
+	opts = append(opts,
+		optionPair{"--javascript.startup-directory", slasher(jsStartup)},
+		optionPair{"--javascript.app-path", slasher(filepath.Join(myContainerDir, "apps"))},
+	)
 	if clusterJWTSecretFile != "" {
 		if !features.GetJWTFolderOption() {
 			opts = append(opts,
@@ -195,7 +194,8 @@ func createArangodArgs(log zerolog.Logger, config Config, clusterConfig ClusterC
 			)
 		}
 	}
-	if !config.RunningInDocker && features.HasCopyInstallationFiles() && features.HasV8JavaScriptSupport() {
+	// Copy installation files when supported; for V8-less (4.0+) server ignores this option.
+	if !config.RunningInDocker && features.HasCopyInstallationFiles() {
 		opts = append(opts, optionPair{"--javascript.copy-installation", "true"})
 	}
 
