@@ -246,17 +246,6 @@ func (s *runtimeClusterManager) Run(ctx context.Context, log zerolog.Logger, run
 
 	go s.runLeaderElection(ctx, ownURL)
 
-	// Seed the master URL from cluster config (from master) so upgrade and other APIs have a valid master
-	// until leader election completes. Agency read/write follow 307 redirects so leader election completes;
-	// we use the first peer as the initial candidate and runLeaderElection replaces it with the elected master.
-	clusterConfig, _, _ := runtimeContext.ClusterConfig()
-	if len(clusterConfig.AllPeers) > 0 {
-		initialMasterURL := clusterConfig.AllPeers[0].CreateStarterURL("/")
-		if initialMasterURL != "" {
-			s.updateMasterURL(initialMasterURL, initialMasterURL == ownURL)
-		}
-	}
-
 	for {
 		delay := time.Microsecond
 		// Loop until stopping

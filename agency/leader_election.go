@@ -105,32 +105,38 @@ func (l *LeaderElectionCell[T]) Read(ctx context.Context, cli Agency) (T, error)
 	return result.Data, nil
 }
 
-// Update checks leader status and tries to become leader
+// Update checks leader status and tries to become leader.
+// It retries internally for up to 30 seconds before returning an error,
+// allowing the caller to create a fresh agency client and retry.
 func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T) (T, bool, time.Duration, error) {
 	const minUpdateDelay = 500 * time.Millisecond
+	const updateTimeout = 30 * time.Second
 
 	var result leaderStruct[T]
 	var err error
 	var zeroValue T
 
+	updateCtx, updateCancel := context.WithTimeout(ctx, updateTimeout)
+	defer updateCancel()
+
 	for {
 		assumeEmpty := false
-		result, err = l.readCell(ctx, cli)
+		result, err = l.readCell(updateCtx, cli)
 		if err != nil {
 			if IsKeyNotFound(err) {
 				assumeEmpty = true
 				result = leaderStruct[T]{} // default empty
 			} else if isConnectionError(err) {
 				select {
-				case <-ctx.Done():
-					return zeroValue, false, 0, ctx.Err()
+				case <-updateCtx.Done():
+					return zeroValue, false, 0, updateCtx.Err()
 				case <-time.After(minUpdateDelay):
 				}
 				continue
 			} else {
 				select {
-				case <-ctx.Done():
-					return zeroValue, false, 0, ctx.Err()
+				case <-updateCtx.Done():
+					return zeroValue, false, 0, updateCtx.Err()
 				case <-time.After(minUpdateDelay):
 				}
 				continue
@@ -143,12 +149,17 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T)
 		if result.TTL > now.Unix() && !l.leading && l.lastTTL == 0 {
 			l.lastTTL = result.TTL
 			l.leading = reflect.DeepEqual(result.Data, value)
+			// After restart, if we discover we are the current holder,
+			// try to refresh immediately so we correctly report as leader.
+			if l.leading {
+				needTryLeader = true
+			}
 		}
 
 		if needTryLeader {
-			if err := l.tryBecomeLeader(ctx, cli, value, assumeEmpty); err == nil {
+			if err := l.tryBecomeLeader(updateCtx, cli, value, assumeEmpty); err == nil {
 				return value, true, l.ttl / 2, nil
-			} else if ctx.Err() != nil {
+			} else if updateCtx.Err() != nil {
 				return zeroValue, false, 0, err
 			} else {
 				time.Sleep(minUpdateDelay)

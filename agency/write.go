@@ -79,21 +79,37 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 
 		var result writeResult
 
-		resp, err := c.conn.Do(ctx, req, &result)
+		reqCtx, reqCancel := context.WithTimeout(ctx, agencyRequestTimeout)
+		resp, err := c.conn.Do(reqCtx, req, &result)
+		reqCancel()
 		if err != nil {
 			if isConnectionError(err) && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
+			// Treat context deadline from the per-request timeout as a connection error (retry).
+			if reqCtx.Err() != nil && ctx.Err() == nil && time.Now().Before(deadline) {
+				lastErr = err
+				continue
+			}
 			return fmt.Errorf("agency write request failed: %w", err)
 		}
-		lastErr = nil
 
 		if resp == nil {
 			return fmt.Errorf("agency write response is nil")
 		}
 
 		statusCode := resp.Code()
+
+		// Server errors (5xx) are transient (e.g. 503 during Raft election) — retry.
+		if statusCode >= 500 {
+			if time.Now().Before(deadline) {
+				lastErr = fmt.Errorf("agency write returned HTTP %d", statusCode)
+				continue
+			}
+			return fmt.Errorf("agency write returned HTTP %d after retry window exhausted", statusCode)
+		}
+
 		if len(result.Results) == 0 {
 			// 307 from non-leader returns empty body; follow Location once so leader election completes.
 			if statusCode >= 300 && statusCode < 400 && c.redirectConfig != nil {
@@ -208,7 +224,7 @@ func (c *client) buildOperationsMap(ops []KeyChanger, ttls map[string]time.Durat
 
 // buildPreconditionsMap converts WriteCondition slice to flat key path format
 // as expected by the ArangoDB Agency write API.
-// Expected format: {"/key/path/to/key": {"old": value}}
+// Expected format: {"/key/path/to/key": {"old": value}} or {"/key/path": {"oldEmpty": true}}
 func (c *client) buildPreconditionsMap(conds []WriteCondition) map[string]any {
 	if len(conds) == 0 {
 		// Return empty map (not nil) - agency expects {} for empty preconditions
@@ -228,7 +244,7 @@ func (c *client) buildPreconditionsMap(conds []WriteCondition) map[string]any {
 
 		keyStr := "/" + strings.Join(keyPath, "/")
 		result[keyStr] = map[string]any{
-			"old": cond.GetValue(),
+			cond.GetName(): cond.GetValue(),
 		}
 	}
 

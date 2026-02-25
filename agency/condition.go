@@ -17,56 +17,47 @@
 // Copyright holder is ArangoDB GmbH, Cologne, Germany
 package agency
 
+// WriteCondition describes a precondition for an agency write operation.
 type WriteCondition interface {
+	// GetName returns the condition type name for the agency API (e.g. "old", "oldEmpty").
 	GetName() string
+	// GetValue returns the condition value.
 	GetValue() any
-	GetKey() []string // Get the full key path for the condition
+	// GetKey returns the full key path for the condition.
+	GetKey() []string
 }
 
-type writeCondition struct {
-	Key   []string
-	Value any
+// keyWriteCondition is a WriteCondition backed by a specific condition name.
+type keyWriteCondition struct {
+	key   []string
+	name  string
+	value any
 }
 
-func (w writeCondition) GetName() string {
-	if len(w.Key) == 0 {
-		return ""
-	}
-	return w.Key[0]
-}
-func (w writeCondition) GetValue() any    { return w.Value }
-func (w writeCondition) GetKey() []string { return w.Key }
+func (w *keyWriteCondition) GetName() string  { return w.name }
+func (w *keyWriteCondition) GetValue() any    { return w.value }
+func (w *keyWriteCondition) GetKey() []string { return w.key }
 
+// IfEqualTo returns a precondition that the value at key equals value.
 func IfEqualTo(key []string, value any) WriteCondition {
-	return writeCondition{Key: key, Value: value}
+	return &keyWriteCondition{key: key, name: "old", value: value}
 }
 
-// KeyEquals checks a field equals a value
+// KeyEquals returns a precondition that key+field equals value.
 func KeyEquals(key []string, field string, value any) WriteCondition {
 	fullKey := make([]string, 0, len(key)+1)
 	fullKey = append(fullKey, key...)
 	fullKey = append(fullKey, field)
-
-	return writeCondition{
-		Key:   fullKey,
-		Value: value,
-	}
+	return &keyWriteCondition{key: fullKey, name: "old", value: value}
 }
 
-// KeyMissing is a precondition that the key path does not exist (empty/absent).
-// The agency treats "old": null as matching when the key is missing.
+// KeyMissing returns a precondition that the key path does not exist.
+// Uses the agency "oldEmpty" precondition type (matching go-driver v1 behaviour).
 func KeyMissing(key []string) WriteCondition {
-	return writeCondition{
-		Key:   key,
-		Value: nil,
-	}
+	return &keyWriteCondition{key: key, name: "oldEmpty", value: true}
 }
 
-// KeyMissingEmpty is like KeyMissing but sends "old": [] for agencies that expect
-// an empty array for absent keys instead of null.
+// KeyMissingEmpty is an alias for KeyMissing (kept for backward compatibility).
 func KeyMissingEmpty(key []string) WriteCondition {
-	return writeCondition{
-		Key:   key,
-		Value: []any{},
-	}
+	return KeyMissing(key)
 }
