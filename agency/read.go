@@ -20,6 +20,7 @@ package agency
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -76,19 +77,21 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 
 		reqCtx, reqCancel := context.WithTimeout(ctx, agencyRequestTimeout)
 		resp, err := c.conn.Do(reqCtx, req, &rawResponse)
+		isDeadlineExceeded := err != nil && errors.Is(err, context.DeadlineExceeded)
 		reqCancel()
 		if err != nil {
 			if isConnectionError(err) && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
-			// Treat context deadline from the per-request timeout as a connection error (retry).
-			if reqCtx.Err() != nil && ctx.Err() == nil && time.Now().Before(deadline) {
+			// Retry on per-request timeout (context.DeadlineExceeded).
+			if isDeadlineExceeded && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
 			return fmt.Errorf("agency read request failed: %w", err)
 		}
+		lastErr = nil
 		if resp == nil {
 			return ErrKeyNotFound
 		}
@@ -114,7 +117,9 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		if respCode >= 300 && respCode < 400 && c.redirectConfig != nil {
 			if location := resp.Header("Location"); location != "" {
 				absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
-				redirectRaw, redirectErr := c.doReadToEndpoint(ctx, reqBody, absoluteLocation)
+				redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
+				redirectRaw, redirectErr := c.doReadToEndpoint(redirectCtx, reqBody, absoluteLocation)
+				redirectCancel()
 				if redirectErr == nil && redirectRaw != nil {
 					rawResponse = redirectRaw
 				}

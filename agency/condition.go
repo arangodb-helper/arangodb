@@ -57,7 +57,10 @@ func KeyMissing(key []string) WriteCondition {
 	return &keyWriteCondition{key: key, name: "oldEmpty", value: true}
 }
 
-// KeyMissingEmpty is an alias for KeyMissing (kept for backward compatibility).
+// KeyMissingEmpty is like KeyMissing but sends "old": [] for agencies that expect
+// an empty array for absent keys instead of "oldEmpty": true. Use KeyMissing for
+// the usual "key must not exist" precondition; use KeyMissingEmpty when the
+// agency or caller explicitly requires the empty-array encoding (e.g. fallback).
 func KeyMissingEmpty(key []string) WriteCondition {
-	return KeyMissing(key)
+	return &keyWriteCondition{key: key, name: "old", value: []any{}}
 }

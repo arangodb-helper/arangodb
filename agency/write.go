@@ -19,6 +19,7 @@ package agency
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -81,19 +82,21 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 
 		reqCtx, reqCancel := context.WithTimeout(ctx, agencyRequestTimeout)
 		resp, err := c.conn.Do(reqCtx, req, &result)
+		isDeadlineExceeded := err != nil && errors.Is(err, context.DeadlineExceeded)
 		reqCancel()
 		if err != nil {
 			if isConnectionError(err) && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
-			// Treat context deadline from the per-request timeout as a connection error (retry).
-			if reqCtx.Err() != nil && ctx.Err() == nil && time.Now().Before(deadline) {
+			// Retry on per-request timeout (context.DeadlineExceeded).
+			if isDeadlineExceeded && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
 			return fmt.Errorf("agency write request failed: %w", err)
 		}
+		lastErr = nil
 
 		if resp == nil {
 			return fmt.Errorf("agency write response is nil")
@@ -115,7 +118,9 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 			if statusCode >= 300 && statusCode < 400 && c.redirectConfig != nil {
 				if location := resp.Header("Location"); location != "" {
 					absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
-					redirectResp, redirectResult, redirectErr := c.doWriteToEndpoint(ctx, body, absoluteLocation)
+					redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
+					redirectResp, redirectResult, redirectErr := c.doWriteToEndpoint(redirectCtx, body, absoluteLocation)
+					redirectCancel()
 					if redirectErr == nil && redirectResp != nil && redirectResult != nil && len(redirectResult.Results) > 0 {
 						result = *redirectResult
 						resp = redirectResp
@@ -145,6 +150,7 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		}
 
 		// Write succeeded.
+		lastErr = nil
 		break
 	}
 	if lastErr != nil {
