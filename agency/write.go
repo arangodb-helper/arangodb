@@ -19,6 +19,7 @@ package agency
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -79,9 +80,17 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 
 		var result writeResult
 
-		resp, err := c.conn.Do(ctx, req, &result)
+		reqCtx, reqCancel := context.WithTimeout(ctx, agencyRequestTimeout)
+		resp, err := c.conn.Do(reqCtx, req, &result)
+		isDeadlineExceeded := err != nil && errors.Is(err, context.DeadlineExceeded)
+		reqCancel()
 		if err != nil {
 			if isConnectionError(err) && time.Now().Before(deadline) {
+				lastErr = err
+				continue
+			}
+			// Retry on per-request timeout (context.DeadlineExceeded).
+			if isDeadlineExceeded && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
@@ -94,12 +103,24 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		}
 
 		statusCode := resp.Code()
+
+		// Server errors (5xx) are transient (e.g. 503 during Raft election) — retry.
+		if statusCode >= 500 {
+			if time.Now().Before(deadline) {
+				lastErr = fmt.Errorf("agency write returned HTTP %d", statusCode)
+				continue
+			}
+			return fmt.Errorf("agency write returned HTTP %d after retry window exhausted", statusCode)
+		}
+
 		if len(result.Results) == 0 {
 			// 307 from non-leader returns empty body; follow Location once so leader election completes.
 			if statusCode >= 300 && statusCode < 400 && c.redirectConfig != nil {
 				if location := resp.Header("Location"); location != "" {
 					absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
-					redirectResp, redirectResult, redirectErr := c.doWriteToEndpoint(ctx, body, absoluteLocation)
+					redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
+					redirectResp, redirectResult, redirectErr := c.doWriteToEndpoint(redirectCtx, body, absoluteLocation)
+					redirectCancel()
 					if redirectErr == nil && redirectResp != nil && redirectResult != nil && len(redirectResult.Results) > 0 {
 						result = *redirectResult
 						resp = redirectResp
@@ -208,7 +229,7 @@ func (c *client) buildOperationsMap(ops []KeyChanger, ttls map[string]time.Durat
 
 // buildPreconditionsMap converts WriteCondition slice to flat key path format
 // as expected by the ArangoDB Agency write API.
-// Expected format: {"/key/path/to/key": {"old": value}}
+// Expected format: {"/key/path/to/key": {"old": value}} or {"/key/path": {"oldEmpty": true}}
 func (c *client) buildPreconditionsMap(conds []WriteCondition) map[string]any {
 	if len(conds) == 0 {
 		// Return empty map (not nil) - agency expects {} for empty preconditions
@@ -228,7 +249,7 @@ func (c *client) buildPreconditionsMap(conds []WriteCondition) map[string]any {
 
 		keyStr := "/" + strings.Join(keyPath, "/")
 		result[keyStr] = map[string]any{
-			"old": cond.GetValue(),
+			cond.GetName(): cond.GetValue(),
 		}
 	}
 

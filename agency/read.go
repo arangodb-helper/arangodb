@@ -20,9 +20,11 @@ package agency
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	driver_http "github.com/arangodb/go-driver/v2/connection"
@@ -31,6 +33,7 @@ import (
 const (
 	agencyConnectionRetryWindow = 20 * time.Second
 	agencyConnectionRetryDelay  = 100 * time.Millisecond
+	agencyRequestTimeout        = 10 * time.Second
 )
 
 func (c *client) Read(ctx context.Context, key []string, out any) error {
@@ -44,9 +47,10 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		return ErrKeyNotFound
 	}
 
-	// Agency read API expects the request body to be an array of key arrays directly
-	// Format: [["key", "path", "to", "key"]]
-	reqBody := [][]string{key}
+	// Agency read API expects the body to be an array of flat key path strings.
+	// Format: [["/key/path/to/key"]]
+	fullKey := "/" + strings.Join(key, "/")
+	reqBody := [][]string{{fullKey}}
 
 	// Retry on connection-level errors (connection refused, timeout, EOF) to handle
 	// agency endpoint failover. The RoundRobinEndpoints rotates to the next
@@ -71,25 +75,51 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 			return fmt.Errorf("failed to set request body: %w", err)
 		}
 
-		resp, err := c.conn.Do(ctx, req, &rawResponse)
+		reqCtx, reqCancel := context.WithTimeout(ctx, agencyRequestTimeout)
+		resp, err := c.conn.Do(reqCtx, req, &rawResponse)
+		isDeadlineExceeded := err != nil && errors.Is(err, context.DeadlineExceeded)
+		reqCancel()
 		if err != nil {
 			if isConnectionError(err) && time.Now().Before(deadline) {
 				lastErr = err
 				continue
 			}
+			// Retry on per-request timeout (context.DeadlineExceeded).
+			if isDeadlineExceeded && time.Now().Before(deadline) {
+				lastErr = err
+				continue
+			}
 			return fmt.Errorf("agency read request failed: %w", err)
 		}
+		lastErr = nil
 		if resp == nil {
 			return ErrKeyNotFound
 		}
-		if resp.Code() == http.StatusTemporaryRedirect && c.redirectConfig == nil {
+		respCode := resp.Code()
+
+		// Server errors (5xx) are transient (e.g. 503 during Raft election) — retry.
+		if respCode >= 500 {
+			if time.Now().Before(deadline) {
+				lastErr = fmt.Errorf("agency read returned HTTP %d", respCode)
+				continue
+			}
+			return fmt.Errorf("agency read returned HTTP %d after retry window exhausted", respCode)
+		}
+		// Client errors (4xx) are not retryable.
+		if respCode >= 400 {
+			return fmt.Errorf("agency read returned HTTP %d", respCode)
+		}
+
+		if respCode == http.StatusTemporaryRedirect && c.redirectConfig == nil {
 			return ErrRedirectNotFollowed
 		}
 		// 307 from non-leader returns empty body; follow Location once so leader election completes.
-		if resp.Code() >= 300 && resp.Code() < 400 && c.redirectConfig != nil {
+		if respCode >= 300 && respCode < 400 && c.redirectConfig != nil {
 			if location := resp.Header("Location"); location != "" {
 				absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
-				redirectRaw, redirectErr := c.doReadToEndpoint(ctx, reqBody, absoluteLocation)
+				redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
+				redirectRaw, redirectErr := c.doReadToEndpoint(redirectCtx, reqBody, absoluteLocation)
+				redirectCancel()
 				if redirectErr == nil && redirectRaw != nil {
 					rawResponse = redirectRaw
 				}
@@ -120,6 +150,10 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		root, ok2 = arr[0].(map[string]any)
 		if !ok2 {
 			// If it's not a map, the key might not exist or the response format is different
+			return ErrKeyNotFound
+		}
+		// An empty map means the key path does not exist in the agency.
+		if len(root) == 0 {
 			return ErrKeyNotFound
 		}
 	} else if rootMap, ok := rawResponse.(map[string]any); ok {

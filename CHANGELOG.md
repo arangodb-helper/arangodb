@@ -7,6 +7,7 @@
 - Update go-upgrade-rules to latest; adds ArangoDB 4.0 supported upgrade rules (e.g. 3.12.7+ → 4.0)
 - Always pass JavaScript options (--javascript.startup-directory, --javascript.app-path, --javascript.copy-installation when not in Docker) to arangod for compatibility; core (ArangoDB 4.0+) is expected to ignore them when V8-less
 - Mark --server.js-dir as deprecated; kept for compatibility, will be removed in a future major version (e.g. 5.0)
+- Remove temporary seed master URL block added during go-driver v2 migration; fix agency read format, key-absence precondition, HTTP status handling, and leader reclaim after restart in the custom agency package
 
 ## [v0.19.17](https://github.com/arangodb-helper/arangodb/tree/0.19.17) (2026-02-11)
 - Bump Go version (1.24.13) and dependencies for CVE fixes
