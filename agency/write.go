@@ -150,7 +150,6 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		}
 
 		// Write succeeded.
-		lastErr = nil
 		break
 	}
 	if lastErr != nil {
