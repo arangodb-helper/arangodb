@@ -40,7 +40,7 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 ALPINE_IMAGE ?= alpine:3.23
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.24.13
+GOVERSION := 1.25.8
 GOIMAGE ?= golang:$(GOVERSION)-alpine3.23
 
 GOOS ?= linux
@@ -261,7 +261,7 @@ tools:
 	@echo ">> Fetching github release"
 	@GOBIN=$(GOPATH)/bin go install github.com/aktau/github-release@v0.8.1
 	@echo ">> Fetching govulncheck"
-	@GOBIN=$(GOPATH)/bin go install golang.org/x/vuln/cmd/govulncheck@v1.1.3
+	@GOBIN=$(GOPATH)/bin go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 	@echo ">> Fetching goversioninfo"
 	@GOBIN=$(GOPATH)/bin go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.4.0
 
