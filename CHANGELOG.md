@@ -9,6 +9,7 @@
 - Mark --server.js-dir as deprecated; kept for compatibility, will be removed in a future major version (e.g. 5.0)
 - Remove temporary seed master URL block added during go-driver v2 migration; fix agency read format, key-absence precondition, HTTP status handling, and leader reclaim after restart in the custom agency package
 - Bump Go version (1.25.8) and dependencies for CVE fixes
+- Updated the minimum supported upgrade version to 3.12.9+ for upgrading to ArangoDB 4.0. Previously upgrades from 3.12.7+ were allowed
 
 ## [v0.19.17](https://github.com/arangodb-helper/arangodb/tree/0.19.17) (2026-02-11)
 - Bump Go version (1.24.13) and dependencies for CVE fixes
