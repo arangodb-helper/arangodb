@@ -2,6 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.19.19](https://github.com/arangodb-helper/arangodb/tree/0.19.19) (2026-03-30)
+- Bump dependencies for GHSA-x744-4wpc-v9h2 (Moby via `go-dockerclient` / `moby/moby/v2`)
+
 ## [v0.19.18](https://github.com/arangodb-helper/arangodb/tree/0.19.18) (2026-03-13)
 - Bump Go version (1.25.8) and dependencies for CVE fixes
 
