@@ -4,12 +4,13 @@
 - Migrate from go-driver v1 to go-driver v2 across service, client, and test code
 - Add internal agency client utilities (read/write, lock acquisition, leader election) and related reliability fixes for upgrade/test flows
 - Update go-upgrade-rules dependency for go-driver v2 compatibility
-- Update go-upgrade-rules to latest; adds ArangoDB 4.0 supported upgrade rules (e.g. 3.12.10+ → 4.0)
+- Update go-upgrade-rules to v0.0.0-20260330065022-e2aeb2c0d38a; ArangoDB 4.0 upgrade rules with temporary relax of 3.12 min patch for → 4.0 until 3.12.9 (then 3.12.10+ applies again)
 - Always pass JavaScript options (--javascript.startup-directory, --javascript.app-path, --javascript.copy-installation when not in Docker) to arangod for compatibility; core (ArangoDB 4.0+) is expected to ignore them when V8-less
 - Mark --server.js-dir as deprecated; kept for compatibility, will be removed in a future major version (e.g. 5.0)
 - Remove temporary seed master URL block added during go-driver v2 migration; fix agency read format, key-absence precondition, HTTP status handling, and leader reclaim after restart in the custom agency package
 - Bump Go version (1.25.8) and dependencies for CVE fixes
-- Updated the minimum supported upgrade version to 3.12.10+ for upgrading to ArangoDB 4.0. Previously upgrades from 3.12.9+ were allowed
+- After 3.12.9: `go-upgrade-rules` restores requiring 3.12.10+ as the minimum 3.12 patch for upgrade to ArangoDB 4.0 (see temporary rule above)
+- Fix GHSA-x744-4wpc-v9h2: replace vulnerable `github.com/docker/docker` with Moby-based `go-dockerclient` and `moby/moby/v2` v2.0.0-beta.8
 
 ## [v0.19.17](https://github.com/arangodb-helper/arangodb/tree/0.19.17) (2026-02-11)
 - Bump Go version (1.24.13) and dependencies for CVE fixes
