@@ -16,7 +16,8 @@ parameters:
   test-options:
     type: string
     default: ""
-  # Empty by default. Set to prerelease-patch, release-minor, etc. to trigger a publish (master only).
+  # Empty by default. Set via "Trigger Pipeline" (e.g. prerelease-patch, release-minor).
+  # Runs on whichever branch the pipeline is triggered on (including feature branches).
   publish:
     type: string
     default: ""
@@ -62,7 +63,6 @@ jobs:
             export DOCKER_PLATFORMS="linux/amd64"
             export VERBOSE=1
             export TESTOPTIONS="<< pipeline.parameters.test-options >>"
-            # Optional: set ARANGO_LICENSE_KEY in project env or a CircleCI context for enterprise images.
             make init
             make run-tests
       - run:
@@ -75,19 +75,47 @@ jobs:
   release-starter:
     executor: machine-executor
     steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
       - checkout
       - run:
           name: Publish release (see MAINTAINERS.md)
           command: |
+            set -euo pipefail
+
+            if [ -z "${DOCKER_HUB_USER:-}" ] || [ -z "${DOCKER_HUB_PASSWORD:-}" ]; then
+              echo "Docker Hub credentials missing: set DOCKER_HUB_USER and DOCKER_HUB_PASSWORD (docker-hub context)."
+              exit 1
+            fi
+            if [ -z "${RELEASER_GITHUB_TOKEN:-}" ]; then
+              echo "RELEASER_GITHUB_TOKEN missing: add it to the github-release context."
+              exit 1
+            fi
+
             echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
-            export GITHUB_TOKEN="${RELEASER_GITHUB_TOKEN}"
-            git config user.email "circleci@arangodb.com"
-            git config user.name "CircleCI"
-            git remote set-url origin "https://${GITHUB_TOKEN}@github.com/arangodb-helper/arangodb"
-            make init
-            # CircleCI remote Docker often cannot build linux/arm64 without extra QEMU; full multi-arch is default in Makefile.
-            export DOCKER_PLATFORMS=linux/amd64
-            make "<< pipeline.parameters.publish >>"
+
+            # GitHub auth + identity for any commits/tags the Makefile creates.
+            # RELEASER_GITHUB_TOKEN stays in CircleCI; GITHUB_TOKEN only in this subshell.
+            (
+              export GITHUB_TOKEN="${RELEASER_GITHUB_TOKEN}"
+
+              git config --global user.email "team.go@arangodb.com"
+              git config --global user.name "arangodb-arangosync-ci"
+              git config --global safe.directory "$(pwd)"
+
+              # Authenticated pushes to this repo
+              git remote set-url origin "https://${GITHUB_TOKEN}@github.com/arangodb-helper/arangodb"
+
+              # Uncomment if builds need private https://github.com/arangodb/* modules (same idea as arangosync configure-git):
+              # git config --global url."https://${GITHUB_TOKEN}@github.com/arangodb/".insteadOf "https://github.com/arangodb/"
+
+              make init
+
+              # CircleCI remote Docker: avoid linux/arm64 unless QEMU is set up
+              export DOCKER_PLATFORMS=linux/amd64
+
+              make "<< pipeline.parameters.publish >>"
+            )
 
 workflows:
   check_quick:
