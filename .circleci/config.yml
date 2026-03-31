@@ -13,6 +13,13 @@ parameters:
   starterModes:
     type: string
     default: "single,cluster"
+  test-options:
+    type: string
+    default: ""
+  # Empty by default. Set to prerelease-patch, release-minor, etc. to trigger a publish (master only).
+  publish:
+    type: string
+    default: ""
 
 executors:
   golang-executor:
@@ -37,28 +44,73 @@ jobs:
 
   run-tests:
     executor: machine-executor
+    resource_class: large
     steps:
       - checkout
       - run:
-          name: Run-tests
+          name: Run integration tests (Docker + local process)
           command: |
-            if [ -z "$CIRCLE_PULL_REQUEST" ]; then
+            if [ -z "${CIRCLE_PULL_REQUEST:-}" ]; then
               echo "This is not a pull request. Skipping..."
               exit 0
             fi
-             make run-tests
-    environment:
-      ARANGODB: << pipeline.parameters.arangodbImage >>
-      GOIMAGE: << pipeline.parameters.goImage >>
-      ALPINE_IMAGE: << pipeline.parameters.alpineImage >>
-      STARTER_MODES: << pipeline.parameters.starterModes >>
-      DOCKER_PLATFORMS: "linux/amd64"
-      VERBOSE: 1
+            export IP=$(hostname -I | awk '{print $1}')
+            export ARANGODB="<< pipeline.parameters.arangodbImage >>"
+            export GOIMAGE="<< pipeline.parameters.goImage >>"
+            export ALPINE_IMAGE="<< pipeline.parameters.alpineImage >>"
+            export STARTER_MODES="<< pipeline.parameters.starterModes >>"
+            export DOCKER_PLATFORMS="linux/amd64"
+            export VERBOSE=1
+            export TESTOPTIONS="<< pipeline.parameters.test-options >>"
+            # Optional: set ARANGO_LICENSE_KEY in project env or a CircleCI context for enterprise images.
+            make init
+            make run-tests
+      - run:
+          name: Debug on failure
+          when: on_fail
+          command: |
+            docker ps -a || true
+            docker images | head -n 30 || true
+
+  release-starter:
+    executor: golang-executor
+    steps:
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - checkout
+      - run:
+          name: Publish release (see MAINTAINERS.md)
+          command: |
+            echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
+            export GITHUB_TOKEN="${RELEASER_GITHUB_TOKEN}"
+            git config user.email "circleci@arangodb.com"
+            git config user.name "CircleCI"
+            git remote set-url origin "https://${GITHUB_TOKEN}@github.com/arangodb-helper/arangodb"
+            make init
+            # CircleCI remote Docker often cannot build linux/arm64 without extra QEMU; full multi-arch is default in Makefile.
+            export DOCKER_PLATFORMS=linux/amd64
+            make "<< pipeline.parameters.publish >>"
 
 workflows:
-  version: 2
-
-  run_always:
+  check_quick:
     jobs:
-      - check-code
-      - run-tests
+      - check-code:
+          context:
+            - github
+
+  ci:
+    jobs:
+      - run-tests:
+          context:
+            - github
+
+  publish-release-starter:
+    when:
+      matches:
+        value: << pipeline.parameters.publish >>
+        pattern: "^prerelease-major|prerelease-minor|prerelease-patch|release-major|release-minor|release-patch$"
+    jobs:
+      - release-starter:
+          context:
+            - github-release
+            - docker-hub
