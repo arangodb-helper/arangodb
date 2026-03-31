@@ -15,7 +15,7 @@ parameters:
     default: "single,cluster"
   test-options:
     type: string
-    default: "-v"
+    default: ""
   # Set true in CircleCI UI (or API) to run the full machine integration suite without opening a PR.
   run-integration-tests:
     type: boolean
