@@ -16,10 +16,6 @@ parameters:
   test-options:
     type: string
     default: ""
-  # Set true in CircleCI UI (or API) to run the full machine integration suite without opening a PR.
-  run-integration-tests:
-    type: boolean
-    default: false
   # Empty by default. Set to prerelease-patch, release-minor, etc. to trigger a publish (master only).
   publish:
     type: string
@@ -54,8 +50,8 @@ jobs:
       - run:
           name: Run integration tests (Docker + local process)
           command: |
-            if [ -z "${CIRCLE_PULL_REQUEST:-}" ] && [ "<< pipeline.parameters.run-integration-tests >>" != "true" ]; then
-              echo "Not a pull request and run-integration-tests is false — skipping integration tests."
+            if [ -z "${CIRCLE_PULL_REQUEST:-}" ]; then
+              echo "This is not a pull request. Skipping..."
               exit 0
             fi
             export IP=$(hostname -I | awk '{print $1}')
@@ -115,9 +111,6 @@ workflows:
         pattern: "^prerelease-major|prerelease-minor|prerelease-patch|release-major|release-minor|release-patch$"
     jobs:
       - release-starter:
-          filters:
-            branches:
-              only: master
           context:
             - github-release
             - docker-hub
