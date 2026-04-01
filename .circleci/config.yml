@@ -6,13 +6,21 @@ parameters:
     default: "gcr.io/gcr-for-testing/golang:1.25.8"
   arangodbImage:
     type: string
-    default: "gcr.io/gcr-for-testing/arangodb/enterprise:3.11"
+    default: "gcr.io/gcr-for-testing/arangodb/enterprise:latest"
   alpineImage:
     type: string
     default: "gcr.io/gcr-for-testing/alpine:3.23"
   starterModes:
     type: string
     default: "single,cluster"
+  test-options:
+    type: string
+    default: ""
+  # Empty by default. Set via "Trigger Pipeline" (e.g. prerelease-patch, release-minor).
+  # Runs on whichever branch the pipeline is triggered on (including feature branches).
+  publish:
+    type: string
+    default: ""
 
 executors:
   golang-executor:
@@ -37,28 +45,106 @@ jobs:
 
   run-tests:
     executor: machine-executor
+    resource_class: large
     steps:
       - checkout
       - run:
-          name: Run-tests
+          name: Run integration tests (Docker + local process)
           command: |
-            if [ -z "$CIRCLE_PULL_REQUEST" ]; then
+            if [ -z "${CIRCLE_PULL_REQUEST:-}" ]; then
               echo "This is not a pull request. Skipping..."
               exit 0
             fi
-             make run-tests
-    environment:
-      ARANGODB: << pipeline.parameters.arangodbImage >>
-      GOIMAGE: << pipeline.parameters.goImage >>
-      ALPINE_IMAGE: << pipeline.parameters.alpineImage >>
-      STARTER_MODES: << pipeline.parameters.starterModes >>
-      DOCKER_PLATFORMS: "linux/amd64"
-      VERBOSE: 1
+            export IP=$(hostname -I | awk '{print $1}')
+            export ARANGODB="<< pipeline.parameters.arangodbImage >>"
+            export GOIMAGE="<< pipeline.parameters.goImage >>"
+            export ALPINE_IMAGE="<< pipeline.parameters.alpineImage >>"
+            export STARTER_MODES="<< pipeline.parameters.starterModes >>"
+            export DOCKER_PLATFORMS="linux/amd64"
+            export VERBOSE=1
+            export TESTOPTIONS="<< pipeline.parameters.test-options >>"
+            make init
+            make run-tests
+      - run:
+          name: Debug on failure
+          when: on_fail
+          command: |
+            docker ps -a || true
+            docker images | head -n 30 || true
+
+  release-starter:
+    executor: machine-executor
+    resource_class: large
+    steps:
+      - checkout
+      - run:
+          name: Install Go (match project toolchain)
+          command: |
+            set -euo pipefail
+            GO_VERSION="1.25.8"
+            if command -v go >/dev/null 2>&1 && [ "$(go env GOVERSION)" = "go${GO_VERSION}" ]; then
+              echo "Go ${GO_VERSION} already default"
+              exit 0
+            fi
+            curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+            sudo rm -rf /usr/local/go
+            sudo tar -C /usr/local -xzf /tmp/go.tgz
+            echo 'export PATH=/usr/local/go/bin:$PATH' >> "$BASH_ENV"
+            go version
+      - run:
+          name: Publish release (see MAINTAINERS.md)
+          command: |
+            set -euo pipefail
+
+            if [ -z "${DOCKER_HUB_USER:-}" ] || [ -z "${DOCKER_HUB_PASSWORD:-}" ]; then
+              echo "Docker Hub credentials missing: set DOCKER_HUB_USER and DOCKER_HUB_PASSWORD (docker-hub context)."
+              exit 1
+            fi
+            if [ -z "${RELEASER_GITHUB_TOKEN:-}" ]; then
+              echo "RELEASER_GITHUB_TOKEN missing: add it to the github-release context."
+              exit 1
+            fi
+
+            echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
+
+            (
+              export GITHUB_TOKEN="${RELEASER_GITHUB_TOKEN}"
+              export PATH="/usr/local/go/bin:${PATH}"
+
+              git config --global user.email "team.go@arangodb.com"
+              git config --global user.name "arangodb-helpers-ci"
+              git config --global safe.directory "$(pwd)"
+              # Git 2.37+: plain "git push" sets upstream when missing (release tool uses "git push" after commit).
+              git config --global push.autoSetupRemote true
+
+              git remote set-url origin "https://${GITHUB_TOKEN}@github.com/arangodb-helper/arangodb"
+
+              # Uncomment if builds need private https://github.com/arangodb/* modules:
+              # git config --global url."https://${GITHUB_TOKEN}@github.com/arangodb/".insteadOf "https://github.com/arangodb/"
+
+              make init
+
+              export DOCKER_PLATFORMS=linux/amd64
+
+              make "<< pipeline.parameters.publish >>"
+            )
 
 workflows:
-  version: 2
-
-  run_always:
+  check_quick:
     jobs:
       - check-code
+
+  ci:
+    jobs:
       - run-tests
+
+  publish-release-starter:
+    when:
+      matches:
+        value: << pipeline.parameters.publish >>
+        pattern: "^prerelease-major|prerelease-minor|prerelease-patch|release-major|release-minor|release-patch$"
+    jobs:
+      - release-starter:
+          context:
+            - github-release
+            - docker-hub

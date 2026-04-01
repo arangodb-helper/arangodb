@@ -88,3 +88,13 @@ After the release has been built (which includes publication) the following
 has to be done:
 
 - Update CHANGELOG.md. Add a new first title (released version -> master). Commit and push it.
+
+## CircleCI (optional automation)
+
+The [`.circleci/config.yml`](.circleci/config.yml) pipeline mirrors the manual flow above in outline. Build status and logs are available in the CircleCI UI (and any notifications configured on the project).
+
+- **check_quick** workflow: `make init`, `make check`, `make binaries`, `make vulncheck` on every push.
+- **ci** workflow: full `make run-tests` on a **machine** executor when the pipeline is for a **pull request**. 
+- **publish-release-starter** workflow: runs only when pipeline parameter **`publish`** matches one of `prerelease-patch`, `prerelease-minor`, `prerelease-major`, `release-patch`, `release-minor`, `release-major` (any branch that triggers the pipeline). Requires contexts **`github-release`** (`RELEASER_GITHUB_TOKEN`) and **`docker-hub`**: **`DOCKER_HUB_USER`** and **`DOCKER_HUB_PASSWORD`** must both be set (exact names); otherwise `docker login` fails with “username is empty”. The job sets `DOCKER_PLATFORMS=linux/amd64` so the Docker image push succeeds on the machine executor (local releases from MAINTAINERS still build/push **multi-arch** per the Makefile unless you override).
+
+For a one-off manual release, follow **Building a release** above; CI is intended as an optional, repeatable shortcut with the same `make` targets.
