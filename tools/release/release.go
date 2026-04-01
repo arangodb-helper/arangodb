@@ -216,7 +216,9 @@ func gitCommitAll(message string) {
 	if err := run("git", args...); err != nil {
 		log.Fatalf("Failed to commit: %v\n", err)
 	}
-	if err := run("git", "push"); err != nil {
+	// CI checkouts often have no upstream. Use explicit -u (works on all Git versions). CircleCI also sets
+	// push.autoSetupRemote=true so a plain "git push" would set upstream on Git 2.37+.
+	if err := run("git", "push", "-u", "origin", "HEAD"); err != nil {
 		log.Fatalf("Failed to push commit: %v\n", err)
 	}
 }

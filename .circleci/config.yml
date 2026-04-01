@@ -114,6 +114,8 @@ jobs:
               git config --global user.email "team.go@arangodb.com"
               git config --global user.name "arangodb-helpers-ci"
               git config --global safe.directory "$(pwd)"
+              # Git 2.37+: plain "git push" sets upstream when missing (release tool uses "git push" after commit).
+              git config --global push.autoSetupRemote true
 
               git remote set-url origin "https://${GITHUB_TOKEN}@github.com/arangodb-helper/arangodb"
 
