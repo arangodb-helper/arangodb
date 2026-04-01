@@ -74,10 +74,23 @@ jobs:
 
   release-starter:
     executor: machine-executor
+    resource_class: large
     steps:
-      - setup_remote_docker:
-          docker_layer_caching: true
       - checkout
+      - run:
+          name: Install Go (match project toolchain)
+          command: |
+            set -euo pipefail
+            GO_VERSION="1.25.8"
+            if command -v go >/dev/null 2>&1 && [ "$(go env GOVERSION)" = "go${GO_VERSION}" ]; then
+              echo "Go ${GO_VERSION} already default"
+              exit 0
+            fi
+            curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+            sudo rm -rf /usr/local/go
+            sudo tar -C /usr/local -xzf /tmp/go.tgz
+            echo 'export PATH=/usr/local/go/bin:$PATH' >> "$BASH_ENV"
+            go version
       - run:
           name: Publish release (see MAINTAINERS.md)
           command: |
@@ -94,24 +107,21 @@ jobs:
 
             echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
 
-            # GitHub auth + identity for any commits/tags the Makefile creates.
-            # RELEASER_GITHUB_TOKEN stays in CircleCI; GITHUB_TOKEN only in this subshell.
             (
               export GITHUB_TOKEN="${RELEASER_GITHUB_TOKEN}"
+              export PATH="/usr/local/go/bin:${PATH}"
 
               git config --global user.email "team.go@arangodb.com"
-              git config --global user.name "arangodb-arangosync-ci"
+              git config --global user.name "arangodb-helpers-ci"
               git config --global safe.directory "$(pwd)"
 
-              # Authenticated pushes to this repo
               git remote set-url origin "https://${GITHUB_TOKEN}@github.com/arangodb-helper/arangodb"
 
-              # Uncomment if builds need private https://github.com/arangodb/* modules (same idea as arangosync configure-git):
+              # Uncomment if builds need private https://github.com/arangodb/* modules:
               # git config --global url."https://${GITHUB_TOKEN}@github.com/arangodb/".insteadOf "https://github.com/arangodb/"
 
               make init
 
-              # CircleCI remote Docker: avoid linux/arm64 unless QEMU is set up
               export DOCKER_PLATFORMS=linux/amd64
 
               make "<< pipeline.parameters.publish >>"
