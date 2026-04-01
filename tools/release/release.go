@@ -216,7 +216,7 @@ func gitCommitAll(message string) {
 	if err := run("git", args...); err != nil {
 		log.Fatalf("Failed to commit: %v\n", err)
 	}
-	if err := run("git", "push"); err != nil {
+	if err := run("git", "push", "-u", "origin", "HEAD"); err != nil {
 		log.Fatalf("Failed to push commit: %v\n", err)
 	}
 }
