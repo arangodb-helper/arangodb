@@ -130,15 +130,11 @@ jobs:
 workflows:
   check_quick:
     jobs:
-      - check-code:
-          context:
-            - github
+      - check-code
 
   ci:
     jobs:
-      - run-tests:
-          context:
-            - github
+      - run-tests
 
   publish-release-starter:
     when:
