@@ -48,8 +48,11 @@ GOARCH ?= amd64
 
 DOCKERCLI ?= $(shell which docker)
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
-# buildx is required for multi-platform builds and for --push manifest lists.
-DOCKER_BUILD_CLI := $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS)
+# buildx: local targets need --load + single platform (matches bin/linux/$(GOARCH) from build).
+# Push uses DOCKER_PLATFORMS (multi-arch); docker-push-version depends on binaries.
+DOCKER_BUILDX_BASE = $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)"
+DOCKER_BUILD_LOCAL_CLI = $(DOCKER_BUILDX_BASE) --platform $(GOOS)/$(GOARCH) --load
+DOCKER_BUILD_PUSH_CLI = $(DOCKER_BUILDX_BASE) --platform $(DOCKER_PLATFORMS)
 
 ARANGODB ?= arangodb/enterprise:latest
 
@@ -163,7 +166,7 @@ $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 
 docker: build
 	@echo ">> Building Docker Image with buildx"
-	$(DOCKER_BUILD_CLI) -t arangodb/arangodb-starter .
+	$(DOCKER_BUILD_LOCAL_CLI) -t arangodb/arangodb-starter .
 
 docker-local-test: build
 	@echo ">> Building Docker Image for local testing with custom ArangoDB image"
@@ -171,13 +174,13 @@ docker-local-test: build
 		echo "Error: ARANGODB_IMAGE must be set. Example: make docker-local-test ARANGODB_IMAGE=public.ecr.aws/b0b8h2r4/enterprise-preview:2025-12-01-devel-d759089-amd64"; \
 		exit 1; \
 	fi
-	$(DOCKER_BUILD_CLI) --build-arg "ARANGODB_IMAGE=$(ARANGODB_IMAGE)" -t arangodb/arangodb-starter:local-test .
+	$(DOCKER_BUILD_LOCAL_CLI) --build-arg "ARANGODB_IMAGE=$(ARANGODB_IMAGE)" -t arangodb/arangodb-starter:local-test .
 
 # Needs bin/linux/amd64 and bin/linux/arm64 when DOCKER_PLATFORMS lists both (Dockerfile COPY per TARGETARCH).
 # "docker" only runs "build" (one GOARCH); do not use docker-push-version: docker for multi-arch. CI uses docker-push-arch-* + manifest instead.
 docker-push-version: binaries
 	@echo ">> Pushing Docker image(s) ($(DOCKER_PLATFORMS))"
-	$(DOCKER_BUILD_CLI) --push $(STARTER_TAGS) .
+	$(DOCKER_BUILD_PUSH_CLI) --push $(STARTER_TAGS) .
 
 # CI split builds: push one arch per native machine, then docker-push-manifest (requires RELEASE_VERSION).
 RELEASE_VERSION ?=
