@@ -2,6 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.19.20](https://github.com/arangodb-helper/arangodb/tree/0.19.20) (2026-04-03)
+- CircleCI release publishes `arangodb/arangodb-starter` as multi-arch via **native** amd64 + arm64 machine jobs and a manifest step (`docker-push-arch-amd64`, `docker-push-arch-arm64`, `docker-push-manifest`); release tool supports **`SKIP_DOCKER_PUSH`** and **`ci-released-version.txt`** (passed between jobs via **workspace**) for that split. Local `make release-*` still uses **`docker-push-version`** in one step.
+
 ## [v0.19.19](https://github.com/arangodb-helper/arangodb/tree/0.19.19) (2026-03-30)
 - Bump dependencies for GHSA-x744-4wpc-v9h2 (Moby via `go-dockerclient` / `moby/moby/v2`)
 

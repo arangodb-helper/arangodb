@@ -48,7 +48,11 @@ GOARCH ?= amd64
 
 DOCKERCLI ?= $(shell which docker)
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
-DOCKER_BUILD_CLI := $(DOCKERCLI) build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS)
+# buildx: local targets need --load + single platform (matches bin/linux/$(GOARCH) from build).
+# Push uses DOCKER_PLATFORMS (multi-arch); docker-push-version depends on binaries.
+DOCKER_BUILDX_BASE = $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)"
+DOCKER_BUILD_LOCAL_CLI = $(DOCKER_BUILDX_BASE) --platform $(GOOS)/$(GOARCH) --load
+DOCKER_BUILD_PUSH_CLI = $(DOCKER_BUILDX_BASE) --platform $(DOCKER_PLATFORMS)
 
 ARANGODB ?= arangodb/enterprise:latest
 
@@ -162,7 +166,7 @@ $(TESTBIN): $(GOBUILDDIR) $(TEST_SOURCES) $(BIN)
 
 docker: build
 	@echo ">> Building Docker Image with buildx"
-	$(DOCKER_BUILD_CLI) -t arangodb/arangodb-starter .
+	$(DOCKER_BUILD_LOCAL_CLI) -t arangodb/arangodb-starter .
 
 docker-local-test: build
 	@echo ">> Building Docker Image for local testing with custom ArangoDB image"
@@ -170,10 +174,50 @@ docker-local-test: build
 		echo "Error: ARANGODB_IMAGE must be set. Example: make docker-local-test ARANGODB_IMAGE=public.ecr.aws/b0b8h2r4/enterprise-preview:2025-12-01-devel-d759089-amd64"; \
 		exit 1; \
 	fi
-	$(DOCKER_BUILD_CLI) --build-arg "ARANGODB_IMAGE=$(ARANGODB_IMAGE)" -t arangodb/arangodb-starter:local-test .
+	$(DOCKER_BUILD_LOCAL_CLI) --build-arg "ARANGODB_IMAGE=$(ARANGODB_IMAGE)" -t arangodb/arangodb-starter:local-test .
 
-docker-push-version: docker
-	$(DOCKER_BUILD_CLI) --push $(STARTER_TAGS) .
+# Needs bin/linux/amd64 and bin/linux/arm64 when DOCKER_PLATFORMS lists both (Dockerfile COPY per TARGETARCH).
+# "docker" only runs "build" (one GOARCH); do not use docker-push-version: docker for multi-arch. CI uses docker-push-arch-* + manifest instead.
+docker-push-version: binaries
+	@echo ">> Pushing Docker image(s) ($(DOCKER_PLATFORMS))"
+	$(DOCKER_BUILD_PUSH_CLI) --push $(STARTER_TAGS) .
+
+# CI split builds: push one arch per native machine, then docker-push-manifest (requires RELEASE_VERSION).
+RELEASE_VERSION ?=
+
+.PHONY: docker-push-arch-amd64 docker-push-arch-arm64 docker-push-manifest
+
+docker-push-arch-amd64:
+	@test -n "$(RELEASE_VERSION)" || (echo "RELEASE_VERSION is required (e.g. from ci-released-version.txt)" >&2; exit 1)
+	@$(MAKE) -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
+	@echo ">> Pushing $(IMAGE_NAME):$(RELEASE_VERSION)-amd64"
+	$(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform linux/amd64 \
+		--push -t $(IMAGE_NAME):$(RELEASE_VERSION)-amd64 .
+
+docker-push-arch-arm64:
+	@test -n "$(RELEASE_VERSION)" || (echo "RELEASE_VERSION is required (e.g. from ci-released-version.txt)" >&2; exit 1)
+	@$(MAKE) -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
+	@echo ">> Pushing $(IMAGE_NAME):$(RELEASE_VERSION)-arm64"
+	$(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform linux/arm64 \
+		--push -t $(IMAGE_NAME):$(RELEASE_VERSION)-arm64 .
+
+# Combine per-arch tags into the same public tags as STARTER_TAGS (version, x.y, x, latest when not preview).
+docker-push-manifest:
+	@test -n "$(RELEASE_VERSION)" || (echo "RELEASE_VERSION is required" >&2; exit 1)
+	@set -euo pipefail; \
+	IV="$(RELEASE_VERSION)"; \
+	IMG="$(IMAGE_NAME)"; \
+	echo ">> Manifest $$IMG:$$IV (from $$IV-amd64 + $$IV-arm64)"; \
+	$(DOCKERCLI) buildx imagetools create -t "$$IMG:$$IV" "$$IMG:$$IV-amd64" "$$IMG:$$IV-arm64"; \
+	if echo "$$IV" | grep -q -- '-preview'; then \
+		echo ">> Preview release: skipping major.minor / major / latest manifest tags"; \
+	else \
+		MINOR="$$(echo "$$IV" | cut -d. -f1,2)"; \
+		MAJOR="$$(echo "$$IV" | cut -d. -f1)"; \
+		$(DOCKERCLI) buildx imagetools create -t "$$IMG:$$MINOR" "$$IMG:$$IV-amd64" "$$IMG:$$IV-arm64"; \
+		$(DOCKERCLI) buildx imagetools create -t "$$IMG:$$MAJOR" "$$IMG:$$IV-amd64" "$$IMG:$$IV-arm64"; \
+		$(DOCKERCLI) buildx imagetools create -t "$$IMG:latest" "$$IMG:$$IV-amd64" "$$IMG:$$IV-arm64"; \
+	fi
 
 $(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
 	$(DOCKER_CMD) go build -o "$(RELEASE_BIN)" $(REPOPATH)/tools/release

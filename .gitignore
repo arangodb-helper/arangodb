@@ -11,3 +11,6 @@ vendor/
 
 resource.syso
 CONTAINER
+
+# Written by tools/release when SKIP_DOCKER_PUSH=1 (CircleCI follow-up docker jobs).
+ci-released-version.txt
