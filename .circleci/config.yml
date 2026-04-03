@@ -16,11 +16,69 @@ parameters:
   test-options:
     type: string
     default: ""
-  # Empty by default. Set via "Trigger Pipeline" (e.g. prerelease-patch, release-minor).
-  # Runs on whichever branch the pipeline is triggered on (including feature branches).
   publish:
     type: string
     default: ""
+
+commands:
+  install-go-linux:
+    description: Install Go on a machine executor (matches Makefile GOVERSION)
+    parameters:
+      arch:
+        type: enum
+        enum: ["amd64", "arm64"]
+    steps:
+      - run:
+          name: Install Go (linux-<<parameters.arch>>)
+          command: |
+            set -euo pipefail
+            GO_VERSION="1.25.8"
+            GO_ARCH="<<parameters.arch>>"
+            if command -v go >/dev/null 2>&1 && [ "$(go env GOVERSION)" = "go${GO_VERSION}" ]; then
+              echo "Go ${GO_VERSION} already present"
+              exit 0
+            fi
+            curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tgz
+            sudo rm -rf /usr/local/go
+            sudo tar -C /usr/local -xzf /tmp/go.tgz
+            echo 'export PATH=/usr/local/go/bin:$PATH' >> "$BASH_ENV"
+            go version
+
+  sync-branch-after-release:
+    description: Fast-forward to tip after release-starter pushed commits
+    steps:
+      - run:
+          name: Sync branch after release commit(s)
+          command: |
+            set -euo pipefail
+            git fetch origin
+            if [ -n "${CIRCLE_BRANCH:-}" ]; then
+              git checkout "$CIRCLE_BRANCH"
+              git pull --ff-only origin "$CIRCLE_BRANCH" || git pull --ff-only
+            fi
+
+  docker-hub-starter-release-env:
+    description: Hub credentials, RELEASE_VERSION in BASH_ENV, docker login
+    steps:
+      - run:
+          name: Docker Hub login and RELEASE_VERSION
+          command: |
+            set -euo pipefail
+            if [ -z "${DOCKER_HUB_USER:-}" ] || [ -z "${DOCKER_HUB_PASSWORD:-}" ]; then
+              echo "Docker Hub credentials missing (docker-hub context)."
+              exit 1
+            fi
+            test -f ci-released-version.txt
+            RV="$(tr -d '\r\n' < ci-released-version.txt)"
+            printf 'export RELEASE_VERSION=%q\n' "$RV" >> "$BASH_ENV"
+            echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
+
+  checkout-with-release-workspace:
+    description: Checkout repo and restore ci-released-version.txt from workspace
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
 
 executors:
   golang-executor:
@@ -77,64 +135,72 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - run:
-          name: Install Go (match project toolchain)
-          command: |
-            set -euo pipefail
-            GO_VERSION="1.25.8"
-            if command -v go >/dev/null 2>&1 && [ "$(go env GOVERSION)" = "go${GO_VERSION}" ]; then
-              echo "Go ${GO_VERSION} already default"
-              exit 0
-            fi
-            curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
-            sudo rm -rf /usr/local/go
-            sudo tar -C /usr/local -xzf /tmp/go.tgz
-            echo 'export PATH=/usr/local/go/bin:$PATH' >> "$BASH_ENV"
-            go version
+      - install-go-linux:
+          arch: amd64
       - run:
           name: Publish release (see MAINTAINERS.md)
           command: |
             set -euo pipefail
-
-            if [ -z "${DOCKER_HUB_USER:-}" ] || [ -z "${DOCKER_HUB_PASSWORD:-}" ]; then
-              echo "Docker Hub credentials missing: set DOCKER_HUB_USER and DOCKER_HUB_PASSWORD (docker-hub context)."
-              exit 1
-            fi
             if [ -z "${RELEASER_GITHUB_TOKEN:-}" ]; then
               echo "RELEASER_GITHUB_TOKEN missing: add it to the github-release context."
               exit 1
             fi
-
-            echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
-
-            # Multi-arch image push (linux/amd64 + linux/arm64) from an amd64 VM requires QEMU handlers.
-            docker run --privileged --rm tonistiigi/binfmt:latest --install all
-            docker buildx version
-            docker buildx rm -f arangodb-starter-ci 2>/dev/null || true
-            docker buildx create --name arangodb-starter-ci --driver docker-container --use
-            docker buildx inspect --bootstrap
-
             (
               export GITHUB_TOKEN="${RELEASER_GITHUB_TOKEN}"
               export PATH="/usr/local/go/bin:${PATH}"
-
+              export SKIP_DOCKER_PUSH=1
               git config --global user.email "team.go@arangodb.com"
               git config --global user.name "arangodb-helpers-ci"
               git config --global safe.directory "$(pwd)"
-              # Git 2.37+: plain "git push" sets upstream when missing (release tool uses "git push" after commit).
               git config --global push.autoSetupRemote true
-
               git remote set-url origin "https://${GITHUB_TOKEN}@github.com/arangodb-helper/arangodb"
-
-              # Uncomment if builds need private https://github.com/arangodb/* modules:
-              # git config --global url."https://${GITHUB_TOKEN}@github.com/arangodb/".insteadOf "https://github.com/arangodb/"
-
               make init
-
-              export DOCKER_PLATFORMS=linux/amd64,linux/arm64
-
               make "<< pipeline.parameters.publish >>"
             )
+            test -f ci-released-version.txt
+            cat ci-released-version.txt
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ci-released-version.txt
+
+  # Native build + push for one architecture (amd64 on x86 VM, arm64 on ARM VM).
+  starter-docker-arch:
+    parameters:
+      go_arch:
+        type: enum
+        enum: ["amd64", "arm64"]
+      resource_class:
+        type: enum
+        enum: ["large", "arm.large"]
+    machine:
+      image: ubuntu-2204:current
+      docker_layer_caching: true
+    resource_class: <<parameters.resource_class>>
+    steps:
+      - checkout-with-release-workspace: {}
+      - install-go-linux:
+          arch: <<parameters.go_arch>>
+      - sync-branch-after-release: {}
+      - docker-hub-starter-release-env: {}
+      - run:
+          name: Push <<parameters.go_arch>> starter image
+          command: |
+            set -euo pipefail
+            make init
+            make docker-push-arch-<<parameters.go_arch>>
+
+  starter-docker-manifest:
+    executor: machine-executor
+    resource_class: medium
+    steps:
+      - checkout-with-release-workspace: {}
+      - docker-hub-starter-release-env: {}
+      - run:
+          name: Create multi-arch manifest tags on Docker Hub
+          command: |
+            set -euo pipefail
+            make docker-push-manifest
 
 workflows:
   check_quick:
@@ -154,4 +220,25 @@ workflows:
       - release-starter:
           context:
             - github-release
+      - starter-docker-arch:
+          name: starter-docker-amd64
+          context:
             - docker-hub
+          requires:
+            - release-starter
+          go_arch: amd64
+          resource_class: large
+      - starter-docker-arch:
+          name: starter-docker-arm64
+          context:
+            - docker-hub
+          requires:
+            - release-starter
+          go_arch: arm64
+          resource_class: arm.large
+      - starter-docker-manifest:
+          context:
+            - docker-hub
+          requires:
+            - starter-docker-amd64
+            - starter-docker-arm64

@@ -173,11 +173,48 @@ docker-local-test: build
 	fi
 	$(DOCKER_BUILD_CLI) --build-arg "ARANGODB_IMAGE=$(ARANGODB_IMAGE)" -t arangodb/arangodb-starter:local-test .
 
-# Depends on binaries so bin/linux/{amd64,arm64}/arangodb exist for the Dockerfile.
-# A single buildx --push avoids loading a multi-arch image into the local daemon (not supported).
+# Needs bin/linux/amd64 and bin/linux/arm64 when DOCKER_PLATFORMS lists both (Dockerfile COPY per TARGETARCH).
+# "docker" only runs "build" (one GOARCH); do not use docker-push-version: docker for multi-arch. CI uses docker-push-arch-* + manifest instead.
 docker-push-version: binaries
 	@echo ">> Pushing Docker image(s) ($(DOCKER_PLATFORMS))"
 	$(DOCKER_BUILD_CLI) --push $(STARTER_TAGS) .
+
+# CI split builds: push one arch per native machine, then docker-push-manifest (requires RELEASE_VERSION).
+RELEASE_VERSION ?=
+
+.PHONY: docker-push-arch-amd64 docker-push-arch-arm64 docker-push-manifest
+
+docker-push-arch-amd64:
+	@test -n "$(RELEASE_VERSION)" || (echo "RELEASE_VERSION is required (e.g. from ci-released-version.txt)" >&2; exit 1)
+	@$(MAKE) -f $(MAKEFILE) -B GOOS=linux GOARCH=amd64 build
+	@echo ">> Pushing $(IMAGE_NAME):$(RELEASE_VERSION)-amd64"
+	$(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform linux/amd64 \
+		--push -t $(IMAGE_NAME):$(RELEASE_VERSION)-amd64 .
+
+docker-push-arch-arm64:
+	@test -n "$(RELEASE_VERSION)" || (echo "RELEASE_VERSION is required (e.g. from ci-released-version.txt)" >&2; exit 1)
+	@$(MAKE) -f $(MAKEFILE) -B GOOS=linux GOARCH=arm64 build
+	@echo ">> Pushing $(IMAGE_NAME):$(RELEASE_VERSION)-arm64"
+	$(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform linux/arm64 \
+		--push -t $(IMAGE_NAME):$(RELEASE_VERSION)-arm64 .
+
+# Combine per-arch tags into the same public tags as STARTER_TAGS (version, x.y, x, latest when not preview).
+docker-push-manifest:
+	@test -n "$(RELEASE_VERSION)" || (echo "RELEASE_VERSION is required" >&2; exit 1)
+	@set -euo pipefail; \
+	IV="$(RELEASE_VERSION)"; \
+	IMG="$(IMAGE_NAME)"; \
+	echo ">> Manifest $$IMG:$$IV (from $$IV-amd64 + $$IV-arm64)"; \
+	$(DOCKERCLI) buildx imagetools create -t "$$IMG:$$IV" "$$IMG:$$IV-amd64" "$$IMG:$$IV-arm64"; \
+	if echo "$$IV" | grep -q -- '-preview'; then \
+		echo ">> Preview release: skipping major.minor / major / latest manifest tags"; \
+	else \
+		MINOR="$$(echo "$$IV" | cut -d. -f1,2)"; \
+		MAJOR="$$(echo "$$IV" | cut -d. -f1)"; \
+		$(DOCKERCLI) buildx imagetools create -t "$$IMG:$$MINOR" "$$IMG:$$IV-amd64" "$$IMG:$$IV-arm64"; \
+		$(DOCKERCLI) buildx imagetools create -t "$$IMG:$$MAJOR" "$$IMG:$$IV-amd64" "$$IMG:$$IV-arm64"; \
+		$(DOCKERCLI) buildx imagetools create -t "$$IMG:latest" "$$IMG:$$IV-amd64" "$$IMG:$$IV-arm64"; \
+	fi
 
 $(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
 	$(DOCKER_CMD) go build -o "$(RELEASE_BIN)" $(REPOPATH)/tools/release

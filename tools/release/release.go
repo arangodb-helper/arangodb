@@ -77,6 +77,12 @@ func main() {
 	make("binaries")
 	createSHA256Sums()
 	pushDockerImages()
+	if !dryRun && skipDockerPush() {
+		if err := os.WriteFile("ci-released-version.txt", []byte(strings.TrimSpace(version)+"\n"), 0644); err != nil {
+			log.Fatalf("Failed to write ci-released-version.txt: %v", err)
+		}
+		log.Printf("Wrote ci-released-version.txt (%s) for CI docker follow-up jobs.", version)
+	}
 	gitTag(version, tagName) // push both old and new tags for backward compatibility
 	githubCreateRelease(tagName)
 	bumpVersionInFile("devel")
@@ -106,12 +112,24 @@ func checkCleanRepo() {
 	}
 }
 
+func skipDockerPush() bool {
+	s, set := os.LookupEnv("SKIP_DOCKER_PUSH")
+	if !set {
+		return false
+	}
+	return s == "1" || strings.EqualFold(s, "true")
+}
+
 func pushDockerImages() {
 	if dryRun {
 		log.Printf("Skipping pushing docker images to registry")
-	} else {
-		make("docker-push-version")
+		return
 	}
+	if skipDockerPush() {
+		log.Printf("Skipping docker push (SKIP_DOCKER_PUSH set); use CI per-arch docker jobs + manifest.")
+		return
+	}
+	make("docker-push-version")
 }
 
 func make(target string) {

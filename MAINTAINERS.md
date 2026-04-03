@@ -16,7 +16,7 @@ To run the entire test set, set the following environment variables:
   - `ARANGODB`: name of Docker image for ArangoDB to use
   - `VERBOSE` (optional): set to `1` for more output
   - `IP` (for Docker tests): set to a valid IP address on the local machine
-  - `TESTOPTIONS`` (optional): set to `-test.run=REGEXPTOMATCHTESTS` to
+  - `TESTOPTIONS` (optional): set to `-test.run=REGEXPTOMATCHTESTS` to
     run only some tests
 
 Then run:
@@ -95,6 +95,11 @@ The [`.circleci/config.yml`](.circleci/config.yml) pipeline mirrors the manual f
 
 - **check_quick** workflow: `make init`, `make check`, `make binaries`, `make vulncheck` on every push.
 - **ci** workflow: full `make run-tests` on a **machine** executor when the pipeline is for a **pull request**. Set **`ARANGO_LICENSE_KEY`** in a CircleCI context (e.g. `github`) if `arangodbImage` is an Enterprise image.
-- **publish-release-starter** workflow: runs only when pipeline parameter **`publish`** matches one of `prerelease-patch`, `prerelease-minor`, `prerelease-major`, `release-patch`, `release-minor`, `release-major` (any branch that triggers the pipeline). Requires contexts **`github-release`** (`RELEASER_GITHUB_TOKEN`) and **`docker-hub`**: **`DOCKER_HUB_USER`** and **`DOCKER_HUB_PASSWORD`** must both be set (exact names); otherwise `docker login` fails with “username is empty”. The job installs QEMU via **`tonistiigi/binfmt`**, creates a **`docker-container`** buildx builder, then sets **`DOCKER_PLATFORMS=linux/amd64,linux/arm64`** so the pushed `arangodb-starter` image matches the Makefile’s multi-arch default (arm64 is built under emulation on the amd64 machine, so releases take longer than amd64-only). Override **`DOCKER_PLATFORMS`** in the job if you need to fall back to amd64-only.
+- **publish-release-starter** workflow: runs only when pipeline parameter **`publish`** matches one of `prerelease-patch`, `prerelease-minor`, `prerelease-major`, `release-patch`, `release-minor`, `release-major`. **Four jobs** (see [`.circleci/config.yml`](.circleci/config.yml)):
+  1. **`release-starter`** (amd64 machine, `resource_class: large`): version bump, GitHub release, binaries; sets **`SKIP_DOCKER_PUSH=1`** so the release tool skips **`make docker-push-version`**, writes **`ci-released-version.txt`** in the repo dir, and **`persist_to_workspace`** passes that file to downstream jobs. Context **`github-release`** only (`RELEASER_GITHUB_TOKEN`). **No** Docker Hub login on this job.
+  2. **`starter-docker-amd64`** and **`starter-docker-arm64`** — workflow names for two runs of the same parameterized job **`starter-docker-arch`** (`go_arch` + `resource_class`: **`large`** / **`arm.large`**). After **`checkout`** + **`attach_workspace`** (restore **`ci-released-version.txt`**), each job installs Go for that arch, syncs the branch to the tip commit **`release-starter`** pushed, logs into Docker Hub, and runs **`make docker-push-arch-amd64`** or **`make docker-push-arch-arm64`** (native build per platform). Context **`docker-hub`** (`DOCKER_HUB_USER`, `DOCKER_HUB_PASSWORD`). Pushes only internal tags **`arangodb/arangodb-starter:<version>-amd64`** and **`-arm64`**.
+  3. **`starter-docker-manifest`** (after both arch jobs succeed): **`make docker-push-manifest`** runs **`docker buildx imagetools create`** so public tags (**`<version>`**, **`x.y`**, **`x`**, **`latest`** when not a `-preview` version) point at a **multi-arch manifest** (`docker pull` / `docker run` select amd64 vs arm64 by host or `--platform`).
+
+  **Manual `make release-*` on your machine** (do **not** set **`SKIP_DOCKER_PUSH`**) still runs **`make docker-push-version`** in one step (multi-arch via local Docker buildx / setup). To simulate CI locally you would set **`SKIP_DOCKER_PUSH=1`** and run the three **`make docker-push-arch-*`** / **`docker-push-manifest`** targets yourself with **`RELEASE_VERSION`** set.
 
 For a one-off manual release, follow **Building a release** above; CI is intended as an optional, repeatable shortcut with the same `make` targets.
