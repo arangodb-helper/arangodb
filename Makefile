@@ -48,7 +48,7 @@ GOARCH ?= amd64
 
 DOCKERCLI ?= $(shell which docker)
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
-DOCKER_BUILD_CLI := $(DOCKERCLI) build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS)
+DOCKER_BUILD_CLI := $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS)
 
 ARANGODB ?= arangodb/enterprise:latest
 
@@ -172,7 +172,8 @@ docker-local-test: build
 	fi
 	$(DOCKER_BUILD_CLI) --build-arg "ARANGODB_IMAGE=$(ARANGODB_IMAGE)" -t arangodb/arangodb-starter:local-test .
 
-docker-push-version: docker
+docker-push-version: binaries
+	@echo ">> Pushing Docker image(s) ($(DOCKER_PLATFORMS))"
 	$(DOCKER_BUILD_CLI) --push $(STARTER_TAGS) .
 
 $(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
