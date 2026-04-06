@@ -11,6 +11,7 @@
 - Bump Go version (1.25.8) and dependencies for CVE fixes
 - After 3.12.9: `go-upgrade-rules` restores requiring 3.12.10+ as the minimum 3.12 patch for upgrade to ArangoDB 4.0 (see temporary rule above)
 - Fix GHSA-x744-4wpc-v9h2: replace vulnerable `github.com/docker/docker` with Moby-based `go-dockerclient` and `moby/moby/v2` v2.0.0-beta.8
+- CircleCI release workflow publishes `arangodb/arangodb-starter` as multi-arch (`linux/amd64`, `linux/arm64`) using Docker buildx and binfmt; Makefile uses `buildx build` for image push.
 
 ## [v0.19.17](https://github.com/arangodb-helper/arangodb/tree/0.19.17) (2026-02-11)
 - Bump Go version (1.24.13) and dependencies for CVE fixes
