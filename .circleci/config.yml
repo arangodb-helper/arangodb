@@ -107,8 +107,8 @@ jobs:
 
             echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
 
-            # Multi-arch image push (linux/amd64 + linux/arm64) from an amd64 VM requires QEMU handlers.
-            docker run --privileged --rm tonistiigi/binfmt:latest --install all
+            # Multi-arch push from amd64: QEMU for linux/arm64 only (pinned image, not :latest).
+            docker run --privileged --rm tonistiigi/binfmt:qemu-v10.2.1-65 --install arm64
             docker buildx version
             docker buildx rm -f arangodb-starter-ci 2>/dev/null || true
             docker buildx create --name arangodb-starter-ci --driver docker-container --use
