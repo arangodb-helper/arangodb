@@ -175,7 +175,8 @@ docker-local-test: build
 	fi
 	$(DOCKER_BUILD_CLI) --build-arg "ARANGODB_IMAGE=$(ARANGODB_IMAGE)" -t arangodb/arangodb-starter:local-test .
 
-docker-push-version: binaries
+docker-push-version:
+	@test -f $(BINDIR)/linux/amd64/$(BINNAME) && test -f $(BINDIR)/linux/arm64/$(BINNAME) || $(MAKE) binaries
 	@echo ">> Pushing Docker image(s) ($(DOCKER_PLATFORMS))"
 	$(DOCKER_BUILD_PUSH_CLI) $(STARTER_TAGS) .
 
