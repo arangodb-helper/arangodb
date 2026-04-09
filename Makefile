@@ -52,7 +52,10 @@ endif
 
 DOCKERCLI ?= $(shell which docker)
 DOCKER_PLATFORMS ?= linux/amd64,linux/arm64
-DOCKER_BUILD_CLI := $(DOCKERCLI) build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS)
+# Local image: single platform + --load (multi-platform buildx cannot load into the daemon).
+DOCKER_BUILD_CLI := $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(GOOS)/$(GOARCH) --load
+# Registry push: multi-platform after `binaries` (Dockerfile COPY per TARGETARCH).
+DOCKER_BUILD_PUSH_CLI := $(DOCKERCLI) buildx build --build-arg "IMAGE=$(ALPINE_IMAGE)" --platform $(DOCKER_PLATFORMS) --push
 
 ARANGODB ?= arangodb/arangodb:latest
 
@@ -190,8 +193,10 @@ docker: build
 	@echo ">> Building Docker Image with buildx"
 	$(DOCKER_BUILD_CLI) -t arangodb/arangodb-starter .
 
-docker-push-version: docker
-	$(DOCKER_BUILD_CLI) --push $(STARTER_TAGS) .
+docker-push-version:
+	@test -f $(BINDIR)/linux/amd64/$(BINNAME) && test -f $(BINDIR)/linux/arm64/$(BINNAME) || $(MAKE) binaries
+	@echo ">> Pushing Docker image(s) ($(DOCKER_PLATFORMS))"
+	$(DOCKER_BUILD_PUSH_CLI) $(STARTER_TAGS) .
 
 $(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
 	$(DOCKER_CMD) go build -o "$(RELEASE_BIN)" $(REPOPATH)/tools/release

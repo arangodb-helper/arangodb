@@ -2,6 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.18.24](https://github.com/arangodb-helper/arangodb/tree/0.18.24) (2026-04-07)
+- CircleCI release workflow publishes `arangodb/arangodb-starter` as multi-arch (`linux/amd64`, `linux/arm64`) using Docker buildx and binfmt; Makefile uses `buildx build` for image push.
+
 ## [v0.18.23](https://github.com/arangodb-helper/arangodb/tree/0.18.23) (2026-03-30)
 - Bump dependencies for GHSA-x744-4wpc-v9h2 (Moby via `go-dockerclient` / `moby/moby/v2`)
 
