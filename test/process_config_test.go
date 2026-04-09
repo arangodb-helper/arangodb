@@ -149,6 +149,12 @@ func fetchArangoDConfig(t *testing.T, endpoint string) map[string]interface{} {
 	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 30*time.Second, 500*time.Millisecond)
 
 	ctx := context.Background()
+	if info, verr := coordinatorClient.Version(ctx); verr != nil {
+		t.Logf("ArangoDB version: (unavailable: %v)", verr)
+	} else {
+		t.Logf("ArangoDB version: %s", info.String())
+	}
+
 	db, err := coordinatorClient.Database(ctx, "_system")
 	require.NoError(t, err)
 

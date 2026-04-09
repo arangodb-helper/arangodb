@@ -3,7 +3,7 @@ version: 2.1
 parameters:
   goImage:
     type: string
-    default: "gcr.io/gcr-for-testing/golang:1.25.8"
+    default: "gcr.io/gcr-for-testing/golang:1.25.9"
   arangodbImage:
     type: string
     default: "gcr.io/gcr-for-testing/arangodb/enterprise:latest"
@@ -23,14 +23,14 @@ parameters:
     default: ""
   # When false, Docker push uses only :<VERSION> (no :latest, :x.y, :x). Use for older lines (e.g. 0.18.x)
   # while :latest must stay on the current line (e.g. 0.19.x).
-  update_starter_rolling_tags:
+  update_starter_latest_and_rolling_tags:
     type: boolean
     default: true
 
 executors:
   golang-executor:
     docker:
-      - image: gcr.io/gcr-for-testing/golang:1.25.8
+      - image: gcr.io/gcr-for-testing/golang:1.25.9
   machine-executor:
     machine:
       image: ubuntu-2204:current
@@ -86,7 +86,7 @@ jobs:
           name: Install Go (match project toolchain)
           command: |
             set -euo pipefail
-            GO_VERSION="1.25.8"
+            GO_VERSION="1.25.9"
             if command -v go >/dev/null 2>&1 && [ "$(go env GOVERSION)" = "go${GO_VERSION}" ]; then
               echo "Go ${GO_VERSION} already default"
               exit 0
@@ -138,7 +138,7 @@ jobs:
 
               export DOCKER_PLATFORMS=linux/amd64,linux/arm64
 
-              if [ "<< pipeline.parameters.update_starter_rolling_tags >>" != "true" ]; then
+              if [ "<< pipeline.parameters.update_starter_latest_and_rolling_tags >>" != "true" ]; then
                 export STARTER_TAGS_MINIMAL=1
                 echo ">> STARTER_TAGS_MINIMAL=1 (skipping :latest and rolling :x.y / :x tags)"
               fi
