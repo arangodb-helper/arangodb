@@ -116,7 +116,13 @@ func TestProcessConfigFileLoading(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --args.all.default-language=es_419 -c test/testdata/single-passthrough.conf")
+		dbFeatures := getSupportedDatabaseFeatures(t, testModeProcess)
+		starterCmd := "${STARTER} --args.all.default-language=es_419 -c test/testdata/single-passthrough.conf"
+		if allow := dbFeatures.InternalOptionsJavaScriptAllowlist(); allow != "" {
+			starterCmd += " --args.all.javascript.startup-options-allowlist=" + allow
+		}
+
+		child := Spawn(t, starterCmd)
 		defer child.Close()
 
 		require.True(t, WaitUntilStarterReady(t, whatSingle, 1, child))

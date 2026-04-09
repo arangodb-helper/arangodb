@@ -40,6 +40,7 @@ const (
 	v34    driver.Version = "3.4.0"
 	v34_2  driver.Version = "3.4.2"
 	v312   driver.Version = "3.12.0"
+	v312_9 driver.Version = "3.12.9"
 )
 
 // NewDatabaseFeatures returns a new DatabaseFeatures based on
@@ -102,4 +103,15 @@ func (v DatabaseFeatures) SupportsActiveFailover() bool {
 // SupportsArangoSync returns true if ArangoSync is supported
 func (v DatabaseFeatures) SupportsArangoSync() bool {
 	return v.Version.CompareTo(v312) < 0
+}
+
+// InternalOptionsJavaScriptAllowlist returns a comma-separated list of server option names for
+// --javascript.startup-options-allowlist. From ArangoDB 3.12.9 onward, require("internal").options()
+// only exposes options listed there; see https://docs.arangodb.com/3.12/components/arangodb-server/options/
+// (javascript.startup-options-allowlist). Returns empty when the allowlist is not required.
+func (v DatabaseFeatures) InternalOptionsJavaScriptAllowlist() string {
+	if v.Version.CompareTo(v312_9) < 0 {
+		return ""
+	}
+	return "default-language,rocksdb.enable-statistics,log.level"
 }
