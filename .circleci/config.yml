@@ -21,6 +21,11 @@ parameters:
   publish:
     type: string
     default: ""
+  # When false, Docker push uses only :<VERSION> (no :latest, :x.y, :x). Use for older lines (e.g. 0.18.x)
+  # while :latest must stay on the current line (e.g. 0.19.x).
+  update_starter_rolling_tags:
+    type: boolean
+    default: true
 
 executors:
   golang-executor:
@@ -132,6 +137,11 @@ jobs:
               make init
 
               export DOCKER_PLATFORMS=linux/amd64,linux/arm64
+
+              if [ "<< pipeline.parameters.update_starter_rolling_tags >>" != "true" ]; then
+                export STARTER_TAGS_MINIMAL=1
+                echo ">> STARTER_TAGS_MINIMAL=1 (skipping :latest and rolling :x.y / :x tags)"
+              fi
 
               make "<< pipeline.parameters.publish >>"
             )
