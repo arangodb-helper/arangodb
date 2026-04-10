@@ -1,6 +1,9 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Bump Go version from 1.25.8 to 1.25.9 and dependencies for CVE fixes
+- CircleCI pipeline parameter `update_starter_latest_and_rolling_tags` (default `true`); when `false`, Docker push uses only `:<VERSION>` (no `:latest` or rolling `:x.y` / `:x`). Makefile: `STARTER_TAGS_MINIMAL=1` for the same behavior locally
+- Fix `TestProcessConfigFileLoading/passthrough-options` on ArangoDB 3.12.9+ via `--args.all.javascript.startup-options-allowlist`; log server version in `fetchArangoDConfig`
 
 ## [v0.19.20](https://github.com/arangodb-helper/arangodb/tree/0.19.20) (2026-04-06)
 - CircleCI release workflow publishes `arangodb/arangodb-starter` as multi-arch (`linux/amd64`, `linux/arm64`) using Docker buildx and binfmt; Makefile Docker targets now use `buildx build`.
