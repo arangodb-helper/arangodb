@@ -2,7 +2,7 @@ module github.com/arangodb-helper/arangodb
 
 go 1.25.5
 
-toolchain go1.25.8
+toolchain go1.25.9
 
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
@@ -13,18 +13,18 @@ require (
 	github.com/coreos/go-semver v0.3.1
 	github.com/dchest/uniuri v1.2.0
 	github.com/fatih/color v1.9.0
-	github.com/fsouza/go-dockerclient v1.13.1-0.20260319041100-8afa979dbb1e
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/fsouza/go-dockerclient v1.13.1
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/opencontainers/cgroups v0.0.6
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.34.0
-	github.com/ryanuber/columnize v2.1.0+incompatible
+	github.com/ryanuber/columnize v2.1.2+incompatible
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.48.0
+	golang.org/x/crypto v0.49.0
 	gopkg.in/ini.v1 v1.66.6
 )
 
@@ -34,19 +34,18 @@ require (
 	github.com/arangodb/go-velocypack v0.0.0-20200318135517-5af53c29c67e // indirect
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
-	github.com/cyphar/filepath-securejoin v0.6.0 // indirect
+	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/klauspost/compress v1.18.4 // indirect
+	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
+	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/moby/go-archive v0.2.0 // indirect
-	github.com/moby/moby/api v1.54.0 // indirect
-	github.com/moby/moby/client v0.3.0 // indirect
-	github.com/moby/moby/v2 v2.0.0-beta.8 // indirect
+	github.com/moby/moby/api v1.54.1 // indirect
+	github.com/moby/moby/client v0.4.0 // indirect
 	github.com/moby/patternmatcher v0.6.1 // indirect
 	github.com/moby/sys/mountinfo v0.7.2 // indirect
 	github.com/moby/sys/sequential v0.6.0 // indirect

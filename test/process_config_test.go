@@ -122,7 +122,11 @@ func TestProcessConfigFileLoading(t *testing.T) {
 		dataDir := SetUniqueDataDir(t)
 		defer os.RemoveAll(dataDir)
 
-		child := Spawn(t, "${STARTER} --args.all.default-language=es_419 -c test/testdata/single-passthrough.conf")
+		starterCmd := "${STARTER} --args.all.default-language=es_419 -c test/testdata/single-passthrough.conf"
+		if allow := javascriptStartupOptionsAllowlistForInternalOptions(features.Version); allow != "" {
+			starterCmd += " --args.all.javascript.startup-options-allowlist=" + allow
+		}
+		child := Spawn(t, starterCmd)
 		defer child.Close()
 
 		require.True(t, WaitUntilStarterReady(t, whatSingle, 1, child))
@@ -147,6 +151,17 @@ func TestProcessConfigFileLoading(t *testing.T) {
 	})
 }
 
+// javascriptStartupOptionsAllowlistForInternalOptions returns a value for --args.all.javascript.startup-options-allowlist
+// when ArangoDB hides keys from require("internal").options() unless allowlisted (3.12.9+). See:
+// https://docs.arangodb.com/3.12/components/arangodb-server/options/ (javascript.startup-options-allowlist).
+func javascriptStartupOptionsAllowlistForInternalOptions(v driver.Version) string {
+	const minArangoDB = driver.Version("3.12.9")
+	if v.CompareTo(minArangoDB) < 0 {
+		return ""
+	}
+	return "default-language,rocksdb.enable-statistics,log.level"
+}
+
 func fetchArangoDConfig(t *testing.T, endpoint string) map[string]interface{} {
 	auth := driver.BasicAuthentication("root", "")
 	coordinatorClient, err := CreateClient(t, endpoint, client.ServerTypeSingle, auth)
@@ -155,6 +170,12 @@ func fetchArangoDConfig(t *testing.T, endpoint string) map[string]interface{} {
 	WaitUntilServiceReadyAPI(t, coordinatorClient, ServiceReadyCheckVersion()).ExecuteT(t, 30*time.Second, 500*time.Millisecond)
 
 	ctx := context.Background()
+	if info, verr := coordinatorClient.Version(ctx); verr != nil {
+		t.Logf("ArangoDB version: (unavailable: %v)", verr)
+	} else {
+		t.Logf("ArangoDB version: %s", info.String())
+	}
+
 	db, err := coordinatorClient.Database(ctx, "_system")
 	require.NoError(t, err)
 
