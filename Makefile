@@ -14,11 +14,15 @@ DOCKERNAMESPACE ?= arangodb
 IMAGE_NAME := $(DOCKERNAMESPACE)/arangodb-starter
 
 STARTER_TAGS := -t $(IMAGE_NAME):$(VERSION)
+# Set STARTER_TAGS_MINIMAL=1 (e.g. maintenance line 0.18.x while :latest stays on 0.19.x) to push only
+# :$(VERSION), not :$(VERSION_MAJOR_MINOR), :$(VERSION_MAJOR), or :latest.
 ifeq (, $(findstring -preview,$(VERSION)))
+ifeq ($(STARTER_TAGS_MINIMAL),)
 	STARTER_TAGS = -t $(IMAGE_NAME):$(VERSION) \
 		-t $(IMAGE_NAME):$(VERSION_MAJOR_MINOR) \
 		-t $(IMAGE_NAME):$(VERSION_MAJOR) \
 		-t $(IMAGE_NAME):latest
+endif
 endif
 
 GOBUILDLINKTARGET := ../../../..
@@ -40,7 +44,7 @@ REPOPATH := $(ORGPATH)/$(REPONAME)
 ALPINE_IMAGE ?= alpine:3.23
 
 GOPATH := $(GOBUILDDIR)
-GOVERSION := 1.25.8
+GOVERSION := 1.25.9
 GOIMAGE ?= golang:$(GOVERSION)-alpine3.23
 
 GOOS ?= linux

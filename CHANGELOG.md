@@ -8,9 +8,9 @@
 - Always pass JavaScript options (--javascript.startup-directory, --javascript.app-path, --javascript.copy-installation when not in Docker) to arangod for compatibility; core (ArangoDB 4.0+) is expected to ignore them when V8-less
 - Mark --server.js-dir as deprecated; kept for compatibility, will be removed in a future major version (e.g. 5.0)
 - Remove temporary seed master URL block added during go-driver v2 migration; fix agency read format, key-absence precondition, HTTP status handling, and leader reclaim after restart in the custom agency package
-- Bump Go version (1.25.8) and dependencies for CVE fixes
+- Bump Go version from 1.25.8 to 1.25.9 and dependencies for CVE fixes
 - After 3.12.9: `go-upgrade-rules` restores requiring 3.12.10+ as the minimum 3.12 patch for upgrade to ArangoDB 4.0 (see temporary rule above)
-- Fix GHSA-x744-4wpc-v9h2: replace vulnerable `github.com/docker/docker` with Moby-based `go-dockerclient` and `moby/moby/v2` v2.0.0-beta.8
+- Fix GHSA-x744-4wpc-v9h2: replace vulnerable `github.com/docker/docker` with Moby-based `go-dockerclient` and `moby/moby/v2` (v2.0.0-beta.8 → v2.0.0-beta.9)
 - CircleCI release workflow publishes `arangodb/arangodb-starter` as multi-arch (`linux/amd64`, `linux/arm64`) using Docker buildx and binfmt; Makefile uses `buildx build` for image push.
 
 ## [v0.19.17](https://github.com/arangodb-helper/arangodb/tree/0.19.17) (2026-02-11)
