@@ -1,6 +1,14 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- CircleCI / Makefile: when **`update_starter_latest_tag=false`** (local: **`STARTER_TAGS_SKIP_LATEST=1`**), Docker push skips **`:latest`** only; **`:<VERSION>`**, **`:x.y`**, and **`:x`** are still published (previously only **`:<VERSION>`** was pushed).
+- Migrate from go-driver v1 to go-driver v2 across service, client, and test code
+- Add internal agency client utilities (read/write, lock acquisition, leader election) and related reliability fixes for upgrade/test flows
+- Update go-upgrade-rules dependency for go-driver v2 compatibility
+- Update go-upgrade-rules to v0.0.0-20260330065022-e2aeb2c0d38a; ArangoDB 4.0 upgrade rules with temporary relax of 3.12 min patch for → 4.0 until 3.12.9 (then 3.12.10+ applies again)
+- Always pass JavaScript options (--javascript.startup-directory, --javascript.app-path, --javascript.copy-installation when not in Docker) to arangod for compatibility; core (ArangoDB 4.0+) is expected to ignore them when V8-less
+- Mark --server.js-dir as deprecated; kept for compatibility, will be removed in a future major version (e.g. 5.0)
+- Remove temporary seed master URL block added during go-driver v2 migration; fix agency read format, key-absence precondition, HTTP status handling, and leader reclaim after restart in the custom agency package
 - Bump Go version from 1.25.8 to 1.25.9 and dependencies for CVE fixes
 - CircleCI pipeline parameter `update_starter_latest_and_rolling_tags` (default `true`); when `false`, Docker push uses only `:<VERSION>` (no `:latest` or rolling `:x.y` / `:x`). Makefile: `STARTER_TAGS_MINIMAL=1` for the same behavior locally
 - Fix `TestProcessConfigFileLoading/passthrough-options` on ArangoDB 3.12.9+ via `--args.all.javascript.startup-options-allowlist`; log server version in `fetchArangoDConfig`
