@@ -4,7 +4,7 @@
 
 - CircleCI release workflow publishes `arangodb/arangodb-starter` as multi-arch (`linux/amd64`, `linux/arm64`) using Docker buildx and binfmt; Makefile uses `buildx build` for image push.
 - Bump Go version from 1.25.8 to 1.25.9 and dependencies for CVE fixes
-- CircleCI pipeline parameter `update_starter_latest_and_rolling_tags` (default `true`); when `false`, Docker push uses only `:<VERSION>` (no `:latest` or rolling `:x.y` / `:x`). Makefile: `STARTER_TAGS_MINIMAL=1` for the same behavior locally
+- CircleCI / Makefile: when **`update_starter_latest_tag=false`** (local: **`STARTER_TAGS_SKIP_LATEST=1`**), Docker push skips **`:latest`** only; **`:<VERSION>`**, **`:x.y`**, and **`:x`** are still published (previously only **`:<VERSION>`** was pushed).
 - Fix `TestProcessConfigFileLoading/passthrough-options` on ArangoDB 3.12.9+ via `--args.all.javascript.startup-options-allowlist`; log server version in `fetchArangoDConfig`
 
 

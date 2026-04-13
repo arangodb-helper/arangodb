@@ -14,14 +14,13 @@ DOCKERNAMESPACE ?= arangodb
 IMAGE_NAME := $(DOCKERNAMESPACE)/arangodb-starter
 
 STARTER_TAGS := -t $(IMAGE_NAME):$(VERSION)
-# Set STARTER_TAGS_MINIMAL=1 (e.g. maintenance line 0.18.x while :latest stays on 0.19.x) to push only
-# :$(VERSION), not :$(VERSION_MAJOR_MINOR), :$(VERSION_MAJOR), or :latest.
+# Set STARTER_TAGS_SKIP_LATEST=1 when :latest must not move (e.g. 0.18.x while 0.19.x owns :latest).
+# Still pushes :$(VERSION_MAJOR_MINOR) and :$(VERSION_MAJOR). Omit for full tag set including :latest.
 ifeq (, $(findstring -preview,$(VERSION)))
-ifeq ($(STARTER_TAGS_MINIMAL),)
-	STARTER_TAGS = -t $(IMAGE_NAME):$(VERSION) \
-		-t $(IMAGE_NAME):$(VERSION_MAJOR_MINOR) \
-		-t $(IMAGE_NAME):$(VERSION_MAJOR) \
-		-t $(IMAGE_NAME):latest
+STARTER_TAGS += -t $(IMAGE_NAME):$(VERSION_MAJOR_MINOR) \
+	-t $(IMAGE_NAME):$(VERSION_MAJOR)
+ifeq ($(STARTER_TAGS_SKIP_LATEST),)
+STARTER_TAGS += -t $(IMAGE_NAME):latest
 endif
 endif
 
