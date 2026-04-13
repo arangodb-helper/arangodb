@@ -21,9 +21,9 @@ parameters:
   publish:
     type: string
     default: ""
-  # When false, Docker push uses only :<VERSION> (no :latest, :x.y, :x). Use for older lines (e.g. 0.18.x)
-  # while :latest must stay on the current line (e.g. 0.19.x).
-  update_starter_latest_and_rolling_tags:
+  # When false, Docker push omits :latest but still pushes :<VERSION>, :x.y, :x. Use for 0.18.x while
+  # :latest stays on 0.19.x (parameter name is historical).
+  update_starter_latest_tag:
     type: boolean
     default: true
 
@@ -138,9 +138,9 @@ jobs:
 
               export DOCKER_PLATFORMS=linux/amd64,linux/arm64
 
-              if [ "<< pipeline.parameters.update_starter_latest_and_rolling_tags >>" != "true" ]; then
-                export STARTER_TAGS_MINIMAL=1
-                echo ">> STARTER_TAGS_MINIMAL=1 (skipping :latest and rolling :x.y / :x tags)"
+              if [ "<< pipeline.parameters.update_starter_latest_tag >>" != "true" ]; then
+                export STARTER_TAGS_SKIP_LATEST=1
+                echo ">> STARTER_TAGS_SKIP_LATEST=1 (skipping :latest only; still pushing :<VERSION>, :x.y, :x)"
               fi
 
               make "<< pipeline.parameters.publish >>"
