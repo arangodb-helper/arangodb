@@ -14,7 +14,7 @@ DOCKERNAMESPACE ?= arangodb
 IMAGE_NAME := $(DOCKERNAMESPACE)/arangodb-starter
 
 STARTER_TAGS := -t $(IMAGE_NAME):$(VERSION)
-# Set STARTER_TAGS_SKIP_LATEST=1 when :latest must not move (e.g. 0.18.x while 0.19.x owns :latest).
+# Set STARTER_TAGS_SKIP_LATEST=1 when :latest and the floating major tag must not move (e.g. 0.18.x while 0.19.x owns them).
 # Skips floating :$(VERSION_MAJOR) and :latest together; still pushes :$(VERSION) and :$(VERSION_MAJOR_MINOR).
 ifeq (, $(findstring -preview,$(VERSION)))
 STARTER_TAGS += -t $(IMAGE_NAME):$(VERSION_MAJOR_MINOR)
