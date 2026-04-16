@@ -3,7 +3,7 @@
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
 ## [v0.19.21](https://github.com/arangodb-helper/arangodb/tree/0.19.21) (2026-04-13)
-- CircleCI / Makefile: when **`update_starter_latest_tag=false`** (local: **`STARTER_TAGS_SKIP_LATEST=1`**), Docker push skips **`:latest`** only; **`:<VERSION>`**, **`:x.y`**, and **`:x`** are still published (previously only **`:<VERSION>`** was pushed).
+- CircleCI / Makefile: when **`update_starter_latest_tag=false`** (local: **`STARTER_TAGS_SKIP_LATEST=1`**), Docker push skips **`:latest`** and the floating major **`:x`**; **`:<VERSION>`** and **`:x.y`** are still published.
 - Migrate from go-driver v1 to go-driver v2 across service, client, and test code
 - Add internal agency client utilities (read/write, lock acquisition, leader election) and related reliability fixes for upgrade/test flows
 - Update go-upgrade-rules dependency for go-driver v2 compatibility
