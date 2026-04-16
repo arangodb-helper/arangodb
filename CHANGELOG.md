@@ -5,7 +5,7 @@
 ## [v0.18.24](https://github.com/arangodb-helper/arangodb/tree/0.18.24) (2026-04-13)
 - CircleCI release workflow publishes `arangodb/arangodb-starter` as multi-arch (`linux/amd64`, `linux/arm64`) using Docker buildx and binfmt; Makefile uses `buildx build` for image push.
 - Bump Go version from 1.25.8 to 1.25.9 and dependencies for CVE fixes
-- CircleCI / Makefile: when **`update_starter_latest_tag=false`** (local: **`STARTER_TAGS_SKIP_LATEST=1`**), Docker push skips **`:latest`** only; **`:<VERSION>`**, **`:x.y`**, and **`:x`** are still published (previously only **`:<VERSION>`** was pushed).
+- CircleCI / Makefile: when **`update_starter_latest_tag=false`** (local: **`STARTER_TAGS_SKIP_LATEST=1`**), Docker push skips **`:latest`** and the floating major **`:x`**; **`:<VERSION>`** and **`:x.y`** are still published.
 - Fix `TestProcessConfigFileLoading/passthrough-options` on ArangoDB 3.12.9+ via `--args.all.javascript.startup-options-allowlist`; log server version in `fetchArangoDConfig`
 
 
