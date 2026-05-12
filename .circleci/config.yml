@@ -3,7 +3,7 @@ version: 2.1
 parameters:
   goImage:
     type: string
-    default: "gcr.io/gcr-for-testing/golang:1.25.9"
+    default: "gcr.io/gcr-for-testing/golang:1.25.10"
   arangodbImage:
     type: string
     default: "gcr.io/gcr-for-testing/arangodb/enterprise:latest"
@@ -30,7 +30,7 @@ parameters:
 executors:
   golang-executor:
     docker:
-      - image: gcr.io/gcr-for-testing/golang:1.25.9
+      - image: gcr.io/gcr-for-testing/golang:1.25.10
   machine-executor:
     machine:
       image: ubuntu-2204:current
@@ -86,7 +86,7 @@ jobs:
           name: Install Go (match project toolchain)
           command: |
             set -euo pipefail
-            GO_VERSION="1.25.9"
+            GO_VERSION="1.25.10"
             if command -v go >/dev/null 2>&1 && [ "$(go env GOVERSION)" = "go${GO_VERSION}" ]; then
               echo "Go ${GO_VERSION} already default"
               exit 0
