@@ -82,6 +82,9 @@ func (s *Service) readActualStorageEngine() (string, error) {
 	// Read ENGINE file
 	engine, err := os.ReadFile(filepath.Join(dataDir, "data", "ENGINE"))
 	if err != nil {
+		if os.IsNotExist(err) && !features.HasEngineFile() {
+			return features.DefaultStorageEngine(), nil
+		}
 		return "", maskAny(err)
 	}
 	storageEngine := strings.ToLower(strings.TrimSpace(string(engine)))
