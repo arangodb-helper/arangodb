@@ -1220,10 +1220,7 @@ func (s *Service) Run(rootCtx context.Context, bsCfg BootstrapConfig, clusterCon
 		s.adjustClusterConfigForRelaunch(bsCfg)
 		s.saveSetup()
 
-		storageEngine, err := s.readActualStorageEngine()
-		if err != nil {
-			return maskAny(err)
-		}
+		storageEngine := s.relaunchStorageEngine(clusterConfig)
 		s.runtimeClusterManager.myPeers.ServerStorageEngine = storageEngine
 		bsCfg.ServerStorageEngine = storageEngine
 		s.log.Info().Msgf("Using storage engine '%s'", bsCfg.ServerStorageEngine)
