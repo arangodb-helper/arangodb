@@ -47,6 +47,9 @@ func TestReadActualStorageEngineReadsEngineFile(t *testing.T) {
 
 func TestReadActualStorageEngineDefaultsWhenEngineFileIsMissingForNewerVersion(t *testing.T) {
 	s := newTestSingleService(t, "3.12.10")
+	hostDir, err := s.serverHostDir(definitions.ServerTypeSingle)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(hostDir, "data"), 0755))
 
 	engine, err := s.readActualStorageEngine()
 
@@ -54,10 +57,21 @@ func TestReadActualStorageEngineDefaultsWhenEngineFileIsMissingForNewerVersion(t
 	require.Equal(t, "rocksdb", engine)
 }
 
-func TestReadActualStorageEngineRequiresEngineFileForOlderVersion(t *testing.T) {
-	s := newTestSingleService(t, "3.12.9")
+func TestReadActualStorageEngineRequiresDataDirForNewerVersion(t *testing.T) {
+	s := newTestSingleService(t, "3.12.10")
 
 	_, err := s.readActualStorageEngine()
+
+	require.Error(t, err)
+}
+
+func TestReadActualStorageEngineRequiresEngineFileForOlderVersion(t *testing.T) {
+	s := newTestSingleService(t, "3.12.9")
+	hostDir, err := s.serverHostDir(definitions.ServerTypeSingle)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(hostDir, "data"), 0755))
+
+	_, err = s.readActualStorageEngine()
 
 	require.Error(t, err)
 }
