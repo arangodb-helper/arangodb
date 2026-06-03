@@ -4,6 +4,7 @@
 
 ## [v0.19.23](https://github.com/arangodb-helper/arangodb/tree/0.19.23) (2026-06-03)
 - Bump Go toolchain to 1.25.11 for stdlib CVE fixes
+- Allow relaunch with ArangoDB 3.12.10+ when the legacy `data/ENGINE` file is missing.
 
 ## [v0.19.22](https://github.com/arangodb-helper/arangodb/tree/0.19.22) (2026-05-12)
 - Bump Go toolchain to 1.25.10 for stdlib CVE fixes
