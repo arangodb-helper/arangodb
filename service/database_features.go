@@ -60,7 +60,7 @@ func (v DatabaseFeatures) HasStorageEngineOption() bool {
 	return v.Version.CompareTo(v32) >= 0
 }
 
-// HasEngineFile returns true when arangod writes the ENGINE file.
+// HasEngineFile returns true when arangod writes the legacy `data/ENGINE` file (ArangoDB < 3.12.10).
 func (v DatabaseFeatures) HasEngineFile() bool {
 	return v.Version.CompareTo(v312_10) < 0
 }
