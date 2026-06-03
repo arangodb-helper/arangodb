@@ -34,12 +34,13 @@ type DatabaseFeatures struct {
 }
 
 const (
-	v32    driver.Version = "3.2.0"
-	v33_20 driver.Version = "3.3.20"
-	v33_22 driver.Version = "3.3.22"
-	v34    driver.Version = "3.4.0"
-	v34_2  driver.Version = "3.4.2"
-	v312   driver.Version = "3.12.0"
+	v32     driver.Version = "3.2.0"
+	v33_20  driver.Version = "3.3.20"
+	v33_22  driver.Version = "3.3.22"
+	v34     driver.Version = "3.4.0"
+	v34_2   driver.Version = "3.4.2"
+	v312    driver.Version = "3.12.0"
+	v312_10 driver.Version = "3.12.10"
 )
 
 // NewDatabaseFeatures returns a new DatabaseFeatures based on
@@ -55,6 +56,11 @@ func NewDatabaseFeatures(version driver.Version, enterprise bool) DatabaseFeatur
 // option is supported.
 func (v DatabaseFeatures) HasStorageEngineOption() bool {
 	return v.Version.CompareTo(v32) >= 0
+}
+
+// HasEngineFile returns true when arangod writes the legacy `data/ENGINE` file (ArangoDB < 3.12.10).
+func (v DatabaseFeatures) HasEngineFile() bool {
+	return v.Version.CompareTo(v312_10) < 0
 }
 
 // DefaultStorageEngine returns the default storage engine (mmfiles|rocksdb).
