@@ -2,6 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.19.23](https://github.com/arangodb-helper/arangodb/tree/0.19.23) (2026-06-03)
+- Bump Go toolchain to 1.25.11 for stdlib CVE fixes
+
 ## [v0.19.22](https://github.com/arangodb-helper/arangodb/tree/0.19.22) (2026-05-12)
 - Bump Go toolchain to 1.25.10 for stdlib CVE fixes
 
