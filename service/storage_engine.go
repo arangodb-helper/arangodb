@@ -22,11 +22,6 @@ package service
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
 )
 
 // validateStorageEngine checks if the given storage engine is a valid one.
@@ -49,41 +44,9 @@ func (s *Service) validateStorageEngine(storageEngine string, features DatabaseF
 	}
 }
 
-// readActualStorageEngine reads the actually used storage engine from
-// the database directory.
-func (s *Service) readActualStorageEngine() (string, error) {
-	features := s.DatabaseFeatures()
-	if !features.HasStorageEngineOption() {
-		// ENGINE file does not exist
-		return features.DefaultStorageEngine(), nil
+func (s *Service) relaunchStorageEngine(clusterConfig ClusterConfig) string {
+	if clusterConfig.ServerStorageEngine != "" {
+		return clusterConfig.ServerStorageEngine
 	}
-
-	_, peer, mode := s.ClusterConfig()
-	var serverType definitions.ServerType
-	if mode.IsClusterMode() {
-		// Read engine from dbserver data directory
-		if peer.HasDBServer() {
-			serverType = definitions.ServerTypeDBServer
-		} else if peer.HasAgent() {
-			serverType = definitions.ServerTypeAgent
-		} else {
-			// In case of Coordinator return default storage engine
-			return features.DefaultStorageEngine(), nil
-		}
-	} else {
-		// Read engine from single server data directory
-		serverType = definitions.ServerTypeSingle
-	}
-	// Get directory
-	dataDir, err := s.serverHostDir(serverType)
-	if err != nil {
-		return "", maskAny(err)
-	}
-	// Read ENGINE file
-	engine, err := os.ReadFile(filepath.Join(dataDir, "data", "ENGINE"))
-	if err != nil {
-		return "", maskAny(err)
-	}
-	storageEngine := strings.ToLower(strings.TrimSpace(string(engine)))
-	return storageEngine, nil
+	return s.DatabaseFeatures().DefaultStorageEngine()
 }
