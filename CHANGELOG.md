@@ -2,9 +2,10 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
-## [v0.19.23](https://github.com/arangodb-helper/arangodb/tree/0.19.23) (2026-06-03)
+## [v0.19.23](https://github.com/arangodb-helper/arangodb/tree/0.19.23) (2026-06-10)
 - Bump Go toolchain to 1.25.11 for stdlib CVE fixes
 - Allow relaunch with ArangoDB 3.12.10+ when the legacy `data/ENGINE` file is missing.
+- Bump `golang.org/x/crypto`, `golang.org/x/net`, and related Go modules for CVE fixes
 
 ## [v0.19.22](https://github.com/arangodb-helper/arangodb/tree/0.19.22) (2026-05-12)
 - Bump Go toolchain to 1.25.10 for stdlib CVE fixes
