@@ -112,6 +112,26 @@ jobs:
 
             echo "${DOCKER_HUB_PASSWORD}" | docker login -u "${DOCKER_HUB_USER}" --password-stdin
 
+            PUBLISH="<< pipeline.parameters.publish >>"
+            UPDATE_STARTER_LATEST_TAG="<< pipeline.parameters.update_starter_latest_tag >>"
+            export PUSH_STARTER_LATEST_TO_GCR=0
+            if [ "${PUBLISH#prerelease-}" = "${PUBLISH}" ] && [ "${UPDATE_STARTER_LATEST_TAG}" = "true" ]; then
+              # gcp-storage-prod context (same as arangosync): GCLOUD_SERVICE_KEY, GOOGLE_PROJECT_ID
+              if [ -z "${GCLOUD_SERVICE_KEY:-}" ] || [ -z "${GOOGLE_PROJECT_ID:-}" ]; then
+                echo "gcp-storage-prod context missing: set GCLOUD_SERVICE_KEY and GOOGLE_PROJECT_ID."
+                exit 1
+              fi
+
+              mkdir -p "$(pwd)/.gobuild/bin"
+              export PATH="$(pwd)/.gobuild/bin:/usr/local/go/bin:${PATH}"
+              GOBIN="$(pwd)/.gobuild/bin" go install github.com/regclient/regclient/cmd/regctl@latest
+              echo "${DOCKER_HUB_PASSWORD}" | regctl registry login docker.io -u "${DOCKER_HUB_USER}" --pass-stdin
+              echo "${GCLOUD_SERVICE_KEY}" | regctl registry login gcr.io -u _json_key --pass-stdin
+              export PUSH_STARTER_LATEST_TO_GCR=1
+            else
+              echo ">> Skipping GCR latest copy setup (publish=${PUBLISH}, update_starter_latest_tag=${UPDATE_STARTER_LATEST_TAG})"
+            fi
+
             # Multi-arch push from amd64: QEMU for linux/arm64 only (pinned image, not :latest).
             docker run --privileged --rm tonistiigi/binfmt:qemu-v10.2.1-65 --install arm64
             docker buildx version
@@ -165,3 +185,4 @@ workflows:
           context:
             - github-release
             - docker-hub
+            - gcp-storage-prod

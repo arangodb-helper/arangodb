@@ -12,13 +12,17 @@ MAKEFILE := $(ROOTDIR)/Makefile
 
 DOCKERNAMESPACE ?= arangodb
 IMAGE_NAME := $(DOCKERNAMESPACE)/arangodb-starter
+GCR_IMAGE_NAME ?= gcr.io/gcr-for-testing/arangodb/arangodb-starter
+REGCTL ?= regctl
 
 STARTER_TAGS := -t $(IMAGE_NAME):$(VERSION)
+PUSH_STARTER_LATEST :=
 # Set STARTER_TAGS_SKIP_LATEST=1 when :latest and the floating major tag must not move (e.g. 0.18.x while 0.19.x owns them).
 # Skips floating :$(VERSION_MAJOR) and :latest together; still pushes :$(VERSION) and :$(VERSION_MAJOR_MINOR).
 ifeq (, $(findstring -preview,$(VERSION)))
 STARTER_TAGS += -t $(IMAGE_NAME):$(VERSION_MAJOR_MINOR)
 ifeq ($(STARTER_TAGS_SKIP_LATEST),)
+PUSH_STARTER_LATEST := 1
 STARTER_TAGS += -t $(IMAGE_NAME):$(VERSION_MAJOR) -t $(IMAGE_NAME):latest
 endif
 endif
@@ -115,7 +119,7 @@ DOCKER_CMD = $(DOCKERCLI) run \
                 $(DOCKER_IMAGE)
 endif
 
-.PHONY: all clean deps docker build build-local
+.PHONY: all clean deps docker build build-local docker-copy-latest-to-gcr
 
 all: build
 
@@ -181,6 +185,15 @@ docker-push-version:
 	@test -f $(BINDIR)/linux/amd64/$(BINNAME) && test -f $(BINDIR)/linux/arm64/$(BINNAME) || $(MAKE) binaries
 	@echo ">> Pushing Docker image(s) ($(DOCKER_PLATFORMS))"
 	$(DOCKER_BUILD_PUSH_CLI) $(STARTER_TAGS) .
+
+docker-copy-latest-to-gcr:
+ifeq ($(PUSH_STARTER_LATEST),1)
+	@command -v "$(REGCTL)" >/dev/null || (echo "regctl is required to copy $(IMAGE_NAME):latest to $(GCR_IMAGE_NAME):latest" && exit 1)
+	@echo ">> Copying $(IMAGE_NAME):latest to $(GCR_IMAGE_NAME):latest"
+	$(REGCTL) image copy $(IMAGE_NAME):latest $(GCR_IMAGE_NAME):latest
+else
+	@echo ">> Skipping GCR latest copy (:latest is not published for VERSION=$(VERSION))"
+endif
 
 $(RELEASE): $(GOBUILDDIR) $(GO_SOURCES)
 	$(DOCKER_CMD) go build -o "$(RELEASE_BIN)" $(REPOPATH)/tools/release
