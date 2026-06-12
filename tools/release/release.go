@@ -111,6 +111,9 @@ func pushDockerImages() {
 		log.Printf("Skipping pushing docker images to registry")
 	} else {
 		make("docker-push-version")
+		if os.Getenv("PUSH_STARTER_LATEST_TO_GCR") == "1" {
+			make("docker-copy-latest-to-gcr")
+		}
 	}
 }
 
