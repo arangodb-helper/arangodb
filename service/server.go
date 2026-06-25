@@ -100,7 +100,7 @@ type httpServerContext interface {
 
 	// HandleHello - handle a hello request.
 	// If req==nil, this is a GET request, otherwise it is a POST request.
-	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error)
+	HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest, isRecoveryRequest bool) (ClusterConfig, error)
 
 	// HandleGoodbye removes the database servers started by the peer with given id
 	// from the cluster and alters the cluster configuration, removing the peer.
@@ -215,11 +215,12 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ownAddress := normalizeHostName(host)
 	isUpdateRequest, _ := strconv.ParseBool(r.FormValue("update"))
+	isRecoveryRequest, _ := strconv.ParseBool(r.FormValue(recoveryQueryParam))
 
 	var result ClusterConfig
 	if r.Method == "GET" {
 		// Let service handle get request
-		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, nil, isUpdateRequest)
+		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, nil, isUpdateRequest, isRecoveryRequest)
 		if err != nil {
 			handleError(w, err)
 			return
@@ -237,7 +238,7 @@ func (s *httpServer) helloHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Let service handle post request
-		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, &req, false)
+		result, err = s.context.HandleHello(ownAddress, r.RemoteAddr, &req, false, false)
 		if err != nil {
 			handleError(w, err)
 			return

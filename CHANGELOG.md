@@ -2,6 +2,8 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+- Fix bootstrap-master recovery: surviving starters answer `/hello?recovery=1` with their own cluster config instead of redirecting to the dead master, handle redirects explicitly during recovery, and fail fast with a clear error when `--starter.join` contains only the node being replaced
+
 ## [v0.19.23](https://github.com/arangodb-helper/arangodb/tree/0.19.23) (2026-06-10)
 - Bump Go toolchain to 1.25.11 for stdlib CVE fixes
 - Allow relaunch with ArangoDB 3.12.10+ when the legacy `data/ENGINE` file is missing.

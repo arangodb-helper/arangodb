@@ -24,8 +24,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -42,6 +44,7 @@ import (
 const (
 	recoveryFileName             = "RECOVERY"
 	recoveryClusterConfigTimeout = time.Minute * 2
+	recoveryQueryParam           = "recovery"
 )
 
 // PerformRecovery looks for a RECOVERY file in the data directory and performs
@@ -188,45 +191,124 @@ func (s *Service) removeRecoveryFile() {
 	}
 }
 
+// recoveryContactAddresses returns the starter addresses that can be contacted during recovery.
+// The address of the starter being recovered is excluded.
+func recoveryContactAddresses(masterAddresses []string, recoveryAddress string) []string {
+	recoveryAddress = strings.ToLower(recoveryAddress)
+	usable := make([]string, 0, len(masterAddresses))
+	for _, addr := range masterAddresses {
+		if strings.ToLower(addr) != recoveryAddress {
+			usable = append(usable, addr)
+		}
+	}
+	return usable
+}
+
+func recoveryHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout:   httpClient.Timeout,
+		Transport: httpClient.Transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func starterAddressFromURL(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+	return strings.ToLower(u.Host), true
+}
+
+func isStarterAddress(rawURL, starterAddress string) bool {
+	addr, ok := starterAddressFromURL(rawURL)
+	if !ok {
+		return false
+	}
+	return addr == strings.ToLower(starterAddress)
+}
+
+func parseClusterConfigResponse(r *http.Response) (ClusterConfig, error) {
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return ClusterConfig{}, maskAny(err)
+	}
+	var clusterConfig ClusterConfig
+	if err := json.Unmarshal(body, &clusterConfig); err != nil {
+		return ClusterConfig{}, maskAny(err)
+	}
+	return clusterConfig, nil
+}
+
 // getRecoveryClusterConfig tries to load the cluster configuration from the given master URL.
 func (s *Service) getRecoveryClusterConfig(ctx context.Context, masterAddresses []string, recoveryAddress string) (ClusterConfig, error) {
-	// Helper to fetch from specific master
-	fetch := func(ctx context.Context, masterURL string) (ClusterConfig, error) {
-		helloURL, err := getURLWithPath(masterURL, "/hello")
-		if err != nil {
-			return ClusterConfig{}, maskAny(err)
-		}
-		// Perform request
-		r, err := httpClient.Get(helloURL)
-		if err != nil {
-			return ClusterConfig{}, maskAny(err)
-		}
-		// Check status
-		if r.StatusCode != 200 {
-			return ClusterConfig{}, maskAny(fmt.Errorf("Invalid status %d from master", r.StatusCode))
-		}
-		// Parse result
-		defer r.Body.Close()
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return ClusterConfig{}, maskAny(err)
-		}
-		var clusterConfig ClusterConfig
-		if err := json.Unmarshal(body, &clusterConfig); err != nil {
-			return ClusterConfig{}, maskAny(err)
-		}
-		return clusterConfig, nil
+	contactAddresses := recoveryContactAddresses(masterAddresses, recoveryAddress)
+	if len(contactAddresses) == 0 {
+		return ClusterConfig{}, maskAny(fmt.Errorf(
+			"No starter is able to answer our recovery request: no remaining starter addresses in --starter.join (when recovering the bootstrap master, add addresses of other cluster members to --starter.join)"))
 	}
 
-	// Go over all master addresses, asking for the cluster config.
+	client := recoveryHTTPClient()
+
+	// Helper to fetch from specific master
+	fetch := func(ctx context.Context, masterURL string) (ClusterConfig, error) {
+		helloURL, err := getURLWithPath(masterURL, "/hello?"+recoveryQueryParam+"=1")
+		if err != nil {
+			return ClusterConfig{}, maskAny(err)
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, helloURL, nil)
+		if err != nil {
+			return ClusterConfig{}, maskAny(err)
+		}
+		r, err := client.Do(req)
+		if err != nil {
+			return ClusterConfig{}, maskAny(err)
+		}
+		if r.StatusCode == http.StatusOK {
+			return parseClusterConfigResponse(r)
+		}
+		if r.StatusCode == http.StatusTemporaryRedirect || r.StatusCode == http.StatusFound {
+			location := r.Header.Get("Location")
+			r.Body.Close()
+			if location == "" {
+				return ClusterConfig{}, maskAny(fmt.Errorf("Invalid redirect without location from %s", masterURL))
+			}
+			if isStarterAddress(location, recoveryAddress) {
+				return ClusterConfig{}, maskAny(fmt.Errorf("Starter at %s redirected to the node being recovered", masterURL))
+			}
+			redirectURL, err := url.Parse(location)
+			if err != nil {
+				return ClusterConfig{}, maskAny(err)
+			}
+			q := redirectURL.Query()
+			q.Set(recoveryQueryParam, "1")
+			redirectURL.RawQuery = q.Encode()
+			redirectReq, err := http.NewRequestWithContext(ctx, http.MethodGet, redirectURL.String(), nil)
+			if err != nil {
+				return ClusterConfig{}, maskAny(err)
+			}
+			redirectResp, err := client.Do(redirectReq)
+			if err != nil {
+				return ClusterConfig{}, maskAny(err)
+			}
+			if redirectResp.StatusCode != http.StatusOK {
+				redirectResp.Body.Close()
+				return ClusterConfig{}, maskAny(fmt.Errorf("Invalid status %d from redirected master", redirectResp.StatusCode))
+			}
+			return parseClusterConfigResponse(redirectResp)
+		}
+		r.Body.Close()
+		return ClusterConfig{}, maskAny(fmt.Errorf("Invalid status %d from master", r.StatusCode))
+	}
+
+	// Go over all remaining starter addresses, asking for the cluster config.
 	// The first to return a valid value is used.
 	start := time.Now()
 	for {
-		for _, addr := range masterAddresses {
-			if strings.ToLower(addr) == strings.ToLower(recoveryAddress) {
-				// Skip using our own address
-				continue
-			}
+		for _, addr := range contactAddresses {
 			masterURL := s.createBootstrapMasterURL(addr, s.cfg)
 			cCfg, err := fetch(ctx, masterURL)
 			if err == nil {
