@@ -152,9 +152,9 @@ func TestProcessClusterMasterRecovery(t *testing.T) {
 	SendIntrAndWait(t, masterRecovery, slave1, slave2)
 }
 
-// TestProcessClusterMasterRecoverySelfJoinOnly reproduces the customer bug on a live 3-node cluster:
-// after the bootstrap master is destroyed, recovery with only the replaced address in --starter.join
-// must fail fast and must not rejoin the cluster as a new peer.
+// TestProcessClusterMasterRecoverySelfJoinOnly exercises bootstrap master recovery on a live
+// 3-node cluster when --starter.join lists only the replaced starter address: recovery must fail
+// fast and must not rejoin the cluster as a new peer.
 func TestProcessClusterMasterRecoverySelfJoinOnly(t *testing.T) {
 	removeArangodProcesses(t)
 	testMatch(t, testModeProcess, starterModeCluster, false)

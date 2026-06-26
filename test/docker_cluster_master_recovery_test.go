@@ -170,8 +170,8 @@ func TestDockerClusterMasterRecovery(t *testing.T) {
 	)
 }
 
-// TestDockerClusterMasterRecoverySelfJoinOnly reproduces the customer bug on a live 3-node docker cluster:
-// after the bootstrap master is destroyed, recovery with only the replaced address in --starter.join
+// TestDockerClusterMasterRecoverySelfJoinOnly exercises bootstrap master recovery on a live
+// 3-node docker cluster when --starter.join lists only the replaced starter address: recovery
 // must fail fast and must not rejoin the cluster as a new peer.
 //
 // Requires native Linux Docker with --net=host (CircleCI machine executor).
@@ -261,7 +261,7 @@ func TestDockerClusterMasterRecoverySelfJoinOnly(t *testing.T) {
 	}, " "))
 	dockerBuildRecoveryRun.Wait()
 
-	checkpoint.Log("Start master recovery container with self-only join (customer bug)")
+	checkpoint.Log("Start master recovery container with self-only join")
 	recDockerRun1 := spawnMemberInDocker(t, basePort, recVolID, masterJoin, "", "")
 	defer recDockerRun1.Close()
 	defer removeDockerContainer(t, recVolID)
