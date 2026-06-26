@@ -52,6 +52,16 @@ func normalizeHostName(host string) string {
 	return host
 }
 
+// normalizeStarterAddress normalizes a starter host:port for comparisons.
+// Loopback aliases (127.0.0.1, ::1, localhost) compare equal.
+func normalizeStarterAddress(addr string) (string, bool) {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return "", false
+	}
+	return strings.ToLower(net.JoinHostPort(normalizeHostName(host), port)), true
+}
+
 // For Windows we need to change backslashes to slashes, strangely enough:
 func slasher(s string) string {
 	return strings.Replace(s, "\\", "/", -1)
