@@ -193,12 +193,17 @@ func (s *Service) removeRecoveryFile() {
 // recoveryContactAddresses returns the starter addresses that can be contacted during recovery.
 // The address of the starter being recovered is excluded.
 func recoveryContactAddresses(masterAddresses []string, recoveryAddress string) []string {
+	recoveryAddress = strings.TrimSpace(recoveryAddress)
 	recoveryNorm, recoveryOK := normalizeStarterAddress(recoveryAddress)
 	if !recoveryOK {
 		recoveryNorm = strings.ToLower(recoveryAddress)
 	}
 	usable := make([]string, 0, len(masterAddresses))
 	for _, addr := range masterAddresses {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
 		addrNorm, addrOK := normalizeStarterAddress(addr)
 		if !addrOK {
 			addrNorm = strings.ToLower(addr)
