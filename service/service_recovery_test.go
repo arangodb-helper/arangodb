@@ -26,6 +26,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,13 @@ func TestRecoveryContactAddresses(t *testing.T) {
 
 	if len(recoveryContactAddresses([]string{"node1:8528"}, "node1:8528")) != 0 {
 		t.Fatal("expected no contact addresses when only the recovery address is configured")
+	}
+
+	if len(recoveryContactAddresses([]string{"127.0.0.1:8528"}, "127.0.0.1:8528")) != 0 {
+		t.Fatal("expected no contact addresses for self-only loopback join")
+	}
+	if len(recoveryContactAddresses([]string{"127.0.0.1:8528"}, "localhost:8528")) != 0 {
+		t.Fatal("expected 127.0.0.1 and localhost to be treated as the same starter address")
 	}
 }
 
@@ -159,5 +167,8 @@ func TestGetRecoveryClusterConfigNoContactAddresses(t *testing.T) {
 	_, err := s.getRecoveryClusterConfig(ctx, []string{"node1:8528"}, "node1:8528")
 	if err == nil {
 		t.Fatal("expected error when no contact addresses remain")
+	}
+	if !strings.Contains(err.Error(), "no remaining starter addresses in --starter.join") {
+		t.Fatalf("expected customer-bug error message, got: %v", err)
 	}
 }

@@ -23,6 +23,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -164,6 +165,130 @@ func TestDockerClusterMasterRecovery(t *testing.T) {
 
 	waitForCallFunction(t,
 		ShutdownStarterCall(insecureStarterEndpoint(0)),
+		ShutdownStarterCall(insecureStarterEndpoint(100)),
+		ShutdownStarterCall(insecureStarterEndpoint(200)),
+	)
+}
+
+// TestDockerClusterMasterRecoverySelfJoinOnly reproduces the customer bug on a live 3-node docker cluster:
+// after the bootstrap master is destroyed, recovery with only the replaced address in --starter.join
+// must fail fast and must not rejoin the cluster as a new peer.
+//
+// Requires native Linux Docker with --net=host (CircleCI machine executor).
+func TestDockerClusterMasterRecoverySelfJoinOnly(t *testing.T) {
+	log := GetLogger(t)
+
+	testMatch(t, testModeDocker, starterModeCluster, false)
+
+	cID1 := createDockerID("starter-test-cluster-master1-")
+	createDockerVolume(t, cID1)
+	defer removeDockerVolume(t, cID1)
+
+	cID2 := createDockerID("starter-test-cluster-master2-")
+	createDockerVolume(t, cID2)
+	defer removeDockerVolume(t, cID2)
+
+	cID3 := createDockerID("starter-test-cluster-master3-")
+	createDockerVolume(t, cID3)
+	defer removeDockerVolume(t, cID3)
+
+	removeDockerContainersByLabel(t, "starter-test=true")
+	removeStarterCreatedDockerContainers(t)
+
+	masterJoin := fmt.Sprintf("localhost:%d", basePort)
+
+	dockerRun1 := spawnMemberInDocker(t, basePort, cID1, "", "", "")
+	defer dockerRun1.Close()
+	defer removeDockerContainer(t, cID1)
+
+	dockerRun2 := spawnMemberInDocker(t, basePort+100, cID2, masterJoin, "", "")
+	defer dockerRun2.Close()
+	defer removeDockerContainer(t, cID2)
+
+	dockerRun3 := spawnMemberInDocker(t, basePort+200, cID3, masterJoin, "", "")
+	defer dockerRun3.Close()
+	defer removeDockerContainer(t, cID3)
+
+	if !WaitUntilStarterReady(t, whatCluster, 3, dockerRun1, dockerRun2, dockerRun3) {
+		waitForCallFunction(t,
+			ShutdownStarterCall(insecureStarterEndpoint(100)),
+			ShutdownStarterCall(insecureStarterEndpoint(200)),
+		)
+		return
+	}
+
+	ctx := context.Background()
+	c := NewStarterClient(t, insecureStarterEndpoint(0))
+	plist, err := c.Processes(ctx)
+	if err != nil {
+		t.Fatalf("Processes failed: %s", describe(err))
+	}
+
+	containersToKill := []string{cID1}
+	for _, s := range plist.Servers {
+		containersToKill = append(containersToKill, s.ContainerID)
+	}
+
+	checkpoint := log.Checkpoint()
+	checkpoint.Log("Kill master docker containers")
+
+	killDockerRun1 := Spawn(t, "docker rm -vf "+strings.Join(containersToKill, " "))
+	killDockerRun1.Wait()
+
+	checkpoint.Log("Wait for master starter to stop")
+	dockerRun1.Wait()
+
+	removeDockerVolume(t, cID1)
+
+	checkpoint.Log("Wait for leader election on surviving starters")
+	time.Sleep(35 * time.Second)
+
+	checkpoint.Log("Wait for master port to be closed")
+	WaitForHttpPortClosed(checkpoint, NewThrottle(time.Second), insecureStarterEndpoint(0)).ExecuteT(t, time.Minute, time.Second)
+
+	recVolID := createDockerID("starter-test-cluster-master-recovery-self-join-")
+	createDockerVolume(t, recVolID)
+	defer removeDockerVolume(t, recVolID)
+
+	recoveryContent := fmt.Sprintf("localhost:%d", basePort)
+	dockerBuildRecoveryRun := Spawn(t, strings.Join([]string{
+		"docker run -i",
+		"--label starter-test=true",
+		"--name=" + cID1 + "recovery-builder",
+		fmt.Sprintf("-v %s:/data", recVolID),
+		"alpine",
+		fmt.Sprintf("sh -c \"echo %s > /data/RECOVERY\"", recoveryContent),
+	}, " "))
+	dockerBuildRecoveryRun.Wait()
+
+	checkpoint.Log("Start master recovery container with self-only join (customer bug)")
+	recDockerRun1 := spawnMemberInDocker(t, basePort, recVolID, masterJoin, "", "")
+	defer recDockerRun1.Close()
+	defer removeDockerContainer(t, recVolID)
+
+	if err := recDockerRun1.ExpectTimeout(
+		context.Background(),
+		30*time.Second,
+		regexp.MustCompile(recoveryFailurePattern),
+		"self-join recovery",
+	); err != nil {
+		logSubProcessOutput(t, "docker master recovery (self-join, on timeout)", recDockerRun1)
+		t.Fatalf("expected recovery failure log line within 30s, but timed out: %s", describe(err))
+	}
+	logSubProcessOutput(t, "docker master recovery (self-join, matched failure)", recDockerRun1)
+
+	if regexp.MustCompile(`Your cluster can now be accessed`).Match(recDockerRun1.Output()) {
+		logSubProcessOutput(t, "docker master recovery (unexpected cluster ready)", recDockerRun1)
+		t.Fatal("recovery starter joined/bootstrapped the cluster instead of failing on self-only join")
+	}
+
+	WaitUntilStarterExit(t, 10*time.Second, 1, recDockerRun1)
+	t.Log("recovery starter exited as expected after failure")
+
+	testCluster(t, insecureStarterEndpoint(100), false)
+	testCluster(t, insecureStarterEndpoint(200), false)
+
+	waitForCallFunction(t,
 		ShutdownStarterCall(insecureStarterEndpoint(100)),
 		ShutdownStarterCall(insecureStarterEndpoint(200)),
 	)

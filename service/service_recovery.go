@@ -25,7 +25,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -51,7 +50,7 @@ const (
 // a recovery of such a file exists.
 func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (BootstrapConfig, error) {
 	recoveryPath := filepath.Join(s.cfg.DataDir, recoveryFileName)
-	recoveryContent, err := ioutil.ReadFile(recoveryPath)
+	recoveryContent, err := os.ReadFile(recoveryPath)
 	if os.IsNotExist(err) {
 		// Recovery file does not exist. We're done.
 		return bsCfg, nil
@@ -194,16 +193,26 @@ func (s *Service) removeRecoveryFile() {
 // recoveryContactAddresses returns the starter addresses that can be contacted during recovery.
 // The address of the starter being recovered is excluded.
 func recoveryContactAddresses(masterAddresses []string, recoveryAddress string) []string {
-	recoveryAddress = strings.ToLower(recoveryAddress)
+	recoveryNorm, recoveryOK := normalizeStarterAddress(recoveryAddress)
+	if !recoveryOK {
+		recoveryNorm = strings.ToLower(recoveryAddress)
+	}
 	usable := make([]string, 0, len(masterAddresses))
 	for _, addr := range masterAddresses {
-		if strings.ToLower(addr) != recoveryAddress {
+		addrNorm, addrOK := normalizeStarterAddress(addr)
+		if !addrOK {
+			addrNorm = strings.ToLower(addr)
+		}
+		if addrNorm != recoveryNorm {
 			usable = append(usable, addr)
 		}
 	}
 	return usable
 }
 
+// recoveryHTTPClient returns an HTTP client for recovery /hello requests.
+// Redirects are not followed automatically so getRecoveryClusterConfig can
+// inspect 307/302 responses and reject redirects to the node being replaced.
 func recoveryHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout:   httpClient.Timeout,
@@ -214,6 +223,7 @@ func recoveryHTTPClient() *http.Client {
 	}
 }
 
+// starterAddressFromURL extracts the normalized host:port from a starter URL.
 func starterAddressFromURL(rawURL string) (string, bool) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -222,14 +232,21 @@ func starterAddressFromURL(rawURL string) (string, bool) {
 	return strings.ToLower(u.Host), true
 }
 
+// isStarterAddress reports whether rawURL points at the given starter address.
 func isStarterAddress(rawURL, starterAddress string) bool {
 	addr, ok := starterAddressFromURL(rawURL)
 	if !ok {
 		return false
 	}
-	return addr == strings.ToLower(starterAddress)
+	addrNorm, addrOK := normalizeStarterAddress(addr)
+	starterNorm, starterOK := normalizeStarterAddress(starterAddress)
+	if addrOK && starterOK {
+		return addrNorm == starterNorm
+	}
+	return strings.ToLower(addr) == strings.ToLower(starterAddress)
 }
 
+// parseClusterConfigResponse reads and unmarshals a /hello JSON response body.
 func parseClusterConfigResponse(r *http.Response) (ClusterConfig, error) {
 	defer r.Body.Close()
 	body, err := io.ReadAll(r.Body)
