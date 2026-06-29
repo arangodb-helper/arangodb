@@ -252,7 +252,7 @@ func TestDockerClusterMasterRecoverySelfJoinOnly(t *testing.T) {
 
 	recoveryContent := fmt.Sprintf("localhost:%d", basePort)
 	dockerBuildRecoveryRun := Spawn(t, strings.Join([]string{
-		"docker run -i",
+		"docker run --rm -i",
 		"--label starter-test=true",
 		"--name=" + cID1 + "recovery-builder",
 		fmt.Sprintf("-v %s:/data", recVolID),
