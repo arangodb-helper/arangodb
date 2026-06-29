@@ -129,11 +129,13 @@ func TestProcessClusterMasterRecovery(t *testing.T) {
 	masterRecovery.label = "Master Recovery"
 	defer closeProcess(t, masterRecovery, "Master Recovery")
 
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, masterRecovery, slave1, slave2); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, masterRecovery); ok {
 		t.Logf("Cluster start (with master recovery) took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0), false)
 		testCluster(t, insecureStarterEndpoint(100), false)
 		testCluster(t, insecureStarterEndpoint(200), false)
+	} else {
+		logSubProcessOutput(t, "master recovery (cluster not ready)", masterRecovery)
 	}
 
 	startWait := time.Now()

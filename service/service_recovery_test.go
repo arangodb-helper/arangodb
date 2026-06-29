@@ -70,6 +70,48 @@ func TestRecoveryContactAddresses(t *testing.T) {
 	}
 }
 
+func TestGetCoordinatorEndpointsExcludingPeerID(t *testing.T) {
+	t.Parallel()
+
+	cfg := ClusterConfig{
+		AllPeers: []Peer{
+			{ID: "master", Address: "localhost", Port: 8528, peerServers: peerServers{HasCoordinatorFlag: boolRef(true), HasAgentFlag: true}},
+			{ID: "slave1", Address: "localhost", Port: 8628, peerServers: peerServers{HasCoordinatorFlag: boolRef(true), HasAgentFlag: true}},
+			{ID: "slave2", Address: "localhost", Port: 8728, peerServers: peerServers{HasCoordinatorFlag: boolRef(true), HasAgentFlag: true}},
+		},
+	}
+
+	all, err := cfg.GetCoordinatorEndpoints()
+	if err != nil {
+		t.Fatalf("GetCoordinatorEndpoints failed: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 coordinator endpoints, got %d: %v", len(all), all)
+	}
+
+	survivors, err := cfg.GetCoordinatorEndpointsExcludingPeerID("master")
+	if err != nil {
+		t.Fatalf("GetCoordinatorEndpointsExcludingPeerID failed: %v", err)
+	}
+	if len(survivors) != 2 {
+		t.Fatalf("expected 2 survivor coordinator endpoints, got %d: %v", len(survivors), survivors)
+	}
+	for _, ep := range survivors {
+		if strings.Contains(ep, ":8529") {
+			t.Fatalf("bootstrap master coordinator must be excluded, got %v", survivors)
+		}
+	}
+
+	onlyPeerCfg := ClusterConfig{
+		AllPeers: []Peer{
+			{ID: "only", Address: "localhost", Port: 8528, peerServers: peerServers{HasCoordinatorFlag: boolRef(true)}},
+		},
+	}
+	if _, err := onlyPeerCfg.GetCoordinatorEndpointsExcludingPeerID("only"); err == nil {
+		t.Fatal("expected error when the only coordinator belongs to the excluded peer")
+	}
+}
+
 func TestHandleHelloRecoveryRequestReturnsLocalConfig(t *testing.T) {
 	t.Parallel()
 

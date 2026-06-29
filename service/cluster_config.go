@@ -256,13 +256,32 @@ func (p ClusterConfig) GetDBServerEndpoints() ([]string, error) {
 
 // GetCoordinatorEndpoints creates a list of URL's for all coordinators.
 func (p ClusterConfig) GetCoordinatorEndpoints() ([]string, error) {
-	// Build endpoint list
+	return p.getCoordinatorEndpoints("")
+}
+
+// GetCoordinatorEndpointsExcludingPeerID returns coordinator URLs for all peers except the given peer.
+// Used during recovery so cluster health is queried via surviving coordinators, not the node being replaced.
+func (p ClusterConfig) GetCoordinatorEndpointsExcludingPeerID(excludePeerID string) ([]string, error) {
+	endpoints, err := p.getCoordinatorEndpoints(excludePeerID)
+	if err != nil {
+		return nil, err
+	}
+	if len(endpoints) == 0 {
+		return nil, maskAny(fmt.Errorf("no coordinator endpoints available excluding peer %s", excludePeerID))
+	}
+	return endpoints, nil
+}
+
+func (p ClusterConfig) getCoordinatorEndpoints(excludePeerID string) ([]string, error) {
 	var endpoints []string
-	for _, p := range p.AllPeers {
-		if p.HasCoordinator() {
-			port := p.Port + p.PortOffset + definitions.ServerType(definitions.ServerTypeCoordinator).PortOffset()
-			scheme := NewURLSchemes(p.IsSecure).Browser
-			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(p.Address, strconv.Itoa(port)))
+	for _, peer := range p.AllPeers {
+		if excludePeerID != "" && peer.ID == excludePeerID {
+			continue
+		}
+		if peer.HasCoordinator() {
+			port := peer.Port + peer.PortOffset + definitions.ServerType(definitions.ServerTypeCoordinator).PortOffset()
+			scheme := NewURLSchemes(peer.IsSecure).Browser
+			ep := fmt.Sprintf("%s://%s", scheme, net.JoinHostPort(peer.Address, strconv.Itoa(port)))
 			endpoints = append(endpoints, ep)
 		}
 	}

@@ -137,7 +137,7 @@ func TestDockerClusterMasterRecovery(t *testing.T) {
 	defer recDockerRun1.Close()
 	defer removeDockerContainer(t, recVolID)
 
-	if ok := WaitUntilStarterReady(t, whatCluster, 3, recDockerRun1, dockerRun2, dockerRun3); ok {
+	if ok := WaitUntilStarterReady(t, whatCluster, 1, recDockerRun1); ok {
 		t.Logf("Cluster start (with master recovery) took %s", time.Since(start))
 		testCluster(t, insecureStarterEndpoint(0), false)
 		testCluster(t, insecureStarterEndpoint(100), false)

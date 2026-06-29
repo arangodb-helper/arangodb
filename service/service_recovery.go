@@ -110,20 +110,26 @@ func (s *Service) PerformRecovery(ctx context.Context, bsCfg BootstrapConfig) (B
 	s.runtimeClusterManager.myPeers = clusterConfig
 	bsCfg.ID = peer.ID
 
-	// Set JWT secret for client creation (needed for CreateClusterAPI)
+	// Set JWT secret for client creation (needed for cluster health during recovery)
 	if bsCfg.JwtSecret != "" {
 		s.jwtSecret = bsCfg.JwtSecret
 	}
 
 	// Do we have an agent on our peer?
 	if peer.HasAgent() {
-		// Ask cluster for its health in order to find the ID of our agent
-		// Use CreateClusterAPI to get cluster client (go-driver v2 migration)
-		clusterClient, err := clusterConfig.CreateClusterAPI(ctx, s)
+		// Ask cluster for its health in order to find the ID of our agent.
+		// Contact surviving coordinators only; the recovering peer's servers are down.
+		endpoints, err := clusterConfig.GetCoordinatorEndpointsExcludingPeerID(peer.ID)
+		if err != nil {
+			s.log.Error().Err(err).Msg("Cannot find coordinator endpoints for recovery")
+			return bsCfg, maskAny(err)
+		}
+		c, err := s.CreateClient(endpoints, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
 		if err != nil {
 			s.log.Error().Err(err).Msg("Cannot create cluster client")
 			return bsCfg, maskAny(err)
 		}
+		clusterClient := driver.ClientAdminCluster(c)
 
 		// Fetch cluster health using go-driver v2 API
 		health, err := clusterClient.Health(ctx)
