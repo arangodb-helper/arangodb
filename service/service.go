@@ -686,10 +686,16 @@ func (s *Service) Stop() {
 
 // HandleHello handles a hello request.
 // If req==nil, this is a GET request, otherwise it is a POST request.
-func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest bool) (ClusterConfig, error) {
+func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloRequest, isUpdateRequest, isRecoveryRequest bool) (ClusterConfig, error) {
 	// Claim exclusive access to our data structures
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if isRecoveryRequest && req == nil {
+		// Recovery requests must be answered locally. Redirecting to the (possibly dead)
+		// bootstrap master would prevent replacement nodes from rejoining the cluster.
+		return s.runtimeClusterManager.myPeers, nil
+	}
 
 	if s.state == stateBootstrapSlave {
 		// Redirect to bootstrap master

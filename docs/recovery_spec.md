@@ -16,6 +16,12 @@ echo "192.168.1.25:8528" > $DATADIR/RECOVERY
 
 After creating the `RECOVERY` file, start the starter using all the normal command line arguments.
 
+**Important:** When recovering the bootstrap master (the starter that was started without `--starter.join`,
+or the starter with the lowest address in a multi-join setup), you must add the addresses of the
+*remaining* starters to `--starter.join`. For example, if `node1` was the bootstrap master and `node2`,
+`node3` join with `--starter.join=node1:8528`, recover `node1` with
+`--starter.join=node2:8528,node3:8528` instead of `--starter.join=node1:8528`.
+
 The starter will now:
 1) Talk to the remaining starters to find the ID of the starter it replaces and use that ID to join the remaining starters.
 1) Talk to the remaining agents to find the ID of the agent it replaces and adjust the commandline arguments of the agent (it will start) to use that ID.
