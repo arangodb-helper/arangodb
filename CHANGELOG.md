@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Bump Go version from 1.25.11 to 1.25.12 for stdlib CVE fixes; replace deprecated `golang.org/x/crypto/ssh/terminal` with `golang.org/x/term` (GO-2026-5932)
 - Fix bootstrap-master recovery: surviving starters answer `/hello?recovery=1` with their own cluster config instead of redirecting to the dead master, handle redirects explicitly during recovery, query cluster health via surviving coordinators when looking up the recovering agent ID, and fail fast with a clear error when `--starter.join` contains only the node being replaced
 - CircleCI / Makefile: when **`update_starter_latest_tag=false`** (local: **`STARTER_TAGS_SKIP_LATEST=1`**), Docker push skips **`:latest`** and the floating major **`:x`**; **`:<VERSION>`** and **`:x.y`** are still published (previously only **`:<VERSION>`** was pushed).
 - Migrate from go-driver v1 to go-driver v2 across service, client, and test code
