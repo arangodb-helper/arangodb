@@ -32,11 +32,11 @@ package terminal
 import (
 	"syscall"
 
-	ssht "golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 // IsTerminal returns true when the process has an attached
 // terminal.
 func IsTerminal() bool {
-	return ssht.IsTerminal(syscall.Stdin)
+	return term.IsTerminal(int(syscall.Stdin))
 }
