@@ -1,6 +1,6 @@
 module github.com/arangodb-helper/arangodb
 
-go 1.25.11
+go 1.25.12
 
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
@@ -22,7 +22,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.52.0
+	golang.org/x/term v0.43.0
 	gopkg.in/ini.v1 v1.66.6
 )
 
@@ -58,7 +58,6 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

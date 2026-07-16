@@ -2,6 +2,8 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.19.24](https://github.com/arangodb-helper/arangodb/tree/0.19.23) (2026-07-16)
+- Bump Go version from 1.25.11 to 1.25.12 for stdlib CVE fixes; replace deprecated `golang.org/x/crypto/ssh/terminal` with `golang.org/x/term` (GO-2026-5932)
 - Fix bootstrap-master recovery: surviving starters answer `/hello?recovery=1` with their own cluster config instead of redirecting to the dead master, handle redirects explicitly during recovery, and fail fast with a clear error when `--starter.join` contains only the node being replaced
 
 ## [v0.19.23](https://github.com/arangodb-helper/arangodb/tree/0.19.23) (2026-06-10)
