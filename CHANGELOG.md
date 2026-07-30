@@ -2,6 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.18.28](https://github.com/arangodb-helper/arangodb/tree/0.18.28) (2026-07-30)
+- Drop unused `golang.org/x/net` and `golang.org/x/text` dependencies (CVE-2026-46600, CVE-2026-56852)
+
 ## [v0.18.27](https://github.com/arangodb-helper/arangodb/tree/0.18.27) (2026-07-16)
 - Bump Go version from 1.25.11 to 1.25.12 for stdlib CVE fixes; replace deprecated `golang.org/x/crypto/ssh/terminal` with `golang.org/x/term` (GO-2026-5932)
 
