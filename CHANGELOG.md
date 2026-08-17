@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Bump Go version from 1.25.12 to 1.25.13 for stdlib CVE fixes (CVE-2026-33818, CVE-2026-39821, CVE-2026-56853, CVE-2026-56858, CVE-2026-56859, CVE-2026-56860, CVE-2026-56862)
 - Bump `golang.org/x/net` to v0.56.0 and `golang.org/x/text` to v0.39.0 for CVE fixes (CVE-2026-46600, CVE-2026-56852)
 - Bump Go version from 1.25.11 to 1.25.12 for stdlib CVE fixes; replace deprecated `golang.org/x/crypto/ssh/terminal` with `golang.org/x/term` (GO-2026-5932)
 - Fix bootstrap-master recovery: surviving starters answer `/hello?recovery=1` with their own cluster config instead of redirecting to the dead master, handle redirects explicitly during recovery, query cluster health via surviving coordinators when looking up the recovering agent ID, and fail fast with a clear error when `--starter.join` contains only the node being replaced
