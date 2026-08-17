@@ -2,6 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.18.29](https://github.com/arangodb-helper/arangodb/tree/0.18.29) (2026-08-17)
+- Bump Go version from 1.25.12 to 1.25.13 for stdlib CVE fixes (CVE-2026-33818, CVE-2026-39821, CVE-2026-56853, CVE-2026-56858, CVE-2026-56859, CVE-2026-56860, CVE-2026-56862)
+
 ## [v0.18.28](https://github.com/arangodb-helper/arangodb/tree/0.18.28) (2026-07-30)
 - Drop unused `golang.org/x/net` and `golang.org/x/text` dependencies (CVE-2026-46600, CVE-2026-56852)
 
