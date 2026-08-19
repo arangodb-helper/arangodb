@@ -2,8 +2,9 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
-## [v0.19.27](https://github.com/arangodb-helper/arangodb/tree/0.19.27) (2026-08-19)
+## [v0.19.27](https://github.com/arangodb-helper/arangodb/tree/0.19.27) (2026-08-20)
 - Bump `github.com/moby/go-archive` to v0.3.3 for CVE fix (CVE-2026-17106)
+- Fix passthrough-options test allowlist check for ArangoDB package versions like `3.12.10-1` (normalize before CompareTo)
 
 ## [v0.19.26](https://github.com/arangodb-helper/arangodb/tree/0.19.26) (2026-08-17)
 - Bump Go version from 1.25.12 to 1.25.13 for stdlib CVE fixes (CVE-2026-33818, CVE-2026-39821, CVE-2026-56853, CVE-2026-56858, CVE-2026-56859, CVE-2026-56860, CVE-2026-56862)
