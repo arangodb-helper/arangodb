@@ -25,6 +25,7 @@ package test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,15 +154,56 @@ func TestProcessConfigFileLoading(t *testing.T) {
 	})
 }
 
+// normalizeArangoDBVersionForCompare strips non-digit suffixes from each version
+// component so driver.Version.CompareTo works for package revisions such as
+// "3.12.10-1" (Debian) where SubInt fails and string compare would wrongly treat
+// "10-1" as older than "9". Non-numeric components (e.g. arch tags) are dropped.
+func normalizeArangoDBVersionForCompare(v driver.Version) driver.Version {
+	parts := strings.Split(string(v), ".")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		j := 0
+		for j < len(part) && part[j] >= '0' && part[j] <= '9' {
+			j++
+		}
+		if j == 0 {
+			break
+		}
+		out = append(out, part[:j])
+	}
+	return driver.Version(strings.Join(out, "."))
+}
+
 // javascriptStartupOptionsAllowlistForInternalOptions returns a value for --args.all.javascript.startup-options-allowlist
 // when ArangoDB hides keys from require("internal").options() unless allowlisted (3.12.9+). See:
 // https://docs.arangodb.com/3.12/components/arangodb-server/options/ (javascript.startup-options-allowlist).
 func javascriptStartupOptionsAllowlistForInternalOptions(v driver.Version) string {
 	const minArangoDB = driver.Version("3.12.9")
-	if v.CompareTo(minArangoDB) < 0 {
+	if normalizeArangoDBVersionForCompare(v).CompareTo(minArangoDB) < 0 {
 		return ""
 	}
 	return "default-language,rocksdb.enable-statistics,log.level"
+}
+
+func TestJavascriptStartupOptionsAllowlistForInternalOptions(t *testing.T) {
+	const want = "default-language,rocksdb.enable-statistics,log.level"
+	cases := []struct {
+		version string
+		want    string
+	}{
+		{"3.12.8", ""},
+		{"3.12.9", want},
+		{"3.12.10", want},
+		{"3.12.10-1", want},
+		{"3.12.10-1.amd64", want},
+		{"3.12.11-1", want},
+		{"3.11.0", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.version, func(t *testing.T) {
+			require.Equal(t, tc.want, javascriptStartupOptionsAllowlistForInternalOptions(driver.Version(tc.version)))
+		})
+	}
 }
 
 func fetchArangoDConfig(t *testing.T, endpoint string) map[string]interface{} {
