@@ -2,7 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
-## [v0.18.30](https://github.com/arangodb-helper/arangodb/tree/0.18.30) (2026-08-19)
+## [v0.18.30](https://github.com/arangodb-helper/arangodb/tree/0.18.30) (2026-08-20)
 - Bump `github.com/moby/go-archive` to v0.3.3 for CVE fix (CVE-2026-17106)
 
 ## [v0.18.29](https://github.com/arangodb-helper/arangodb/tree/0.18.29) (2026-08-17)
