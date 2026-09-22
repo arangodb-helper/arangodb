@@ -43,7 +43,6 @@ import (
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	driver_http "github.com/arangodb/go-driver/v2/connection"
-	driver_jwt "github.com/arangodb/go-driver/v2/utils/jwt"
 
 	"github.com/arangodb-helper/arangodb/agency"
 	"github.com/arangodb-helper/arangodb/client"
@@ -879,8 +878,7 @@ func (s *Service) ChangeState(newState State) {
 // prepare a request to a database server (including authentication).
 func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
 	return func(req *http.Request) error {
-		addJwtHeader(req, s.jwtSecret)
-		return nil
+		return addJwtHeader(req, s.jwtSecret)
 	}
 }
 
@@ -936,7 +934,7 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 		return nil, maskAny(err)
 	}
 	if secret != "" {
-		jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
+		jwtBearer, err := CreateJwtAuthorizationHeader(secret, "starter")
 		if err != nil {
 			return nil, maskAny(err)
 		}
@@ -968,7 +966,7 @@ func (s *Service) CreateAgency(endpoints []string) (agency.Agency, error) {
 		Transport: transport,
 	}
 	if secret != "" {
-		jwtBearer, err := driver_jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
+		jwtBearer, err := CreateJwtAuthorizationHeader(secret, "starter")
 		if err != nil {
 			return nil, maskAny(err)
 		}
