@@ -189,7 +189,7 @@ func init() {
 	f.BoolVar(&opts.docker.Privileged, "docker.privileged", false, "Run containers with --privileged")
 	f.BoolVar(&opts.docker.TTY, "docker.tty", true, "Run containers with TTY enabled")
 
-	f.StringVar(&opts.auth.jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
+	f.StringVar(&opts.auth.jwtSecretFile, "auth.jwt-secret", "", "name of a file containing a shared JWT secret (HS256) or PEM-encoded P-256 private key (ES256) used for server authentication")
 
 	f.StringVar(&opts.ssl.keyFile, "ssl.keyfile", "", "path of a PEM encoded file containing a server certificate + private key")
 	f.StringVar(&opts.ssl.caFile, "ssl.cafile", "", "path of a PEM encoded file containing a CA certificate used for client authentication")

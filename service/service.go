@@ -44,7 +44,6 @@ import (
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
-	"github.com/arangodb/go-driver/jwt"
 
 	"github.com/arangodb-helper/arangodb/client"
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
@@ -893,8 +892,7 @@ func (s *Service) ChangeState(newState State) {
 // prepare a request to a database server (including authentication).
 func (s *Service) PrepareDatabaseServerRequestFunc() func(*http.Request) error {
 	return func(req *http.Request) error {
-		addJwtHeader(req, s.jwtSecret)
-		return nil
+		return addJwtHeader(req, s.jwtSecret)
 	}
 }
 
@@ -945,7 +943,7 @@ func (s *Service) CreateClient(endpoints []string, connectionType ConnectionType
 	if err != nil {
 		return nil, maskAny(err)
 	}
-	jwtBearer, err := jwt.CreateArangodJwtAuthorizationHeader(secret, "starter")
+	jwtBearer, err := CreateJwtAuthorizationHeader(secret, "starter")
 	if err != nil {
 		return nil, maskAny(err)
 	}
