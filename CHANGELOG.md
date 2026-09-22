@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Sign JWTs with ES256 for PEM-encoded P-256 private keys in authentication commands and database, Agency, and coordinator clients; retain HS256 for shared secrets and reject invalid PEM keys.
 
 ## [v0.18.30](https://github.com/arangodb-helper/arangodb/tree/0.18.30) (2026-08-20)
 - Bump `github.com/moby/go-archive` to v0.3.3 for CVE fix (CVE-2026-17106)
