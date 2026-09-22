@@ -32,7 +32,6 @@ import (
 	driver "github.com/arangodb/go-driver"
 	"github.com/arangodb/go-driver/agency"
 	driver_http "github.com/arangodb/go-driver/http"
-	"github.com/arangodb/go-driver/jwt"
 
 	"github.com/arangodb-helper/arangodb/pkg/definitions"
 	"github.com/arangodb-helper/arangodb/service/options"
@@ -366,11 +365,11 @@ func (p ClusterConfig) CreateCoordinatorsClient(jwtSecret string) (driver.Client
 		Connection: conn,
 	}
 	if jwtSecret != "" {
-		value, err := jwt.CreateArangodJwtAuthorizationHeader(jwtSecret, "starter")
+		header, err := CreateJwtAuthorizationHeader(jwtSecret, "starter")
 		if err != nil {
 			return nil, maskAny(err)
 		}
-		options.Authentication = driver.RawAuthentication(value)
+		options.Authentication = driver.RawAuthentication(header)
 	}
 	c, err := driver.NewClient(options)
 	if err != nil {

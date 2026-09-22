@@ -69,7 +69,7 @@ func init() {
 	cmdAuth.AddCommand(cmdAuthToken)
 
 	pf := cmdAuth.PersistentFlags()
-	pf.StringVar(&authOptions.jwtSecretFile, "auth.jwt-secret", "", "name of a plain text file containing a JWT secret used for server authentication")
+	pf.StringVar(&authOptions.jwtSecretFile, "auth.jwt-secret", "", "name of a file containing a shared JWT secret (HS256) or PEM-encoded P-256 private key (ES256) used for server authentication")
 	pf.StringVar(&authOptions.user, "auth.user", "", "name of a user to authenticate as. If empty, 'super-user' authentication is used")
 	pf.StringSliceVar(&authOptions.paths, "auth.paths", nil, "a list of allowed pathes. The path must not include the '_db/DBNAME' prefix.")
 	pf.StringVar(&authOptions.exp, "auth.exp", "", "a time in which token should expire - based on current time in UTC. Supported units: h, m, s (default)")
