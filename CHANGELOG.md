@@ -2,6 +2,7 @@
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
 
+## [v0.19.28](https://github.com/arangodb-helper/arangodb/tree/0.19.28) (2026-09-23)
 - Sign JWTs with ES256 for PEM-encoded P-256 private keys in authentication commands and database, Agency, and coordinator clients; retain HS256 for shared secrets and reject invalid PEM keys.
 
 ## [v0.19.27](https://github.com/arangodb-helper/arangodb/tree/0.19.27) (2026-08-20)
