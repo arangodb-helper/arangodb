@@ -530,7 +530,7 @@ func logProcessOutput(log Logger, p *SubProcess, prefix string, args ...interfac
 		line, _, err := reader.ReadLine()
 		if len(line) > 0 {
 			if pre == "" {
-				log.Log(string(line))
+				log.Log("%s", string(line))
 			} else {
 				log.Log("%s%s", pre, string(line))
 			}
@@ -552,7 +552,7 @@ func logLastNLines(log Logger, p *SubProcess, n int) {
 	}
 	for i := start; i < total; i++ {
 		if len(lines[i]) > 0 {
-			log.Log(string(lines[i]))
+			log.Log("%s", string(lines[i]))
 		}
 	}
 }
@@ -572,7 +572,7 @@ func logLastNLinesFromFile(log Logger, filePath string, n int) {
 	}
 	for i := start; i < total; i++ {
 		if len(lines[i]) > 0 {
-			log.Log(string(lines[i]))
+			log.Log("%s", string(lines[i]))
 		}
 	}
 }
