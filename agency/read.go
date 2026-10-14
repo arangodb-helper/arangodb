@@ -110,20 +110,42 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 			return fmt.Errorf("agency read returned HTTP %d", respCode)
 		}
 
-		if respCode == http.StatusTemporaryRedirect && c.redirectConfig == nil {
-			return ErrRedirectNotFollowed
-		}
-		// 307 from non-leader returns empty body; follow Location once so leader election completes.
-		if respCode >= 300 && respCode < 400 && c.redirectConfig != nil {
-			if location := resp.Header("Location"); location != "" {
+		if respCode >= 300 && respCode < 400 {
+			if c.redirectConfig == nil {
+				return ErrRedirectNotFollowed
+			}
+
+			location := resp.Header("Location")
+			if location == "" {
+				lastErr = fmt.Errorf("agency read redirect returned HTTP %d without Location", respCode)
+			} else {
 				absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
 				redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
 				redirectRaw, redirectErr := c.doReadToEndpoint(redirectCtx, reqBody, absoluteLocation)
 				redirectCancel()
 				if redirectErr == nil && redirectRaw != nil {
 					rawResponse = redirectRaw
+					lastErr = nil
+					break
+				}
+				if redirectErr != nil {
+					lastErr = fmt.Errorf("agency read redirect to %s failed: %w", absoluteLocation, redirectErr)
+				} else {
+					lastErr = fmt.Errorf("agency read redirect to %s returned an empty response", absoluteLocation)
 				}
 			}
+
+			// A redirect target can be stale while agency leadership is moving.
+			// Retry through the round-robin connection so the next request can
+			// reach the current leader directly. Once every configured endpoint
+			// has been attempted, return the useful redirect error immediately.
+			if attempt+1 >= c.endpointCount || !time.Now().Before(deadline) {
+				return lastErr
+			}
+			continue
+		}
+		if respCode < 200 || respCode >= 300 {
+			return fmt.Errorf("agency read returned unexpected HTTP %d", respCode)
 		}
 		lastErr = nil
 		break

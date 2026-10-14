@@ -19,6 +19,7 @@ package agency
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 )
@@ -109,11 +110,16 @@ func (l *LeaderElectionCell[T]) Read(ctx context.Context, cli Agency) (T, error)
 // It retries internally for up to 30 seconds before returning an error,
 // allowing the caller to create a fresh agency client and retry.
 func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T) (T, bool, time.Duration, error) {
-	const minUpdateDelay = 500 * time.Millisecond
 	const updateTimeout = 30 * time.Second
+	return l.update(ctx, cli, value, updateTimeout)
+}
+
+func (l *LeaderElectionCell[T]) update(ctx context.Context, cli Agency, value T, updateTimeout time.Duration) (T, bool, time.Duration, error) {
+	const minUpdateDelay = 500 * time.Millisecond
 
 	var result leaderStruct[T]
 	var err error
+	var lastErr error
 	var zeroValue T
 
 	updateCtx, updateCancel := context.WithTimeout(ctx, updateTimeout)
@@ -126,21 +132,17 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T)
 			if IsKeyNotFound(err) {
 				assumeEmpty = true
 				result = leaderStruct[T]{} // default empty
-			} else if isConnectionError(err) {
-				select {
-				case <-updateCtx.Done():
-					return zeroValue, false, 0, updateCtx.Err()
-				case <-time.After(minUpdateDelay):
-				}
-				continue
 			} else {
+				lastErr = err
 				select {
 				case <-updateCtx.Done():
-					return zeroValue, false, 0, updateCtx.Err()
+					return zeroValue, false, 0, leaderElectionContextError(updateCtx.Err(), lastErr)
 				case <-time.After(minUpdateDelay):
 				}
 				continue
 			}
+		} else {
+			lastErr = nil
 		}
 
 		now := time.Now()
@@ -160,8 +162,9 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T)
 			if err := l.tryBecomeLeader(updateCtx, cli, value, assumeEmpty); err == nil {
 				return value, true, l.ttl / 2, nil
 			} else if updateCtx.Err() != nil {
-				return zeroValue, false, 0, err
+				return zeroValue, false, 0, leaderElectionContextError(updateCtx.Err(), err)
 			} else {
+				lastErr = err
 				time.Sleep(minUpdateDelay)
 				continue
 			}
@@ -176,6 +179,13 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T)
 
 		return result.Data, false, delay, nil
 	}
+}
+
+func leaderElectionContextError(contextErr, lastErr error) error {
+	if contextErr == context.Canceled || lastErr == nil {
+		return contextErr
+	}
+	return fmt.Errorf("leader election operation timed out: %w", lastErr)
 }
 
 // Resign leadership

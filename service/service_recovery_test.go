@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/arangodb-helper/arangodb/client"
 )
 
 func TestRecoveryContactAddresses(t *testing.T) {
@@ -152,12 +154,60 @@ func TestHandleHelloWithoutRecoveryRedirectsRunningSlave(t *testing.T) {
 		},
 	}
 
-	_, err := s.HandleHello("node2", "127.0.0.1:12345", nil, false, false)
-	if err == nil {
-		t.Fatal("expected redirect error without recovery flag")
+	for name, req := range map[string]*HelloRequest{
+		"get":  nil,
+		"post": {SlaveID: "joiner", SlaveAddress: "node3", SlavePort: 8528},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := s.HandleHello("node2", "127.0.0.1:12345", req, false, false)
+			if err == nil {
+				t.Fatal("expected redirect error without recovery flag")
+			}
+			if _, ok := IsRedirect(err); !ok {
+				t.Fatalf("expected redirect error, got: %v", err)
+			}
+		})
 	}
-	if _, ok := IsRedirect(err); !ok {
-		t.Fatalf("expected redirect error, got: %v", err)
+}
+
+func TestHandleHelloRunningSlaveWithoutMasterRejectsPeer(t *testing.T) {
+	t.Parallel()
+
+	s := &Service{
+		id:    "live",
+		log:   zerolog.Nop(),
+		state: stateRunningSlave,
+		mode:  ServiceModeCluster,
+		runtimeClusterManager: runtimeClusterManager{
+			myPeers: ClusterConfig{
+				ServerStorageEngine: "rocksdb",
+				AgencySize:          3,
+				AllPeers: []Peer{{
+					ID:      "live",
+					Address: "127.0.0.1",
+					Port:    9528,
+				}},
+			},
+		},
+	}
+
+	req := HelloRequest{
+		SlaveID:      "joiner",
+		SlaveAddress: "127.0.0.1",
+		SlavePort:    8528,
+		DataDir:      "/tmp/nodeX",
+	}
+	_, err := s.HandleHello("127.0.0.1", "127.0.0.1:9999", &req, false, false)
+	if !client.IsServiceUnavailable(err) {
+		t.Fatalf("expected service unavailable for POST without a master, got: %v", err)
+	}
+	if _, found := s.runtimeClusterManager.myPeers.PeerByID("joiner"); found {
+		t.Fatal("leaderless follower mutated its local cluster configuration")
+	}
+
+	_, err = s.HandleHello("127.0.0.1", "127.0.0.1:9999", nil, true, false)
+	if !client.IsServiceUnavailable(err) {
+		t.Fatalf("expected service unavailable for config refresh without a master, got: %v", err)
 	}
 }
 

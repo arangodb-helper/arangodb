@@ -719,10 +719,13 @@ func (s *Service) HandleHello(ownAddress, remoteAddress string, req *HelloReques
 				return ClusterConfig{}, maskAny(RedirectError{helloURL})
 			}
 		} else if req != nil || isUpdateRequest {
-			// No master know, service unavailable when handling a POST of GET+update request
+			// A running follower is not authoritative for cluster membership.
+			// Keep POST and config-refresh requests waiting until leader election
+			// supplies a master URL, otherwise followers can persist divergent
+			// peer configurations.
 			return ClusterConfig{}, maskAny(errors.Wrap(client.ServiceUnavailableError, "No master known"))
 		} else {
-			// No master know, but initial request.
+			// No master known, but initial GET.
 			// Just return what we know so the other starter can get started
 			s.log.Debug().Msgf("Initial hello request from %s without known running master", remoteAddress)
 		}
