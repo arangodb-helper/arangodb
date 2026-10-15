@@ -60,7 +60,7 @@ func (l *LeaderElectionCell[T]) GetLeaderCondition(dataValue T) WriteCondition {
 	return IfEqualTo(keyWithData, dataValue)
 }
 
-func (l *LeaderElectionCell[T]) tryBecomeLeader(ctx context.Context, cli Agency, value T, assumeEmpty bool) error {
+func (l *LeaderElectionCell[T]) tryBecomeLeader(ctx context.Context, cli Agency, value T, assumeEmpty bool, observedTTL int64) error {
 	newTTL := time.Now().Add(l.ttl).Unix()
 	trx := &Transaction{
 		Ops: []KeyChanger{
@@ -74,7 +74,7 @@ func (l *LeaderElectionCell[T]) tryBecomeLeader(ctx context.Context, cli Agency,
 		}
 	} else {
 		trx.Conds = []WriteCondition{
-			KeyEquals(l.key, keyTTL, l.lastTTL),
+			KeyEquals(l.key, keyTTL, observedTTL),
 		}
 	}
 
@@ -158,7 +158,7 @@ func (l *LeaderElectionCell[T]) update(ctx context.Context, cli Agency, value T,
 		}
 
 		if needTryLeader {
-			if err := l.tryBecomeLeader(updateCtx, cli, value, assumeEmpty); err == nil {
+			if err := l.tryBecomeLeader(updateCtx, cli, value, assumeEmpty, result.TTL); err == nil {
 				return value, true, l.ttl / 2, nil
 			} else {
 				lastAgencyErr = preserveLeaderElectionError(lastAgencyErr, err)

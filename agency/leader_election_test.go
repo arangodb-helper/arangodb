@@ -20,6 +20,7 @@ package agency
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -91,12 +92,13 @@ func TestLeaderElectionReadsExistingLeader(t *testing.T) {
 
 func TestLeaderElectionReplacesExpiredLeader(t *testing.T) {
 	const ownURL = "http://starter1:9528/"
+	expiredTTL := time.Now().Add(-time.Minute).Unix()
 	writes := 0
 	api := &electionTestAgency{
 		read: func(_ context.Context, _ []string, out any) error {
 			setElectionResult(t, out, leaderStruct[string]{
 				Data: "http://old:8528/",
-				TTL:  time.Now().Add(-time.Minute).Unix(),
+				TTL:  expiredTTL,
 			})
 			return nil
 		},
@@ -104,6 +106,12 @@ func TestLeaderElectionReplacesExpiredLeader(t *testing.T) {
 			writes++
 			if len(tx.Ops) != 1 || len(tx.Conds) != 1 {
 				t.Fatalf("unexpected leader transaction: %+v", tx)
+			}
+			cond := tx.Conds[0]
+			if !reflect.DeepEqual(cond.GetKey(), []string{"starter", "leader", keyTTL}) ||
+				cond.GetName() != "old" || cond.GetValue() != expiredTTL {
+				t.Fatalf("expected observed TTL precondition, got key=%v name=%q value=%v",
+					cond.GetKey(), cond.GetName(), cond.GetValue())
 			}
 			return nil
 		},

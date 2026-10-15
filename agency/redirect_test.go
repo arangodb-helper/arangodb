@@ -18,7 +18,10 @@
 package agency
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -38,6 +41,80 @@ type scriptedRedirectConnection struct {
 
 func (c *scriptedRedirectConnection) Do(context.Context, driver_http.Request, interface{}, ...int) (driver_http.Response, error) {
 	return c.response, nil
+}
+
+type noRedirectRequest struct {
+	driver_http.Request
+	body any
+}
+
+func (r *noRedirectRequest) SetBody(body any) error {
+	r.body = body
+	return r.Request.SetBody(body)
+}
+
+type noRedirectHTTPConnection struct {
+	driver_http.Connection
+	httpClient *http.Client
+}
+
+// newNoRedirectHTTPConnection keeps 307 responses visible to the agency client
+// while still exercising real HTTP servers and the driver's round-robin endpoint selection.
+func newNoRedirectHTTPConnection(config driver_http.HttpConfiguration) *noRedirectHTTPConnection {
+	return &noRedirectHTTPConnection{
+		Connection: driver_http.NewHttpConnection(config),
+		httpClient: &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+	}
+}
+
+func (c *noRedirectHTTPConnection) NewRequest(method string, urls ...string) (driver_http.Request, error) {
+	req, err := c.Connection.NewRequest(method, urls...)
+	if err != nil {
+		return nil, err
+	}
+	return &noRedirectRequest{Request: req}, nil
+}
+
+func (c *noRedirectHTTPConnection) Do(
+	ctx context.Context,
+	request driver_http.Request,
+	output interface{},
+	_ ...int,
+) (driver_http.Response, error) {
+	req, ok := request.(*noRedirectRequest)
+	if !ok {
+		return nil, fmt.Errorf("unexpected request type %T", request)
+	}
+	body, err := json.Marshal(req.body)
+	if err != nil {
+		return nil, err
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, req.Method(), req.URL(), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer httpResp.Body.Close()
+
+	if output != nil {
+		if err := json.NewDecoder(httpResp.Body).Decode(output); err != nil && err != io.EOF {
+			return nil, err
+		}
+	}
+	return &redirectResponse{
+		code:     httpResp.StatusCode,
+		endpoint: req.Endpoint(),
+		header:   httpResp.Header,
+	}, nil
 }
 
 type redirectResponse struct {
@@ -72,6 +149,19 @@ func newRedirectTestClient(t *testing.T, location string) Agency {
 		},
 	}
 	result, err := NewAgency(conn, 1, &config)
+	if err != nil {
+		t.Fatalf("failed to create agency client: %v", err)
+	}
+	return result
+}
+
+func newRoundRobinRedirectTestClient(t *testing.T, endpoints []string) Agency {
+	t.Helper()
+
+	config := driver_http.HttpConfiguration{
+		Endpoint: driver_http.NewRoundRobinEndpoints(endpoints),
+	}
+	result, err := NewAgency(newNoRedirectHTTPConnection(config), len(endpoints), &config)
 	if err != nil {
 		t.Fatalf("failed to create agency client: %v", err)
 	}
@@ -178,5 +268,179 @@ func TestReadReportsRedirectWithoutLocation(t *testing.T) {
 	err := client.ReadKey(ctx, []string{"test"}, &got)
 	if err == nil || !strings.Contains(err.Error(), "without Location") {
 		t.Fatalf("expected missing Location error, got %v", err)
+	}
+}
+
+func TestReadRetriesNextEndpointAfterRedirectTargetFailure(t *testing.T) {
+	failedTarget := httptest.NewServer(http.NotFoundHandler())
+	failedTargetURL := failedTarget.URL
+	failedTarget.Close()
+
+	followerRequests := 0
+	follower := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		followerRequests++
+		if r.Method != http.MethodPost || r.URL.Path != "/_api/agency/read" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Location", failedTargetURL+"/_api/agency/read")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer follower.Close()
+
+	leaderRequests := 0
+	leader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaderRequests++
+		if r.Method != http.MethodPost || r.URL.Path != "/_api/agency/read" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"test":"value"}]`)
+	}))
+	defer leader.Close()
+
+	client := newRoundRobinRedirectTestClient(t, []string{follower.URL, leader.URL})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var got string
+	if err := client.ReadKey(ctx, []string{"test"}, &got); err != nil {
+		t.Fatalf("agency read did not fail over after redirect target failure: %v", err)
+	}
+	if got != "value" || followerRequests != 1 || leaderRequests != 1 {
+		t.Fatalf("unexpected failover result: value=%q followerRequests=%d leaderRequests=%d",
+			got, followerRequests, leaderRequests)
+	}
+}
+
+func TestWriteRetriesNextEndpointWithOriginalTransaction(t *testing.T) {
+	failedTarget := httptest.NewServer(http.NotFoundHandler())
+	failedTargetURL := failedTarget.URL
+	failedTarget.Close()
+
+	followerRequests := 0
+	follower := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		followerRequests++
+		if r.Method != http.MethodPost || r.URL.Path != "/_api/agency/write" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Location", failedTargetURL+"/_api/agency/write")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer follower.Close()
+
+	leaderRequests := 0
+	leader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaderRequests++
+		if r.Method != http.MethodPost || r.URL.Path != "/_api/agency/write" {
+			http.NotFound(w, r)
+			return
+		}
+
+		var body [][]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("failed to decode agency write: %v", err)
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if len(body) != 1 || len(body[0]) != 3 {
+			t.Errorf("unexpected agency write body: %v", body)
+			http.Error(w, "invalid transaction", http.StatusBadRequest)
+			return
+		}
+
+		var operations map[string]map[string]any
+		var preconditions map[string]map[string]any
+		if err := json.Unmarshal(body[0][0], &operations); err != nil {
+			t.Errorf("failed to decode operations: %v", err)
+		}
+		if err := json.Unmarshal(body[0][1], &preconditions); err != nil {
+			t.Errorf("failed to decode preconditions: %v", err)
+		}
+		if operation := operations["/test"]; operation["op"] != "set" || operation["new"] != "value" {
+			t.Errorf("write operation was not preserved: %+v", operations)
+		}
+		if condition := preconditions["/guard"]; condition["old"] != "expected" {
+			t.Errorf("write precondition was not preserved: %+v", preconditions)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"results":[1]}`)
+	}))
+	defer leader.Close()
+
+	client := newRoundRobinRedirectTestClient(t, []string{follower.URL, leader.URL})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := client.Write(ctx, &Transaction{
+		Ops:   []KeyChanger{SetKey([]string{"test"}, "value")},
+		Conds: []WriteCondition{IfEqualTo([]string{"guard"}, "expected")},
+	})
+	if err != nil {
+		t.Fatalf("agency write did not fail over after redirect target failure: %v", err)
+	}
+	if followerRequests != 1 || leaderRequests != 1 {
+		t.Fatalf("unexpected write attempts: follower=%d leader=%d", followerRequests, leaderRequests)
+	}
+}
+
+func TestReadPreservesRedirectErrorAfterAllEndpointsFail(t *testing.T) {
+	failedTarget := httptest.NewServer(http.NotFoundHandler())
+	failedTargetURL := failedTarget.URL
+	failedTarget.Close()
+
+	newFollower := func() *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Location", failedTargetURL+r.URL.Path)
+			w.WriteHeader(http.StatusTemporaryRedirect)
+		}))
+	}
+	follower1 := newFollower()
+	defer follower1.Close()
+	follower2 := newFollower()
+	defer follower2.Close()
+
+	client := newRoundRobinRedirectTestClient(t, []string{follower1.URL, follower2.URL})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var got string
+	err := client.ReadKey(ctx, []string{"test"}, &got)
+	if err == nil || !strings.Contains(err.Error(), "agency read redirect to "+failedTargetURL) ||
+		!strings.Contains(err.Error(), "failed") {
+		t.Fatalf("expected redirect target error after exhausting endpoints, got %v", err)
+	}
+}
+
+func TestWritePreservesRedirectErrorAfterAllEndpointsFail(t *testing.T) {
+	failedTarget := httptest.NewServer(http.NotFoundHandler())
+	failedTargetURL := failedTarget.URL
+	failedTarget.Close()
+
+	newFollower := func() *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Location", failedTargetURL+r.URL.Path)
+			w.WriteHeader(http.StatusTemporaryRedirect)
+		}))
+	}
+	follower1 := newFollower()
+	defer follower1.Close()
+	follower2 := newFollower()
+	defer follower2.Close()
+
+	client := newRoundRobinRedirectTestClient(t, []string{follower1.URL, follower2.URL})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := client.Write(ctx, &Transaction{
+		Ops:   []KeyChanger{SetKey([]string{"test"}, "value")},
+		Conds: []WriteCondition{IfEqualTo([]string{"guard"}, "expected")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "agency write redirect to "+failedTargetURL) ||
+		!strings.Contains(err.Error(), "failed") {
+		t.Fatalf("expected redirect target error after exhausting endpoints, got %v", err)
 	}
 }
