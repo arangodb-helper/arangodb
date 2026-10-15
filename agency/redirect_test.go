@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,6 +42,39 @@ type scriptedRedirectConnection struct {
 
 func (c *scriptedRedirectConnection) Do(context.Context, driver_http.Request, interface{}, ...int) (driver_http.Response, error) {
 	return c.response, nil
+}
+
+type sequencedAgencyConnection struct {
+	driver_http.Connection
+	do      func(attempt int, ctx context.Context) (driver_http.Response, error)
+	attempt int
+}
+
+func (c *sequencedAgencyConnection) Do(ctx context.Context, _ driver_http.Request, _ interface{}, _ ...int) (driver_http.Response, error) {
+	c.attempt++
+	return c.do(c.attempt, ctx)
+}
+
+func newRedirectRetryTestClient(t *testing.T, endpointCount int, do func(attempt int, ctx context.Context) (driver_http.Response, error)) Agency {
+	t.Helper()
+
+	config := driver_http.HttpConfiguration{
+		Endpoint: driver_http.NewRoundRobinEndpoints([]string{"http://follower.invalid", "http://leader.invalid"}),
+	}
+	base := driver_http.NewHttpConnection(config)
+	result, err := NewAgency(&sequencedAgencyConnection{Connection: base, do: do}, endpointCount, &config)
+	if err != nil {
+		t.Fatalf("failed to create agency client: %v", err)
+	}
+	return result
+}
+
+func redirectWithoutLocation() driver_http.Response {
+	return &redirectResponse{
+		code:     http.StatusTemporaryRedirect,
+		endpoint: "http://follower.invalid",
+		header:   http.Header{},
+	}
 }
 
 type noRedirectRequest struct {
@@ -268,6 +302,101 @@ func TestReadReportsRedirectWithoutLocation(t *testing.T) {
 	err := client.ReadKey(ctx, []string{"test"}, &got)
 	if err == nil || !strings.Contains(err.Error(), "without Location") {
 		t.Fatalf("expected missing Location error, got %v", err)
+	}
+}
+
+func TestReadPreservesRedirectErrorWhenRetryHitsDeadline(t *testing.T) {
+	client := newRedirectRetryTestClient(t, 2, func(int, context.Context) (driver_http.Response, error) {
+		return redirectWithoutLocation(), nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	var got string
+	err := client.ReadKey(ctx, []string{"test"}, &got)
+	if err == nil || !strings.Contains(err.Error(), "without Location") {
+		t.Fatalf("expected preserved redirect diagnostic after retry deadline, got %v", err)
+	}
+}
+
+func TestWritePreservesRedirectErrorWhenRetryHitsDeadline(t *testing.T) {
+	client := newRedirectRetryTestClient(t, 2, func(int, context.Context) (driver_http.Response, error) {
+		return redirectWithoutLocation(), nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	err := client.WriteKey(ctx, []string{"test"}, "value", 0)
+	if err == nil || !strings.Contains(err.Error(), "without Location") {
+		t.Fatalf("expected preserved redirect diagnostic after retry deadline, got %v", err)
+	}
+}
+
+func TestReadPreservesRedirectErrorWhenNextRequestHitsDeadline(t *testing.T) {
+	client := newRedirectRetryTestClient(t, 2, func(attempt int, ctx context.Context) (driver_http.Response, error) {
+		if attempt == 1 {
+			return redirectWithoutLocation(), nil
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	var got string
+	err := client.ReadKey(ctx, []string{"test"}, &got)
+	if err == nil || !strings.Contains(err.Error(), "without Location") {
+		t.Fatalf("expected preserved redirect diagnostic after next request deadline, got %v", err)
+	}
+}
+
+func TestReadPreservesRedirectErrorWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := newRedirectRetryTestClient(t, 2, func(attempt int, _ context.Context) (driver_http.Response, error) {
+		if attempt == 1 {
+			cancel()
+		}
+		return redirectWithoutLocation(), nil
+	})
+
+	var got string
+	err := client.ReadKey(ctx, []string{"test"}, &got)
+	if err == nil || !strings.Contains(err.Error(), "without Location") || !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected preserved redirect diagnostic after cancel, got %v", err)
+	}
+}
+
+func TestWritePreservesRedirectErrorWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := newRedirectRetryTestClient(t, 2, func(attempt int, _ context.Context) (driver_http.Response, error) {
+		if attempt == 1 {
+			cancel()
+		}
+		return redirectWithoutLocation(), nil
+	})
+
+	err := client.WriteKey(ctx, []string{"test"}, "value", 0)
+	if err == nil || !strings.Contains(err.Error(), "without Location") || !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected preserved redirect diagnostic after cancel, got %v", err)
+	}
+}
+
+func TestWritePreservesRedirectErrorWhenNextRequestHitsDeadline(t *testing.T) {
+	client := newRedirectRetryTestClient(t, 2, func(attempt int, ctx context.Context) (driver_http.Response, error) {
+		if attempt == 1 {
+			return redirectWithoutLocation(), nil
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	err := client.WriteKey(ctx, []string{"test"}, "value", 0)
+	if err == nil || !strings.Contains(err.Error(), "without Location") {
+		t.Fatalf("expected preserved redirect diagnostic after next request deadline, got %v", err)
 	}
 }
 

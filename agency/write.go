@@ -65,7 +65,7 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return agencyRetryContextError(ctx.Err(), lastErr)
 			case <-time.After(agencyConnectionRetryDelay):
 			}
 		}
@@ -87,13 +87,16 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		reqCancel()
 		if err != nil {
 			if isConnectionError(err) && time.Now().Before(deadline) {
-				lastErr = err
+				lastErr = preserveAgencyRetryError(lastErr, err)
 				continue
 			}
 			// Retry on per-request timeout (context.DeadlineExceeded).
 			if isDeadlineExceeded && time.Now().Before(deadline) {
-				lastErr = err
+				lastErr = preserveAgencyRetryError(lastErr, err)
 				continue
+			}
+			if lastErr != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+				return agencyRetryContextError(err, lastErr)
 			}
 			return fmt.Errorf("agency write request failed: %w", err)
 		}

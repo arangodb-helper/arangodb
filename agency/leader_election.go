@@ -192,8 +192,14 @@ func preserveLeaderElectionError(lastErr, err error) error {
 }
 
 func leaderElectionContextError(contextErr, lastErr error) error {
-	if contextErr == context.Canceled || lastErr == nil {
+	if lastErr == nil {
 		return contextErr
+	}
+	if contextErr == nil {
+		return lastErr
+	}
+	if errors.Is(contextErr, context.Canceled) {
+		return fmt.Errorf("leader election operation canceled: %w: %w", contextErr, lastErr)
 	}
 	return fmt.Errorf("leader election operation timed out: %w", lastErr)
 }

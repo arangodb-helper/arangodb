@@ -226,6 +226,28 @@ func TestLeaderElectionPreservesReadErrorWhenNextReadHitsDeadline(t *testing.T) 
 	}
 }
 
+func TestLeaderElectionPreservesReadErrorWhenCanceled(t *testing.T) {
+	readErr := errors.New("agency read returned HTTP 503")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	api := &electionTestAgency{
+		read: func(context.Context, []string, any) error {
+			cancel()
+			return readErr
+		},
+		write: func(context.Context, *Transaction) error {
+			t.Fatal("unexpected agency write")
+			return nil
+		},
+	}
+
+	cell := NewLeaderElectionCell[string]([]string{"starter", "leader"}, 30*time.Second)
+	_, _, _, err := cell.update(ctx, api, "http://starter1:9528/", time.Second)
+	if err == nil || !errors.Is(err, readErr) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected preserved agency read error after cancel, got %v", err)
+	}
+}
+
 func TestLeaderElectionPreservesWriteErrorWhenNextWriteHitsDeadline(t *testing.T) {
 	writeErr := errors.New("agency write returned HTTP 503")
 	writes := 0

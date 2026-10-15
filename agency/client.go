@@ -128,6 +128,29 @@ func NewAgency(conn driver_http.Connection, endpointCount int, redirectConfig *d
 	}, nil
 }
 
+func preserveAgencyRetryError(lastErr, err error) error {
+	if err == nil {
+		return lastErr
+	}
+	if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && lastErr != nil {
+		return lastErr
+	}
+	return err
+}
+
+func agencyRetryContextError(ctxErr, lastErr error) error {
+	if lastErr == nil {
+		return ctxErr
+	}
+	if ctxErr == nil {
+		return lastErr
+	}
+	if errors.Is(ctxErr, context.Canceled) {
+		return fmt.Errorf("agency operation canceled: %w: %w", ctxErr, lastErr)
+	}
+	return fmt.Errorf("agency operation timed out: %w", lastErr)
+}
+
 func (c *client) RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue interface{}) error {
 	if len(key) == 0 {
 		return fmt.Errorf("agency.RemoveKeyIfEqualTo: key cannot be empty")
