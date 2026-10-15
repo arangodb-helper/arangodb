@@ -139,14 +139,13 @@ func preserveAgencyRetryError(lastErr, err error) error {
 }
 
 func agencyRetryContextError(ctxErr, lastErr error) error {
-	if lastErr == nil {
-		return ctxErr
-	}
 	if ctxErr == nil {
 		return lastErr
 	}
-	if errors.Is(ctxErr, context.Canceled) {
-		return fmt.Errorf("agency operation canceled: %w: %w", ctxErr, lastErr)
+	// Caller cancellation is intentional and should not be replaced by an
+	// earlier agency diagnostic. Timeouts still preserve lastErr.
+	if lastErr == nil || errors.Is(ctxErr, context.Canceled) {
+		return ctxErr
 	}
 	return fmt.Errorf("agency operation timed out: %w", lastErr)
 }

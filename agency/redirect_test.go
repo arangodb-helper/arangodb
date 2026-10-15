@@ -350,7 +350,7 @@ func TestReadPreservesRedirectErrorWhenNextRequestHitsDeadline(t *testing.T) {
 	}
 }
 
-func TestReadPreservesRedirectErrorWhenCanceled(t *testing.T) {
+func TestReadReturnsCanceledWhenCallerCancels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client := newRedirectRetryTestClient(t, 2, func(attempt int, _ context.Context) (driver_http.Response, error) {
@@ -362,12 +362,12 @@ func TestReadPreservesRedirectErrorWhenCanceled(t *testing.T) {
 
 	var got string
 	err := client.ReadKey(ctx, []string{"test"}, &got)
-	if err == nil || !strings.Contains(err.Error(), "without Location") || !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected preserved redirect diagnostic after cancel, got %v", err)
+	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "without Location") {
+		t.Fatalf("expected caller cancellation without earlier agency error, got %v", err)
 	}
 }
 
-func TestWritePreservesRedirectErrorWhenCanceled(t *testing.T) {
+func TestWriteReturnsCanceledWhenCallerCancels(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client := newRedirectRetryTestClient(t, 2, func(attempt int, _ context.Context) (driver_http.Response, error) {
@@ -378,8 +378,8 @@ func TestWritePreservesRedirectErrorWhenCanceled(t *testing.T) {
 	})
 
 	err := client.WriteKey(ctx, []string{"test"}, "value", 0)
-	if err == nil || !strings.Contains(err.Error(), "without Location") || !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected preserved redirect diagnostic after cancel, got %v", err)
+	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "without Location") {
+		t.Fatalf("expected caller cancellation without earlier agency error, got %v", err)
 	}
 }
 

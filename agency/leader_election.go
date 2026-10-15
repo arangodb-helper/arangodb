@@ -192,14 +192,13 @@ func preserveLeaderElectionError(lastErr, err error) error {
 }
 
 func leaderElectionContextError(contextErr, lastErr error) error {
-	if lastErr == nil {
-		return contextErr
-	}
 	if contextErr == nil {
 		return lastErr
 	}
-	if errors.Is(contextErr, context.Canceled) {
-		return fmt.Errorf("leader election operation canceled: %w: %w", contextErr, lastErr)
+	// Caller cancellation is intentional and should not be replaced by an
+	// earlier agency diagnostic. Timeouts still preserve lastErr.
+	if lastErr == nil || errors.Is(contextErr, context.Canceled) {
+		return contextErr
 	}
 	return fmt.Errorf("leader election operation timed out: %w", lastErr)
 }

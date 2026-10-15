@@ -226,7 +226,7 @@ func TestLeaderElectionPreservesReadErrorWhenNextReadHitsDeadline(t *testing.T) 
 	}
 }
 
-func TestLeaderElectionPreservesReadErrorWhenCanceled(t *testing.T) {
+func TestLeaderElectionReturnsCanceledWhenCallerCancels(t *testing.T) {
 	readErr := errors.New("agency read returned HTTP 503")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -243,8 +243,8 @@ func TestLeaderElectionPreservesReadErrorWhenCanceled(t *testing.T) {
 
 	cell := NewLeaderElectionCell[string]([]string{"starter", "leader"}, 30*time.Second)
 	_, _, _, err := cell.update(ctx, api, "http://starter1:9528/", time.Second)
-	if err == nil || !errors.Is(err, readErr) || !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected preserved agency read error after cancel, got %v", err)
+	if !errors.Is(err, context.Canceled) || errors.Is(err, readErr) {
+		t.Fatalf("expected caller cancellation without earlier agency error, got %v", err)
 	}
 }
 
