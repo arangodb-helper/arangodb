@@ -189,3 +189,62 @@ func TestLeaderElectionPreservesLastReadError(t *testing.T) {
 		t.Fatalf("expected preserved agency read error, got %v", err)
 	}
 }
+
+func TestLeaderElectionPreservesReadErrorWhenNextReadHitsDeadline(t *testing.T) {
+	readErr := errors.New("agency read returned HTTP 503")
+	reads := 0
+	api := &electionTestAgency{
+		read: func(ctx context.Context, _ []string, _ any) error {
+			reads++
+			if reads == 1 {
+				return readErr
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		},
+		write: func(context.Context, *Transaction) error {
+			t.Fatal("unexpected agency write")
+			return nil
+		},
+	}
+
+	cell := NewLeaderElectionCell[string]([]string{"starter", "leader"}, 30*time.Second)
+	_, _, _, err := cell.update(context.Background(), api, "http://starter1:9528/", 750*time.Millisecond)
+	if err == nil || !errors.Is(err, readErr) {
+		t.Fatalf("expected initial agency read error after later deadline, got %v", err)
+	}
+	if reads != 2 {
+		t.Fatalf("expected deadline on second read, got %d reads", reads)
+	}
+}
+
+func TestLeaderElectionPreservesWriteErrorWhenNextWriteHitsDeadline(t *testing.T) {
+	writeErr := errors.New("agency write returned HTTP 503")
+	writes := 0
+	api := &electionTestAgency{
+		read: func(_ context.Context, _ []string, out any) error {
+			setElectionResult(t, out, leaderStruct[string]{
+				Data: "http://old:8528/",
+				TTL:  time.Now().Add(-time.Minute).Unix(),
+			})
+			return nil
+		},
+		write: func(ctx context.Context, _ *Transaction) error {
+			writes++
+			if writes == 1 {
+				return writeErr
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	cell := NewLeaderElectionCell[string]([]string{"starter", "leader"}, 30*time.Second)
+	_, _, _, err := cell.update(context.Background(), api, "http://starter1:9528/", 750*time.Millisecond)
+	if err == nil || !errors.Is(err, writeErr) {
+		t.Fatalf("expected initial agency write error after later deadline, got %v", err)
+	}
+	if writes != 2 {
+		t.Fatalf("expected deadline on second write, got %d writes", writes)
+	}
+}

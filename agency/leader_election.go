@@ -19,6 +19,7 @@ package agency
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -119,7 +120,7 @@ func (l *LeaderElectionCell[T]) update(ctx context.Context, cli Agency, value T,
 
 	var result leaderStruct[T]
 	var err error
-	var lastErr error
+	var lastAgencyErr error
 	var zeroValue T
 
 	updateCtx, updateCancel := context.WithTimeout(ctx, updateTimeout)
@@ -133,16 +134,14 @@ func (l *LeaderElectionCell[T]) update(ctx context.Context, cli Agency, value T,
 				assumeEmpty = true
 				result = leaderStruct[T]{} // default empty
 			} else {
-				lastErr = err
+				lastAgencyErr = preserveLeaderElectionError(lastAgencyErr, err)
 				select {
 				case <-updateCtx.Done():
-					return zeroValue, false, 0, leaderElectionContextError(updateCtx.Err(), lastErr)
+					return zeroValue, false, 0, leaderElectionContextError(updateCtx.Err(), lastAgencyErr)
 				case <-time.After(minUpdateDelay):
 				}
 				continue
 			}
-		} else {
-			lastErr = nil
 		}
 
 		now := time.Now()
@@ -161,10 +160,11 @@ func (l *LeaderElectionCell[T]) update(ctx context.Context, cli Agency, value T,
 		if needTryLeader {
 			if err := l.tryBecomeLeader(updateCtx, cli, value, assumeEmpty); err == nil {
 				return value, true, l.ttl / 2, nil
-			} else if updateCtx.Err() != nil {
-				return zeroValue, false, 0, leaderElectionContextError(updateCtx.Err(), err)
 			} else {
-				lastErr = err
+				lastAgencyErr = preserveLeaderElectionError(lastAgencyErr, err)
+				if updateCtx.Err() != nil {
+					return zeroValue, false, 0, leaderElectionContextError(updateCtx.Err(), lastAgencyErr)
+				}
 				time.Sleep(minUpdateDelay)
 				continue
 			}
@@ -179,6 +179,16 @@ func (l *LeaderElectionCell[T]) update(ctx context.Context, cli Agency, value T,
 
 		return result.Data, false, delay, nil
 	}
+}
+
+func preserveLeaderElectionError(lastErr, err error) error {
+	if err == nil {
+		return lastErr
+	}
+	if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && lastErr != nil {
+		return lastErr
+	}
+	return err
 }
 
 func leaderElectionContextError(contextErr, lastErr error) error {

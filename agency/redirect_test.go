@@ -132,6 +132,24 @@ func TestWriteFollowsAgencyRedirectWithAuthentication(t *testing.T) {
 	}
 }
 
+func TestWriteReportsRedirectTargetFailure(t *testing.T) {
+	leader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":true,"code":401}`)
+	}))
+	defer leader.Close()
+
+	client := newRedirectTestClient(t, leader.URL+"/_api/agency/write")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	err := client.WriteKey(ctx, []string{"test"}, "value", 0)
+	if err == nil || !strings.Contains(err.Error(), "returned HTTP 401 with no result") {
+		t.Fatalf("expected redirected write status error, got %v", err)
+	}
+}
+
 func TestReadReportsRedirectTargetFailure(t *testing.T) {
 	leader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

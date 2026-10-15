@@ -134,8 +134,10 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 					lastErr = nil
 				} else if redirectErr != nil {
 					lastErr = fmt.Errorf("agency write redirect to %s failed: %w", absoluteLocation, redirectErr)
+				} else if redirectResp != nil {
+					lastErr = fmt.Errorf("agency write redirect to %s returned HTTP %d with no result", absoluteLocation, redirectResp.Code())
 				} else {
-					lastErr = fmt.Errorf("agency write redirect to %s returned no result", absoluteLocation)
+					lastErr = fmt.Errorf("agency write redirect to %s returned no response", absoluteLocation)
 				}
 			}
 
