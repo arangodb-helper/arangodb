@@ -965,8 +965,9 @@ func (s *Service) CreateAgency(endpoints []string) (agency.Agency, error) {
 		}
 	}
 	connConfig := driver_http.HttpConfiguration{
-		Endpoint:  endpoint,
-		Transport: transport,
+		Endpoint:           endpoint,
+		Transport:          transport,
+		DontFollowRedirect: true,
 	}
 	if secret != "" {
 		jwtBearer, err := CreateJwtAuthorizationHeader(secret, "starter")

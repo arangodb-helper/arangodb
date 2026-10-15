@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +89,24 @@ type deadlineOnHostTransport struct {
 func (t *deadlineOnHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.URL.Host == t.host {
 		return nil, context.DeadlineExceeded
+	}
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
+}
+
+type cancelOnHostTransport struct {
+	host   string
+	cancel context.CancelFunc
+	base   http.RoundTripper
+}
+
+func (t *cancelOnHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Host == t.host {
+		t.cancel()
+		return nil, context.Canceled
 	}
 	base := t.base
 	if base == nil {
@@ -237,6 +256,32 @@ func newRoundRobinRedirectTestClient(t *testing.T, endpoints []string) Agency {
 	return result
 }
 
+func localhostEndpoint(t *testing.T, rawURL string) string {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Port() == "" {
+		t.Fatalf("invalid test URL %q: %v", rawURL, err)
+	}
+	return "http://localhost:" + u.Port()
+}
+
+func newProductionAgencyClient(t *testing.T, endpoint string) Agency {
+	t.Helper()
+	config := driver_http.HttpConfiguration{
+		Endpoint:       driver_http.NewRoundRobinEndpoints([]string{endpoint}),
+		Authentication: driver_http.NewHeaderAuth("Authorization", testAuthorization),
+	}
+	conn, err := NewAgencyConnection(config)
+	if err != nil {
+		t.Fatalf("failed to create agency connection: %v", err)
+	}
+	result, err := NewAgency(conn, 1, &config)
+	if err != nil {
+		t.Fatalf("failed to create agency client: %v", err)
+	}
+	return result
+}
+
 func TestReadFollowsAgencyRedirectWithAuthentication(t *testing.T) {
 	var authorization string
 	leader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -263,6 +308,79 @@ func TestReadFollowsAgencyRedirectWithAuthentication(t *testing.T) {
 	}
 	if authorization != testAuthorization {
 		t.Fatalf("redirected request lost authentication: got %q", authorization)
+	}
+}
+
+func TestReadFollowsCrossHostRedirectWithProductionDriver(t *testing.T) {
+	var authorization string
+	leader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		if r.Header.Get("Authorization") != testAuthorization {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"error":true,"code":401}`)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/_api/agency/read" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `[{"test":"value"}]`)
+	}))
+	defer leader.Close()
+
+	follower := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", leader.URL+"/_api/agency/read")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer follower.Close()
+
+	client := newProductionAgencyClient(t, localhostEndpoint(t, follower.URL))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var got string
+	if err := client.ReadKey(ctx, []string{"test"}, &got); err != nil {
+		t.Fatalf("production driver cross-host redirect failed: %v", err)
+	}
+	if got != "value" || authorization != testAuthorization {
+		t.Fatalf("unexpected production redirect result: value=%q authorization=%q", got, authorization)
+	}
+}
+
+func TestWriteFollowsCrossHostRedirectWithProductionDriver(t *testing.T) {
+	var authorization string
+	leader := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorization = r.Header.Get("Authorization")
+		if r.Header.Get("Authorization") != testAuthorization {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"error":true,"code":401}`)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/_api/agency/write" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"results":[1]}`)
+	}))
+	defer leader.Close()
+
+	follower := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", leader.URL+"/_api/agency/write")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer follower.Close()
+
+	client := newProductionAgencyClient(t, localhostEndpoint(t, follower.URL))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := client.WriteKey(ctx, []string{"test"}, "value", 0); err != nil {
+		t.Fatalf("production driver cross-host write redirect failed: %v", err)
+	}
+	if authorization != testAuthorization {
+		t.Fatalf("production write redirect lost authentication: got %q", authorization)
 	}
 }
 
@@ -660,5 +778,59 @@ func TestWritePreservesRedirectErrorWhenNextRedirectTimesOut(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "HTTP 401") {
 		t.Fatalf("expected first redirect diagnostic after later redirect timeout, got %v", err)
+	}
+}
+
+func TestReadReturnsCanceledWhenCallerCancelsDuringFinalRedirect(t *testing.T) {
+	concrete := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":true,"code":401}`)
+	}))
+	defer concrete.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	const cancelHost = "cancel.invalid"
+	client := newRedirectRetryTestClientWithTransport(t, 2, &cancelOnHostTransport{host: cancelHost, cancel: cancel},
+		func(attempt int, _ context.Context) (driver_http.Response, error) {
+			if attempt == 1 {
+				return redirectTo(concrete.URL + "/_api/agency/read"), nil
+			}
+			return redirectTo("http://" + cancelHost + "/_api/agency/read"), nil
+		})
+
+	var got string
+	err := client.ReadKey(ctx, []string{"test"}, &got)
+	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "401") {
+		t.Fatalf("expected caller cancellation during final redirect, got %v", err)
+	}
+}
+
+func TestWriteReturnsCanceledWhenCallerCancelsDuringFinalRedirect(t *testing.T) {
+	concrete := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":true,"code":401}`)
+	}))
+	defer concrete.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	const cancelHost = "cancel.invalid"
+	client := newRedirectRetryTestClientWithTransport(t, 2, &cancelOnHostTransport{host: cancelHost, cancel: cancel},
+		func(attempt int, _ context.Context) (driver_http.Response, error) {
+			if attempt == 1 {
+				return redirectTo(concrete.URL + "/_api/agency/write"), nil
+			}
+			return redirectTo("http://" + cancelHost + "/_api/agency/write"), nil
+		})
+
+	err := client.Write(ctx, &Transaction{
+		Ops:   []KeyChanger{SetKey([]string{"test"}, "value")},
+		Conds: []WriteCondition{IfEqualTo([]string{"guard"}, "expected")},
+	})
+	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "401") {
+		t.Fatalf("expected caller cancellation during final redirect, got %v", err)
 	}
 }

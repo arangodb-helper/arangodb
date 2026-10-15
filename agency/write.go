@@ -145,7 +145,7 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 
 			if lastErr != nil {
 				if attempt+1 >= c.endpointCount || !time.Now().Before(deadline) {
-					return lastErr
+					return agencyRetryContextError(ctx.Err(), lastErr)
 				}
 				continue
 			}

@@ -107,8 +107,11 @@ func NewAgencyConnection(config driver_http.HttpConfiguration) (driver_http.Conn
 	if config.Endpoint == nil {
 		return nil, fmt.Errorf("agency.NewAgencyConnection: endpoint cannot be nil")
 	}
-	conn := driver_http.NewHttpConnection(config)
-	return conn, nil
+	// Keep 307 responses visible so Read/Write can follow them with authentication.
+	// The default HTTP client strips Authorization on cross-host redirects
+	// (for example localhost -> 127.0.0.1), which would hide the 307 as HTTP 401.
+	config.DontFollowRedirect = true
+	return driver_http.NewHttpConnection(config), nil
 }
 
 // NewAgency creates an agency client. When redirectConfig is non-nil, Read/Write follow
