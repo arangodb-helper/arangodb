@@ -57,9 +57,20 @@ func (c *sequencedAgencyConnection) Do(ctx context.Context, _ driver_http.Reques
 
 func newRedirectRetryTestClient(t *testing.T, endpointCount int, do func(attempt int, ctx context.Context) (driver_http.Response, error)) Agency {
 	t.Helper()
+	return newRedirectRetryTestClientWithTransport(t, endpointCount, nil, do)
+}
+
+func newRedirectRetryTestClientWithTransport(
+	t *testing.T,
+	endpointCount int,
+	transport http.RoundTripper,
+	do func(attempt int, ctx context.Context) (driver_http.Response, error),
+) Agency {
+	t.Helper()
 
 	config := driver_http.HttpConfiguration{
-		Endpoint: driver_http.NewRoundRobinEndpoints([]string{"http://follower.invalid", "http://leader.invalid"}),
+		Endpoint:  driver_http.NewRoundRobinEndpoints([]string{"http://follower.invalid", "http://leader.invalid"}),
+		Transport: transport,
 	}
 	base := driver_http.NewHttpConnection(config)
 	result, err := NewAgency(&sequencedAgencyConnection{Connection: base, do: do}, endpointCount, &config)
@@ -67,6 +78,30 @@ func newRedirectRetryTestClient(t *testing.T, endpointCount int, do func(attempt
 		t.Fatalf("failed to create agency client: %v", err)
 	}
 	return result
+}
+
+type deadlineOnHostTransport struct {
+	host string
+	base http.RoundTripper
+}
+
+func (t *deadlineOnHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Host == t.host {
+		return nil, context.DeadlineExceeded
+	}
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
+}
+
+func redirectTo(location string) driver_http.Response {
+	return &redirectResponse{
+		code:     http.StatusTemporaryRedirect,
+		endpoint: "http://follower.invalid",
+		header:   http.Header{"Location": []string{location}},
+	}
 }
 
 func redirectWithoutLocation() driver_http.Response {
@@ -571,5 +606,59 @@ func TestWritePreservesRedirectErrorAfterAllEndpointsFail(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "agency write redirect to "+failedTargetURL) ||
 		!strings.Contains(err.Error(), "failed") {
 		t.Fatalf("expected redirect target error after exhausting endpoints, got %v", err)
+	}
+}
+
+func TestReadPreservesRedirectErrorWhenNextRedirectTimesOut(t *testing.T) {
+	concrete := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":true,"code":401}`)
+	}))
+	defer concrete.Close()
+
+	const timeoutHost = "timeout.invalid"
+	client := newRedirectRetryTestClientWithTransport(t, 2, &deadlineOnHostTransport{host: timeoutHost},
+		func(attempt int, _ context.Context) (driver_http.Response, error) {
+			if attempt == 1 {
+				return redirectTo(concrete.URL + "/_api/agency/read"), nil
+			}
+			return redirectTo("http://" + timeoutHost + "/_api/agency/read"), nil
+		})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var got string
+	err := client.ReadKey(ctx, []string{"test"}, &got)
+	if err == nil || !strings.Contains(err.Error(), "code=401") {
+		t.Fatalf("expected first redirect diagnostic after later redirect timeout, got %v", err)
+	}
+}
+
+func TestWritePreservesRedirectErrorWhenNextRedirectTimesOut(t *testing.T) {
+	concrete := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":true,"code":401}`)
+	}))
+	defer concrete.Close()
+
+	const timeoutHost = "timeout.invalid"
+	client := newRedirectRetryTestClientWithTransport(t, 2, &deadlineOnHostTransport{host: timeoutHost},
+		func(attempt int, _ context.Context) (driver_http.Response, error) {
+			if attempt == 1 {
+				return redirectTo(concrete.URL + "/_api/agency/write"), nil
+			}
+			return redirectTo("http://" + timeoutHost + "/_api/agency/write"), nil
+		})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := client.Write(ctx, &Transaction{
+		Ops:   []KeyChanger{SetKey([]string{"test"}, "value")},
+		Conds: []WriteCondition{IfEqualTo([]string{"guard"}, "expected")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 401") {
+		t.Fatalf("expected first redirect diagnostic after later redirect timeout, got %v", err)
 	}
 }

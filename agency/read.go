@@ -94,7 +94,6 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 			}
 			return fmt.Errorf("agency read request failed: %w", err)
 		}
-		lastErr = nil
 		if resp == nil {
 			return ErrKeyNotFound
 		}
@@ -120,7 +119,7 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 
 			location := resp.Header("Location")
 			if location == "" {
-				lastErr = fmt.Errorf("agency read redirect returned HTTP %d without Location", respCode)
+				lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency read redirect returned HTTP %d without Location", respCode))
 			} else {
 				absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
 				redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
@@ -132,9 +131,9 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 					break
 				}
 				if redirectErr != nil {
-					lastErr = fmt.Errorf("agency read redirect to %s failed: %w", absoluteLocation, redirectErr)
+					lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency read redirect to %s failed: %w", absoluteLocation, redirectErr))
 				} else {
-					lastErr = fmt.Errorf("agency read redirect to %s returned an empty response", absoluteLocation)
+					lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency read redirect to %s returned an empty response", absoluteLocation))
 				}
 			}
 
@@ -150,11 +149,7 @@ func (c *client) Read(ctx context.Context, key []string, out any) error {
 		if respCode < 200 || respCode >= 300 {
 			return fmt.Errorf("agency read returned unexpected HTTP %d", respCode)
 		}
-		lastErr = nil
 		break
-	}
-	if lastErr != nil {
-		return fmt.Errorf("agency read request failed after retry window %s: %w", agencyConnectionRetryWindow, lastErr)
 	}
 
 	// Agency read API can return either:

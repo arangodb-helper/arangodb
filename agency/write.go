@@ -100,7 +100,6 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 			}
 			return fmt.Errorf("agency write request failed: %w", err)
 		}
-		lastErr = nil
 
 		if resp == nil {
 			return fmt.Errorf("agency write response is nil")
@@ -124,7 +123,7 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 
 			location := resp.Header("Location")
 			if location == "" {
-				lastErr = fmt.Errorf("agency write redirect returned HTTP %d without Location", statusCode)
+				lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency write redirect returned HTTP %d without Location", statusCode))
 			} else {
 				absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
 				redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
@@ -136,11 +135,11 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 					statusCode = redirectResp.Code()
 					lastErr = nil
 				} else if redirectErr != nil {
-					lastErr = fmt.Errorf("agency write redirect to %s failed: %w", absoluteLocation, redirectErr)
+					lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency write redirect to %s failed: %w", absoluteLocation, redirectErr))
 				} else if redirectResp != nil {
-					lastErr = fmt.Errorf("agency write redirect to %s returned HTTP %d with no result", absoluteLocation, redirectResp.Code())
+					lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency write redirect to %s returned HTTP %d with no result", absoluteLocation, redirectResp.Code()))
 				} else {
-					lastErr = fmt.Errorf("agency write redirect to %s returned no response", absoluteLocation)
+					lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency write redirect to %s returned no response", absoluteLocation))
 				}
 			}
 
@@ -176,13 +175,8 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 			return fmt.Errorf("agency write returned non-success status code %d: Results: %v", statusCode, result.Results)
 		}
 
-		// Write succeeded.
-		break
+		return nil
 	}
-	if lastErr != nil {
-		return fmt.Errorf("agency write request failed after retry window %s: %w", agencyConnectionRetryWindow, lastErr)
-	}
-	return nil
 }
 
 type writeResult struct {
