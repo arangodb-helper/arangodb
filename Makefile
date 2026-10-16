@@ -209,6 +209,7 @@ TESTCONTAINER := arangodb-starter-test
 run-unit-tests: $(GO_SOURCES)
 	go test --count=1 -v \
 		$(REPOPATH) \
+		$(REPOPATH)/agency/... \
 		$(REPOPATH)/pkg/... \
 		$(REPOPATH)/service/... \
 		$(REPOPATH)/client/...

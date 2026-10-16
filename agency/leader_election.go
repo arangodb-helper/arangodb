@@ -19,6 +19,8 @@ package agency
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"time"
 )
@@ -58,7 +60,7 @@ func (l *LeaderElectionCell[T]) GetLeaderCondition(dataValue T) WriteCondition {
 	return IfEqualTo(keyWithData, dataValue)
 }
 
-func (l *LeaderElectionCell[T]) tryBecomeLeader(ctx context.Context, cli Agency, value T, assumeEmpty bool) error {
+func (l *LeaderElectionCell[T]) tryBecomeLeader(ctx context.Context, cli Agency, value T, assumeEmpty bool, observedTTL int64) error {
 	newTTL := time.Now().Add(l.ttl).Unix()
 	trx := &Transaction{
 		Ops: []KeyChanger{
@@ -72,7 +74,7 @@ func (l *LeaderElectionCell[T]) tryBecomeLeader(ctx context.Context, cli Agency,
 		}
 	} else {
 		trx.Conds = []WriteCondition{
-			KeyEquals(l.key, keyTTL, l.lastTTL),
+			KeyEquals(l.key, keyTTL, observedTTL),
 		}
 	}
 
@@ -109,11 +111,16 @@ func (l *LeaderElectionCell[T]) Read(ctx context.Context, cli Agency) (T, error)
 // It retries internally for up to 30 seconds before returning an error,
 // allowing the caller to create a fresh agency client and retry.
 func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T) (T, bool, time.Duration, error) {
-	const minUpdateDelay = 500 * time.Millisecond
 	const updateTimeout = 30 * time.Second
+	return l.update(ctx, cli, value, updateTimeout)
+}
+
+func (l *LeaderElectionCell[T]) update(ctx context.Context, cli Agency, value T, updateTimeout time.Duration) (T, bool, time.Duration, error) {
+	const minUpdateDelay = 500 * time.Millisecond
 
 	var result leaderStruct[T]
 	var err error
+	var lastAgencyErr error
 	var zeroValue T
 
 	updateCtx, updateCancel := context.WithTimeout(ctx, updateTimeout)
@@ -126,17 +133,11 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T)
 			if IsKeyNotFound(err) {
 				assumeEmpty = true
 				result = leaderStruct[T]{} // default empty
-			} else if isConnectionError(err) {
-				select {
-				case <-updateCtx.Done():
-					return zeroValue, false, 0, updateCtx.Err()
-				case <-time.After(minUpdateDelay):
-				}
-				continue
 			} else {
+				lastAgencyErr = preserveLeaderElectionError(lastAgencyErr, err)
 				select {
 				case <-updateCtx.Done():
-					return zeroValue, false, 0, updateCtx.Err()
+					return zeroValue, false, 0, leaderElectionContextError(updateCtx.Err(), lastAgencyErr)
 				case <-time.After(minUpdateDelay):
 				}
 				continue
@@ -157,11 +158,13 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T)
 		}
 
 		if needTryLeader {
-			if err := l.tryBecomeLeader(updateCtx, cli, value, assumeEmpty); err == nil {
+			if err := l.tryBecomeLeader(updateCtx, cli, value, assumeEmpty, result.TTL); err == nil {
 				return value, true, l.ttl / 2, nil
-			} else if updateCtx.Err() != nil {
-				return zeroValue, false, 0, err
 			} else {
+				lastAgencyErr = preserveLeaderElectionError(lastAgencyErr, err)
+				if updateCtx.Err() != nil {
+					return zeroValue, false, 0, leaderElectionContextError(updateCtx.Err(), lastAgencyErr)
+				}
 				time.Sleep(minUpdateDelay)
 				continue
 			}
@@ -176,6 +179,28 @@ func (l *LeaderElectionCell[T]) Update(ctx context.Context, cli Agency, value T)
 
 		return result.Data, false, delay, nil
 	}
+}
+
+func preserveLeaderElectionError(lastErr, err error) error {
+	if err == nil {
+		return lastErr
+	}
+	if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && lastErr != nil {
+		return lastErr
+	}
+	return err
+}
+
+func leaderElectionContextError(contextErr, lastErr error) error {
+	if contextErr == nil {
+		return lastErr
+	}
+	// Caller cancellation is intentional and should not be replaced by an
+	// earlier agency diagnostic. Timeouts still preserve lastErr.
+	if lastErr == nil || errors.Is(contextErr, context.Canceled) {
+		return contextErr
+	}
+	return fmt.Errorf("leader election operation timed out: %w", lastErr)
 }
 
 // Resign leadership

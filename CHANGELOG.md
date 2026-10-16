@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Fix starter leader election after a restart: follow agency read and write redirects, preserve the underlying agency error, and stop peer registration after 40 seconds of consecutive HTTP 503 responses
+- Bump `github.com/arangodb/go-driver/v2` from v2.2.0 to v2.4.1 so agency connections can keep HTTP 307 responses and follow them with authentication
 - Bump Go from 1.25.13 to 1.26.9 and update `golang.org/x/net` to v0.60.0, `golang.org/x/sys` to v0.48.0, `golang.org/x/term` to v0.46.0, and `golang.org/x/text` to v0.42.0 for stdlib and HTTP/2 CVE fixes (CVE-2026-78667, CVE-2026-78669, CVE-2026-97031, CVE-2026-56866, CVE-2026-78663, CVE-2026-94439, CVE-2026-94448, CVE-2026-97032, CVE-2026-56857, CVE-2026-78659, CVE-2026-78660, CVE-2026-94440, CVE-2026-97030, GO-2026-6617, GO-2026-6612, GO-2026-6611, GO-2026-6603)
 - Sign JWTs with ES256 for PEM-encoded P-256 private keys in authentication commands and database, Agency, and coordinator clients; retain HS256 for shared secrets and reject invalid PEM keys.
 - Fix passthrough-options test allowlist check for ArangoDB package versions like `3.12.10-1` (normalize before CompareTo)

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -64,7 +65,7 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return agencyRetryContextError(ctx.Err(), lastErr)
 			case <-time.After(agencyConnectionRetryDelay):
 			}
 		}
@@ -86,17 +87,19 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 		reqCancel()
 		if err != nil {
 			if isConnectionError(err) && time.Now().Before(deadline) {
-				lastErr = err
+				lastErr = preserveAgencyRetryError(lastErr, err)
 				continue
 			}
 			// Retry on per-request timeout (context.DeadlineExceeded).
 			if isDeadlineExceeded && time.Now().Before(deadline) {
-				lastErr = err
+				lastErr = preserveAgencyRetryError(lastErr, err)
 				continue
+			}
+			if lastErr != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+				return agencyRetryContextError(err, lastErr)
 			}
 			return fmt.Errorf("agency write request failed: %w", err)
 		}
-		lastErr = nil
 
 		if resp == nil {
 			return fmt.Errorf("agency write response is nil")
@@ -113,24 +116,47 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 			return fmt.Errorf("agency write returned HTTP %d after retry window exhausted", statusCode)
 		}
 
-		if len(result.Results) == 0 {
-			// 307 from non-leader returns empty body; follow Location once so leader election completes.
-			if statusCode >= 300 && statusCode < 400 && c.redirectConfig != nil {
-				if location := resp.Header("Location"); location != "" {
-					absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
-					redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
-					redirectResp, redirectResult, redirectErr := c.doWriteToEndpoint(redirectCtx, body, absoluteLocation)
-					redirectCancel()
-					if redirectErr == nil && redirectResp != nil && redirectResult != nil && len(redirectResult.Results) > 0 {
-						result = *redirectResult
-						resp = redirectResp
-						statusCode = redirectResp.Code()
-					}
+		if statusCode >= 300 && statusCode < 400 {
+			if c.redirectConfig == nil {
+				return ErrRedirectNotFollowed
+			}
+
+			location := resp.Header("Location")
+			if location == "" {
+				lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency write redirect returned HTTP %d without Location", statusCode))
+			} else {
+				absoluteLocation := resolveRedirectLocation(location, resp.Endpoint())
+				redirectCtx, redirectCancel := context.WithTimeout(ctx, agencyRequestTimeout)
+				redirectResp, redirectResult, redirectErr := c.doWriteToEndpoint(redirectCtx, body, absoluteLocation)
+				redirectCancel()
+				if redirectErr == nil && redirectResp != nil && redirectResult != nil && len(redirectResult.Results) > 0 {
+					result = *redirectResult
+					resp = redirectResp
+					statusCode = redirectResp.Code()
+					lastErr = nil
+				} else if redirectErr != nil {
+					lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency write redirect to %s failed: %w", absoluteLocation, redirectErr))
+				} else if redirectResp != nil {
+					lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency write redirect to %s returned HTTP %d with no result", absoluteLocation, redirectResp.Code()))
+				} else {
+					lastErr = preserveAgencyRetryError(lastErr, fmt.Errorf("agency write redirect to %s returned no response", absoluteLocation))
 				}
 			}
-			if len(result.Results) == 0 {
-				return fmt.Errorf("agency write failed: no results returned")
+
+			if lastErr != nil {
+				if attempt+1 >= c.endpointCount || !time.Now().Before(deadline) {
+					return agencyRetryContextError(ctx.Err(), lastErr)
+				}
+				continue
 			}
+		}
+
+		if statusCode >= 400 && statusCode != http.StatusPreconditionFailed {
+			return fmt.Errorf("agency write returned HTTP %d", statusCode)
+		}
+
+		if len(result.Results) == 0 {
+			return fmt.Errorf("agency write failed: no results returned")
 		}
 
 		// Check results[0] first - 0 means precondition failed, 1 means success
@@ -149,13 +175,8 @@ func (c *client) Write(ctx context.Context, tx *Transaction) error {
 			return fmt.Errorf("agency write returned non-success status code %d: Results: %v", statusCode, result.Results)
 		}
 
-		// Write succeeded.
-		break
+		return nil
 	}
-	if lastErr != nil {
-		return fmt.Errorf("agency write request failed after retry window %s: %w", agencyConnectionRetryWindow, lastErr)
-	}
-	return nil
 }
 
 type writeResult struct {

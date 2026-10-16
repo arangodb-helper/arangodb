@@ -22,15 +22,28 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	"github.com/arangodb-helper/arangodb/client"
 )
+
+// registerPeerUnavailableTimeout bounds retries while the peer we join keeps
+// answering 503. A running follower with no master URL used to produce that
+// forever, so a starter that cannot join never launched arangod. Connection
+// failures stay unlimited so starters may be launched before the master is up.
+const registerPeerUnavailableTimeout = 40 * time.Second
+const registerPeerRetryDelay = time.Second
+
+var ErrRegisterPeerUnavailable = errors.New("register peer: service unavailable")
 
 // bootstrapSlave starts the Service as slave and begins bootstrapping the cluster from nothing.
 func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Config, bsCfg BootstrapConfig) {
@@ -97,69 +110,117 @@ func (s *Service) bootstrapSlave(peerAddress string, runner Runner, config Confi
 }
 
 func RegisterPeer(log zerolog.Logger, masterURL string, req HelloRequest) ClusterConfig {
+	result, err := registerPeer(context.Background(), log, masterURL, req, registerPeerUnavailableTimeout, registerPeerRetryDelay)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("Giving up registering peer with leader at %s", masterURL)
+	}
+	return result
+}
+
+func registerPeer(ctx context.Context, log zerolog.Logger, masterURL string, hello HelloRequest, unavailableTimeout, retryDelay time.Duration) (ClusterConfig, error) {
+	var result ClusterConfig
+
+	encoded, err := json.Marshal(hello)
+	if err != nil {
+		return result, fmt.Errorf("failed to encode Hello request: %w", err)
+	}
+	helloURL, err := getURLWithPath(masterURL, "/hello")
+	if err != nil {
+		return result, fmt.Errorf("failed to create Hello URL: %w", err)
+	}
+
+	var unavailableSince time.Time
 	for {
 		log.Info().Msgf("Registering peer with master at %s", masterURL)
 
-		encoded, err := json.Marshal(req)
+		httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, helloURL, bytes.NewReader(encoded))
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to encode Hello request")
+			return result, fmt.Errorf("failed to create Hello request: %w", err)
 		}
-		helloURL, err := getURLWithPath(masterURL, "/hello")
+		httpRequest.Header.Set("Content-Type", contentTypeJSON)
+		r, err := httpClient.Do(httpRequest)
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to create Hello URL")
-		}
-		r, err := httpClient.Post(helloURL, contentTypeJSON, bytes.NewReader(encoded))
-		if err != nil {
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			unavailableSince = time.Time{}
 			log.Info().Err(err).Msg("Initial handshake with leader failed")
-			time.Sleep(time.Second)
+			if err := waitForRegisterPeerRetry(ctx, retryDelay); err != nil {
+				return result, err
+			}
 			continue
 		}
 
 		body, err := io.ReadAll(r.Body)
 		r.Body.Close()
 		if err != nil {
+			unavailableSince = time.Time{}
 			log.Info().Err(err).Msg("Cannot start because HTTP response from the leader was bad")
-			time.Sleep(time.Second)
+			if err := waitForRegisterPeerRetry(ctx, retryDelay); err != nil {
+				return result, err
+			}
 			continue
 		}
 
 		if r.StatusCode == http.StatusServiceUnavailable {
-			log.Info().Err(err).Msg("Cannot start because service unavailable")
-			time.Sleep(time.Second)
+			msg := strings.TrimSpace(string(body))
+			log.Info().Str("response", msg).Msg("Cannot start because service unavailable")
+			now := time.Now()
+			if unavailableSince.IsZero() {
+				unavailableSince = now
+			}
+			if now.Sub(unavailableSince) >= unavailableTimeout {
+				return result, fmt.Errorf("%w after %s from %s: %s", ErrRegisterPeerUnavailable, unavailableTimeout, masterURL, msg)
+			}
+			if err := waitForRegisterPeerRetry(ctx, retryDelay); err != nil {
+				return result, err
+			}
 			continue
 		}
+
+		// Only an uninterrupted sequence of 503 responses consumes the
+		// unavailable budget. Connection errors, malformed responses, and 404
+		// all indicate a different transient state.
+		unavailableSince = time.Time{}
 
 		if r.StatusCode == http.StatusNotFound {
-			log.Info().Err(err).Msg("Cannot start because service not found")
-			time.Sleep(time.Second)
+			log.Info().Msg("Cannot start because service not found")
+			if err := waitForRegisterPeerRetry(ctx, retryDelay); err != nil {
+				return result, err
+			}
 			continue
 		}
-
-		var result ClusterConfig
 
 		if r.StatusCode != http.StatusOK {
 			err := client.ParseResponseError(r, body)
-			log.Fatal().Msgf("Cannot start because of HTTP error from leader: code=%d, message=%s\n", r.StatusCode, err.Error())
-			return result
+			return result, fmt.Errorf("cannot start because of HTTP error from leader: code=%d, message=%s", r.StatusCode, err.Error())
 		}
 
 		if err := json.Unmarshal(body, &result); err != nil {
-			log.Warn().Err(err).Msg("Cannot parse body from leader")
-			return result
+			return result, fmt.Errorf("cannot parse body from leader: %w", err)
 		}
 		// Check result
-		if _, found := result.PeerByID(req.SlaveID); !found {
-			log.Fatal().Msg("Leader responded with cluster config that does not contain my ID, please check the leader")
-			return result
+		if _, found := result.PeerByID(hello.SlaveID); !found {
+			return result, fmt.Errorf("leader responded with cluster config that does not contain my ID, please check the leader")
 		}
 		if result.ServerStorageEngine == "" {
-			log.Fatal().Msg("Leader responded with cluster config that does not contain a ServerStorageEngine, please update leader first")
-			return result
+			return result, fmt.Errorf("leader responded with cluster config that does not contain a ServerStorageEngine, please update leader first")
 		}
 
-		log.Info().Msgf("Successfully registered peer (ID: %s) with master at %s", req.SlaveID, masterURL)
+		log.Info().Msgf("Successfully registered peer (ID: %s) with master at %s", hello.SlaveID, masterURL)
 
-		return result
+		return result, nil
+	}
+}
+
+func waitForRegisterPeerRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

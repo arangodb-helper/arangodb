@@ -4,7 +4,7 @@ go 1.26.9
 
 require (
 	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
-	github.com/arangodb/go-driver/v2 v2.2.0
+	github.com/arangodb/go-driver/v2 v2.4.1
 	github.com/arangodb/go-upgrade-rules v0.0.0-20260330065022-e2aeb2c0d38a
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/coreos/go-semver v0.3.1

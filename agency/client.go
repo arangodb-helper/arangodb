@@ -107,8 +107,11 @@ func NewAgencyConnection(config driver_http.HttpConfiguration) (driver_http.Conn
 	if config.Endpoint == nil {
 		return nil, fmt.Errorf("agency.NewAgencyConnection: endpoint cannot be nil")
 	}
-	conn := driver_http.NewHttpConnection(config)
-	return conn, nil
+	// Keep 307 responses visible so Read/Write can follow them with authentication.
+	// The default HTTP client strips Authorization on cross-host redirects
+	// (for example localhost -> 127.0.0.1), which would hide the 307 as HTTP 401.
+	config.DontFollowRedirect = true
+	return driver_http.NewHttpConnection(config), nil
 }
 
 // NewAgency creates an agency client. When redirectConfig is non-nil, Read/Write follow
@@ -126,6 +129,28 @@ func NewAgency(conn driver_http.Connection, endpointCount int, redirectConfig *d
 		endpointCount:  endpointCount,
 		redirectConfig: redirectConfig,
 	}, nil
+}
+
+func preserveAgencyRetryError(lastErr, err error) error {
+	if err == nil {
+		return lastErr
+	}
+	if (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && lastErr != nil {
+		return lastErr
+	}
+	return err
+}
+
+func agencyRetryContextError(ctxErr, lastErr error) error {
+	if ctxErr == nil {
+		return lastErr
+	}
+	// Caller cancellation is intentional and should not be replaced by an
+	// earlier agency diagnostic. Timeouts still preserve lastErr.
+	if lastErr == nil || errors.Is(ctxErr, context.Canceled) {
+		return ctxErr
+	}
+	return fmt.Errorf("agency operation timed out: %w", lastErr)
 }
 
 func (c *client) RemoveKeyIfEqualTo(ctx context.Context, key []string, oldValue interface{}) error {
