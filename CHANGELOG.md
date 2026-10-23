@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Bump Go version from 1.26.9 to 1.26.10 for the stdlib crypto/x509 CVE fix (CVE-2026-111943)
 
 ## [v0.18.32](https://github.com/arangodb-helper/arangodb/tree/0.18.32) (2026-10-12)
 - Bump Go version from 1.25.13 to 1.26.9 for stdlib CVE fixes (CVE-2026-78667, CVE-2026-78669, CVE-2026-97031, CVE-2026-56866, CVE-2026-78663, CVE-2026-94439, CVE-2026-94448, CVE-2026-97032, CVE-2026-56857, CVE-2026-78659, CVE-2026-78660, CVE-2026-94440, CVE-2026-97030)
