@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Report a non-zero arangod exit during database auto-upgrade as a failed plan, with the exit code and ERROR/FATAL lines from that attempt, and retry only that server by its full endpoint.
 
 ## [v0.19.30](https://github.com/arangodb-helper/arangodb/tree/0.19.30) (2026-10-23)
 - Bump Go version from 1.26.9 to 1.26.10 for the stdlib crypto/x509 CVE fix (CVE-2026-111943)

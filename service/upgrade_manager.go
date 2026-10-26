@@ -23,8 +23,10 @@ package service
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,11 +65,22 @@ type UpgradeManager interface {
 	// IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
 	IsServerUpgradeInProgress(serverType definitions.ServerType) bool
 
+	// IsServerAutoUpgradeRunning reports whether the process started with
+	// --database.auto-upgrade is the one currently running for this type.
+	// The expected SIGTERM of the previous server happens while this is false.
+	IsServerAutoUpgradeRunning(serverType definitions.ServerType) bool
+
 	// ServerDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
 	ServerDatabaseAutoUpgrade(serverType definitions.ServerType, lastExitCode int) bool
 
 	// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been started with --database.auto-upgrade
 	ServerDatabaseAutoUpgradeStarter(serverType definitions.ServerType)
+
+	// ServerDatabaseAutoUpgradeFinished is called when the process started with
+	// --database.auto-upgrade has exited. It returns true when that exit belongs
+	// to the auto-upgrade process. Exit code 0 continues the upgrade. Any other
+	// code fails it. serverLog is included in the failure reason.
+	ServerDatabaseAutoUpgradeFinished(serverType definitions.ServerType, exitCode int, serverLog string) bool
 
 	// RunWatchUpgradePlan keeps watching the upgrade plan until the given context is canceled.
 	RunWatchUpgradePlan(context.Context)
@@ -144,9 +157,9 @@ func (p UpgradePlan) IsFailed() bool {
 
 // ResetFailures resets all Failures field to 0.
 func (p *UpgradePlan) ResetFailures() {
-	for _, e := range p.Entries {
-		e.Failures = 0
-		e.Reason = ""
+	for i := range p.Entries {
+		p.Entries[i].Failures = 0
+		p.Entries[i].Reason = ""
 	}
 }
 
@@ -207,10 +220,16 @@ func (e UpgradePlanEntry) CreateStatusServer(upgradeManagerContext UpgradeManage
 // upgradeManager is a helper used to control the upgrade process from 1 database version to the next.
 type upgradeManager struct {
 	mutex                 sync.Mutex
+	stateMu               sync.Mutex
 	log                   zerolog.Logger
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     definitions.ServerType
 	updateNeeded          bool
+	// autoUpgradeRunning is true after the process with --database.auto-upgrade
+	// has been launched and until that process exits.
+	autoUpgradeRunning bool
+	// autoUpgradeFailed is set when that process exits with a non-zero code.
+	autoUpgradeFailed error
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
@@ -434,13 +453,6 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 		return maskAny(client.NewBadRequestError("Retry needs an agency"))
 	}
 
-	// Check cluster health
-	if mode.IsClusterMode() {
-		if err := m.isClusterHealthy(ctx); err != nil {
-			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
-		}
-	}
-
 	// Note that in contrast to StartDatabaseUpgrade we do not use an agency lock
 	// here. The reason for that is that we expect to have a plan and use
 	// the revision condition to ensure a "safe" update.
@@ -459,6 +471,14 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	// Check failure status
 	if !plan.IsFailed() {
 		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
+	}
+
+	// The server whose auto-upgrade failed is left stopped. That server is
+	// expected to be unhealthy until this retry starts it again.
+	if mode.IsClusterMode() {
+		if err := m.isClusterHealthyExcept(ctx, m.stoppedServers(plan)); err != nil {
+			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
+		}
 	}
 
 	// Reset failures and write plan
@@ -707,19 +727,80 @@ func (m *upgradeManager) Errorf(msg string, args ...interface{}) {
 
 // IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
 func (m *upgradeManager) IsServerUpgradeInProgress(serverType definitions.ServerType) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	return m.upgradeServerType == serverType
+}
+
+// IsServerAutoUpgradeRunning reports whether the process started with
+// --database.auto-upgrade is the one currently running for this type.
+func (m *upgradeManager) IsServerAutoUpgradeRunning(serverType definitions.ServerType) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	return m.autoUpgradeRunning && m.upgradeServerType == serverType
 }
 
 // ServerDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
 func (m *upgradeManager) ServerDatabaseAutoUpgrade(serverType definitions.ServerType, lastExitCode int) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	return m.updateNeeded && m.upgradeServerType == serverType || lastExitCode == definitions.ArangoDExitUpgradeRequired
 }
 
-// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been be started with --database.auto-upgrade
+// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been started with --database.auto-upgrade.
+// The upgrade keeps waiting until that process exits.
 func (m *upgradeManager) ServerDatabaseAutoUpgradeStarter(serverType definitions.ServerType) {
-	if m.upgradeServerType == serverType {
-		m.updateNeeded = false
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.upgradeServerType == serverType && m.updateNeeded {
+		m.autoUpgradeRunning = true
 	}
+}
+
+// ServerDatabaseAutoUpgradeFinished records the exit of the auto-upgrade process.
+func (m *upgradeManager) ServerDatabaseAutoUpgradeFinished(serverType definitions.ServerType, exitCode int, serverLog string) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.upgradeServerType != serverType || !m.autoUpgradeRunning {
+		return false
+	}
+	m.autoUpgradeRunning = false
+	m.updateNeeded = false
+	if exitCode != 0 {
+		m.autoUpgradeFailed = autoUpgradeExitError(serverType, exitCode, serverLog)
+	}
+	return true
+}
+
+func autoUpgradeExitError(serverType definitions.ServerType, exitCode int, serverLog string) error {
+	msg := fmt.Sprintf("%s auto-upgrade exited with code %d (%s)", serverType, exitCode, definitions.GetExitCodeReason(exitCode))
+	serverLog = strings.TrimSpace(serverLog)
+	if serverLog != "" {
+		msg += "\n" + serverLog
+	}
+	const maxLen = 4000
+	if len(msg) > maxLen {
+		msg = msg[:maxLen] + "\n..."
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+func (m *upgradeManager) beginServerUpgrade(serverType definitions.ServerType) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.upgradeServerType = serverType
+	m.updateNeeded = true
+	m.autoUpgradeRunning = false
+	m.autoUpgradeFailed = nil
+}
+
+func (m *upgradeManager) endServerUpgrade() {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.upgradeServerType = ""
+	m.updateNeeded = false
+	m.autoUpgradeRunning = false
+	m.autoUpgradeFailed = nil
 }
 
 // Create a client for the agency
@@ -896,17 +977,13 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		return nil
 	}
 	// Prepare cleanup
-	defer func() {
-		m.upgradeServerType = ""
-		m.updateNeeded = false
-	}()
+	defer m.endServerUpgrade()
 
 	switch firstEntry.Type {
 	case UpgradeEntryTypeAgent:
 		// Restart the agency in auto-upgrade mode
 		m.log.Info().Msg("Upgrading agent")
-		m.upgradeServerType = definitions.ServerTypeAgent
-		m.updateNeeded = true
+		m.beginServerUpgrade(definitions.ServerTypeAgent)
 		if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeAgent); err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to restart agent"))
 		}
@@ -931,8 +1008,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	case UpgradeEntryTypeDBServer:
 		// Restart the dbserver in auto-upgrade mode
 		m.log.Info().Msg("Upgrading dbserver")
-		m.upgradeServerType = definitions.ServerTypeDBServer
-		m.updateNeeded = true
+		m.beginServerUpgrade(definitions.ServerTypeDBServer)
 		upgrade := func() error {
 			if firstEntry.WithoutResign {
 				fmt.Printf("Without resign")
@@ -971,8 +1047,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	case UpgradeEntryTypeCoordinator:
 		// Restart the coordinator in auto-upgrade mode
 		m.log.Info().Msg("Upgrading coordinator")
-		m.upgradeServerType = definitions.ServerTypeCoordinator
-		m.updateNeeded = true
+		m.beginServerUpgrade(definitions.ServerTypeCoordinator)
 		if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeCoordinator); err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to restart coordinator"))
 		}
@@ -995,8 +1070,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	case UpgradeEntryTypeSingle:
 		// Restart the single server in auto-upgrade mode
 		m.log.Info().Msg("Upgrading single server")
-		m.upgradeServerType = definitions.ServerTypeSingle
-		m.updateNeeded = true
+		m.beginServerUpgrade(definitions.ServerTypeSingle)
 		upgrade := func() error {
 			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeSingle); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to restart single server"))
@@ -1089,10 +1163,7 @@ func (m *upgradeManager) finishUpgradePlan(ctx context.Context, plan UpgradePlan
 // runSingleServerUpgradeProcess runs the entire upgrade process of a single server until it is finished.
 func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode) {
 	// Cleanup when we're done
-	defer func() {
-		m.upgradeServerType = ""
-		m.updateNeeded = false
-	}()
+	defer m.endServerUpgrade()
 
 	if !mode.IsSingleMode() {
 		m.log.Info().Msg("Not in Single Server Mode, aborting.")
@@ -1100,8 +1171,7 @@ func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPe
 	}
 	// Restart the single server in auto-upgrade mode
 	m.log.Info().Msg("Upgrading single server")
-	m.upgradeServerType = definitions.ServerTypeSingle
-	m.updateNeeded = true
+	m.beginServerUpgrade(definitions.ServerTypeSingle)
 	if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeSingle); err != nil {
 		m.log.Error().Err(err).Msg("Failed to restart single server")
 		return
@@ -1109,6 +1179,7 @@ func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPe
 
 	// Wait until single server restarted
 	if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
+		m.log.Error().Err(err).Msg("Single server upgrade failed")
 		return
 	}
 
@@ -1128,19 +1199,35 @@ func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPe
 	}
 }
 
-// waitUntilUpgradeServerStarted waits until the updateNeeded is false.
+// waitUntilUpgradeServerStarted waits until the process started with
+// --database.auto-upgrade has exited. Exit code 0 returns nil. Any other
+// exit code returns an error that includes the code and the recent server log.
 func (m *upgradeManager) waitUntilUpgradeServerStarted(ctx context.Context) error {
 	for {
-		if !m.updateNeeded {
-			return nil
+		if done, err := m.upgradeExitResult(); done {
+			return err
 		}
 		select {
 		case <-ctx.Done():
+			if done, err := m.upgradeExitResult(); done {
+				return err
+			}
 			return maskAny(ctx.Err())
 		case <-time.After(time.Millisecond * 100):
 			// Try again
 		}
 	}
+}
+
+func (m *upgradeManager) upgradeExitResult() (bool, error) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.updateNeeded || m.autoUpgradeRunning {
+		return false, nil
+	}
+	err := m.autoUpgradeFailed
+	m.autoUpgradeFailed = nil
+	return true, err
 }
 
 // waitUntil loops until the the given predicate returns nil or the given context is
@@ -1190,9 +1277,96 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 	return nil
 }
 
+// stoppedServer is a server left down by a failed auto-upgrade.
+// Address and port together identify it. Port alone is not enough, because
+// different hosts often use the same dbserver port.
+type stoppedServer struct {
+	role    driver.ServerRole
+	address string
+	port    int
+}
+
+// stoppedServers returns the servers whose upgrade entry has failed.
+// Their ports are the ports the starter assigned, which the cluster health
+// endpoint ends with.
+func (m *upgradeManager) stoppedServers(plan UpgradePlan) []stoppedServer {
+	var stopped []stoppedServer
+	for _, entry := range plan.Entries {
+		if entry.Failures == 0 {
+			continue
+		}
+		status, err := entry.CreateStatusServer(m.upgradeManagerContext)
+		if err != nil || status == nil {
+			continue
+		}
+		role, ok := upgradeEntryRole(entry.Type)
+		if !ok {
+			continue
+		}
+		stopped = append(stopped, stoppedServer{
+			role:    role,
+			address: status.Address,
+			port:    status.Port,
+		})
+	}
+	return stopped
+}
+
+func upgradeEntryRole(entryType UpgradeEntryType) (driver.ServerRole, bool) {
+	switch entryType {
+	case UpgradeEntryTypeAgent:
+		return driver.ServerRoleAgent, true
+	case UpgradeEntryTypeDBServer:
+		return driver.ServerRoleDBServer, true
+	case UpgradeEntryTypeCoordinator:
+		return driver.ServerRoleCoordinator, true
+	case UpgradeEntryTypeSingle:
+		return driver.ServerRoleSingle, true
+	default:
+		return "", false
+	}
+}
+
+// failureIsExpected reports whether this unhealthy server is the one a failed
+// auto-upgrade left stopped. The health endpoint must be that server's host
+// and port, not only the same port on another host.
+func failureIsExpected(sh driver.ServerHealth, allowed []stoppedServer) bool {
+	host, port, ok := healthEndpointHostPort(sh.Endpoint)
+	if !ok {
+		return false
+	}
+	for _, server := range allowed {
+		if sh.Role == server.role && port == strconv.Itoa(server.port) && sameServerHost(host, server.address) {
+			return true
+		}
+	}
+	return false
+}
+
+func healthEndpointHostPort(endpoint string) (string, string, bool) {
+	if i := strings.Index(endpoint, "://"); i >= 0 {
+		endpoint = endpoint[i+3:]
+	}
+	host, port, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return "", "", false
+	}
+	return host, port, true
+}
+
+func sameServerHost(left, right string) bool {
+	return strings.EqualFold(strings.Trim(left, "[]"), strings.Trim(right, "[]"))
+}
+
 // isClusterHealthy performs a check on the cluster health status.
 // If any of the servers is reported as not GOOD, an error is returned.
 func (m *upgradeManager) isClusterHealthy(ctx context.Context) error {
+	return m.isClusterHealthyExcept(ctx, nil)
+}
+
+// isClusterHealthyExcept is isClusterHealthy, ignoring servers that a failed
+// auto-upgrade left stopped on purpose.
+func (m *upgradeManager) isClusterHealthyExcept(ctx context.Context, allowed []stoppedServer) error {
 	// Get cluster config
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
 	// Build endpoint list
@@ -1216,6 +1390,9 @@ func (m *upgradeManager) isClusterHealthy(ctx context.Context) error {
 	}
 	for id, sh := range h.Health {
 		if sh.Role == driver.ServerRoleAgent && sh.Status == "" {
+			continue
+		}
+		if sh.Status != driver.ServerStatusGood && failureIsExpected(sh, allowed) {
 			continue
 		}
 		if sh.Status != driver.ServerStatusGood {

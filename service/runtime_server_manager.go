@@ -94,7 +94,7 @@ type runtimeServerManagerContext interface {
 
 // startServer starts a single Arangod/Arangosync server of the given type.
 func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
-	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer, lastExitCode int) (Process, bool, error) {
+	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer, lastExitCode int, logOffset *int64) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -193,6 +193,12 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	}
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, myPeer.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
+	// Snapshot after any leftover process has been stopped and immediately
+	// before the child exists, so a fast failure is kept and the previous
+	// server's shutdown lines are not.
+	if logOffset != nil {
+		*logOffset = serverHostLogOffset(runtimeContext, serverType)
+	}
 	p, err = runner.Start(ctx, processType, args[0], args[1:], createEnvs(config, serverType), vols, ports, containerName, myHostDir, output)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -211,37 +217,170 @@ func (s *runtimeServerManager) showRecentLogs(log zerolog.Logger, runtimeContext
 		log.Error().Err(err).Msg("Cannot find server host log file")
 		return
 	}
-	logFile, err := os.Open(logPath)
+	body, err := readRecentServerLog(logPath)
 	if os.IsNotExist(err) {
 		log.Info().Msgf("Log file for %s is empty", serverType)
 	} else if err != nil {
 		log.Error().Err(err).Msgf("Cannot open log file for %s", serverType)
+	} else if strings.TrimSpace(body) == "" {
+		log.Info().Msgf("Log file for %s is empty", serverType)
 	} else {
-		defer logFile.Close()
-		rd := bufio.NewReader(logFile)
-		lines := [20]string{}
-		maxLines := 0
-		for {
-			line, err := rd.ReadString('\n')
-			if line != "" || err == nil {
-				copy(lines[1:], lines[0:])
-				lines[0] = line
-				if maxLines < len(lines) {
-					maxLines++
-				}
-			}
-			if err != nil {
-				break
-			}
-		}
-		buf := bytes.Buffer{}
-		buf.WriteString(fmt.Sprintf("## Start of %s log\n", serverType))
-		for i := maxLines - 1; i >= 0; i-- {
-			buf.WriteString("\t" + strings.TrimSuffix(lines[i], "\n") + "\n")
-		}
-		buf.WriteString(fmt.Sprintf("## End of %s log", serverType))
-		log.Info().Msg(buf.String())
+		log.Info().Msg(formatRecentServerLog(serverType, body))
 	}
+}
+
+func serverHostLogOffset(runtimeContext runtimeServerManagerContext, serverType definitions.ServerType) int64 {
+	if runtimeContext == nil {
+		return 0
+	}
+	logPath, err := runtimeContext.serverHostLogFile(serverType)
+	if err != nil {
+		return 0
+	}
+	info, err := os.Stat(logPath)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// readRecentServerLog returns only the last 20 lines of an arangod log file.
+func readRecentServerLog(logPath string) (string, error) {
+	logFile, err := os.Open(logPath)
+	if err != nil {
+		return "", err
+	}
+	defer logFile.Close()
+	reader := bufio.NewReaderSize(logFile, 32*1024)
+	var tail []string
+	for {
+		line, err := readCappedLogLine(reader, 256*1024)
+		if line != "" || err == nil {
+			tail = appendBounded(tail, line, 20)
+		}
+		if err == io.EOF {
+			return strings.Join(tail, "\n"), nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+}
+
+// readServerLogSince reads the log written at and after offset. It streams
+// the whole attempt, keeping a bounded set of ERROR and FATAL lines and the
+// actual tail, so a long log does not hide either.
+func readServerLogSince(logPath string, offset int64) (string, error) {
+	logFile, err := os.Open(logPath)
+	if err != nil {
+		return "", err
+	}
+	defer logFile.Close()
+	info, err := logFile.Stat()
+	if err != nil {
+		return "", err
+	}
+	if offset < 0 || offset > info.Size() {
+		offset = 0
+	}
+	if _, err := logFile.Seek(offset, io.SeekStart); err != nil {
+		return "", err
+	}
+	return streamImportantAndTail(logFile)
+}
+
+func streamImportantAndTail(r io.Reader) (string, error) {
+	const (
+		maxImportant = 40
+		tailLines    = 20
+		maxLine      = 256 * 1024
+	)
+	reader := bufio.NewReaderSize(r, 32*1024)
+	var important []string
+	tail := make([]string, 0, tailLines)
+	for {
+		line, err := readCappedLogLine(reader, maxLine)
+		if line != "" {
+			if isUpgradeErrorLine(line) {
+				important = appendBounded(important, line, maxImportant)
+			}
+			tail = appendBounded(tail, line, tailLines)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return joinImportantAndTail(important, tail), nil
+}
+
+func readCappedLogLine(r *bufio.Reader, max int) (string, error) {
+	var b strings.Builder
+	for {
+		frag, err := r.ReadSlice('\n')
+		if b.Len() < max {
+			remain := max - b.Len()
+			if len(frag) > remain {
+				b.Write(frag[:remain])
+			} else {
+				b.Write(frag)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return strings.TrimRight(b.String(), "\r\n"), err
+	}
+}
+
+func appendBounded(lines []string, line string, max int) []string {
+	if len(lines) < max {
+		return append(lines, line)
+	}
+	copy(lines, lines[1:])
+	lines[max-1] = line
+	return lines
+}
+
+func joinImportantAndTail(important, tail []string) string {
+	seen := make(map[string]struct{}, len(important)+len(tail))
+	var out []string
+	add := func(line string) {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			return
+		}
+		if _, ok := seen[line]; ok {
+			return
+		}
+		seen[line] = struct{}{}
+		out = append(out, line)
+	}
+	for _, line := range important {
+		add(line)
+	}
+	for _, line := range tail {
+		add(line)
+	}
+	return strings.Join(out, "\n")
+}
+
+func isUpgradeErrorLine(line string) bool {
+	return strings.Contains(line, " ERROR ") || strings.Contains(line, " FATAL ")
+}
+
+func formatRecentServerLog(serverType definitions.ServerType, body string) string {
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("## Start of %s log\n", serverType))
+	for _, line := range strings.Split(body, "\n") {
+		buf.WriteString("\t")
+		buf.WriteString(line)
+		buf.WriteByte('\n')
+	}
+	buf.WriteString(fmt.Sprintf("## End of %s log", serverType))
+	return buf.String()
 }
 
 // rotateLogFile rotates the log file of a single server.
@@ -446,33 +585,33 @@ func (s *runtimeServerManager) Run(ctx context.Context, log zerolog.Logger, runt
 
 // RestartServer triggers a restart of the server of the given type.
 func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType definitions.ServerType) error {
-	var p Process
+	var w ProcessWrapper
 
 	switch serverType {
 	case definitions.ServerTypeAgent:
-		if w := s.agentProc; w != nil {
-			p = w.Process()
-		}
+		w = s.agentProc
 	case definitions.ServerTypeDBServer:
-		if w := s.dbserverProc; w != nil {
-			p = w.Process()
-		}
+		w = s.dbserverProc
 	case definitions.ServerTypeDBServerNoResign:
-		if w := s.dbserverProc; w != nil {
-			p = w.Process()
-		}
+		w = s.dbserverProc
 	case definitions.ServerTypeCoordinator:
-		if w := s.coordinatorProc; w != nil {
-			p = w.Process()
-		}
+		w = s.coordinatorProc
 	case definitions.ServerTypeSingle:
-		if w := s.singleProc; w != nil {
-			p = w.Process()
-		}
+		w = s.singleProc
 	default:
 		return maskAny(fmt.Errorf("unknown server type '%s'", serverType))
 	}
 
+	if w == nil {
+		log.Warn().Msgf("Was asked to restart %s but no such process exists", serverType)
+		return nil
+	}
+	// Notify before terminating. The wrapper can observe the process exit and
+	// start the next iteration as soon as the process dies. The notification
+	// has to be visible before that transition, and it must refer to the
+	// process that is running now so a later start is not killed.
+	p := w.Process()
+	w.RequestRestart()
 	if p != nil {
 		terminateProcessWithActions(log, p, serverType, 0, time.Minute, actions.ActionTypeAll)
 	} else {
