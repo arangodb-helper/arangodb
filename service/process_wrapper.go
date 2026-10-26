@@ -147,8 +147,8 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		features := p.runtimeContext.DatabaseFeatures()
 		output := utils.NewLimitedBuffer(80 * 100)
 
-		var logOffset int64
-		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output, exitCode, &logOffset)
+		var logMark logFileMark
+		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output, exitCode, &logMark)
 		autoUpgradeFailed := false
 		var failedRestartGen uint64
 		if err != nil {
@@ -234,7 +234,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 				logProcess.Info().Msgf("Terminated %s. Exit code: %d (%s)", p.serverType, exitCode, definitions.GetExitCodeReason(exitCode))
 				var failed bool
 				failed, failedRestartGen = p.recordAutoUpgradeExit(p.runtimeContext.UpgradeManager(), logProcess, exitCode, func() string {
-					return p.serverLogSince(logOffset)
+					return p.serverLogSince(logMark)
 				}, output)
 				autoUpgradeFailed = failed
 				break
@@ -368,12 +368,12 @@ func (p *processWrapper) waitForRestartSince(seen uint64) error {
 	}
 }
 
-func (p *processWrapper) serverLogSince(offset int64) string {
+func (p *processWrapper) serverLogSince(mark logFileMark) string {
 	logPath, err := p.runtimeContext.serverHostLogFile(p.serverType)
 	if err != nil {
 		return ""
 	}
-	body, err := readServerLogSince(logPath, offset)
+	body, err := readServerLogSinceMark(logPath, mark)
 	if err != nil {
 		return ""
 	}

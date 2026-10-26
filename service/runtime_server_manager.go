@@ -94,7 +94,7 @@ type runtimeServerManagerContext interface {
 
 // startServer starts a single Arangod/Arangosync server of the given type.
 func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
-	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer, lastExitCode int, logOffset *int64) (Process, bool, error) {
+	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer, lastExitCode int, logMark *logFileMark) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -196,8 +196,8 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	// Snapshot after any leftover process has been stopped and immediately
 	// before the child exists, so a fast failure is kept and the previous
 	// server's shutdown lines are not.
-	if logOffset != nil {
-		*logOffset = serverHostLogOffset(runtimeContext, serverType)
+	if logMark != nil {
+		*logMark = serverHostLogMark(runtimeContext, serverType)
 	}
 	p, err = runner.Start(ctx, processType, args[0], args[1:], createEnvs(config, serverType), vols, ports, containerName, myHostDir, output)
 	if err != nil {
@@ -229,19 +229,129 @@ func (s *runtimeServerManager) showRecentLogs(log zerolog.Logger, runtimeContext
 	}
 }
 
-func serverHostLogOffset(runtimeContext runtimeServerManagerContext, serverType definitions.ServerType) int64 {
+// logFileMark is the position of an arangod log just before an attempt starts.
+// Size alone is not enough: scheduled rotation can rename the file and create
+// a new one at the same path before the attempt exits.
+type logFileMark struct {
+	size  int64
+	inode uint64
+	dev   uint64
+}
+
+func serverHostLogMark(runtimeContext runtimeServerManagerContext, serverType definitions.ServerType) logFileMark {
 	if runtimeContext == nil {
-		return 0
+		return logFileMark{}
 	}
 	logPath, err := runtimeContext.serverHostLogFile(serverType)
 	if err != nil {
-		return 0
+		return logFileMark{}
 	}
-	info, err := os.Stat(logPath)
+	return logFileMarkFromInfo(os.Stat(logPath))
+}
+
+func logFileMarkFromInfo(info os.FileInfo, err error) logFileMark {
 	if err != nil {
-		return 0
+		return logFileMark{}
 	}
-	return info.Size()
+	mark := logFileMark{size: info.Size()}
+	mark.inode, mark.dev = fileIdentity(info)
+	return mark
+}
+
+func sameLogFile(info os.FileInfo, mark logFileMark) bool {
+	if mark.inode == 0 {
+		return true
+	}
+	inode, dev := fileIdentity(info)
+	if inode == 0 {
+		return false
+	}
+	return inode == mark.inode && dev == mark.dev
+}
+
+// readServerLogSince reads the log written at and after offset. It streams
+// the whole attempt, keeping a bounded set of ERROR and FATAL lines and the
+// actual tail, so a long log does not hide either. If rotation renamed the
+// file while the attempt was running, it also reads the current path.
+func readServerLogSince(logPath string, offset int64) (string, error) {
+	return readServerLogSinceMark(logPath, logFileMark{size: offset})
+}
+
+func readServerLogSinceMark(logPath string, mark logFileMark) (string, error) {
+	var parts []io.Reader
+	closeAll := func(files []*os.File) {
+		for _, f := range files {
+			_ = f.Close()
+		}
+	}
+	var files []*os.File
+	addFrom := func(path string, offset int64) error {
+		logFile, err := os.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		files = append(files, logFile)
+		info, err := logFile.Stat()
+		if err != nil {
+			return err
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		if offset > info.Size() {
+			offset = 0
+		}
+		if _, err := logFile.Seek(offset, io.SeekStart); err != nil {
+			return err
+		}
+		parts = append(parts, logFile)
+		return nil
+	}
+
+	current, err := os.Stat(logPath)
+	if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	if err == nil && sameLogFile(current, mark) {
+		if addErr := addFrom(logPath, mark.size); addErr != nil {
+			closeAll(files)
+			return "", addErr
+		}
+	} else {
+		rotated := findRotatedLogFile(logPath, mark)
+		if addErr := addFrom(rotated, mark.size); addErr != nil {
+			closeAll(files)
+			return "", addErr
+		}
+		if addErr := addFrom(logPath, 0); addErr != nil {
+			closeAll(files)
+			return "", addErr
+		}
+	}
+	defer closeAll(files)
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return streamImportantAndTail(io.MultiReader(parts...))
+}
+
+// findRotatedLogFile returns the rotated name that still holds the file
+// identity captured before the attempt. log.1 is the newest rotation.
+func findRotatedLogFile(logPath string, mark logFileMark) string {
+	for i := 1; i <= 32; i++ {
+		candidate := logPath + fmt.Sprintf(".%d", i)
+		info, err := os.Stat(candidate)
+		if err != nil {
+			continue
+		}
+		if sameLogFile(info, mark) {
+			return candidate
+		}
+	}
+	return logPath + ".1"
 }
 
 // readRecentServerLog returns only the last 20 lines of an arangod log file.
@@ -265,28 +375,6 @@ func readRecentServerLog(logPath string) (string, error) {
 			return "", err
 		}
 	}
-}
-
-// readServerLogSince reads the log written at and after offset. It streams
-// the whole attempt, keeping a bounded set of ERROR and FATAL lines and the
-// actual tail, so a long log does not hide either.
-func readServerLogSince(logPath string, offset int64) (string, error) {
-	logFile, err := os.Open(logPath)
-	if err != nil {
-		return "", err
-	}
-	defer logFile.Close()
-	info, err := logFile.Stat()
-	if err != nil {
-		return "", err
-	}
-	if offset < 0 || offset > info.Size() {
-		offset = 0
-	}
-	if _, err := logFile.Seek(offset, io.SeekStart); err != nil {
-		return "", err
-	}
-	return streamImportantAndTail(logFile)
 }
 
 func streamImportantAndTail(r io.Reader) (string, error) {
