@@ -775,15 +775,68 @@ func writeUpgradeResult(w http.ResponseWriter, err error) {
 // that they could not record in the agency. Only the starter whose server
 // failed holds such a failure. held is true when one of them answered for
 // it; err is then its refusal, if any.
+// The retry is a mutating PUT, and older starters ignore local=true and treat
+// it as an ordinary retry. So the holder is found with a read-only GET first,
+// and only a starter that marked its answer as the holder receives the PUT.
 func (s *httpServer) retryPeerLocalUpgradeFailure(ctx context.Context) (held bool, err error) {
-	_, held, err = s.askOtherPeers(ctx, http.MethodPut, func() interface{} { return nil })
+	// Both rounds share one deadline, within the timeout of the CLI request.
+	ctx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
+	defer cancel()
+	holder := s.localUpgradeFailureHolder(ctx)
+	if holder == nil {
+		return false, nil
+	}
+	_, held, err = s.askPeers(ctx, []Peer{*holder}, http.MethodPut, func() interface{} { return nil })
 	return held, err
+}
+
+// localUpgradeFailureHolder returns the other starter that reports holding
+// a failure it could not record in the agency, or nil. Only the starter whose
+// server failed can hold one, so the first such answer is used and a hanging
+// starter does not delay it.
+func (s *httpServer) localUpgradeFailureHolder(ctx context.Context) *Peer {
+	ctx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
+	defer cancel()
+	peers := s.otherPeers()
+	answers := make(chan *Peer, len(peers))
+	for _, p := range peers {
+		go func(p Peer) {
+			held, err := s.sendLocalUpgradeRequest(ctx, p, http.MethodGet, &client.UpgradeStatus{})
+			if held && err == nil {
+				answers <- &p
+				return
+			}
+			if err != nil && !client.IsNotFound(err) {
+				s.log.Debug().Err(err).Str("peer", p.ID).Msg("Local upgrade request to peer failed")
+			}
+			answers <- nil
+		}(p)
+	}
+	for range peers {
+		if p := <-answers; p != nil {
+			return p
+		}
+	}
+	return nil
+}
+
+// otherPeers returns all starters of the cluster except this one.
+func (s *httpServer) otherPeers() []Peer {
+	config, myPeer, _ := s.context.ClusterConfig()
+	peers := make([]Peer, 0, len(config.AllPeers))
+	for _, p := range config.AllPeers {
+		if myPeer != nil && p.ID == myPeer.ID {
+			continue
+		}
+		peers = append(peers, p)
+	}
+	return peers
 }
 
 // peerLocalUpgradeFailureStatus returns the status of a failure that another
 // starter could not record in the agency.
 func (s *httpServer) peerLocalUpgradeFailureStatus(ctx context.Context) (client.UpgradeStatus, bool) {
-	result, held, err := s.askOtherPeers(ctx, http.MethodGet, func() interface{} { return &client.UpgradeStatus{} })
+	result, held, err := s.askPeers(ctx, s.otherPeers(), http.MethodGet, func() interface{} { return &client.UpgradeStatus{} })
 	if !held || err != nil {
 		return client.UpgradeStatus{}, false
 	}
@@ -803,20 +856,16 @@ type peerUpgradeAnswer struct {
 	err  error
 }
 
-// askOtherPeers sends a local upgrade request to all other starters at once.
+// askPeers sends a local upgrade request to the given starters at once.
 // Only answers marked with localUpgradeHeldHeader count. The first such OK
 // answer wins; otherwise the first such refusal is returned.
 // newResult returns where to decode the answer; nil for none.
-func (s *httpServer) askOtherPeers(ctx context.Context, method string, newResult func() interface{}) (result interface{}, held bool, err error) {
-	config, myPeer, _ := s.context.ClusterConfig()
+func (s *httpServer) askPeers(ctx context.Context, peers []Peer, method string, newResult func() interface{}) (result interface{}, held bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
 	defer cancel()
-	answers := make(chan peerUpgradeAnswer, len(config.AllPeers))
+	answers := make(chan peerUpgradeAnswer, len(peers))
 	asked := 0
-	for _, p := range config.AllPeers {
-		if myPeer != nil && p.ID == myPeer.ID {
-			continue
-		}
+	for _, p := range peers {
 		asked++
 		go func(p Peer) {
 			result := newResult()
