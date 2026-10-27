@@ -837,8 +837,9 @@ func (m *upgradeManager) localFailedStatus() (client.UpgradeStatus, bool) {
 	return status, true
 }
 
-// retryLocalFailedPlan restarts the failed step without reading the agency.
-// The caller must hold mutex. The background run does not use ctx, because
+// retryLocalFailedPlan restarts the failed step from the cached plan. The
+// agency is only asked to reset a failure it holds as well, and not at all
+// for a failed sole agent. The caller must hold mutex. The background run does not use ctx, because
 // parking the sole agent already made that agency unavailable; ctx only
 // bounds the health check. If that check fails, the failure stays cached.
 // processUpgradePlan waits for the previous run, including its cleanup.
@@ -850,11 +851,19 @@ func (m *upgradeManager) retryLocalFailedPlan(ctx context.Context) error {
 	if err := m.checkLocalRetryAllowed(ctx, cached); err != nil {
 		return maskAny(err)
 	}
+	reset, err := m.resetAgencyFailure(ctx, cached)
+	if err != nil {
+		return maskAny(err)
+	}
 	plan, ok := m.takeLocalFailedPlan()
 	if !ok {
 		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
 	}
 	plan.ResetFailures()
+	if reset != nil {
+		// Later writes of this run are guarded by the agency revision.
+		plan.Revision = reset.Revision
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	go func() {
 		defer cancel()
@@ -868,6 +877,63 @@ func (m *upgradeManager) retryLocalFailedPlan(ctx context.Context) error {
 		}
 	}()
 	return nil
+}
+
+// resetAgencyFailure resets the failure in the agency plan before a cached
+// failure of that plan is retried. Both can exist at once, e.g. when a late
+// exit added details to a timeout the agency already holds. Otherwise status
+// read from the agency, by any starter, still reports the old failure while
+// the retry runs, and the CLI stops waiting for it.
+// A failed sole agent took the agency down, so it is not asked. Any other
+// retry needs the agency: if it cannot be read, the retry is refused and the
+// failure stays cached, as the cached entry cannot be validated and other
+// starters may still report the failure from the agency.
+// A cached failure of a removed plan, or of a revision the agency has moved
+// past, is discarded and the retry is refused: it would restart an obsolete
+// entry, and resetting the agency would clear another entry's failure.
+// It returns the written plan, or nil when nothing was reset.
+func (m *upgradeManager) resetAgencyFailure(ctx context.Context, cached UpgradePlan) (*UpgradePlan, error) {
+	config, _, _ := m.upgradeManagerContext.ClusterConfig()
+	if cached.Entries[0].Type == UpgradeEntryTypeAgent && config.AgencySize <= 1 {
+		return nil, nil
+	}
+	agencyCtx, cancel := context.WithTimeout(ctx, localFailureAgencyTimeout)
+	defer cancel()
+	agencyPlan, err := m.readUpgradePlan(agencyCtx)
+	if agency.IsKeyNotFound(err) || (err == nil && agencyPlan.IsEmpty()) {
+		m.log.Info().Msg("Discarding local upgrade failure of a removed upgrade plan")
+		m.dropLocalFailedPlan(cached)
+		return nil, maskAny(client.NewBadRequestError("There is no upgrade plan"))
+	}
+	if err != nil {
+		m.log.Debug().Err(err).Msg("Failed to read upgrade plan before retrying local failure")
+		return nil, maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to read upgrade plan; retry once the agency is available: %v", err)))
+	}
+	if !samePlan(agencyPlan, cached) || agencyPlan.Revision != cached.Revision || !sameFirstEntry(agencyPlan, cached) {
+		m.log.Info().Int("cached-revision", cached.Revision).Int("agency-revision", agencyPlan.Revision).
+			Msg("Discarding local upgrade failure of an outdated upgrade plan revision")
+		m.dropLocalFailedPlan(cached)
+		return nil, maskAny(client.NewPreconditionFailedError("The upgrade plan has changed since this failure was recorded; check the upgrade status"))
+	}
+	if !agencyPlan.IsFailed() {
+		// The agency never recorded this failure; nothing to reset.
+		return nil, nil
+	}
+	agencyPlan.ResetFailures()
+	overwrite := false
+	written, err := m.writeUpgradePlan(agencyCtx, agencyPlan, overwrite)
+	if err != nil {
+		return nil, maskAny(errors.Wrap(err, "Failed to reset failures in upgrade plan"))
+	}
+	return &written, nil
+}
+
+// sameFirstEntry reports whether both plans are at the same first entry.
+func sameFirstEntry(a, b UpgradePlan) bool {
+	if len(a.Entries) == 0 || len(b.Entries) == 0 {
+		return len(a.Entries) == len(b.Entries)
+	}
+	return a.Entries[0].Type == b.Entries[0].Type && a.Entries[0].PeerID == b.Entries[0].PeerID
 }
 
 // checkLocalRetryAllowed applies the health check of an agency retry to a
@@ -1782,6 +1848,11 @@ func (m *upgradeManager) processUpgradePlanEntry(ctx context.Context, plan Upgra
 		return maskAny(fmt.Errorf("unsupported upgrade plan entry type '%s'", firstEntry.Type))
 	}
 
+	// A failure recorded in this run, e.g. by cleanup, keeps the entry.
+	if recorded {
+		return maskAny(fmt.Errorf("%s upgrade recorded a failure: %s", firstEntry.Type, plan.Entries[0].Reason))
+	}
+
 	// Move first entry to finished entries
 	plan.Entries = plan.Entries[1:]
 	plan.FinishedEntries = append(plan.FinishedEntries, firstEntry)
@@ -1807,9 +1878,11 @@ func recordEntryFailure(entry *UpgradePlanEntry, err error, alreadyRecorded bool
 	entry.Reason += "\nAlso failed afterwards: " + err.Error()
 }
 
-// withMaintenance wraps upgrade action with maintenance steps
+// withMaintenance wraps upgrade action with maintenance steps.
+// A failure to enable supervision again is returned even when the action
+// succeeded, so the entry is not completed while supervision may be off.
 func (m *upgradeManager) withMaintenance(ctx context.Context, recordFailure func(err error) error) func(func() error) error {
-	return func(f func() error) error {
+	return func(f func() error) (err error) {
 		m.log.Info().Msg("Disabling supervision")
 		if err := m.disableSupervision(ctx); err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to disable supervision"))
@@ -1818,8 +1891,16 @@ func (m *upgradeManager) withMaintenance(ctx context.Context, recordFailure func
 		m.log.Info().Msg("Disabled supervision")
 		defer func() {
 			m.log.Info().Msg("Enabling supervision")
-			if err := m.enableSupervision(ctx); err != nil {
-				recordFailure(errors.Wrap(err, "Failed to enable supervision"))
+			// ctx has no deadline when the watcher runs this. Bound the
+			// cleanup, so a stopped agency cannot hold back the failure
+			// published after it. The maintenance key expires on its own.
+			cleanupCtx, cancel := context.WithTimeout(ctx, localFailureAgencyTimeout)
+			defer cancel()
+			if enableErr := m.enableSupervision(cleanupCtx); enableErr != nil {
+				cleanupErr := recordFailure(errors.Wrap(enableErr, "Failed to enable supervision"))
+				if err == nil {
+					err = cleanupErr
+				}
 			}
 		}()
 
