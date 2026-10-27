@@ -334,7 +334,13 @@ func (p *processWrapper) recordAutoUpgradeExit(upgrade UpgradeManager, logProces
 	if readLog != nil {
 		attemptLog = readLog()
 	}
-	if !upgrade.ServerDatabaseAutoUpgradeFinished(p.serverType, exitCode, attemptLog) {
+	diagnostics := attemptLog
+	if strings.TrimSpace(diagnostics) == "" && output != nil {
+		// arangod failed before it wrote its log file, or that file could
+		// not be read. The startup error is then only in its captured output.
+		diagnostics = output.String()
+	}
+	if !upgrade.ServerDatabaseAutoUpgradeFinished(p.serverType, exitCode, diagnostics) {
 		return false, seen
 	}
 	logProcess.Error().Msgf("%s auto-upgrade failed with exit code %d (%s)", p.serverType, exitCode, definitions.GetExitCodeReason(exitCode))

@@ -28,6 +28,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -417,19 +418,21 @@ func streamImportantAndTail(r io.Reader) (string, error) {
 	reader := bufio.NewReaderSize(r, 32*1024)
 	// The first error is usually the cause; later ones are often follow-up
 	// failures. Keep it even when more than maxImportant errors follow.
-	var first string
-	var important []string
-	tail := make([]string, 0, tailLines)
-	for {
+	// Lines keep their position, so the result is in log order.
+	var first *numberedLine
+	var important []numberedLine
+	tail := make([]numberedLine, 0, tailLines)
+	for n := 0; ; n++ {
 		line, err := readCappedLogLine(reader, maxLine)
 		if line != "" {
+			nl := numberedLine{n: n, text: line}
 			if isUpgradeErrorLine(line) {
-				if first == "" {
-					first = line
+				if first == nil {
+					first = &nl
 				}
-				important = appendBounded(important, line, maxImportant)
+				important = appendBounded(important, nl, maxImportant)
 			}
-			tail = appendBounded(tail, line, tailLines)
+			tail = appendBounded(tail, nl, tailLines)
 		}
 		if err == io.EOF {
 			break
@@ -438,10 +441,16 @@ func streamImportantAndTail(r io.Reader) (string, error) {
 			return "", err
 		}
 	}
-	if first != "" {
-		important = append([]string{first}, important...)
+	if first != nil {
+		important = append(important, *first)
 	}
-	return joinImportantAndTail(important, tail), nil
+	return joinInLogOrder(important, tail), nil
+}
+
+// numberedLine is a log line with its position in the log.
+type numberedLine struct {
+	n    int
+	text string
 }
 
 func readCappedLogLine(r *bufio.Reader, max int) (string, error) {
@@ -463,7 +472,7 @@ func readCappedLogLine(r *bufio.Reader, max int) (string, error) {
 	}
 }
 
-func appendBounded(lines []string, line string, max int) []string {
+func appendBounded[T any](lines []T, line T, max int) []T {
 	if len(lines) < max {
 		return append(lines, line)
 	}
@@ -472,25 +481,25 @@ func appendBounded(lines []string, line string, max int) []string {
 	return lines
 }
 
-func joinImportantAndTail(important, tail []string) string {
-	seen := make(map[string]struct{}, len(important)+len(tail))
-	var out []string
-	add := func(line string) {
-		line = strings.TrimRight(line, "\r")
-		if line == "" {
-			return
+// joinInLogOrder merges the selected lines by their position in the log,
+// keeping each position once.
+func joinInLogOrder(selections ...[]numberedLine) string {
+	byPosition := make(map[int]string)
+	for _, lines := range selections {
+		for _, l := range lines {
+			if text := strings.TrimRight(l.text, "\r"); text != "" {
+				byPosition[l.n] = text
+			}
 		}
-		if _, ok := seen[line]; ok {
-			return
-		}
-		seen[line] = struct{}{}
-		out = append(out, line)
 	}
-	for _, line := range important {
-		add(line)
+	positions := make([]int, 0, len(byPosition))
+	for n := range byPosition {
+		positions = append(positions, n)
 	}
-	for _, line := range tail {
-		add(line)
+	sort.Ints(positions)
+	out := make([]string, 0, len(positions))
+	for _, n := range positions {
+		out = append(out, byPosition[n])
 	}
 	return strings.Join(out, "\n")
 }
