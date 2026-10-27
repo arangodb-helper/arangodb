@@ -85,6 +85,18 @@ type UpgradeManager interface {
 
 	// RunWatchUpgradePlan keeps watching the upgrade plan until the given context is canceled.
 	RunWatchUpgradePlan(context.Context)
+
+	// HasLocalUpgradeFailure reports whether this starter holds a failed
+	// upgrade step that it could not record in the agency.
+	HasLocalUpgradeFailure() bool
+
+	// RetryLocalUpgradeFailure retries only such a locally held failure.
+	// It returns a NotFoundError when this starter holds none.
+	RetryLocalUpgradeFailure() error
+
+	// LocalUpgradeFailureStatus returns the status of such a locally held
+	// failure, if any.
+	LocalUpgradeFailureStatus() (client.UpgradeStatus, bool)
 }
 
 // UpgradeManagerContext holds methods used by the upgrade manager to control its context.
@@ -164,6 +176,15 @@ func (p *UpgradePlan) ResetFailures() {
 	}
 }
 
+// clone returns a copy that shares no slices with p.
+func (p UpgradePlan) clone() UpgradePlan {
+	c := p
+	c.Entries = append([]UpgradePlanEntry(nil), p.Entries...)
+	c.FinishedEntries = append([]UpgradePlanEntry(nil), p.FinishedEntries...)
+	c.FromVersions = append([]driver.Version(nil), p.FromVersions...)
+	return c
+}
+
 // Equals returns true if other plan is the same
 func (p UpgradePlan) Equals(other UpgradePlan) bool {
 	return reflect.DeepEqual(p, other)
@@ -237,8 +258,12 @@ type upgradeManager struct {
 	singleUpgradeFailure    error
 	// When the only agent is parked after a failed auto-upgrade, the plan
 	// cannot be written. Keep that failed plan here for Status and retry.
-	// Protected by stateMu.
-	localFailedPlan UpgradePlan
+	// localRetryActive is set while a retry of that plan runs. The plan
+	// watcher does not act while either is set. Protected by stateMu.
+	localFailedPlan  UpgradePlan
+	localRetryActive bool
+	// processMu serializes processUpgradePlan runs, including their cleanup.
+	processMu sync.Mutex
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
@@ -581,6 +606,7 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	if err := m.removeUpgradePlan(ctx); err != nil {
 		return errors.Wrap(err, "Failed to remove upgrade plan")
 	}
+	m.clearLocalFailedPlan()
 
 	// Inform user
 	m.log.Info().Msgf("Removed upgrade plan")
@@ -593,7 +619,7 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, error) {
 	_, _, mode := m.upgradeManagerContext.ClusterConfig()
 	if !mode.HasAgency() {
-		return client.UpgradeStatus{}, maskAny(client.NewPreconditionFailedError("Mode does not support agency based upgrades"))
+		return m.singleServerStatus()
 	}
 
 	plan, err := m.readUpgradePlan(ctx)
@@ -612,6 +638,17 @@ func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, erro
 		}
 	}
 	return m.statusFromPlan(plan)
+}
+
+// singleServerStatus reports a failed standalone auto-upgrade so the CLI can
+// show the exit and logs. There is no agency plan in this mode.
+func (m *upgradeManager) singleServerStatus() (client.UpgradeStatus, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if m.singleUpgradeFailure != nil {
+		return client.UpgradeStatus{Failed: true, Reason: m.singleUpgradeFailure.Error()}, nil
+	}
+	return client.UpgradeStatus{}, maskAny(client.NewPreconditionFailedError("Mode does not support agency based upgrades"))
 }
 
 func (m *upgradeManager) statusFromPlan(plan UpgradePlan) (client.UpgradeStatus, error) {
@@ -651,28 +688,66 @@ func (m *upgradeManager) hasLocalFailedPlan() bool {
 	return m.localFailedPlan.IsFailed()
 }
 
+// storeLocalFailedPlan keeps its own copy, so later changes to plan by the
+// caller or the watcher cannot alter it.
 func (m *upgradeManager) storeLocalFailedPlan(plan UpgradePlan) {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
-	m.localFailedPlan = plan
+	m.localFailedPlan = plan.clone()
 }
 
+// localFailedPlanSnapshot returns a copy of the locally held failed plan.
+func (m *upgradeManager) localFailedPlanSnapshot() (UpgradePlan, bool) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if !m.localFailedPlan.IsFailed() {
+		return UpgradePlan{}, false
+	}
+	return m.localFailedPlan.clone(), true
+}
+
+// takeLocalFailedPlan removes the locally held failed plan and marks a
+// retry of it as active.
 func (m *upgradeManager) takeLocalFailedPlan() (UpgradePlan, bool) {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 	if !m.localFailedPlan.IsFailed() {
 		return UpgradePlan{}, false
 	}
-	plan := m.localFailedPlan
+	plan := m.localFailedPlan.clone()
 	m.localFailedPlan = UpgradePlan{}
+	m.localRetryActive = true
 	return plan, true
 }
 
-func (m *upgradeManager) localFailedStatus() (client.UpgradeStatus, bool) {
+// dropLocalFailedPlan forgets the locally held failed plan with the given
+// revision, unless a retry has already taken it.
+func (m *upgradeManager) dropLocalFailedPlan(revision int) {
 	m.stateMu.Lock()
-	plan := m.localFailedPlan
-	m.stateMu.Unlock()
-	if !plan.IsFailed() {
+	defer m.stateMu.Unlock()
+	if m.localFailedPlan.IsFailed() && m.localFailedPlan.Revision == revision {
+		m.localFailedPlan = UpgradePlan{}
+	}
+}
+
+// clearLocalFailedPlan forgets any locally held failed plan.
+func (m *upgradeManager) clearLocalFailedPlan() {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.localFailedPlan = UpgradePlan{}
+}
+
+// localUpgradePending reports whether a local failure or its retry must
+// keep the plan watcher from acting on the agency plan.
+func (m *upgradeManager) localUpgradePending() bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	return m.localFailedPlan.IsFailed() || m.localRetryActive
+}
+
+func (m *upgradeManager) localFailedStatus() (client.UpgradeStatus, bool) {
+	plan, ok := m.localFailedPlanSnapshot()
+	if !ok {
 		return client.UpgradeStatus{}, false
 	}
 	status, err := m.statusFromPlan(plan)
@@ -685,20 +760,90 @@ func (m *upgradeManager) localFailedStatus() (client.UpgradeStatus, bool) {
 // retryLocalFailedPlan restarts the failed step without reading the agency.
 // The caller must hold mutex. The HTTP request context is not used, because
 // parking the sole agent already made that agency unavailable.
+// processUpgradePlan waits for the previous run, including its cleanup.
 func (m *upgradeManager) retryLocalFailedPlan() error {
 	plan, ok := m.takeLocalFailedPlan()
-	if !ok || len(plan.Entries) == 0 {
+	if !ok {
 		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
 	}
 	plan.ResetFailures()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	go func() {
 		defer cancel()
+		defer func() {
+			m.stateMu.Lock()
+			m.localRetryActive = false
+			m.stateMu.Unlock()
+		}()
 		if err := m.processUpgradePlan(ctx, plan); err != nil {
 			m.log.Error().Err(err).Msg("Failed to process locally stored upgrade plan")
 		}
 	}()
 	return nil
+}
+
+// HasLocalUpgradeFailure reports whether this starter holds a failed
+// upgrade step that it could not record in the agency.
+func (m *upgradeManager) HasLocalUpgradeFailure() bool {
+	return m.hasLocalFailedPlan()
+}
+
+// RetryLocalUpgradeFailure retries only a locally held failure.
+func (m *upgradeManager) RetryLocalUpgradeFailure() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if !m.hasLocalFailedPlan() {
+		return maskAny(client.NewNotFoundError("This starter holds no failed upgrade step"))
+	}
+	return m.retryLocalFailedPlan()
+}
+
+// LocalUpgradeFailureStatus returns the status of a locally held failure.
+func (m *upgradeManager) LocalUpgradeFailureStatus() (client.UpgradeStatus, bool) {
+	return m.localFailedStatus()
+}
+
+// reconcileLocalFailedPlan is called by the plan watcher with the plan read
+// from the agency. It returns true when the watcher must not act on that plan.
+// A failure that could not be recorded is written once the agency is back,
+// so the parked server is only restarted by an explicit retry.
+func (m *upgradeManager) reconcileLocalFailedPlan(ctx context.Context, agencyPlan UpgradePlan) bool {
+	if !m.localUpgradePending() {
+		return false
+	}
+	// Retries take the local plan while holding mutex. Hold it as well, so a
+	// retry cannot start between the snapshot and the agency write below.
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.stateMu.Lock()
+	retrying := m.localRetryActive
+	m.stateMu.Unlock()
+	if retrying {
+		return true
+	}
+	local, ok := m.localFailedPlanSnapshot()
+	if !ok {
+		return false
+	}
+	if agencyPlan.IsFailed() {
+		// The agency already holds a failure; it needs a retry as well.
+		m.dropLocalFailedPlan(local.Revision)
+		return true
+	}
+	if agencyPlan.Revision != local.Revision {
+		// The plan was replaced, e.g. aborted and created again.
+		m.log.Info().Msg("Discarding local upgrade failure for a replaced upgrade plan")
+		m.dropLocalFailedPlan(local.Revision)
+		return false
+	}
+	overwrite := false
+	if _, err := m.writeUpgradePlan(ctx, local, overwrite); err != nil {
+		m.log.Debug().Err(err).Msg("Failed to record local upgrade failure in agency")
+		return true
+	}
+	m.log.Info().Msg("Recorded local upgrade failure in agency")
+	m.dropLocalFailedPlan(local.Revision)
+	return true
 }
 
 // checkStarterVersions ensures that all starters have the same version.
@@ -887,101 +1032,88 @@ func autoUpgradeExitError(serverType definitions.ServerType, exitCode int, serve
 	return fmt.Errorf("%s\n%s", prefix, fitUpgradeDiagnostics(serverLog, budget))
 }
 
-// fitUpgradeDiagnostics keeps the last FATAL/ERROR lines and the tail inside
-// budget bytes. Prefix-only truncation would drop those when earlier ERROR
-// lines already fill the reason.
+// fitUpgradeDiagnostics selects log lines that fit in budget bytes. The end
+// of the log is chosen first, then the last and the first ERROR/FATAL line,
+// then the rest of the tail, newest first, and finally the remaining lines,
+// oldest first. Each line is bounded on its own, so one long line cannot push
+// the others out. The selected lines keep their original order.
 func fitUpgradeDiagnostics(serverLog string, budget int) string {
 	if budget <= 0 {
 		return ""
 	}
-	lines := splitLogLines(serverLog)
+	var lines []string
+	for _, line := range splitLogLines(serverLog) {
+		if line = strings.TrimRight(line, "\r"); line != "" {
+			lines = append(lines, line)
+		}
+	}
 	if len(lines) == 0 {
 		return ""
 	}
+	lineCap := budget / 8
+	if lineCap < 64 {
+		lineCap = budget
+	}
 	const tailLines = 20
-	tail := lines
-	if len(lines) > tailLines {
-		tail = lines[len(lines)-tailLines:]
-	}
-	firstError, lastError := "", ""
-	for _, line := range lines {
-		line = strings.TrimRight(line, "\r")
-		if !isUpgradeErrorLine(line) {
-			continue
+
+	firstError, lastError := -1, -1
+	for i, line := range lines {
+		if isUpgradeErrorLine(line) {
+			if firstError < 0 {
+				firstError = i
+			}
+			lastError = i
 		}
-		if firstError == "" {
-			firstError = line
-		}
-		lastError = line
 	}
-	seen := make(map[string]struct{})
-	var reserved []string
-	addReserved := func(line string) {
-		line = strings.TrimRight(line, "\r")
-		if line == "" {
-			return
-		}
-		if _, ok := seen[line]; ok {
-			return
-		}
-		seen[line] = struct{}{}
-		reserved = append(reserved, line)
+	last := len(lines) - 1
+	priority := []int{last, lastError, firstError}
+	for i := last - 1; i >= 0 && i > last-tailLines; i-- {
+		priority = append(priority, i)
 	}
-	if firstError != "" {
-		addReserved(firstError)
+	for i := 0; i <= last; i++ {
+		priority = append(priority, i)
 	}
-	if lastError != "" {
-		addReserved(lastError)
-	}
-	for _, line := range tail {
-		addReserved(line)
-	}
-	reservedText := strings.Join(reserved, "\n")
-	if len(reservedText) >= budget {
-		return trimToBudget(reservedText, budget)
-	}
-	remain := budget - len(reservedText)
-	if remain > 1 {
-		remain--
-	} else {
-		return reservedText
-	}
-	var head []string
+
+	selected := make(map[int]string)
 	used := 0
-	for _, line := range lines {
-		line = strings.TrimRight(line, "\r")
-		if line == "" {
+	for _, i := range priority {
+		if i < 0 {
 			continue
 		}
-		if _, ok := seen[line]; ok {
+		if _, ok := selected[i]; ok {
 			continue
 		}
+		line := capLogLine(lines[i], lineCap)
 		need := len(line)
-		if len(head) > 0 {
+		if len(selected) > 0 {
 			need++
 		}
-		if used+need > remain {
-			break
+		if used+need > budget {
+			continue
 		}
-		head = append(head, line)
+		selected[i] = line
 		used += need
-		seen[line] = struct{}{}
 	}
-	if len(head) == 0 {
-		return reservedText
+	out := make([]string, 0, len(selected))
+	for i := range lines {
+		if line, ok := selected[i]; ok {
+			out = append(out, line)
+		}
 	}
-	return strings.Join(head, "\n") + "\n" + reservedText
+	return strings.Join(out, "\n")
 }
 
-func trimToBudget(text string, budget int) string {
-	if budget <= 0 || len(text) <= budget {
-		return text
+// capLogLine shortens line to at most max bytes without splitting a UTF-8
+// character.
+func capLogLine(line string, max int) string {
+	if len(line) <= max {
+		return line
 	}
-	const suffix = "\n..."
-	if budget <= len(suffix) {
-		return text[:budget]
+	const suffix = "..."
+	if max <= len(suffix) {
+		return strings.ToValidUTF8(line[:max], "")
 	}
-	return text[:budget-len(suffix)] + suffix
+	return strings.ToValidUTF8(line[:max-len(suffix)], "") + suffix
 }
 
 func splitLogLines(body string) []string {
@@ -1084,8 +1216,11 @@ func (m *upgradeManager) waitForPlanChanges(ctx context.Context) chan *UpgradePl
 			} else if err != nil {
 				// Failed to read plan
 				m.log.Info().Err(err).Msg("Failed to read upgrade plan")
-			} else if !oldPlan.Equals(plan) {
-				ch <- &plan
+			} else if !oldPlan.Equals(plan) || m.localUpgradePending() {
+				// Keep delivering while a local failure is pending, so it can
+				// be reconciled once the agency is back.
+				delivered := plan.clone()
+				ch <- &delivered
 				oldPlan = plan
 				delay = time.Second
 			}
@@ -1134,6 +1269,9 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 		}
 
 		plan := *newPlan
+		if m.reconcileLocalFailedPlan(ctx, plan) {
+			continue
+		}
 		if plan.IsReady() {
 			// Plan entries have been processed
 			if !plan.Finished {
@@ -1162,6 +1300,14 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		return maskAny(fmt.Errorf("not in running phase"))
 	}
 
+	// Work on a copy: the caller's plan may share its entries with the
+	// watcher's last seen plan.
+	plan = plan.clone()
+
+	// A failure that cannot be written to the agency is published only after
+	// cleanup below, so a retry cannot start before this run has finished.
+	var localFailure *UpgradePlan
+
 	// recordFailure increments the failure count in the first entry and
 	// stored the modified plan.
 	// It then returns the original error.
@@ -1172,19 +1318,38 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		plan.Entries[0].Failures++
 		plan.Entries[0].Reason = err.Error()
 		overwrite := false
-		if _, writeErr := m.writeUpgradePlan(ctx, plan, overwrite); writeErr != nil {
+		if written, writeErr := m.writeUpgradePlan(ctx, plan, overwrite); writeErr != nil {
 			m.log.Error().Err(writeErr).Msg("Failed to write updated plan (recording failure)")
-			m.storeLocalFailedPlan(plan)
+			if !driver.IsPreconditionFailed(writeErr) {
+				// The agency could not be reached, e.g. because its only
+				// agent is the one that failed. A precondition failure means
+				// the plan was changed or aborted meanwhile; keep nothing then.
+				failed := plan.clone()
+				localFailure = &failed
+			}
+		} else {
+			plan.Revision = written.Revision
+			localFailure = nil
 		}
 		return maskAny(err)
 	}
 
+	if len(plan.Entries) == 0 {
+		return nil
+	}
 	firstEntry := plan.Entries[0]
 	// For server entries, we only respond when the peer is ours
 	if firstEntry.PeerID != myPeer.ID {
 		return nil
 	}
-	// Prepare cleanup
+	// Deferred calls run in reverse: cleanup, publish, unlock.
+	m.processMu.Lock()
+	defer m.processMu.Unlock()
+	defer func() {
+		if localFailure != nil {
+			m.storeLocalFailedPlan(*localFailure)
+		}
+	}()
 	defer m.endServerUpgrade()
 
 	switch firstEntry.Type {
