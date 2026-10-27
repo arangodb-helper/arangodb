@@ -645,15 +645,19 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		if isLocalUpgradeRequest(r) {
 			// Another starter asks for a failure this starter could not record
 			// in the agency.
-			writeUpgradeResult(w, um.RetryLocalUpgradeFailure())
+			writeUpgradeResult(w, um.RetryLocalUpgradeFailure(ctx))
 			return
 		}
 		// A stopped sole agent can keep agency reads blocked beyond the CLI
 		// timeout. Retry cached failures before querying the agency or
 		// forwarding to a leader that would query it.
-		if mode.HasAgency() && !um.HasLocalUpgradeFailure() && s.retryPeerLocalUpgradeFailure(ctx) {
-			writeUpgradeResult(w, nil)
-			return
+		if mode.HasAgency() && !um.HasLocalUpgradeFailure() {
+			if held, err := s.retryPeerLocalUpgradeFailure(ctx); held {
+				// The starter holding the failure retried it, or refused to,
+				// e.g. because other servers are unhealthy.
+				writeUpgradeResult(w, err)
+				return
+			}
 		}
 		var err error
 		if isRunningMaster || mode.IsSingleMode() || um.HasLocalUpgradeFailure() {
@@ -673,7 +677,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		writeUpgradeResult(w, err)
 	case "DELETE":
 		// Abort the upgrade process
-		if !isRunningMaster {
+		if !isRunningMaster && !mode.IsSingleMode() {
 			// We're not the starter leader.
 			// Forward the request to the leader.
 			c, err := createMasterClient(masterURL)
@@ -689,7 +693,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 				}
 			}
 		} else {
-			// We're the starter leader, process the request
+			// The leader or a standalone starter handles cleanup locally.
 			if err := s.context.UpgradeManager().AbortDatabaseUpgrade(ctx); err != nil {
 				handleError(w, err)
 			} else {
@@ -753,17 +757,19 @@ func writeUpgradeResult(w http.ResponseWriter, err error) {
 }
 
 // retryPeerLocalUpgradeFailure asks the other starters to retry a failure
-// that they could not record in the agency. It returns true when one did.
-// Only the starter whose server failed holds such a failure.
-func (s *httpServer) retryPeerLocalUpgradeFailure(ctx context.Context) bool {
-	return s.askOtherPeers(ctx, http.MethodPut, func() interface{} { return nil }) != nil
+// that they could not record in the agency. Only the starter whose server
+// failed holds such a failure. held is true when one of them answered for
+// it; err is then its refusal, if any.
+func (s *httpServer) retryPeerLocalUpgradeFailure(ctx context.Context) (held bool, err error) {
+	_, held, err = s.askOtherPeers(ctx, http.MethodPut, func() interface{} { return nil })
+	return held, err
 }
 
 // peerLocalUpgradeFailureStatus returns the status of a failure that another
 // starter could not record in the agency.
 func (s *httpServer) peerLocalUpgradeFailureStatus(ctx context.Context) (client.UpgradeStatus, bool) {
-	result := s.askOtherPeers(ctx, http.MethodGet, func() interface{} { return &client.UpgradeStatus{} })
-	if result == nil {
+	result, held, err := s.askOtherPeers(ctx, http.MethodGet, func() interface{} { return &client.UpgradeStatus{} })
+	if !held || err != nil {
 		return client.UpgradeStatus{}, false
 	}
 	return *result.(*client.UpgradeStatus), true
@@ -776,13 +782,16 @@ const localUpgradePeerTimeout = 5 * time.Second
 type peerUpgradeAnswer struct {
 	peerID string
 	result interface{}
-	err    error
+	// answered is true when the peer responded with an HTTP status.
+	answered bool
+	err      error
 }
 
 // askOtherPeers sends a local upgrade request to all other starters at once.
-// It returns the result of the first one that answers OK, or nil.
-// newResult returns where to decode that answer; nil for none.
-func (s *httpServer) askOtherPeers(ctx context.Context, method string, newResult func() interface{}) interface{} {
+// A peer holds the failure when it answers with anything but NotFound.
+// The first OK answer wins; otherwise the first refusal is returned.
+// newResult returns where to decode the answer; nil for none.
+func (s *httpServer) askOtherPeers(ctx context.Context, method string, newResult func() interface{}) (result interface{}, held bool, err error) {
 	config, myPeer, _ := s.context.ClusterConfig()
 	ctx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
 	defer cancel()
@@ -795,58 +804,79 @@ func (s *httpServer) askOtherPeers(ctx context.Context, method string, newResult
 		asked++
 		go func(p Peer) {
 			result := newResult()
-			err := s.sendLocalUpgradeRequest(ctx, p, method, result)
-			answers <- peerUpgradeAnswer{peerID: p.ID, result: result, err: err}
+			answered, err := s.sendLocalUpgradeRequest(ctx, p, method, result)
+			answers <- peerUpgradeAnswer{peerID: p.ID, result: result, answered: answered, err: err}
 		}(p)
 	}
+	var refusal error
 	for ; asked > 0; asked-- {
 		a := <-answers
 		if a.err != nil {
-			if !client.IsNotFound(a.err) {
+			if a.answered && !client.IsNotFound(a.err) {
+				s.log.Info().Err(a.err).Str("peer", a.peerID).Str("method", method).Msg("Peer holding the upgrade failure refused the request")
+				if refusal == nil {
+					refusal = a.err
+				}
+			} else if !client.IsNotFound(a.err) {
 				s.log.Debug().Err(a.err).Str("peer", a.peerID).Msg("Local upgrade request to peer failed")
 			}
 			continue
 		}
 		s.log.Info().Str("peer", a.peerID).Str("method", method).Msg("Upgrade failure is held by peer")
-		if a.result == nil {
-			return struct{}{}
-		}
-		return a.result
+		return a.result, true, nil
 	}
-	return nil
+	if refusal != nil {
+		return nil, true, refusal
+	}
+	return nil, false, nil
 }
 
 var localUpgradeHTTPClient = client.DefaultHTTPClient()
 
-func (s *httpServer) sendLocalUpgradeRequest(ctx context.Context, p Peer, method string, result interface{}) error {
+// sendLocalUpgradeRequest sends a local upgrade request to p. answered is
+// true when p responded with an HTTP status, so a non-OK status is p's own
+// answer rather than a failure to reach it.
+func (s *httpServer) sendLocalUpgradeRequest(ctx context.Context, p Peer, method string, result interface{}) (answered bool, err error) {
 	target := p.CreateStarterURL("/database-auto-upgrade?" + localUpgradeQuery + "=true")
 	req, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {
-		return maskAny(err)
+		return false, maskAny(err)
 	}
 	resp, err := localUpgradeHTTPClient.Do(req)
 	if err != nil {
-		return maskAny(err)
+		return false, maskAny(err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return maskAny(err)
+		return false, maskAny(err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		var er client.ErrorResponse
 		_ = json.Unmarshal(body, &er)
-		if resp.StatusCode == http.StatusNotFound {
-			return maskAny(client.NewNotFoundError(er.Error))
+		msg := er.Error
+		if msg == "" {
+			msg = fmt.Sprintf("%s %s returned status %d", method, target, resp.StatusCode)
 		}
-		return maskAny(fmt.Errorf("%s %s returned status %d: %s", method, target, resp.StatusCode, er.Error))
+		switch resp.StatusCode {
+		case http.StatusNotFound:
+			return true, maskAny(client.NewNotFoundError(msg))
+		case http.StatusBadRequest:
+			return true, maskAny(client.NewBadRequestError(msg))
+		case http.StatusPreconditionFailed:
+			return true, maskAny(client.NewPreconditionFailedError(msg))
+		case http.StatusServiceUnavailable:
+			return true, maskAny(client.NewServiceUnavailableError(msg))
+		default:
+			return true, maskAny(client.NewInternalServerError(msg))
+		}
 	}
 	if result != nil {
 		if err := json.Unmarshal(body, result); err != nil {
-			return maskAny(err)
+			return true, maskAny(err)
 		}
 	}
-	return nil
+	return true, nil
 }
 
 func handleError(w http.ResponseWriter, err error) {
