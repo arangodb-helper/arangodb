@@ -1402,3 +1402,331 @@ func TestDropKeepsNewerLocalFailure(t *testing.T) {
 	m.dropLocalFailedPlan(newer)
 	require.False(t, m.HasLocalUpgradeFailure())
 }
+
+func TestAbandonedAutoUpgradeExitIsStillRecorded(t *testing.T) {
+	m := &upgradeManager{}
+	m.beginServerUpgrade(definitions.ServerTypeSingle)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeSingle)
+
+	// The wait gives up on its deadline while the process still runs.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	require.ErrorContains(t, m.waitUntilUpgradeServerStarted(ctx), autoUpgradeTimeoutReason)
+	m.endServerUpgrade()
+
+	// Its later non-zero exit is still an auto-upgrade exit, so the wrapper
+	// parks the server instead of treating it as an ordinary crash.
+	require.True(t, m.IsServerAutoUpgradeRunning(definitions.ServerTypeSingle))
+	p := &processWrapper{serverType: definitions.ServerTypeSingle}
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL late failure" }, nil)
+	require.True(t, failed)
+	// Its identity is released once it has exited.
+	require.False(t, m.IsServerUpgradeInProgress(definitions.ServerTypeSingle))
+	require.False(t, m.IsServerAutoUpgradeRunning(definitions.ServerTypeSingle))
+
+	// A new attempt is unaffected.
+	m.beginServerUpgrade(definitions.ServerTypeSingle)
+	require.True(t, m.ServerDatabaseAutoUpgrade(definitions.ServerTypeSingle, 0))
+}
+
+func TestWatcherSkipsOutdatedPlanRevision(t *testing.T) {
+	ctx := context.Background()
+	created := time.Unix(1700000000, 0).UTC()
+	agency := &planAgency{}
+	// A local retry already advanced the plan past the delivered revision.
+	agency.setPlan(&UpgradePlan{Revision: 5, CreatedAt: created, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeCoordinator, PeerID: "peer1"}}})
+	c := &unavailableAgencyContext{
+		peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+		restarts: make(chan definitions.ServerType, 1),
+	}
+	c.agency = agency.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	stale := UpgradePlan{Revision: 4, CreatedAt: created, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "peer1"}}}
+
+	require.NoError(t, m.processWatchedUpgradePlan(ctx, stale))
+	require.Empty(t, c.restarts, "an outdated entry restarted a server")
+	require.False(t, m.IsServerUpgradeInProgress(definitions.ServerTypeDBServer))
+
+	// The same check rejects a plan that was removed.
+	agency.setPlan(nil)
+	require.NoError(t, m.processWatchedUpgradePlan(ctx, stale))
+	require.Empty(t, c.restarts)
+}
+
+func TestAutoUpgradeFailureFallsBackToProcessOutput(t *testing.T) {
+	m := &upgradeManager{}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	output := utils.NewLimitedBuffer(1000)
+	_, err := output.Write([]byte("cannot open log file '/data/arangod.log': permission denied\n"))
+	require.NoError(t, err)
+
+	p := &processWrapper{serverType: definitions.ServerTypeDBServer}
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "" }, output)
+	require.True(t, failed)
+	err = m.waitUntilUpgradeServerStarted(context.Background())
+	require.ErrorContains(t, err, "exited with code 1")
+	require.ErrorContains(t, err, "permission denied")
+}
+
+func TestServerLogKeepsLogOrder(t *testing.T) {
+	path := t.TempDir() + "/arangod.log"
+	body := "2026-10-26T10:51:46Z ERROR [cause] failed to open '_system'\n" +
+		"2026-10-26T10:51:47Z INFO [stop] shutting down\n" +
+		"2026-10-26T10:51:48Z FATAL [crash] assertion failed\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0600))
+
+	text, err := readServerLogSince(path, 0)
+	require.NoError(t, err)
+	require.Equal(t, strings.TrimSuffix(body, "\n"), text)
+
+	reason := autoUpgradeExitError(definitions.ServerTypeDBServer, 1, text).Error()
+	require.True(t, strings.HasSuffix(reason, "FATAL [crash] assertion failed"), reason)
+}
+
+func TestUnrelatedPeerErrorAllowsNormalRetry(t *testing.T) {
+	// A starter that is still bootstrapping answers 400 before it looks at
+	// the local flag. That answer must not be taken as the owner's refusal.
+	bootstrapping := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusBadRequest, "Must be in running state to do upgrades")
+	}))
+	defer bootstrapping.Close()
+	// An older starter ignores the local flag and answers its normal status.
+	older := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(contentTypeHeader, contentTypeJSON)
+		_, _ = w.Write([]byte(`{"ready":false,"failed":false}`))
+	}))
+	defer older.Close()
+
+	leaderPeer := Peer{ID: "leader"}
+	config := ClusterConfig{AllPeers: []Peer{leaderPeer, peerFor(t, "booting", bootstrapping.URL), peerFor(t, "older", older.URL)}}
+	leader := &fakeHTTPUpgrade{}
+	s := serveUpgrade(&fakeHTTPContext{isMaster: true, mode: ServiceModeCluster, config: config, me: leaderPeer, upgrade: leader})
+
+	w := doUpgradeRequest(s, http.MethodPut)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, int32(1), leader.retries.Load(), "the normal agency retry did not run")
+
+	_, found := s.peerLocalUpgradeFailureStatus(context.Background())
+	require.False(t, found)
+}
+
+func TestCleanupFailureKeepsFirstReason(t *testing.T) {
+	entry := UpgradePlanEntry{Type: UpgradeEntryTypeDBServer}
+	first := fmt.Errorf("dbserver auto-upgrade exited with code 1 (exit with error)\nFATAL [67bdc] assertion failed")
+	recordEntryFailure(&entry, first, false)
+	recordEntryFailure(&entry, fmt.Errorf("Failed to enable supervision: agency timeout"), true)
+
+	require.Equal(t, 1, entry.Failures)
+	require.True(t, strings.HasPrefix(entry.Reason, first.Error()), entry.Reason)
+	require.Contains(t, entry.Reason, "Failed to enable supervision")
+}
+
+// stopAtRestartContext records execution without starting an actual server.
+type stopAtRestartContext struct {
+	unavailableAgencyContext
+}
+
+func (c *stopAtRestartContext) RestartServer(serverType definitions.ServerType) error {
+	c.restarts <- serverType
+	return fmt.Errorf("test stopped at restart")
+}
+
+func TestWatcherRetriesValidationAfterAgencyRecovery(t *testing.T) {
+	shortenAgencyTimeout(t)
+	for _, advanced := range []bool{false, true} {
+		t.Run(fmt.Sprintf("advanced=%t", advanced), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			plan := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1"}}}
+			a := &planAgency{plan: &plan}
+			c := &stopAtRestartContext{unavailableAgencyContext: unavailableAgencyContext{
+				peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+				restarts: make(chan definitions.ServerType, 2),
+				agency:   a.start(t),
+			}}
+			m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+			changes := m.waitForPlanChanges(ctx)
+			next := func() UpgradePlan {
+				t.Helper()
+				select {
+				case p := <-changes:
+					require.NotNil(t, p)
+					return *p
+				case <-time.After(5 * time.Second):
+					t.Fatal("plan was not redelivered")
+					return UpgradePlan{}
+				}
+			}
+			delivered := next()
+			// The agency goes down between delivery and validation.
+			a.mu.Lock()
+			a.hang = true
+			a.mu.Unlock()
+			require.ErrorContains(t, m.processWatchedUpgradePlan(ctx, delivered), "Failed to validate upgrade plan")
+			require.Empty(t, c.restarts)
+			require.True(t, m.processMu.TryLock(), "validation must not block explicit retry")
+			m.processMu.Unlock()
+			require.False(t, m.IsServerUpgradeInProgress(definitions.ServerTypeAgent))
+
+			recovered := plan.clone()
+			if advanced {
+				recovered.Revision++
+				recovered.Entries[0].Type = UpgradeEntryTypeCoordinator
+			}
+			a.mu.Lock()
+			a.plan, a.hang = &recovered, false
+			a.mu.Unlock()
+			fresh := next()
+			require.Equal(t, recovered.Revision, fresh.Revision)
+			if advanced {
+				// Even a delayed old delivery cannot execute after recovery.
+				require.NoError(t, m.processWatchedUpgradePlan(ctx, delivered))
+				require.Empty(t, c.restarts)
+			}
+			require.ErrorContains(t, m.processWatchedUpgradePlan(ctx, fresh), "test stopped at restart")
+			require.Len(t, c.restarts, 1)
+			if advanced {
+				require.Equal(t, definitions.ServerType(definitions.ServerTypeCoordinator), <-c.restarts)
+			} else {
+				require.Equal(t, definitions.ServerType(definitions.ServerTypeAgent), <-c.restarts)
+			}
+		})
+	}
+}
+
+func TestLateStandaloneFailureUpdatesStatus(t *testing.T) {
+	for _, beforeCleanup := range []bool{false, true} {
+		t.Run(fmt.Sprintf("before-cleanup=%t", beforeCleanup), func(t *testing.T) {
+			c := &standaloneUpgradeTestContext{peer: Peer{ID: "single"}}
+			m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c, singleUpgradeFailure: fmt.Errorf(autoUpgradeTimeoutReason)}
+			m.beginServerUpgrade(definitions.ServerTypeSingle)
+			m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeSingle)
+			if !beforeCleanup {
+				m.endServerUpgrade()
+			}
+			p := &processWrapper{serverType: definitions.ServerTypeSingle}
+			failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL late database failure" }, nil)
+			require.True(t, failed)
+			if beforeCleanup {
+				m.endServerUpgrade()
+			}
+			require.Eventually(t, func() bool {
+				status, err := m.Status(context.Background())
+				return err == nil && status.Failed && strings.Contains(status.Reason, "exited with code 1") && strings.Contains(status.Reason, "late database failure")
+			}, time.Second, time.Millisecond)
+		})
+	}
+}
+
+func TestLateClusterFailureUpdatesCachedAndAgencyReason(t *testing.T) {
+	writes := make(chan string, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/_api/agency/write" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var body interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		encoded, _ := json.Marshal(body)
+		writes <- string(encoded)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[1]}`))
+	}))
+	defer ts.Close()
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "localhost", Port: 8528}, agency: ts}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	plan := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1, Reason: autoUpgradeTimeoutReason}}}
+	m.beginServerUpgrade(definitions.ServerTypeAgent)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeAgent)
+	m.endServerUpgradePlan(&plan)
+	m.storeLocalFailedPlan(plan)
+	p := &processWrapper{serverType: definitions.ServerTypeAgent}
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL late agent failure" }, nil)
+	require.True(t, failed)
+	require.Eventually(t, func() bool {
+		status, ok := m.LocalUpgradeFailureStatus()
+		return ok && strings.Contains(status.Reason, "late agent failure") && strings.Contains(status.Reason, "exited with code 1")
+	}, time.Second, time.Millisecond)
+	// An agency plan that already records the timeout must be updated too.
+	require.True(t, m.reconcileLocalFailedPlan(context.Background(), plan))
+	select {
+	case body := <-writes:
+		require.Contains(t, body, "late agent failure")
+		require.Contains(t, body, "exited with code 1")
+	case <-time.After(time.Second):
+		t.Fatal("late exit was not written to the agency")
+	}
+	require.False(t, m.HasLocalUpgradeFailure())
+}
+
+func TestLateFailureCannotOverwriteNewAttempt(t *testing.T) {
+	m := &upgradeManager{singleUpgradeFailure: fmt.Errorf("new attempt failure")}
+	m.beginServerUpgrade(definitions.ServerTypeSingle)
+	oldGeneration := m.autoUpgradeGeneration
+	m.beginServerUpgrade(definitions.ServerTypeSingle)
+	m.publishLateUpgradeFailure(oldGeneration, nil, fmt.Errorf("old late exit"))
+	require.EqualError(t, m.singleUpgradeFailure, "new attempt failure")
+}
+
+func TestLateFailureCannotRestoreRemovedPlan(t *testing.T) {
+	m := &upgradeManager{}
+	m.beginServerUpgrade(definitions.ServerTypeAgent)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeAgent)
+	plan := UpgradePlan{Revision: 4, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, Failures: 1}}}
+	m.endServerUpgradePlan(&plan)
+	generation := m.autoUpgradeGeneration
+	m.discardAbandonedPlan(nil)
+	m.publishLateUpgradeFailure(generation, &plan, fmt.Errorf("late failure"))
+	require.False(t, m.HasLocalUpgradeFailure())
+}
+
+func TestAcceptedRetryInvalidatesQueuedLateFailure(t *testing.T) {
+	m := &upgradeManager{}
+	m.beginServerUpgrade(definitions.ServerTypeAgent)
+	generation := m.autoUpgradeGeneration
+	plan := UpgradePlan{Revision: 4, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, Failures: 1}}}
+	m.storeLocalFailedPlan(plan)
+	_, ok := m.takeLocalFailedPlan()
+	require.True(t, ok)
+	m.publishLateUpgradeFailure(generation, &plan, fmt.Errorf("previous attempt exited"))
+	require.False(t, m.HasLocalUpgradeFailure())
+}
+
+func TestLateFailureWakesPlanWatcher(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	plan := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1, Reason: autoUpgradeTimeoutReason}}}
+	a := &planAgency{plan: &plan}
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528}}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeAgent)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeAgent)
+	m.endServerUpgradePlan(&plan)
+
+	changes := m.waitForPlanChanges(ctx)
+	select {
+	case <-changes:
+	case <-time.After(5 * time.Second):
+		t.Fatal("plan was not delivered")
+	}
+	// Let the watcher settle into its idle poll interval.
+	time.Sleep(1500 * time.Millisecond)
+
+	p := &processWrapper{serverType: definitions.ServerTypeAgent}
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL late agent failure" }, nil)
+	require.True(t, failed)
+	// The stored failure is delivered for reconciliation at once, not
+	// after the remaining poll interval.
+	select {
+	case delivered := <-changes:
+		require.NotNil(t, delivered)
+		require.True(t, m.HasLocalUpgradeFailure())
+	case <-time.After(time.Second):
+		t.Fatal("late failure did not wake the plan watcher")
+	}
+}

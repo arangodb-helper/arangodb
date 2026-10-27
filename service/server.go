@@ -645,7 +645,11 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		if isLocalUpgradeRequest(r) {
 			// Another starter asks for a failure this starter could not record
 			// in the agency.
-			writeUpgradeResult(w, um.RetryLocalUpgradeFailure(ctx))
+			err := um.RetryLocalUpgradeFailure(ctx)
+			if !client.IsNotFound(err) {
+				markLocalUpgradeFailureHeld(w)
+			}
+			writeUpgradeResult(w, err)
 			return
 		}
 		// A stopped sole agent can keep agency reads blocked beyond the CLI
@@ -709,6 +713,8 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 			var found bool
 			if status, found = um.LocalUpgradeFailureStatus(); !found {
 				err = client.NewNotFoundError("This starter holds no failed upgrade step")
+			} else {
+				markLocalUpgradeFailureHeld(w)
 			}
 		} else {
 			// Cached failures must remain visible while the agency is down.
@@ -741,6 +747,15 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 // localUpgradeQuery marks a starter-to-starter request that must be served
 // from this starter's own state, without the agency and without forwarding.
 const localUpgradeQuery = "local"
+
+// localUpgradeHeldHeader is set on an answer to a local upgrade request
+// when this starter holds the failure. Any other answer, e.g. a 400 from a
+// starter that is still bootstrapping, says nothing about the failure.
+const localUpgradeHeldHeader = "X-Arangodb-Starter-Upgrade-Failure-Held"
+
+func markLocalUpgradeFailureHeld(w http.ResponseWriter) {
+	w.Header().Set(localUpgradeHeldHeader, "true")
+}
 
 func isLocalUpgradeRequest(r *http.Request) bool {
 	local, _ := strconv.ParseBool(r.URL.Query().Get(localUpgradeQuery))
@@ -782,14 +797,15 @@ const localUpgradePeerTimeout = 5 * time.Second
 type peerUpgradeAnswer struct {
 	peerID string
 	result interface{}
-	// answered is true when the peer responded with an HTTP status.
-	answered bool
-	err      error
+	// held is true when the peer marked its answer as coming from the
+	// starter that holds the failure.
+	held bool
+	err  error
 }
 
 // askOtherPeers sends a local upgrade request to all other starters at once.
-// A peer holds the failure when it answers with anything but NotFound.
-// The first OK answer wins; otherwise the first refusal is returned.
+// Only answers marked with localUpgradeHeldHeader count. The first such OK
+// answer wins; otherwise the first such refusal is returned.
 // newResult returns where to decode the answer; nil for none.
 func (s *httpServer) askOtherPeers(ctx context.Context, method string, newResult func() interface{}) (result interface{}, held bool, err error) {
 	config, myPeer, _ := s.context.ClusterConfig()
@@ -804,21 +820,25 @@ func (s *httpServer) askOtherPeers(ctx context.Context, method string, newResult
 		asked++
 		go func(p Peer) {
 			result := newResult()
-			answered, err := s.sendLocalUpgradeRequest(ctx, p, method, result)
-			answers <- peerUpgradeAnswer{peerID: p.ID, result: result, answered: answered, err: err}
+			held, err := s.sendLocalUpgradeRequest(ctx, p, method, result)
+			answers <- peerUpgradeAnswer{peerID: p.ID, result: result, held: held, err: err}
 		}(p)
 	}
 	var refusal error
 	for ; asked > 0; asked-- {
 		a := <-answers
-		if a.err != nil {
-			if a.answered && !client.IsNotFound(a.err) {
-				s.log.Info().Err(a.err).Str("peer", a.peerID).Str("method", method).Msg("Peer holding the upgrade failure refused the request")
-				if refusal == nil {
-					refusal = a.err
-				}
-			} else if !client.IsNotFound(a.err) {
+		if !a.held {
+			// Not the owner, not reachable, not running yet, or a starter
+			// that does not know local upgrade requests.
+			if a.err != nil && !client.IsNotFound(a.err) {
 				s.log.Debug().Err(a.err).Str("peer", a.peerID).Msg("Local upgrade request to peer failed")
+			}
+			continue
+		}
+		if a.err != nil {
+			s.log.Info().Err(a.err).Str("peer", a.peerID).Str("method", method).Msg("Peer holding the upgrade failure refused the request")
+			if refusal == nil {
+				refusal = a.err
 			}
 			continue
 		}
@@ -833,10 +853,9 @@ func (s *httpServer) askOtherPeers(ctx context.Context, method string, newResult
 
 var localUpgradeHTTPClient = client.DefaultHTTPClient()
 
-// sendLocalUpgradeRequest sends a local upgrade request to p. answered is
-// true when p responded with an HTTP status, so a non-OK status is p's own
-// answer rather than a failure to reach it.
-func (s *httpServer) sendLocalUpgradeRequest(ctx context.Context, p Peer, method string, result interface{}) (answered bool, err error) {
+// sendLocalUpgradeRequest sends a local upgrade request to p. held is true
+// when p marked its answer as coming from the starter that holds the failure.
+func (s *httpServer) sendLocalUpgradeRequest(ctx context.Context, p Peer, method string, result interface{}) (held bool, err error) {
 	target := p.CreateStarterURL("/database-auto-upgrade?" + localUpgradeQuery + "=true")
 	req, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {
@@ -847,6 +866,7 @@ func (s *httpServer) sendLocalUpgradeRequest(ctx context.Context, p Peer, method
 		return false, maskAny(err)
 	}
 	defer resp.Body.Close()
+	held = resp.Header.Get(localUpgradeHeldHeader) == "true"
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return false, maskAny(err)
@@ -860,23 +880,23 @@ func (s *httpServer) sendLocalUpgradeRequest(ctx context.Context, p Peer, method
 		}
 		switch resp.StatusCode {
 		case http.StatusNotFound:
-			return true, maskAny(client.NewNotFoundError(msg))
+			return held, maskAny(client.NewNotFoundError(msg))
 		case http.StatusBadRequest:
-			return true, maskAny(client.NewBadRequestError(msg))
+			return held, maskAny(client.NewBadRequestError(msg))
 		case http.StatusPreconditionFailed:
-			return true, maskAny(client.NewPreconditionFailedError(msg))
+			return held, maskAny(client.NewPreconditionFailedError(msg))
 		case http.StatusServiceUnavailable:
-			return true, maskAny(client.NewServiceUnavailableError(msg))
+			return held, maskAny(client.NewServiceUnavailableError(msg))
 		default:
-			return true, maskAny(client.NewInternalServerError(msg))
+			return held, maskAny(client.NewInternalServerError(msg))
 		}
 	}
 	if result != nil {
 		if err := json.Unmarshal(body, result); err != nil {
-			return true, maskAny(err)
+			return held, maskAny(err)
 		}
 	}
-	return true, nil
+	return held, nil
 }
 
 func handleError(w http.ResponseWriter, err error) {
