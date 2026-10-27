@@ -1,4 +1,4 @@
-//go:build !unix
+//go:build !unix && !windows
 
 //
 // DISCLAIMER
@@ -22,8 +22,8 @@
 
 package service
 
-import "os"
-
-func fileIdentity(os.FileInfo) (inode, dev uint64) {
-	return 0, 0
+// fileIdentity is not available on this platform. Log reads then fall back
+// to the byte offset alone.
+func fileIdentity(string) (logFileID, bool) {
+	return logFileID{}, false
 }

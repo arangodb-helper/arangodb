@@ -22,19 +22,27 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/arangodb-helper/arangodb/pkg/definitions"
-	"github.com/arangodb-helper/arangodb/pkg/utils"
-	"github.com/arangodb/go-driver"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+
+	"github.com/arangodb/go-driver"
+
+	"github.com/arangodb-helper/arangodb/client"
+	"github.com/arangodb-helper/arangodb/pkg/definitions"
+	"github.com/arangodb-helper/arangodb/pkg/utils"
 )
 
 type standaloneUpgradeTestContext struct {
@@ -119,6 +127,10 @@ func TestStandaloneUpgradeFailureCanRetryWithoutDatabase(t *testing.T) {
 	m.mutex.Unlock()
 	require.ErrorContains(t, savedFailure, "failed to open _system")
 	require.False(t, m.IsServerUpgradeInProgress(definitions.ServerTypeSingle))
+	status, err := m.Status(ctx)
+	require.NoError(t, err)
+	require.True(t, status.Failed)
+	require.Contains(t, status.Reason, "failed to open _system")
 
 	// Start must direct the caller to retry before querying the stopped server.
 	require.ErrorContains(t, m.StartDatabaseUpgrade(ctx, false), "retry upgrade")
@@ -152,6 +164,8 @@ func TestStandaloneUpgradeFailureCanRetryWithoutDatabase(t *testing.T) {
 	require.GreaterOrEqual(t, c.queries.Load(), int32(2))
 	require.Zero(t, c.premature.Load())
 	require.ErrorContains(t, m.RetryDatabaseUpgrade(ctx), "no failed single server upgrade")
+	_, err = m.Status(ctx)
+	require.True(t, client.IsPreconditionFailed(err))
 }
 
 type unavailableAgencyContext struct {
@@ -228,6 +242,11 @@ func TestSoleAgentFailureIsReportedAndRetriedWithoutAgency(t *testing.T) {
 		t.Fatal("failed sole-agent upgrade was not reported")
 	}
 	require.Greater(t, c.reads.Load(), int32(0))
+	// The caller's plan is not changed, and the failure is published only
+	// after this run has cleaned up its upgrade state.
+	require.Zero(t, plan.Entries[0].Failures)
+	require.True(t, m.HasLocalUpgradeFailure())
+	require.False(t, m.IsServerUpgradeInProgress(definitions.ServerTypeAgent))
 
 	status, err := m.Status(ctx)
 	require.NoError(t, err)
@@ -526,7 +545,7 @@ func TestServerLogKeepsErrorAcrossRotation(t *testing.T) {
 	path := dir + "/arangod.log"
 	previous := []byte("2026-10-26T10:00:00Z INFO previous server still running\n")
 	require.NoError(t, os.WriteFile(path, previous, 0600))
-	mark := logFileMarkFromInfo(os.Stat(path))
+	mark := logFileMarkAt(path)
 
 	require.NoError(t, os.Rename(path, path+".1"))
 	rotated, err := os.OpenFile(path+".1", os.O_APPEND|os.O_WRONLY, 0600)
@@ -672,4 +691,406 @@ func TestAutoUpgradeFailureStaysStoppedUntilRetry(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("explicit retry did not restart the stopped server")
 	}
+}
+
+func TestLocalFailedPlanIsIndependentCopy(t *testing.T) {
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528}}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	plan := UpgradePlan{Revision: 3, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1, Reason: "failed"}}}
+	m.storeLocalFailedPlan(plan)
+	plan.ResetFailures()
+	require.True(t, m.HasLocalUpgradeFailure())
+
+	snapshot, ok := m.localFailedPlanSnapshot()
+	require.True(t, ok)
+	snapshot.ResetFailures()
+	status, ok := m.LocalUpgradeFailureStatus()
+	require.True(t, ok)
+	require.True(t, status.Failed)
+	require.Equal(t, "failed", status.Reason)
+
+	taken, ok := m.takeLocalFailedPlan()
+	require.True(t, ok)
+	m.storeLocalFailedPlan(UpgradePlan{Revision: 4, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1, Reason: "second"}}})
+	taken.ResetFailures()
+	taken.Entries[0].Reason = "mutated"
+	status, ok = m.LocalUpgradeFailureStatus()
+	require.True(t, ok)
+	require.Equal(t, "second", status.Reason)
+}
+
+func TestLocalRetryWaitsForPreviousRun(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	p := &processWrapper{ctx: ctx, stopping: make(chan struct{}), serverType: definitions.ServerTypeAgent}
+	c := &unavailableAgencyContext{
+		peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+		wrapper:  p,
+		restarts: make(chan definitions.ServerType, 2),
+	}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.storeLocalFailedPlan(UpgradePlan{Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1}}})
+
+	// A previous run that is still cleaning up holds processMu.
+	m.processMu.Lock()
+	require.NoError(t, m.RetryLocalUpgradeFailure())
+	require.True(t, m.localUpgradePending())
+	select {
+	case <-c.restarts:
+		t.Fatal("retry started before the previous run finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+	m.processMu.Unlock()
+	select {
+	case <-c.restarts:
+	case <-ctx.Done():
+		t.Fatal("retry did not start")
+	}
+	require.True(t, m.ServerDatabaseAutoUpgrade(definitions.ServerTypeAgent, 0))
+	require.ErrorContains(t, m.RetryLocalUpgradeFailure(), "no failed upgrade step")
+	cancel()
+}
+
+func TestWatcherWaitsForLocalFailureToReconcile(t *testing.T) {
+	ctx := context.Background()
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1"}}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	agencyPlan := UpgradePlan{Revision: 3, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1"}}}
+	local := agencyPlan.clone()
+	local.Entries[0].Failures = 1
+
+	// Without a failure the watcher acts as before.
+	require.False(t, m.reconcileLocalFailedPlan(ctx, agencyPlan))
+
+	// While the failure cannot be written, the unfailed agency plan must not
+	// restart the parked server.
+	m.storeLocalFailedPlan(local)
+	require.True(t, m.reconcileLocalFailedPlan(ctx, agencyPlan))
+	require.True(t, m.HasLocalUpgradeFailure())
+	require.Greater(t, c.reads.Load(), int32(0))
+
+	// The agency already holds a failure.
+	failedPlan := agencyPlan.clone()
+	failedPlan.Entries[0].Failures = 1
+	require.True(t, m.reconcileLocalFailedPlan(ctx, failedPlan))
+	require.False(t, m.HasLocalUpgradeFailure())
+
+	// The plan has been replaced.
+	m.storeLocalFailedPlan(local)
+	replaced := agencyPlan.clone()
+	replaced.Revision = 7
+	require.False(t, m.reconcileLocalFailedPlan(ctx, replaced))
+	require.False(t, m.HasLocalUpgradeFailure())
+
+	// A local retry is running.
+	m.localRetryActive = true
+	require.True(t, m.reconcileLocalFailedPlan(ctx, agencyPlan))
+}
+
+func TestServerLogReadsEveryRotation(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/arangod.log"
+	require.NoError(t, os.WriteFile(path, []byte("INFO previous server still running\n"), 0600))
+	mark := logFileMarkAt(path)
+	require.True(t, mark.known)
+
+	appendTo := func(p, line string) {
+		f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+		require.NoError(t, err)
+		_, err = f.WriteString(line + "\n")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+	}
+	rotate := func() {
+		if _, err := os.Stat(path + ".1"); err == nil {
+			require.NoError(t, os.Rename(path+".1", path+".2"))
+		}
+		require.NoError(t, os.Rename(path, path+".1"))
+	}
+	appendTo(path, "2026-10-26T10:51:46Z ERROR [first] before the first rotation")
+	rotate()
+	appendTo(path, "2026-10-26T10:51:47Z ERROR [between] between the rotations")
+	rotate()
+	appendTo(path, "2026-10-26T10:51:48Z FATAL [last] after the second rotation")
+
+	text, err := readServerLogSinceMark(path, mark)
+	require.NoError(t, err)
+	require.NotContains(t, text, "previous server still running")
+	first := strings.Index(text, "[first]")
+	between := strings.Index(text, "[between]")
+	last := strings.Index(text, "[last]")
+	require.True(t, first >= 0 && first < between && between < last, text)
+}
+
+func TestServerLogKeepsFirstErrorAmongManyErrors(t *testing.T) {
+	path := t.TempDir() + "/arangod.log"
+	var body strings.Builder
+	original := "2026-10-26T10:51:46Z ERROR [abcde] {engines} failed to open '_system': shutdown in progress"
+	body.WriteString(original)
+	body.WriteByte('\n')
+	for i := 0; i < 80; i++ {
+		body.WriteString(fmt.Sprintf("2026-10-26T10:51:47Z ERROR [follow] secondary error %d\n", i))
+	}
+	body.WriteString("2026-10-26T10:51:48Z INFO [tail] actual-log-tail-marker\n")
+	require.NoError(t, os.WriteFile(path, []byte(body.String()), 0600))
+
+	text, err := readServerLogSince(path, 0)
+	require.NoError(t, err)
+	require.Contains(t, text, original)
+	require.Contains(t, text, "secondary error 79")
+	require.Contains(t, text, "actual-log-tail-marker")
+
+	reason := autoUpgradeExitError(definitions.ServerTypeDBServer, 1, text).Error()
+	require.Contains(t, reason, original)
+	require.Contains(t, reason, "actual-log-tail-marker")
+}
+
+func TestFailureReasonReservesLogTail(t *testing.T) {
+	var log strings.Builder
+	// An oversized first error must not push out the final FATAL line.
+	original := "2026-10-26T10:51:46Z ERROR [abcde] {engines} failed to open '_system': " + strings.Repeat("o", 10000)
+	log.WriteString(original)
+	log.WriteByte('\n')
+	fatal := "2026-10-26T10:51:48Z FATAL [67bdc] {startup} assertion failed"
+	log.WriteString(fatal)
+	log.WriteByte('\n')
+	// 20 distinct tail lines of about 300 bytes exceed the budget together.
+	for i := 0; i < 20; i++ {
+		log.WriteString(fmt.Sprintf("INFO [tail-%02d] %s\n", i, strings.Repeat("t", 290)))
+	}
+	end := "INFO [end] actual-log-tail-marker"
+	log.WriteString(end)
+
+	reason := autoUpgradeExitError(definitions.ServerTypeDBServer, 1, log.String()).Error()
+	require.LessOrEqual(t, len(reason), autoUpgradeReasonMaxLen)
+	require.Contains(t, reason, "failed to open '_system'")
+	require.Contains(t, reason, fatal)
+	require.Contains(t, reason, end)
+	require.Contains(t, reason, "[tail-19]")
+	// The selected lines keep the order of the log.
+	require.Less(t, strings.Index(reason, fatal), strings.Index(reason, end))
+}
+
+type fakeHTTPContext struct {
+	httpServerContext
+	isMaster  bool
+	masterURL string
+	mode      ServiceMode
+	config    ClusterConfig
+	me        Peer
+	upgrade   UpgradeManager
+}
+
+func (c *fakeHTTPContext) IsRunningMaster() (bool, bool, string) {
+	return c.isMaster, true, c.masterURL
+}
+
+func (c *fakeHTTPContext) ClusterConfig() (ClusterConfig, *Peer, ServiceMode) {
+	return c.config, &c.me, c.mode
+}
+
+func (c *fakeHTTPContext) UpgradeManager() UpgradeManager { return c.upgrade }
+
+type fakeHTTPUpgrade struct {
+	UpgradeManager
+	retryErr     error
+	statusErr    error
+	localFailure bool
+	retries      atomic.Int32
+	localRetries atomic.Int32
+}
+
+func (u *fakeHTTPUpgrade) RetryDatabaseUpgrade(context.Context) error {
+	u.retries.Add(1)
+	return u.retryErr
+}
+
+func (u *fakeHTTPUpgrade) Status(context.Context) (client.UpgradeStatus, error) {
+	return client.UpgradeStatus{}, u.statusErr
+}
+
+func (u *fakeHTTPUpgrade) HasLocalUpgradeFailure() bool { return u.localFailure }
+
+func (u *fakeHTTPUpgrade) RetryLocalUpgradeFailure() error {
+	if !u.localFailure {
+		return client.NewNotFoundError("none")
+	}
+	u.localRetries.Add(1)
+	return nil
+}
+
+func (u *fakeHTTPUpgrade) LocalUpgradeFailureStatus() (client.UpgradeStatus, bool) {
+	if !u.localFailure {
+		return client.UpgradeStatus{}, false
+	}
+	return client.UpgradeStatus{Failed: true, Reason: "agent auto-upgrade exited with code 1"}, true
+}
+
+func serveUpgrade(ctx *fakeHTTPContext) *httpServer {
+	return &httpServer{log: zerolog.Nop(), context: ctx}
+}
+
+func doUpgradeRequest(s *httpServer, method string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	s.databaseAutoUpgradeHandler(w, httptest.NewRequest(method, "/database-auto-upgrade", nil))
+	return w
+}
+
+func TestStandaloneRetryIsHandledLocally(t *testing.T) {
+	um := &fakeHTTPUpgrade{}
+	// Standalone starters never become the running master.
+	s := serveUpgrade(&fakeHTTPContext{mode: ServiceModeSingle, me: Peer{ID: "single"}, upgrade: um})
+	w := doUpgradeRequest(s, http.MethodPut)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, int32(1), um.retries.Load())
+}
+
+func TestRetryRoutesToStarterHoldingLocalFailure(t *testing.T) {
+	owner := &fakeHTTPUpgrade{localFailure: true}
+	ownerCtx := &fakeHTTPContext{mode: ServiceModeCluster, upgrade: owner}
+	ts := httptest.NewServer(http.HandlerFunc(serveUpgrade(ownerCtx).databaseAutoUpgradeHandler))
+	defer ts.Close()
+	ownerPeer := peerFor(t, "owner", ts.URL)
+	ownerCtx.me = ownerPeer
+
+	leaderPeer := Peer{ID: "leader"}
+	config := ClusterConfig{AllPeers: []Peer{leaderPeer, ownerPeer}}
+	ownerCtx.config = config
+	agencyDown := fmt.Errorf("Failed to read upgrade plan: agency is stopped")
+	leader := &fakeHTTPUpgrade{retryErr: agencyDown, statusErr: agencyDown}
+	s := serveUpgrade(&fakeHTTPContext{isMaster: true, mode: ServiceModeCluster, config: config, me: leaderPeer, upgrade: leader})
+
+	// The leader cannot read the agency and holds no failure, so it asks
+	// the starter that owns it.
+	w := doUpgradeRequest(s, http.MethodPut)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, int32(1), owner.localRetries.Load())
+
+	w = doUpgradeRequest(s, http.MethodGet)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var status client.UpgradeStatus
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &status))
+	require.True(t, status.Failed)
+	require.Contains(t, status.Reason, "exited with code 1")
+
+	// A non-leader holding the failure retries it itself; there is no
+	// reachable leader to forward to.
+	direct := serveUpgrade(ownerCtx)
+	w = doUpgradeRequest(direct, http.MethodPut)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, int32(1), owner.retries.Load())
+
+	// Without any starter holding a failure, the agency error is reported.
+	owner.localFailure = false
+	w = doUpgradeRequest(s, http.MethodPut)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Contains(t, w.Body.String(), "agency is stopped")
+}
+
+func peerFor(t *testing.T, id, serverURL string) Peer {
+	t.Helper()
+	u, err := url.Parse(serverURL)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(u.Port())
+	require.NoError(t, err)
+	return Peer{ID: id, Address: u.Hostname(), Port: port}
+}
+
+func TestPeersAreAskedInParallel(t *testing.T) {
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer slow.Close()
+	defer close(release)
+
+	owner := &fakeHTTPUpgrade{localFailure: true}
+	ownerCtx := &fakeHTTPContext{mode: ServiceModeCluster, upgrade: owner}
+	fast := httptest.NewServer(http.HandlerFunc(serveUpgrade(ownerCtx).databaseAutoUpgradeHandler))
+	defer fast.Close()
+
+	leaderPeer := Peer{ID: "leader"}
+	// The hanging starter comes first; the owner must still answer quickly.
+	config := ClusterConfig{AllPeers: []Peer{leaderPeer, peerFor(t, "slow", slow.URL), peerFor(t, "owner", fast.URL)}}
+	ownerCtx.config, ownerCtx.me = config, config.AllPeers[2]
+	agencyDown := fmt.Errorf("Failed to read upgrade plan: agency is stopped")
+	leader := &fakeHTTPUpgrade{retryErr: agencyDown}
+	s := serveUpgrade(&fakeHTTPContext{isMaster: true, mode: ServiceModeCluster, config: config, me: leaderPeer, upgrade: leader})
+
+	start := time.Now()
+	w := doUpgradeRequest(s, http.MethodPut)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, int32(1), owner.localRetries.Load())
+	require.Less(t, time.Since(start), localUpgradePeerTimeout)
+}
+
+// blockedAgencyUpgrade models an unavailable agency whose connection retries
+// until the caller gives up, rather than returning an immediate error.
+type blockedAgencyUpgrade struct {
+	fakeHTTPUpgrade
+	agencyCalls atomic.Int32
+}
+
+func (u *blockedAgencyUpgrade) RetryDatabaseUpgrade(ctx context.Context) error {
+	u.agencyCalls.Add(1)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (u *blockedAgencyUpgrade) Status(ctx context.Context) (client.UpgradeStatus, error) {
+	u.agencyCalls.Add(1)
+	<-ctx.Done()
+	return client.UpgradeStatus{}, ctx.Err()
+}
+
+func TestCachedUpgradeFailureBypassesUnavailableAgency(t *testing.T) {
+	for _, method := range []string{http.MethodPut, http.MethodGet} {
+		for _, isMaster := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/master=%t", method, isMaster), func(t *testing.T) {
+				owner := &fakeHTTPUpgrade{localFailure: true}
+				ownerCtx := &fakeHTTPContext{mode: ServiceModeCluster, upgrade: owner}
+				ts := httptest.NewServer(http.HandlerFunc(serveUpgrade(ownerCtx).databaseAutoUpgradeHandler))
+				defer ts.Close()
+				ownerPeer := peerFor(t, "owner", ts.URL)
+				requestPeer := Peer{ID: "request-peer"}
+				config := ClusterConfig{AllPeers: []Peer{requestPeer, ownerPeer}, AgencySize: 1}
+				ownerCtx.config, ownerCtx.me = config, ownerPeer
+				um := &blockedAgencyUpgrade{}
+				s := serveUpgrade(&fakeHTTPContext{isMaster: isMaster, mode: ServiceModeCluster, config: config, me: requestPeer, upgrade: um})
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				w := httptest.NewRecorder()
+				s.databaseAutoUpgradeHandler(w, httptest.NewRequest(method, "/database-auto-upgrade", nil).WithContext(ctx))
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				require.NoError(t, ctx.Err())
+				require.Zero(t, um.agencyCalls.Load())
+				if method == http.MethodPut {
+					require.Equal(t, int32(1), owner.localRetries.Load())
+				} else {
+					var status client.UpgradeStatus
+					require.NoError(t, json.Unmarshal(w.Body.Bytes(), &status))
+					require.True(t, status.Failed)
+					require.Contains(t, status.Reason, "exited with code 1")
+				}
+			})
+		}
+	}
+}
+
+func TestLocalUpgradeFailureStatusBypassesUnavailableAgency(t *testing.T) {
+	um := &blockedAgencyUpgrade{fakeHTTPUpgrade: fakeHTTPUpgrade{localFailure: true}}
+	s := serveUpgrade(&fakeHTTPContext{mode: ServiceModeCluster, me: Peer{ID: "owner"}, upgrade: um})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	w := httptest.NewRecorder()
+	s.databaseAutoUpgradeHandler(w, httptest.NewRequest(http.MethodGet, "/database-auto-upgrade", nil).WithContext(ctx))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NoError(t, ctx.Err())
+	require.Zero(t, um.agencyCalls.Load())
+	var status client.UpgradeStatus
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &status))
+	require.True(t, status.Failed)
 }

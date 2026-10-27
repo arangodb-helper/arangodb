@@ -27,10 +27,15 @@ import (
 	"syscall"
 )
 
-func fileIdentity(info os.FileInfo) (inode, dev uint64) {
+// fileIdentity returns the device and inode of the file at path.
+func fileIdentity(path string) (logFileID, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return logFileID{}, false
+	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		return 0, 0
+		return logFileID{}, false
 	}
-	return uint64(stat.Ino), uint64(stat.Dev)
+	return logFileID{volume: uint64(stat.Dev), index: uint64(stat.Ino)}, true
 }

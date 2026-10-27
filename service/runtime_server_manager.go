@@ -233,9 +233,16 @@ func (s *runtimeServerManager) showRecentLogs(log zerolog.Logger, runtimeContext
 // Size alone is not enough: scheduled rotation can rename the file and create
 // a new one at the same path before the attempt exits.
 type logFileMark struct {
-	size  int64
-	inode uint64
-	dev   uint64
+	size int64
+	id   logFileID
+	// known is false when the platform cannot identify files.
+	known bool
+}
+
+// logFileID identifies a file independent of its name.
+type logFileID struct {
+	volume uint64
+	index  uint64
 }
 
 func serverHostLogMark(runtimeContext runtimeServerManagerContext, serverType definitions.ServerType) logFileMark {
@@ -246,45 +253,56 @@ func serverHostLogMark(runtimeContext runtimeServerManagerContext, serverType de
 	if err != nil {
 		return logFileMark{}
 	}
-	return logFileMarkFromInfo(os.Stat(logPath))
+	return logFileMarkAt(logPath)
 }
 
-func logFileMarkFromInfo(info os.FileInfo, err error) logFileMark {
+func logFileMarkAt(logPath string) logFileMark {
+	info, err := os.Stat(logPath)
 	if err != nil {
 		return logFileMark{}
 	}
 	mark := logFileMark{size: info.Size()}
-	mark.inode, mark.dev = fileIdentity(info)
+	mark.id, mark.known = fileIdentity(logPath)
 	return mark
 }
 
-func sameLogFile(info os.FileInfo, mark logFileMark) bool {
-	if mark.inode == 0 {
+func sameLogFile(path string, mark logFileMark) bool {
+	if !mark.known {
 		return true
 	}
-	inode, dev := fileIdentity(info)
-	if inode == 0 {
-		return false
+	id, ok := fileIdentity(path)
+	return ok && id == mark.id
+}
+
+// isCurrentLogFile reports whether the file at logPath is still the marked
+// one. If its identity cannot be read right now, the offset alone is used,
+// so a passing error does not pull older rotations into the result.
+func isCurrentLogFile(logPath string, mark logFileMark) bool {
+	if !mark.known {
+		return true
 	}
-	return inode == mark.inode && dev == mark.dev
+	id, ok := fileIdentity(logPath)
+	return !ok || id == mark.id
 }
 
 // readServerLogSince reads the log written at and after offset. It streams
 // the whole attempt, keeping a bounded set of ERROR and FATAL lines and the
-// actual tail, so a long log does not hide either. If rotation renamed the
-// file while the attempt was running, it also reads the current path.
+// actual tail, so a long log does not hide either.
 func readServerLogSince(logPath string, offset int64) (string, error) {
 	return readServerLogSinceMark(logPath, logFileMark{size: offset})
 }
 
+// readServerLogSinceMark is readServerLogSince for a log that rotation may
+// have renamed while the attempt was running. It then reads the marked file
+// from its offset, every newer rotation, and the current file, oldest first.
 func readServerLogSinceMark(logPath string, mark logFileMark) (string, error) {
 	var parts []io.Reader
-	closeAll := func(files []*os.File) {
+	var files []*os.File
+	defer func() {
 		for _, f := range files {
 			_ = f.Close()
 		}
-	}
-	var files []*os.File
+	}()
 	addFrom := func(path string, offset int64) error {
 		logFile, err := os.Open(path)
 		if err != nil {
@@ -298,10 +316,7 @@ func readServerLogSinceMark(logPath string, mark logFileMark) (string, error) {
 		if err != nil {
 			return err
 		}
-		if offset < 0 {
-			offset = 0
-		}
-		if offset > info.Size() {
+		if offset < 0 || offset > info.Size() {
 			offset = 0
 		}
 		if _, err := logFile.Seek(offset, io.SeekStart); err != nil {
@@ -311,47 +326,63 @@ func readServerLogSinceMark(logPath string, mark logFileMark) (string, error) {
 		return nil
 	}
 
-	current, err := os.Stat(logPath)
-	if err != nil && !os.IsNotExist(err) {
+	if _, err := os.Stat(logPath); err != nil && !os.IsNotExist(err) {
 		return "", err
-	}
-	if err == nil && sameLogFile(current, mark) {
-		if addErr := addFrom(logPath, mark.size); addErr != nil {
-			closeAll(files)
-			return "", addErr
+	} else if err == nil && isCurrentLogFile(logPath, mark) {
+		if err := addFrom(logPath, mark.size); err != nil {
+			return "", err
 		}
 	} else {
-		rotated := findRotatedLogFile(logPath, mark)
-		if addErr := addFrom(rotated, mark.size); addErr != nil {
-			closeAll(files)
-			return "", addErr
+		for _, rotated := range rotatedLogFilesSince(logPath, mark) {
+			if err := addFrom(rotated.path, rotated.offset); err != nil {
+				return "", err
+			}
 		}
-		if addErr := addFrom(logPath, 0); addErr != nil {
-			closeAll(files)
-			return "", addErr
+		if err := addFrom(logPath, 0); err != nil {
+			return "", err
 		}
 	}
-	defer closeAll(files)
 	if len(parts) == 0 {
 		return "", nil
 	}
 	return streamImportantAndTail(io.MultiReader(parts...))
 }
 
-// findRotatedLogFile returns the rotated name that still holds the file
-// identity captured before the attempt. log.1 is the newest rotation.
-func findRotatedLogFile(logPath string, mark logFileMark) string {
-	for i := 1; i <= 32; i++ {
+type rotatedLogFile struct {
+	path   string
+	offset int64
+}
+
+// rotatedLogFilesSince returns the rotated files written during the attempt,
+// oldest first. log.1 is the newest rotation. The file holding the mark is
+// read from the marked offset and every newer rotation from its start. When
+// the marked file has already been removed, all remaining rotations are newer.
+func rotatedLogFilesSince(logPath string, mark logFileMark) []rotatedLogFile {
+	if !mark.known {
+		return []rotatedLogFile{{path: logPath + ".1", offset: mark.size}}
+	}
+	var newestFirst []string
+	marked := -1
+	for i := 1; ; i++ {
 		candidate := logPath + fmt.Sprintf(".%d", i)
-		info, err := os.Stat(candidate)
-		if err != nil {
-			continue
+		if _, err := os.Stat(candidate); err != nil {
+			break
 		}
-		if sameLogFile(info, mark) {
-			return candidate
+		newestFirst = append(newestFirst, candidate)
+		if sameLogFile(candidate, mark) {
+			marked = len(newestFirst) - 1
+			break
 		}
 	}
-	return logPath + ".1"
+	var result []rotatedLogFile
+	for i := len(newestFirst) - 1; i >= 0; i-- {
+		offset := int64(0)
+		if i == marked {
+			offset = mark.size
+		}
+		result = append(result, rotatedLogFile{path: newestFirst[i], offset: offset})
+	}
+	return result
 }
 
 // readRecentServerLog returns only the last 20 lines of an arangod log file.
@@ -384,12 +415,18 @@ func streamImportantAndTail(r io.Reader) (string, error) {
 		maxLine      = 256 * 1024
 	)
 	reader := bufio.NewReaderSize(r, 32*1024)
+	// The first error is usually the cause; later ones are often follow-up
+	// failures. Keep it even when more than maxImportant errors follow.
+	var first string
 	var important []string
 	tail := make([]string, 0, tailLines)
 	for {
 		line, err := readCappedLogLine(reader, maxLine)
 		if line != "" {
 			if isUpgradeErrorLine(line) {
+				if first == "" {
+					first = line
+				}
 				important = appendBounded(important, line, maxImportant)
 			}
 			tail = appendBounded(tail, line, tailLines)
@@ -400,6 +437,9 @@ func streamImportantAndTail(r io.Reader) (string, error) {
 		if err != nil {
 			return "", err
 		}
+	}
+	if first != "" {
+		important = append([]string{first}, important...)
 	}
 	return joinImportantAndTail(important, tail), nil
 }

@@ -1,7 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
-- Report a non-zero arangod exit during database auto-upgrade as a failed plan, with the exit code and ERROR/FATAL lines from that attempt, and retry only that server by its full endpoint.
+- Report a non-zero arangod exit during database auto-upgrade as a failed plan with the exit code and ERROR/FATAL lines from that attempt, keep the failed server stopped until an explicit retry, and retry standalone or sole-agent failures locally when the plan cannot be stored.
 
 ## [v0.19.31](https://github.com/arangodb-helper/arangodb/tree/0.19.31) (2026-11-10)
 - Bump `github.com/klauspost/compress` to v1.20.2 for the zstd panic fix (CVE-2026-116591)
