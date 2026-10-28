@@ -32,6 +32,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -640,33 +641,47 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		}
 	case "PUT":
 		// Retry the upgrade process
-		if !isRunningMaster {
-			// We're not the starter leader.
-			// Forward the request to the leader.
-			c, err := createMasterClient(masterURL)
-			if err != nil {
-				handleError(w, err)
-			} else {
-				if err := c.RetryDatabaseUpgrade(ctx); err != nil {
-					s.log.Debug().Err(err).Msg("Forwarding RetryDatabaseUpgrade failed")
-					handleError(w, err)
-				} else {
-					w.WriteHeader(http.StatusOK)
-					w.Write([]byte("OK"))
-				}
+		um := s.context.UpgradeManager()
+		if isLocalUpgradeRequest(r) {
+			// Another starter asks for a failure this starter could not record
+			// in the agency.
+			err := um.RetryLocalUpgradeFailure(ctx)
+			if !client.IsNotFound(err) {
+				markLocalUpgradeFailureHeld(w)
 			}
-		} else {
-			// We're the starter leader, process the request
-			if err := s.context.UpgradeManager().RetryDatabaseUpgrade(ctx); err != nil {
-				handleError(w, err)
-			} else {
-				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("OK"))
+			writeUpgradeResult(w, err)
+			return
+		}
+		// A stopped sole agent can keep agency reads blocked beyond the CLI
+		// timeout. Retry cached failures before querying the agency or
+		// forwarding to a leader that would query it.
+		if mode.HasAgency() && !um.HasLocalUpgradeFailure() {
+			if held, err := s.retryPeerLocalUpgradeFailure(ctx); held {
+				// The starter holding the failure retried it, or refused to,
+				// e.g. because other servers are unhealthy.
+				writeUpgradeResult(w, err)
+				return
 			}
 		}
+		var err error
+		if isRunningMaster || mode.IsSingleMode() || um.HasLocalUpgradeFailure() {
+			// Standalone starters never elect a leader, and a failure that is
+			// held locally can only be retried here.
+			err = um.RetryDatabaseUpgrade(ctx)
+		} else {
+			// We're not the starter leader.
+			// Forward the request to the leader.
+			var c client.API
+			if c, err = createMasterClient(masterURL); err == nil {
+				if err = c.RetryDatabaseUpgrade(ctx); err != nil {
+					s.log.Debug().Err(err).Msg("Forwarding RetryDatabaseUpgrade failed")
+				}
+			}
+		}
+		writeUpgradeResult(w, err)
 	case "DELETE":
 		// Abort the upgrade process
-		if !isRunningMaster {
+		if !isRunningMaster && !mode.IsSingleMode() {
 			// We're not the starter leader.
 			// Forward the request to the leader.
 			c, err := createMasterClient(masterURL)
@@ -682,7 +697,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 				}
 			}
 		} else {
-			// We're the starter leader, process the request
+			// The leader or a standalone starter handles cleanup locally.
 			if err := s.context.UpgradeManager().AbortDatabaseUpgrade(ctx); err != nil {
 				handleError(w, err)
 			} else {
@@ -691,7 +706,29 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 			}
 		}
 	case "GET":
-		if status, err := s.context.UpgradeManager().Status(ctx); err != nil {
+		um := s.context.UpgradeManager()
+		var status client.UpgradeStatus
+		var err error
+		if isLocalUpgradeRequest(r) {
+			var found bool
+			if status, found = um.LocalUpgradeFailureStatus(); !found {
+				err = client.NewNotFoundError("This starter holds no failed upgrade step")
+			} else {
+				markLocalUpgradeFailureHeld(w)
+			}
+		} else {
+			// Cached failures must remain visible while the agency is down.
+			// Check them before an agency read can consume the request timeout.
+			var found bool
+			status, found = um.LocalUpgradeFailureStatus()
+			if !found && mode.HasAgency() {
+				status, found = s.peerLocalUpgradeFailureStatus(ctx)
+			}
+			if !found {
+				status, err = um.Status(ctx)
+			}
+		}
+		if err != nil {
 			handleError(w, err)
 		} else {
 			b, err := json.Marshal(status)
@@ -705,6 +742,227 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+// localUpgradeQuery marks a starter-to-starter request that must be served
+// from this starter's own state, without the agency and without forwarding.
+const localUpgradeQuery = "local"
+
+// localUpgradeHeldHeader is set on an answer to a local upgrade request
+// when this starter holds the failure. Any other answer, e.g. a 400 from a
+// starter that is still bootstrapping, says nothing about the failure.
+const localUpgradeHeldHeader = "X-Arangodb-Starter-Upgrade-Failure-Held"
+
+func markLocalUpgradeFailureHeld(w http.ResponseWriter) {
+	w.Header().Set(localUpgradeHeldHeader, "true")
+}
+
+func isLocalUpgradeRequest(r *http.Request) bool {
+	local, _ := strconv.ParseBool(r.URL.Query().Get(localUpgradeQuery))
+	return local
+}
+
+func writeUpgradeResult(w http.ResponseWriter, err error) {
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// retryPeerLocalUpgradeFailure asks the other starters to retry a failure
+// that they could not record in the agency. Only the starter whose server
+// failed holds such a failure. held is true when one of them answered for
+// it; err is then its refusal, if any.
+// The retry is a mutating PUT, and older starters ignore local=true and treat
+// it as an ordinary retry. So the holder is found with a read-only GET first,
+// and only a starter that marked its answer as the holder receives the PUT.
+// Once the holder is known, only its explicit NotFound, i.e. it no longer
+// holds the failure, falls back to the ordinary retry. Any other error is
+// reported: the holder may have accepted the retry before it failed.
+func (s *httpServer) retryPeerLocalUpgradeFailure(ctx context.Context) (held bool, err error) {
+	// Both rounds share one deadline, within the timeout of the CLI request.
+	ctx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
+	defer cancel()
+	holder := s.localUpgradeFailureHolder(ctx)
+	if holder == nil {
+		return false, nil
+	}
+	answered, err := s.sendLocalUpgradeRequest(ctx, *holder, http.MethodPut, nil)
+	switch {
+	case err == nil:
+		s.log.Info().Str("peer", holder.ID).Msg("Upgrade failure is held by peer")
+		return true, nil
+	case answered:
+		// The holder refused the retry, e.g. because the cluster is unhealthy.
+		s.log.Info().Err(err).Str("peer", holder.ID).Msg("Peer holding the upgrade failure refused the request")
+		return true, err
+	case client.IsNotFound(err):
+		// The failure was retried or discarded since the GET.
+		return false, nil
+	default:
+		s.log.Warn().Err(err).Str("peer", holder.ID).Msg("Retry request to peer holding the upgrade failure failed")
+		return true, maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to retry the upgrade failure held by starter %s; check the upgrade status before retrying again: %v", holder.ID, err)))
+	}
+}
+
+// localUpgradeFailureHolder returns the other starter that reports holding
+// a failure it could not record in the agency, or nil. Only the starter whose
+// server failed can hold one, so the first such answer is used and a hanging
+// starter does not delay it.
+func (s *httpServer) localUpgradeFailureHolder(ctx context.Context) *Peer {
+	ctx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
+	defer cancel()
+	peers := s.otherPeers()
+	answers := make(chan *Peer, len(peers))
+	for _, p := range peers {
+		go func(p Peer) {
+			held, err := s.sendLocalUpgradeRequest(ctx, p, http.MethodGet, &client.UpgradeStatus{})
+			if held && err == nil {
+				answers <- &p
+				return
+			}
+			if err != nil && !client.IsNotFound(err) {
+				s.log.Debug().Err(err).Str("peer", p.ID).Msg("Local upgrade request to peer failed")
+			}
+			answers <- nil
+		}(p)
+	}
+	for range peers {
+		if p := <-answers; p != nil {
+			return p
+		}
+	}
+	return nil
+}
+
+// otherPeers returns all starters of the cluster except this one.
+func (s *httpServer) otherPeers() []Peer {
+	config, myPeer, _ := s.context.ClusterConfig()
+	peers := make([]Peer, 0, len(config.AllPeers))
+	for _, p := range config.AllPeers {
+		if myPeer != nil && p.ID == myPeer.ID {
+			continue
+		}
+		peers = append(peers, p)
+	}
+	return peers
+}
+
+// peerLocalUpgradeFailureStatus returns the status of a failure that another
+// starter could not record in the agency.
+func (s *httpServer) peerLocalUpgradeFailureStatus(ctx context.Context) (client.UpgradeStatus, bool) {
+	result, held, err := s.askPeers(ctx, s.otherPeers(), http.MethodGet, func() interface{} { return &client.UpgradeStatus{} })
+	if !held || err != nil {
+		return client.UpgradeStatus{}, false
+	}
+	return *result.(*client.UpgradeStatus), true
+}
+
+// localUpgradePeerTimeout bounds the wait for other starters, so that asking
+// them stays within the timeout of the CLI request that triggered it.
+const localUpgradePeerTimeout = 5 * time.Second
+
+type peerUpgradeAnswer struct {
+	peerID string
+	result interface{}
+	// held is true when the peer marked its answer as coming from the
+	// starter that holds the failure.
+	held bool
+	err  error
+}
+
+// askPeers sends a local upgrade request to the given starters at once.
+// Only answers marked with localUpgradeHeldHeader count. The first such OK
+// answer wins; otherwise the first such refusal is returned.
+// newResult returns where to decode the answer; nil for none.
+func (s *httpServer) askPeers(ctx context.Context, peers []Peer, method string, newResult func() interface{}) (result interface{}, held bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
+	defer cancel()
+	answers := make(chan peerUpgradeAnswer, len(peers))
+	asked := 0
+	for _, p := range peers {
+		asked++
+		go func(p Peer) {
+			result := newResult()
+			held, err := s.sendLocalUpgradeRequest(ctx, p, method, result)
+			answers <- peerUpgradeAnswer{peerID: p.ID, result: result, held: held, err: err}
+		}(p)
+	}
+	var refusal error
+	for ; asked > 0; asked-- {
+		a := <-answers
+		if !a.held {
+			// Not the owner, not reachable, not running yet, or a starter
+			// that does not know local upgrade requests.
+			if a.err != nil && !client.IsNotFound(a.err) {
+				s.log.Debug().Err(a.err).Str("peer", a.peerID).Msg("Local upgrade request to peer failed")
+			}
+			continue
+		}
+		if a.err != nil {
+			s.log.Info().Err(a.err).Str("peer", a.peerID).Str("method", method).Msg("Peer holding the upgrade failure refused the request")
+			if refusal == nil {
+				refusal = a.err
+			}
+			continue
+		}
+		s.log.Info().Str("peer", a.peerID).Str("method", method).Msg("Upgrade failure is held by peer")
+		return a.result, true, nil
+	}
+	if refusal != nil {
+		return nil, true, refusal
+	}
+	return nil, false, nil
+}
+
+var localUpgradeHTTPClient = client.DefaultHTTPClient()
+
+// sendLocalUpgradeRequest sends a local upgrade request to p. held is true
+// when p marked its answer as coming from the starter that holds the failure.
+func (s *httpServer) sendLocalUpgradeRequest(ctx context.Context, p Peer, method string, result interface{}) (held bool, err error) {
+	target := p.CreateStarterURL("/database-auto-upgrade?" + localUpgradeQuery + "=true")
+	req, err := http.NewRequestWithContext(ctx, method, target, nil)
+	if err != nil {
+		return false, maskAny(err)
+	}
+	resp, err := localUpgradeHTTPClient.Do(req)
+	if err != nil {
+		return false, maskAny(err)
+	}
+	defer resp.Body.Close()
+	held = resp.Header.Get(localUpgradeHeldHeader) == "true"
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, maskAny(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		var er client.ErrorResponse
+		_ = json.Unmarshal(body, &er)
+		msg := er.Error
+		if msg == "" {
+			msg = fmt.Sprintf("%s %s returned status %d", method, target, resp.StatusCode)
+		}
+		switch resp.StatusCode {
+		case http.StatusNotFound:
+			return held, maskAny(client.NewNotFoundError(msg))
+		case http.StatusBadRequest:
+			return held, maskAny(client.NewBadRequestError(msg))
+		case http.StatusPreconditionFailed:
+			return held, maskAny(client.NewPreconditionFailedError(msg))
+		case http.StatusServiceUnavailable:
+			return held, maskAny(client.NewServiceUnavailableError(msg))
+		default:
+			return held, maskAny(client.NewInternalServerError(msg))
+		}
+	}
+	if result != nil {
+		if err := json.Unmarshal(body, result); err != nil {
+			return held, maskAny(err)
+		}
+	}
+	return held, nil
 }
 
 func handleError(w http.ResponseWriter, err error) {

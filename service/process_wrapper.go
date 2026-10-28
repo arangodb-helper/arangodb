@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -68,6 +69,10 @@ type ProcessWrapper interface {
 	Wait(timeout time.Duration) bool
 
 	Process() Process
+
+	// RequestRestart records an explicit restart request and wakes the wrapper
+	// if it is paused after an auto-upgrade failure.
+	RequestRestart()
 }
 
 type processWrapper struct {
@@ -86,6 +91,7 @@ type processWrapper struct {
 	proc Process
 
 	closed, stopping chan struct{}
+	restartGen       atomic.Uint64
 }
 
 func (p *processWrapper) Process() Process {
@@ -101,6 +107,10 @@ func (p *processWrapper) Wait(timeout time.Duration) bool {
 	case <-time.After(timeout):
 		return false
 	}
+}
+
+func (p *processWrapper) RequestRestart() {
+	p.restartGen.Add(1)
 }
 
 func (p *processWrapper) stop() {
@@ -137,7 +147,10 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		features := p.runtimeContext.DatabaseFeatures()
 		output := utils.NewLimitedBuffer(80 * 100)
 
-		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output, exitCode)
+		var logMark logFileMark
+		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output, exitCode, &logMark)
+		autoUpgradeFailed := false
+		var failedRestartGen uint64
 		if err != nil {
 			logProcess.Error().Err(err).Msgf("Error while starting %s", p.serverType)
 			if !portInUse {
@@ -219,6 +232,11 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			select {
 			case exitCode = <-procC:
 				logProcess.Info().Msgf("Terminated %s. Exit code: %d (%s)", p.serverType, exitCode, definitions.GetExitCodeReason(exitCode))
+				var failed bool
+				failed, failedRestartGen = p.recordAutoUpgradeExit(p.runtimeContext.UpgradeManager(), logProcess, exitCode, func() string {
+					return p.serverLogSince(logMark)
+				}, output)
+				autoUpgradeFailed = failed
 				break
 			case <-p.stopping:
 				var initialTimeout time.Duration
@@ -233,6 +251,18 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 				break
 			}
 			cancel()
+		}
+		if autoUpgradeFailed {
+			// failedRestartGen was taken before the failure was published.
+			// A retry that arrives while that publication or its log is
+			// printed is newer than this value and releases the pause. The
+			// notification that started this attempt is already included.
+			if err := p.waitForRestartSince(failedRestartGen); err != nil {
+				break
+			}
+			logProcess.Info().Msgf("restarting %s", p.serverType)
+			restart++
+			continue
 		}
 		uptime := time.Since(startTime)
 		isTerminationExpected := p.runtimeContext.UpgradeManager().IsServerUpgradeInProgress(p.serverType)
@@ -285,11 +315,84 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 	}
 }
 
+// recordAutoUpgradeExit publishes a non-zero auto-upgrade exit. The returned
+// generation is taken before the log is read and before the failure is
+// published, so a retry that arrives during either step is not treated as
+// the baseline of the pause.
+func (p *processWrapper) recordAutoUpgradeExit(upgrade UpgradeManager, logProcess zerolog.Logger, exitCode int, readLog func() string, output *utils.LimitedBuffer) (bool, uint64) {
+	seen := p.restartGen.Load()
+	if upgrade == nil {
+		return false, seen
+	}
+	// A successful exit, or the SIGTERM of the previous server, does not
+	// need the server log. IsServerUpgradeInProgress is already true then.
+	if exitCode == 0 || !upgrade.IsServerAutoUpgradeRunning(p.serverType) {
+		upgrade.ServerDatabaseAutoUpgradeFinished(p.serverType, exitCode, "")
+		return false, seen
+	}
+	attemptLog := ""
+	if readLog != nil {
+		attemptLog = readLog()
+	}
+	diagnostics := attemptLog
+	if strings.TrimSpace(diagnostics) == "" && output != nil {
+		// arangod failed before it wrote its log file, or that file could
+		// not be read. The startup error is then only in its captured output.
+		diagnostics = output.String()
+	}
+	if !upgrade.ServerDatabaseAutoUpgradeFinished(p.serverType, exitCode, diagnostics) {
+		return false, seen
+	}
+	logProcess.Error().Msgf("%s auto-upgrade failed with exit code %d (%s)", p.serverType, exitCode, definitions.GetExitCodeReason(exitCode))
+	if output != nil {
+		p.showProcessOutput(logProcess, output, p.serverType)
+	}
+	if attemptLog != "" {
+		logProcess.Info().Msg(formatRecentServerLog(p.serverType, attemptLog))
+	} else if p.s != nil {
+		p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
+	}
+	return true, seen
+}
+
+// waitForRestartSince blocks until a RequestRestart newer than seen arrives,
+// or the wrapper is stopping. seen must be the generation after the attempt
+// that just failed, so the notification that started that attempt does not
+// release the pause.
+func (p *processWrapper) waitForRestartSince(seen uint64) error {
+	for {
+		if p.restartGen.Load() != seen {
+			return nil
+		}
+		select {
+		case <-p.stopping:
+			return fmt.Errorf("stopping")
+		case <-p.ctx.Done():
+			return p.ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+func (p *processWrapper) serverLogSince(mark logFileMark) string {
+	logPath, err := p.runtimeContext.serverHostLogFile(p.serverType)
+	if err != nil {
+		return ""
+	}
+	body, err := readServerLogSinceMark(logPath, mark)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(body)
+}
+
 func (p *processWrapper) showProcessOutput(log zerolog.Logger, b *utils.LimitedBuffer, serverType definitions.ServerType) {
 	result := &bytes.Buffer{}
 	result.WriteString(fmt.Sprintf("## Start of %s output:\n", serverType))
 	for _, line := range strings.Split(b.String(), "\n") {
-		result.WriteString("\t" + line + "\n")
+		result.WriteString("\t")
+		result.WriteString(line)
+		result.WriteByte('\n')
 	}
 	result.WriteString(fmt.Sprintf("## End of %s output.", serverType))
 
