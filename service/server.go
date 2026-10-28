@@ -778,6 +778,9 @@ func writeUpgradeResult(w http.ResponseWriter, err error) {
 // The retry is a mutating PUT, and older starters ignore local=true and treat
 // it as an ordinary retry. So the holder is found with a read-only GET first,
 // and only a starter that marked its answer as the holder receives the PUT.
+// Once the holder is known, only its explicit NotFound, i.e. it no longer
+// holds the failure, falls back to the ordinary retry. Any other error is
+// reported: the holder may have accepted the retry before it failed.
 func (s *httpServer) retryPeerLocalUpgradeFailure(ctx context.Context) (held bool, err error) {
 	// Both rounds share one deadline, within the timeout of the CLI request.
 	ctx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
@@ -786,8 +789,22 @@ func (s *httpServer) retryPeerLocalUpgradeFailure(ctx context.Context) (held boo
 	if holder == nil {
 		return false, nil
 	}
-	_, held, err = s.askPeers(ctx, []Peer{*holder}, http.MethodPut, func() interface{} { return nil })
-	return held, err
+	answered, err := s.sendLocalUpgradeRequest(ctx, *holder, http.MethodPut, nil)
+	switch {
+	case err == nil:
+		s.log.Info().Str("peer", holder.ID).Msg("Upgrade failure is held by peer")
+		return true, nil
+	case answered:
+		// The holder refused the retry, e.g. because the cluster is unhealthy.
+		s.log.Info().Err(err).Str("peer", holder.ID).Msg("Peer holding the upgrade failure refused the request")
+		return true, err
+	case client.IsNotFound(err):
+		// The failure was retried or discarded since the GET.
+		return false, nil
+	default:
+		s.log.Warn().Err(err).Str("peer", holder.ID).Msg("Retry request to peer holding the upgrade failure failed")
+		return true, maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to retry the upgrade failure held by starter %s; check the upgrade status before retrying again: %v", holder.ID, err)))
+	}
 }
 
 // localUpgradeFailureHolder returns the other starter that reports holding

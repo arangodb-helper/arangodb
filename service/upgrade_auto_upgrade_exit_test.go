@@ -2020,3 +2020,62 @@ func TestLocalRetryNeedsReadableAgency(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+func TestHolderRetryErrorIsNotReplacedByNormalRetry(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// put answers the retry after the GET identified the holder.
+		put            func(w http.ResponseWriter)
+		code           int
+		leaderRetries  int32
+		reasonContains string
+	}{
+		{
+			name: "connection-lost",
+			put: func(w http.ResponseWriter) {
+				// The holder may have accepted the retry before the
+				// connection was lost.
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err == nil {
+					_ = conn.Close()
+				}
+			},
+			code:           http.StatusServiceUnavailable,
+			reasonContains: "held by starter owner",
+		},
+		{
+			name: "no-longer-held",
+			put: func(w http.ResponseWriter) {
+				writeError(w, http.StatusNotFound, "This starter holds no failed upgrade step")
+			},
+			code:          http.StatusOK,
+			leaderRetries: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var puts atomic.Int32
+			owner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPut {
+					puts.Add(1)
+					tc.put(w)
+					return
+				}
+				markLocalUpgradeFailureHeld(w)
+				w.Header().Set(contentTypeHeader, contentTypeJSON)
+				_, _ = w.Write([]byte(`{"ready":false,"failed":true}`))
+			}))
+			defer owner.Close()
+			leaderPeer := Peer{ID: "leader"}
+			config := ClusterConfig{AllPeers: []Peer{leaderPeer, peerFor(t, "owner", owner.URL)}}
+			leader := &fakeHTTPUpgrade{}
+			s := serveUpgrade(&fakeHTTPContext{isMaster: true, mode: ServiceModeCluster, config: config, me: leaderPeer, upgrade: leader})
+
+			w := doUpgradeRequest(s, http.MethodPut)
+			require.Equal(t, tc.code, w.Code, w.Body.String())
+			require.Contains(t, w.Body.String(), tc.reasonContains)
+			require.Equal(t, int32(1), puts.Load())
+			// Only an explicit "no longer held" falls back to the normal retry.
+			require.Equal(t, tc.leaderRetries, leader.retries.Load())
+		})
+	}
+}
