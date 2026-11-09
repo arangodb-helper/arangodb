@@ -1,6 +1,7 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Bump `golang.org/x/net` to v0.62.0 for CVE fixes (CVE-2026-78661, CVE-2026-97045)
 - Bump Go version from 1.26.9 to 1.26.10 for the stdlib crypto/x509 CVE fix (CVE-2026-111943)
 - Fix starter leader election after a restart: follow agency read and write redirects, preserve the underlying agency error, and stop peer registration after 40 seconds of consecutive HTTP 503 responses
 - Bump `github.com/arangodb/go-driver/v2` from v2.2.0 to v2.4.1 so agency connections can keep HTTP 307 responses and follow them with authentication
