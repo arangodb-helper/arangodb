@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [v0.18.34](https://github.com/arangodb-helper/arangodb/tree/0.18.34) (2026-11-10)
 - Bump `github.com/klauspost/compress` to v1.20.2 for the zstd panic fix (CVE-2026-116591)
 
 ## [v0.18.33](https://github.com/arangodb-helper/arangodb/tree/0.18.33) (2026-10-23)
