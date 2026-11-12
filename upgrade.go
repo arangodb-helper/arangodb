@@ -168,7 +168,7 @@ func runUpgrade(starterEndpoint string, forceMinorUpgrade, retry bool) {
 			log.Error().Err(err).Msg("Failed to fetch upgrade status")
 		} else {
 			if status.Failed {
-				log.Error().Str("reason", status.Reason).Msg("Database upgrade has failed")
+				log.Error().Msg(formatUpgradeFailureMessage(status.Reason))
 				return
 			}
 			if status.Ready {
@@ -187,6 +187,24 @@ func runUpgrade(starterEndpoint string, forceMinorUpgrade, retry bool) {
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// formatUpgradeFailureMessage prints the failure once, then each line of the
+// reason indented with a tab. That matches the arangod output shown when a
+// normal launch fails, and keeps the crash log on separate lines.
+func formatUpgradeFailureMessage(reason string) string {
+	var b strings.Builder
+	b.WriteString("Database upgrade has failed")
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return b.String()
+	}
+	for _, line := range strings.Split(reason, "\n") {
+		b.WriteByte('\n')
+		b.WriteByte('\t')
+		b.WriteString(strings.TrimRight(line, "\r"))
+	}
+	return b.String()
 }
 
 // formatServerStatusList formats the given server status list in a human readable format.
