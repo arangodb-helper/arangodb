@@ -2639,3 +2639,112 @@ func TestStatusRejectsOutdatedCachedFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestAbortBeforeFailureThenNonZeroExitDoesNotPark(t *testing.T) {
+	for _, launched := range []bool{true, false} {
+		t.Run(fmt.Sprintf("launched=%t", launched), func(t *testing.T) {
+			c := &unavailableAgencyContext{
+				peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+				restarts: make(chan definitions.ServerType, 1),
+			}
+			// The entry is being worked on and has not failed (yet).
+			plan := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "peer1"}}}
+			a := &planAgency{plan: &plan}
+			c.agency = a.start(t)
+			m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+			m.beginServerUpgrade(definitions.ServerTypeDBServer)
+			if launched {
+				m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+			}
+
+			require.NoError(t, m.AbortDatabaseUpgrade(context.Background()))
+			require.True(t, a.current().IsEmpty())
+			// Abort does not terminate the attempt.
+			require.Empty(t, c.restarts)
+
+			if !launched {
+				// The attempt still starts its auto-upgrade process.
+				require.True(t, m.PrepareAutoUpgradeLaunch(definitions.ServerTypeDBServer))
+				m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+			}
+			// Its non-zero exit restarts the server instead of stopping it,
+			// since there is no plan left to retry or abort.
+			p := &processWrapper{serverType: definitions.ServerTypeDBServer}
+			failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL failed after abort" }, nil)
+			require.False(t, failed, "the server was stopped with no plan left")
+			require.Empty(t, m.parkedServers)
+			require.False(t, m.HasLocalUpgradeFailure())
+		})
+	}
+}
+
+func TestAbortContinuesWhenActiveOwnerIsUnreachable(t *testing.T) {
+	gone := httptest.NewServer(http.NotFoundHandler())
+	ownerPeer := peerFor(t, "owner", gone.URL)
+	gone.Close()
+	leader := Peer{ID: "leader", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}}
+	c := &abortPeersContext{
+		unavailableAgencyContext: unavailableAgencyContext{peer: leader},
+		me:                       leader,
+		config:                   ClusterConfig{AllPeers: []Peer{leader, ownerPeer}, AgencySize: 1},
+	}
+	plan := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "owner"}}}
+	a := &planAgency{plan: &plan}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+
+	// Nothing is known to be stopped there, so the abort is not blocked; the
+	// owner releases its server itself once it sees that the plan is gone.
+	require.NoError(t, m.AbortDatabaseUpgrade(context.Background()))
+	require.True(t, a.current().IsEmpty())
+}
+
+func TestWatcherRestartsParkedServerWhenPlanIsGone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p := &processWrapper{ctx: ctx, stopping: make(chan struct{}), serverType: definitions.ServerTypeDBServer}
+	c := &unavailableAgencyContext{
+		peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528},
+		wrapper:  p,
+		restarts: make(chan definitions.ServerType, 1),
+	}
+	// The plan was removed while the attempt was still running.
+	a := &planAgency{}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "" }, nil)
+	require.True(t, failed)
+
+	_ = m.waitForPlanChanges(ctx)
+	select {
+	case got := <-c.restarts:
+		require.Equal(t, definitions.ServerType(definitions.ServerTypeDBServer), got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stopped server was not restarted after the plan was removed")
+	}
+	require.Empty(t, m.parkedServers)
+}
+
+func TestRetryHealthCheckExemptsOnlyStoppedServers(t *testing.T) {
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528}}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	for _, tc := range []struct {
+		reason string
+		exempt bool
+	}{
+		{reason: "dbserver " + autoUpgradeExitReason + " 1 (exit with error)", exempt: true},
+		{reason: autoUpgradeTimeoutReason + "; context deadline exceeded", exempt: true},
+		// The server kept running; its health must still be checked.
+		{reason: "Cluster is not healthy in time: Server 'PRMR-1' has a 'BAD' status"},
+		{reason: "Failed to enable supervision: agency timeout"},
+	} {
+		plan := UpgradePlan{Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "peer1", Failures: 1, Reason: tc.reason}}}
+		if tc.exempt {
+			require.Len(t, m.stoppedServers(plan), 1, tc.reason)
+		} else {
+			require.Empty(t, m.stoppedServers(plan), tc.reason)
+		}
+	}
+}

@@ -1645,8 +1645,13 @@ func (m *upgradeManager) releaseFailedAutoUpgrades(ctx context.Context, plan Upg
 		entries = append(entries, local.Entries...)
 	}
 	released := map[string]bool{}
-	for _, entry := range entries {
-		if !entryLeftServerParked(entry) {
+	for i, entry := range entries {
+		// The first plan entry is the one being worked on. Its auto-upgrade
+		// may still be running without a recorded failure, and would stop
+		// its server on a later non-zero exit with no plan left to retry.
+		// Its owner is told as well; releasing it never terminates it.
+		active := i == 0 && entry.Failures == 0
+		if !active && !entryLeftServerParked(entry) {
 			continue
 		}
 		serverType, ok := upgradeEntryProcessType(entry.Type)
@@ -1665,10 +1670,19 @@ func (m *upgradeManager) releaseFailedAutoUpgrades(ctx context.Context, plan Upg
 			continue
 		}
 		peer, found := config.PeerByID(entry.PeerID)
+		var err error
 		if !found {
-			return maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to restart stopped %s on starter %s before removing the upgrade plan: peer is unknown", serverType, entry.PeerID)))
+			err = maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to restart stopped %s on starter %s before removing the upgrade plan: peer is unknown", serverType, entry.PeerID)))
+		} else {
+			err = m.askPeerToRelease(ctx, peer, serverType)
 		}
-		if err := m.askPeerToRelease(ctx, peer, serverType); err != nil {
+		if err != nil && active {
+			// Nothing is known to be stopped there. The owner releases its
+			// server itself once it sees that the plan is gone.
+			m.log.Warn().Err(err).Str("peer", entry.PeerID).Msg("Could not notify the starter working on the upgrade before removing the plan")
+			continue
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -1710,7 +1724,9 @@ func (m *upgradeManager) ReleaseParkedUpgradeServer(serverType definitions.Serve
 	}
 	m.stateMu.Lock()
 	parked := m.parkedServers[serverType]
-	running := m.upgradeServerType == serverType && (m.autoUpgradeRunning || m.autoUpgradeLaunchPending)
+	// updateNeeded covers an attempt that has begun but not yet started its
+	// auto-upgrade process.
+	running := m.upgradeServerType == serverType && (m.autoUpgradeRunning || m.autoUpgradeLaunchPending || m.updateNeeded)
 	if parked || running {
 		// A late exit of this attempt must not bring its failure back.
 		m.autoUpgradeGeneration++
@@ -1726,6 +1742,25 @@ func (m *upgradeManager) ReleaseParkedUpgradeServer(serverType definitions.Serve
 		return nil
 	}
 	return m.upgradeManagerContext.RestartServer(serverType)
+}
+
+// releaseParkedServersWithoutPlan restarts every server this starter stopped
+// after a failed auto-upgrade, once the plan has been removed.
+func (m *upgradeManager) releaseParkedServersWithoutPlan() {
+	m.stateMu.Lock()
+	var parked []definitions.ServerType
+	for serverType, stopped := range m.parkedServers {
+		if stopped {
+			parked = append(parked, serverType)
+		}
+	}
+	m.stateMu.Unlock()
+	for _, serverType := range parked {
+		m.log.Info().Str("type", string(serverType)).Msg("Restarting server stopped by a failed auto-upgrade of a removed upgrade plan")
+		if err := m.ReleaseParkedUpgradeServer(serverType); err != nil {
+			m.log.Warn().Err(err).Str("type", string(serverType)).Msg("Failed to restart server stopped by a failed auto-upgrade")
+		}
+	}
 }
 
 // isReleasableServerType reports whether serverType is a server that an
@@ -1850,6 +1885,9 @@ func (m *upgradeManager) waitForPlanChanges(ctx context.Context) chan *UpgradePl
 			}
 			if agency.IsKeyNotFound(err) || (err == nil && plan.IsEmpty()) {
 				m.discardAbandonedPlan(nil)
+				// Nothing can retry a server stopped for a plan that is gone,
+				// e.g. when the attempt failed just after an abort.
+				m.releaseParkedServersWithoutPlan()
 				// There is no plan. A failure cached for a plan that has
 				// been aborted must not be reported or retried any more.
 				if hasCached {
@@ -2426,7 +2464,10 @@ type stoppedServer struct {
 func (m *upgradeManager) stoppedServers(plan UpgradePlan) []stoppedServer {
 	var stopped []stoppedServer
 	for _, entry := range plan.Entries {
-		if entry.Failures == 0 {
+		// Only an auto-upgrade that stopped, or may still be running, leaves
+		// its server down. A failed health check or supervision step does
+		// not, so that server's health still counts.
+		if !entryLeftServerParked(entry) {
 			continue
 		}
 		status, err := entry.CreateStatusServer(m.upgradeManagerContext)
