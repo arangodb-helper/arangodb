@@ -28,6 +28,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,7 +95,7 @@ type runtimeServerManagerContext interface {
 
 // startServer starts a single Arangod/Arangosync server of the given type.
 func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtimeServerManagerContext, runner Runner,
-	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer, lastExitCode int) (Process, bool, error) {
+	config Config, bsCfg BootstrapConfig, myHostAddress string, serverType definitions.ServerType, features DatabaseFeatures, restart int, output io.Writer, lastExitCode int, logMark *logFileMark) (Process, bool, error) {
 	myPort, err := runtimeContext.serverPort(serverType)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -193,6 +194,12 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	}
 	containerName := fmt.Sprintf("%s%s-%s-%d-%s-%d", containerNamePrefix, serverType, myPeer.ID, restart, myHostAddress, myPort)
 	ports := []int{myPort}
+	// Snapshot after any leftover process has been stopped and immediately
+	// before the child exists, so a fast failure is kept and the previous
+	// server's shutdown lines are not.
+	if logMark != nil {
+		*logMark = serverHostLogMark(runtimeContext, serverType)
+	}
 	p, err = runner.Start(ctx, processType, args[0], args[1:], createEnvs(config, serverType), vols, ports, containerName, myHostDir, output)
 	if err != nil {
 		return nil, false, maskAny(err)
@@ -211,37 +218,306 @@ func (s *runtimeServerManager) showRecentLogs(log zerolog.Logger, runtimeContext
 		log.Error().Err(err).Msg("Cannot find server host log file")
 		return
 	}
-	logFile, err := os.Open(logPath)
+	body, err := readRecentServerLog(logPath)
 	if os.IsNotExist(err) {
 		log.Info().Msgf("Log file for %s is empty", serverType)
 	} else if err != nil {
 		log.Error().Err(err).Msgf("Cannot open log file for %s", serverType)
+	} else if strings.TrimSpace(body) == "" {
+		log.Info().Msgf("Log file for %s is empty", serverType)
 	} else {
-		defer logFile.Close()
-		rd := bufio.NewReader(logFile)
-		lines := [20]string{}
-		maxLines := 0
-		for {
-			line, err := rd.ReadString('\n')
-			if line != "" || err == nil {
-				copy(lines[1:], lines[0:])
-				lines[0] = line
-				if maxLines < len(lines) {
-					maxLines++
-				}
-			}
-			if err != nil {
-				break
-			}
-		}
-		buf := bytes.Buffer{}
-		buf.WriteString(fmt.Sprintf("## Start of %s log\n", serverType))
-		for i := maxLines - 1; i >= 0; i-- {
-			buf.WriteString("\t" + strings.TrimSuffix(lines[i], "\n") + "\n")
-		}
-		buf.WriteString(fmt.Sprintf("## End of %s log", serverType))
-		log.Info().Msg(buf.String())
+		log.Info().Msg(formatRecentServerLog(serverType, body))
 	}
+}
+
+// logFileMark is the position of an arangod log just before an attempt starts.
+// Size alone is not enough: scheduled rotation can rename the file and create
+// a new one at the same path before the attempt exits.
+type logFileMark struct {
+	size int64
+	id   logFileID
+	// known is false when the platform cannot identify files.
+	known bool
+}
+
+// logFileID identifies a file independent of its name.
+type logFileID struct {
+	volume uint64
+	index  uint64
+}
+
+func serverHostLogMark(runtimeContext runtimeServerManagerContext, serverType definitions.ServerType) logFileMark {
+	if runtimeContext == nil {
+		return logFileMark{}
+	}
+	logPath, err := runtimeContext.serverHostLogFile(serverType)
+	if err != nil {
+		return logFileMark{}
+	}
+	return logFileMarkAt(logPath)
+}
+
+func logFileMarkAt(logPath string) logFileMark {
+	info, err := os.Stat(logPath)
+	if err != nil {
+		return logFileMark{}
+	}
+	mark := logFileMark{size: info.Size()}
+	mark.id, mark.known = fileIdentity(logPath)
+	return mark
+}
+
+func sameLogFile(path string, mark logFileMark) bool {
+	if !mark.known {
+		return true
+	}
+	id, ok := fileIdentity(path)
+	return ok && id == mark.id
+}
+
+// isCurrentLogFile reports whether the file at logPath is still the marked
+// one. If its identity cannot be read right now, the offset alone is used,
+// so a passing error does not pull older rotations into the result.
+func isCurrentLogFile(logPath string, mark logFileMark) bool {
+	if !mark.known {
+		return true
+	}
+	id, ok := fileIdentity(logPath)
+	return !ok || id == mark.id
+}
+
+// readServerLogSince reads the log written at and after offset. It streams
+// the whole attempt, keeping a bounded set of ERROR and FATAL lines and the
+// actual tail, so a long log does not hide either.
+func readServerLogSince(logPath string, offset int64) (string, error) {
+	return readServerLogSinceMark(logPath, logFileMark{size: offset})
+}
+
+// readServerLogSinceMark is readServerLogSince for a log that rotation may
+// have renamed while the attempt was running. It then reads the marked file
+// from its offset, every newer rotation, and the current file, oldest first.
+func readServerLogSinceMark(logPath string, mark logFileMark) (string, error) {
+	var parts []io.Reader
+	var files []*os.File
+	defer func() {
+		for _, f := range files {
+			_ = f.Close()
+		}
+	}()
+	addFrom := func(path string, offset int64) error {
+		logFile, err := os.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		files = append(files, logFile)
+		info, err := logFile.Stat()
+		if err != nil {
+			return err
+		}
+		if offset < 0 || offset > info.Size() {
+			offset = 0
+		}
+		if _, err := logFile.Seek(offset, io.SeekStart); err != nil {
+			return err
+		}
+		parts = append(parts, logFile)
+		return nil
+	}
+
+	if _, err := os.Stat(logPath); err != nil && !os.IsNotExist(err) {
+		return "", err
+	} else if err == nil && isCurrentLogFile(logPath, mark) {
+		if err := addFrom(logPath, mark.size); err != nil {
+			return "", err
+		}
+	} else {
+		for _, rotated := range rotatedLogFilesSince(logPath, mark) {
+			if err := addFrom(rotated.path, rotated.offset); err != nil {
+				return "", err
+			}
+		}
+		if err := addFrom(logPath, 0); err != nil {
+			return "", err
+		}
+	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return streamImportantAndTail(io.MultiReader(parts...))
+}
+
+type rotatedLogFile struct {
+	path   string
+	offset int64
+}
+
+// rotatedLogFilesSince returns the rotated files written during the attempt,
+// oldest first. log.1 is the newest rotation. The file holding the mark is
+// read from the marked offset and every newer rotation from its start. When
+// the marked file has already been removed, all remaining rotations are newer.
+func rotatedLogFilesSince(logPath string, mark logFileMark) []rotatedLogFile {
+	if !mark.known {
+		return []rotatedLogFile{{path: logPath + ".1", offset: mark.size}}
+	}
+	var newestFirst []string
+	marked := -1
+	for i := 1; ; i++ {
+		candidate := logPath + fmt.Sprintf(".%d", i)
+		if _, err := os.Stat(candidate); err != nil {
+			break
+		}
+		newestFirst = append(newestFirst, candidate)
+		if sameLogFile(candidate, mark) {
+			marked = len(newestFirst) - 1
+			break
+		}
+	}
+	var result []rotatedLogFile
+	for i := len(newestFirst) - 1; i >= 0; i-- {
+		offset := int64(0)
+		if i == marked {
+			offset = mark.size
+		}
+		result = append(result, rotatedLogFile{path: newestFirst[i], offset: offset})
+	}
+	return result
+}
+
+// readRecentServerLog returns only the last 20 lines of an arangod log file.
+func readRecentServerLog(logPath string) (string, error) {
+	logFile, err := os.Open(logPath)
+	if err != nil {
+		return "", err
+	}
+	defer logFile.Close()
+	reader := bufio.NewReaderSize(logFile, 32*1024)
+	var tail []string
+	for {
+		line, err := readCappedLogLine(reader, 256*1024)
+		if line != "" || err == nil {
+			tail = appendBounded(tail, line, 20)
+		}
+		if err == io.EOF {
+			return strings.Join(tail, "\n"), nil
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+}
+
+func streamImportantAndTail(r io.Reader) (string, error) {
+	const (
+		maxImportant = 40
+		tailLines    = 20
+		maxLine      = 256 * 1024
+	)
+	reader := bufio.NewReaderSize(r, 32*1024)
+	// The first error is usually the cause; later ones are often follow-up
+	// failures. Keep it even when more than maxImportant errors follow.
+	// Lines keep their position, so the result is in log order.
+	var first *numberedLine
+	var important []numberedLine
+	tail := make([]numberedLine, 0, tailLines)
+	for n := 0; ; n++ {
+		line, err := readCappedLogLine(reader, maxLine)
+		if line != "" {
+			nl := numberedLine{n: n, text: line}
+			if isUpgradeErrorLine(line) {
+				if first == nil {
+					first = &nl
+				}
+				important = appendBounded(important, nl, maxImportant)
+			}
+			tail = appendBounded(tail, nl, tailLines)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	if first != nil {
+		important = append(important, *first)
+	}
+	return joinInLogOrder(important, tail), nil
+}
+
+// numberedLine is a log line with its position in the log.
+type numberedLine struct {
+	n    int
+	text string
+}
+
+func readCappedLogLine(r *bufio.Reader, max int) (string, error) {
+	var b strings.Builder
+	for {
+		frag, err := r.ReadSlice('\n')
+		if b.Len() < max {
+			remain := max - b.Len()
+			if len(frag) > remain {
+				b.Write(frag[:remain])
+			} else {
+				b.Write(frag)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return strings.TrimRight(b.String(), "\r\n"), err
+	}
+}
+
+func appendBounded[T any](lines []T, line T, max int) []T {
+	if len(lines) < max {
+		return append(lines, line)
+	}
+	copy(lines, lines[1:])
+	lines[max-1] = line
+	return lines
+}
+
+// joinInLogOrder merges the selected lines by their position in the log,
+// keeping each position once.
+func joinInLogOrder(selections ...[]numberedLine) string {
+	byPosition := make(map[int]string)
+	for _, lines := range selections {
+		for _, l := range lines {
+			if text := strings.TrimRight(l.text, "\r"); text != "" {
+				byPosition[l.n] = text
+			}
+		}
+	}
+	positions := make([]int, 0, len(byPosition))
+	for n := range byPosition {
+		positions = append(positions, n)
+	}
+	sort.Ints(positions)
+	out := make([]string, 0, len(positions))
+	for _, n := range positions {
+		out = append(out, byPosition[n])
+	}
+	return strings.Join(out, "\n")
+}
+
+func isUpgradeErrorLine(line string) bool {
+	return strings.Contains(line, " ERROR ") || strings.Contains(line, " FATAL ")
+}
+
+func formatRecentServerLog(serverType definitions.ServerType, body string) string {
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("## Start of %s log\n", serverType))
+	for _, line := range strings.Split(body, "\n") {
+		buf.WriteString("\t")
+		buf.WriteString(line)
+		buf.WriteByte('\n')
+	}
+	buf.WriteString(fmt.Sprintf("## End of %s log", serverType))
+	return buf.String()
 }
 
 // rotateLogFile rotates the log file of a single server.
@@ -446,33 +722,33 @@ func (s *runtimeServerManager) Run(ctx context.Context, log zerolog.Logger, runt
 
 // RestartServer triggers a restart of the server of the given type.
 func (s *runtimeServerManager) RestartServer(log zerolog.Logger, serverType definitions.ServerType) error {
-	var p Process
+	var w ProcessWrapper
 
 	switch serverType {
 	case definitions.ServerTypeAgent:
-		if w := s.agentProc; w != nil {
-			p = w.Process()
-		}
+		w = s.agentProc
 	case definitions.ServerTypeDBServer:
-		if w := s.dbserverProc; w != nil {
-			p = w.Process()
-		}
+		w = s.dbserverProc
 	case definitions.ServerTypeDBServerNoResign:
-		if w := s.dbserverProc; w != nil {
-			p = w.Process()
-		}
+		w = s.dbserverProc
 	case definitions.ServerTypeCoordinator:
-		if w := s.coordinatorProc; w != nil {
-			p = w.Process()
-		}
+		w = s.coordinatorProc
 	case definitions.ServerTypeSingle:
-		if w := s.singleProc; w != nil {
-			p = w.Process()
-		}
+		w = s.singleProc
 	default:
 		return maskAny(fmt.Errorf("unknown server type '%s'", serverType))
 	}
 
+	if w == nil {
+		log.Warn().Msgf("Was asked to restart %s but no such process exists", serverType)
+		return nil
+	}
+	// Notify before terminating. The wrapper can observe the process exit and
+	// start the next iteration as soon as the process dies. The notification
+	// has to be visible before that transition, and it must refer to the
+	// process that is running now so a later start is not killed.
+	p := w.Process()
+	w.RequestRestart()
 	if p != nil {
 		terminateProcessWithActions(log, p, serverType, 0, time.Minute, actions.ActionTypeAll)
 	} else {

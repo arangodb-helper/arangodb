@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Report a non-zero arangod exit during database auto-upgrade as a failed plan with the exit code and ERROR/FATAL lines from that attempt, keep the failed server stopped until an explicit retry, and retry standalone or sole-agent failures locally when the plan cannot be stored.
+- Show a failed database upgrade as one error line followed by the failure text indented on separate lines.
 - Bump `golang.org/x/net` to v0.62.0 and `github.com/klauspost/compress` to v1.20.2 for CVE fixes (CVE-2026-78661, CVE-2026-97045, CVE-2026-116591)
 - Bump Go version from 1.26.9 to 1.26.10 for the stdlib crypto/x509 CVE fix (CVE-2026-111943)
 - Fix starter leader election after a restart: follow agency read and write redirects, preserve the underlying agency error, and stop peer registration after 40 seconds of consecutive HTTP 503 responses
