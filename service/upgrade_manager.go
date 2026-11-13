@@ -288,9 +288,12 @@ type upgradeManager struct {
 	// still running. Its exit must not park that server.
 	autoUpgradeRelease bool
 	// parkedServers are the server types whose auto-upgrade exited non-zero,
-	// so their process wrapper waits for an explicit restart. Protected by
-	// stateMu.
-	parkedServers map[definitions.ServerType]bool
+	// so their process wrapper waits for an explicit restart, each with the
+	// attempt that stopped it. Protected by stateMu.
+	parkedServers map[definitions.ServerType]uint64
+	// autoUpgradeAttempt numbers the attempts; only beginServerUpgrade
+	// increases it, unlike the generation. Protected by stateMu.
+	autoUpgradeAttempt uint64
 	// Generation and plan associate a late exit with its original attempt.
 	// These fields, including lateAutoUpgradeFailure, are protected by stateMu.
 	autoUpgradeGeneration  uint64
@@ -1339,9 +1342,9 @@ func (m *upgradeManager) ServerDatabaseAutoUpgradeFinished(serverType definition
 		m.autoUpgradeFailed = autoUpgradeExitError(serverType, exitCode, serverLog)
 		// The process wrapper now waits for a restart.
 		if m.parkedServers == nil {
-			m.parkedServers = map[definitions.ServerType]bool{}
+			m.parkedServers = map[definitions.ServerType]uint64{}
 		}
-		m.parkedServers[serverType] = true
+		m.parkedServers[serverType] = m.autoUpgradeAttempt
 	}
 	if m.autoUpgradeAbandoned {
 		// Publish after the previous attempt has finished its cleanup. The
@@ -1583,6 +1586,7 @@ func (m *upgradeManager) beginServerUpgrade(serverType definitions.ServerType) {
 	m.autoUpgradeLaunchPending = false
 	m.autoUpgradeRelease = false
 	m.autoUpgradeGeneration++
+	m.autoUpgradeAttempt++
 	m.abandonedUpgradePlan = nil
 	m.lateAutoUpgradeFailure = nil
 	// This attempt restarts the server, so it is no longer parked.
@@ -1722,8 +1726,20 @@ func (m *upgradeManager) ReleaseParkedUpgradeServer(serverType definitions.Serve
 	if !isReleasableServerType(serverType) {
 		return maskAny(client.NewBadRequestError(fmt.Sprintf("Cannot release server type '%s'", serverType)))
 	}
+	return m.releaseServer(serverType, nil)
+}
+
+// releaseServer implements ReleaseParkedUpgradeServer. When onlyAttempt is
+// set, a server is restarted only while it is still stopped by that attempt;
+// one stopped by a newer attempt is left for its explicit retry.
+func (m *upgradeManager) releaseServer(serverType definitions.ServerType, onlyAttempt *uint64) error {
 	m.stateMu.Lock()
-	parked := m.parkedServers[serverType]
+	attempt, parked := m.parkedServers[serverType]
+	if onlyAttempt != nil && (!parked || attempt != *onlyAttempt) {
+		// A newer attempt began meanwhile, or stopped the server itself.
+		m.stateMu.Unlock()
+		return nil
+	}
 	// updateNeeded covers an attempt that has begun but not yet started its
 	// auto-upgrade process.
 	running := m.upgradeServerType == serverType && (m.autoUpgradeRunning || m.autoUpgradeLaunchPending || m.updateNeeded)
@@ -1744,20 +1760,44 @@ func (m *upgradeManager) ReleaseParkedUpgradeServer(serverType definitions.Serve
 	return m.upgradeManagerContext.RestartServer(serverType)
 }
 
-// releaseParkedServersWithoutPlan restarts every server this starter stopped
-// after a failed auto-upgrade, once the plan has been removed.
-func (m *upgradeManager) releaseParkedServersWithoutPlan() {
+// currentAutoUpgradeAttempt returns the generation and the number of the
+// current attempt.
+func (m *upgradeManager) currentAutoUpgradeAttempt() (generation, attempt uint64) {
 	m.stateMu.Lock()
-	var parked []definitions.ServerType
-	for serverType, stopped := range m.parkedServers {
-		if stopped {
-			parked = append(parked, serverType)
+	defer m.stateMu.Unlock()
+	return m.autoUpgradeGeneration, m.autoUpgradeAttempt
+}
+
+// releaseServersWithoutPlan is called once the plan has been removed. It
+// restarts every server this starter stopped after a failed auto-upgrade. An
+// attempt that is pending or still running is not terminated; it is marked so
+// that its exit restarts the server instead of stopping it, as abort does when
+// it can reach this starter. Without this, a sole agent whose auto-upgrade
+// fails would stop the only agency, and nothing could release it again.
+// generation and attempt were taken before the plan was read. An attempt that
+// began afterwards belongs to a newer plan: it is not released, and neither
+// is a server it stopped, up to the moment of its restart.
+func (m *upgradeManager) releaseServersWithoutPlan(generation, attempt uint64) {
+	m.stateMu.Lock()
+	parked := map[definitions.ServerType]uint64{}
+	for serverType, stoppedBy := range m.parkedServers {
+		if stoppedBy <= attempt {
+			parked[serverType] = stoppedBy
 		}
 	}
+	if m.autoUpgradeGeneration == generation && m.upgradeServerType != "" && !m.autoUpgradeRelease &&
+		(m.autoUpgradeRunning || m.autoUpgradeLaunchPending || m.updateNeeded) {
+		m.log.Info().Str("type", string(m.upgradeServerType)).Msg("Releasing the auto-upgrade of a removed upgrade plan; its exit restarts the server")
+		m.autoUpgradeRelease = true
+		// A late exit of this attempt must not bring its failure back.
+		m.autoUpgradeGeneration++
+		m.abandonedUpgradePlan = nil
+		m.localFailedPlan = UpgradePlan{}
+	}
 	m.stateMu.Unlock()
-	for _, serverType := range parked {
+	for serverType, stoppedBy := range parked {
 		m.log.Info().Str("type", string(serverType)).Msg("Restarting server stopped by a failed auto-upgrade of a removed upgrade plan")
-		if err := m.ReleaseParkedUpgradeServer(serverType); err != nil {
+		if err := m.releaseServer(serverType, &stoppedBy); err != nil {
 			m.log.Warn().Err(err).Str("type", string(serverType)).Msg("Failed to restart server stopped by a failed auto-upgrade")
 		}
 	}
@@ -1879,15 +1919,19 @@ func (m *upgradeManager) waitForPlanChanges(ctx context.Context) chan *UpgradePl
 			m.stateMu.Unlock()
 			// Taken before the read, so a failure published after it is kept.
 			cached, hasCached := m.localFailedPlanSnapshot()
+			// An attempt that begins after the read belongs to a newer plan.
+			generation, attempt := m.currentAutoUpgradeAttempt()
 			plan, err := m.readUpgradePlan(ctx)
 			if err == nil && !plan.IsEmpty() {
 				m.discardAbandonedPlan(&plan)
 			}
 			if agency.IsKeyNotFound(err) || (err == nil && plan.IsEmpty()) {
-				m.discardAbandonedPlan(nil)
 				// Nothing can retry a server stopped for a plan that is gone,
-				// e.g. when the attempt failed just after an abort.
-				m.releaseParkedServersWithoutPlan()
+				// e.g. when the attempt failed just after an abort. This runs
+				// before discarding the abandoned plan, which would make a
+				// still running timed-out attempt look newer than the read.
+				m.releaseServersWithoutPlan(generation, attempt)
+				m.discardAbandonedPlan(nil)
 				// There is no plan. A failure cached for a plan that has
 				// been aborted must not be reported or retried any more.
 				if hasCached {

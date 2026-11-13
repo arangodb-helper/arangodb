@@ -2748,3 +2748,117 @@ func TestRetryHealthCheckExemptsOnlyStoppedServers(t *testing.T) {
 		}
 	}
 }
+
+func TestWatcherReleasesSoleAgentAttemptWhenPlanIsGone(t *testing.T) {
+	for _, state := range []string{"pending", "running", "timed-out"} {
+		t.Run(state, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			// The sole agent: once its server stops, the agency is gone too.
+			c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}}}
+			// Abort could not reach this starter and removed the plan.
+			a := &planAgency{}
+			c.agency = a.start(t)
+			m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+			m.beginServerUpgrade(definitions.ServerTypeAgent)
+			if state != "pending" {
+				m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeAgent)
+			}
+			if state == "timed-out" {
+				timedOut := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1, Reason: autoUpgradeTimeoutReason}}}
+				m.endServerUpgradePlan(&timedOut)
+			}
+
+			_ = m.waitForPlanChanges(ctx)
+			require.Eventually(t, func() bool {
+				m.stateMu.Lock()
+				defer m.stateMu.Unlock()
+				return m.autoUpgradeRelease
+				// The first watcher pass releases it; the next poll is 3s later,
+				// and the process may exit before that.
+			}, 2*time.Second, 10*time.Millisecond, "the attempt of the removed plan was not released")
+
+			if state == "pending" {
+				// The attempt still starts its process; it is not terminated.
+				require.True(t, m.PrepareAutoUpgradeLaunch(definitions.ServerTypeAgent))
+				m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeAgent)
+			}
+			// Its non-zero exit restarts the agent instead of stopping it.
+			p := &processWrapper{serverType: definitions.ServerTypeAgent}
+			failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL agent failed" }, nil)
+			require.False(t, failed, "the sole agent was stopped with no plan left")
+			require.False(t, m.HasLocalUpgradeFailure())
+		})
+	}
+}
+
+func TestPlanRemovalDoesNotReleaseNewerAttempt(t *testing.T) {
+	m := &upgradeManager{log: zerolog.Nop()}
+	// The watcher read "no plan"; then a new plan was created and its attempt
+	// began before the watcher acted on that read.
+	generation, attempt := m.currentAutoUpgradeAttempt()
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	m.releaseServersWithoutPlan(generation, attempt)
+	require.False(t, m.autoUpgradeRelease)
+
+	// The newer attempt's failure still stops its server for a retry.
+	p := &processWrapper{serverType: definitions.ServerTypeDBServer}
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "" }, nil)
+	require.True(t, failed)
+}
+
+func TestPlanRemovalDoesNotRestartServerStoppedByNewerAttempt(t *testing.T) {
+	ctx := context.Background()
+	newManager := func() (*upgradeManager, *unavailableAgencyContext, *processWrapper) {
+		p := &processWrapper{ctx: ctx, stopping: make(chan struct{}), serverType: definitions.ServerTypeDBServer}
+		c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528}, wrapper: p, restarts: make(chan definitions.ServerType, 2)}
+		return &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}, c, p
+	}
+	failAttempt := func(m *upgradeManager, p *processWrapper) {
+		m.beginServerUpgrade(definitions.ServerTypeDBServer)
+		m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+		failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "" }, nil)
+		require.True(t, failed)
+	}
+
+	t.Run("newer-attempt-before-collection", func(t *testing.T) {
+		m, c, p := newManager()
+		// The watcher read "no plan"; then a new plan's attempt began and failed.
+		generation, attempt := m.currentAutoUpgradeAttempt()
+		failAttempt(m, p)
+		m.releaseServersWithoutPlan(generation, attempt)
+		require.Empty(t, c.restarts, "the newer failed attempt was restarted")
+		require.Len(t, m.parkedServers, 1, "the newer attempt must stay stopped for its retry")
+	})
+
+	t.Run("newer-attempt-between-collection-and-restart", func(t *testing.T) {
+		for _, newerFailed := range []bool{true, false} {
+			m, c, p := newManager()
+			failAttempt(m, p)
+			// Collected as stopped by this attempt...
+			m.stateMu.Lock()
+			stoppedBy := m.parkedServers[definitions.ServerTypeDBServer]
+			m.stateMu.Unlock()
+			// ...but a newer attempt begins before the restart.
+			if newerFailed {
+				failAttempt(m, p)
+			} else {
+				m.beginServerUpgrade(definitions.ServerTypeDBServer)
+				m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+			}
+			require.NoError(t, m.releaseServer(definitions.ServerTypeDBServer, &stoppedBy))
+			require.Empty(t, c.restarts, "newerFailed=%t: the newer attempt was restarted", newerFailed)
+			require.False(t, m.autoUpgradeRelease, "newerFailed=%t: the newer attempt was released", newerFailed)
+		}
+	})
+
+	t.Run("older-attempt-is-restarted", func(t *testing.T) {
+		m, c, p := newManager()
+		failAttempt(m, p)
+		generation, attempt := m.currentAutoUpgradeAttempt()
+		m.releaseServersWithoutPlan(generation, attempt)
+		require.Equal(t, definitions.ServerType(definitions.ServerTypeDBServer), <-c.restarts)
+		require.Empty(t, m.parkedServers)
+	})
+}
