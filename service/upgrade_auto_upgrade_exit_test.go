@@ -1756,6 +1756,87 @@ func TestLateFailureCannotOverwriteNewAttempt(t *testing.T) {
 	require.EqualError(t, m.singleUpgradeFailure, "new attempt failure")
 }
 
+func TestDiscardAbandonedPlanWaitsForReconciliation(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseWrite := func() { releaseOnce.Do(func() { close(release) }) }
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/_api/agency/write" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = io.ReadAll(r.Body)
+		close(entered)
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[1]}`))
+	}))
+	defer ts.Close()
+	defer releaseWrite()
+	created := time.Unix(1700000000, 0).UTC()
+	plan := UpgradePlan{
+		Revision:  4,
+		CreatedAt: created,
+		Entries:   []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "peer1", Failures: 1, Reason: autoUpgradeTimeoutReason}},
+	}
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}}, agency: ts}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	m.endServerUpgradePlan(&plan)
+	m.storeLocalFailedPlan(plan)
+	generation := m.autoUpgradeGeneration
+
+	reconciled := make(chan bool, 1)
+	go func() {
+		// The agency still has the plan without this failure, at the same revision.
+		agencyPlan := plan.clone()
+		agencyPlan.Entries[0].Failures = 0
+		agencyPlan.Entries[0].Reason = ""
+		reconciled <- m.reconcileLocalFailedPlan(context.Background(), agencyPlan)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reconciliation did not reach the agency write")
+	}
+
+	// The poller has observed the revision the write will publish, before
+	// reconciliation records it on the abandoned plan.
+	seen := plan.clone()
+	seen.Revision = plan.Revision + 1
+	discarded := make(chan struct{})
+	go func() {
+		m.discardAbandonedPlan(&seen)
+		close(discarded)
+	}()
+	select {
+	case <-discarded:
+		t.Fatal("discardAbandonedPlan ran while reconciliation held the upgrade lock")
+	case <-time.After(200 * time.Millisecond):
+	}
+	require.Equal(t, generation, m.autoUpgradeGeneration)
+
+	releaseWrite()
+	select {
+	case kept := <-reconciled:
+		require.True(t, kept)
+	case <-time.After(5 * time.Second):
+		t.Fatal("reconciliation did not finish")
+	}
+	select {
+	case <-discarded:
+	case <-time.After(5 * time.Second):
+		t.Fatal("discardAbandonedPlan did not finish after reconciliation")
+	}
+	require.Equal(t, generation, m.autoUpgradeGeneration)
+	m.publishLateUpgradeFailure(generation, &plan, fmt.Errorf("dbserver auto-upgrade exited with code 1\nFATAL late exit"))
+	status, ok := m.LocalUpgradeFailureStatus()
+	require.True(t, ok)
+	require.Contains(t, status.Reason, "FATAL late exit")
+}
+
 func TestLateFailureCannotRestoreRemovedPlan(t *testing.T) {
 	m := &upgradeManager{}
 	m.beginServerUpgrade(definitions.ServerTypeAgent)
@@ -1903,6 +1984,48 @@ func TestLocalRetryResetsFailureHeldByAgency(t *testing.T) {
 		p := a.current()
 		return p.IsFailed() && strings.Contains(p.Entries[0].Reason, "test stopped at restart")
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestSupervisionCleanupIgnoresCanceledAttemptContext(t *testing.T) {
+	var writes []string
+	var mu sync.Mutex
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/_api/version":
+			_, _ = w.Write([]byte(`{"server":"arango","version":"3.12.4"}`))
+		case "/_api/agency/read":
+			_, _ = w.Write([]byte(`[{"arango":{"Supervision":{"State":{"Mode":"Maintenance"}}}}]`))
+		case "/_api/agency/write":
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			writes = append(writes, string(body))
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"results":[1]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}}, agency: ts}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	attempt, cancelAttempt := context.WithCancel(context.Background())
+	defer cancelAttempt()
+
+	err := m.withMaintenance(attempt, func(err error) error { return err })(func() error {
+		cancelAttempt()
+		return nil
+	})
+	require.NoError(t, err)
+	mu.Lock()
+	defer mu.Unlock()
+	var deleted bool
+	for _, body := range writes {
+		if strings.Contains(body, "/arango/Supervision/Maintenance") && strings.Contains(body, `"delete"`) {
+			deleted = true
+		}
+	}
+	require.True(t, deleted, "agency did not receive the maintenance-key deletion: %v", writes)
 }
 
 func TestSupervisionCleanupFailureFailsSuccessfulAction(t *testing.T) {

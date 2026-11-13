@@ -818,7 +818,11 @@ func (m *upgradeManager) clearLocalFailedPlan() {
 
 // discardAbandonedPlan prevents late exits from restoring a removed or
 // superseded plan. The process identity remains until the child exits.
+// mutex is taken before stateMu, the same order as reconciliation and late
+// publication, so this cannot drop the plan between those steps.
 func (m *upgradeManager) discardAbandonedPlan(current *UpgradePlan) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 	old := m.abandonedUpgradePlan
@@ -1902,10 +1906,11 @@ func (m *upgradeManager) withMaintenance(ctx context.Context, recordFailure func
 		m.log.Info().Msg("Disabled supervision")
 		defer func() {
 			m.log.Info().Msg("Enabling supervision")
-			// ctx has no deadline when the watcher runs this. Bound the
-			// cleanup, so a stopped agency cannot hold back the failure
-			// published after it. The maintenance key expires on its own.
-			cleanupCtx, cancel := context.WithTimeout(ctx, localFailureAgencyTimeout)
+			// The attempt context may already be canceled, for example when a
+			// local retry reaches its deadline. Cleanup keeps its own ten
+			// seconds so a reachable agency can turn supervision back on. The
+			// maintenance key expires on its own if the agency cannot be reached.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), localFailureAgencyTimeout)
 			defer cancel()
 			if enableErr := m.enableSupervision(cleanupCtx); enableErr != nil {
 				cleanupErr := recordFailure(errors.Wrap(enableErr, "Failed to enable supervision"))
