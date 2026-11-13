@@ -69,7 +69,8 @@ func TestUpgradeCommandReportsFailedPlan(t *testing.T) {
 	require.NoError(t, writeErr.Close())
 	out, err := io.ReadAll(readErr)
 	require.NoError(t, err)
-	require.Contains(t, string(out), "Database upgrade has failed")
-	require.Contains(t, string(out), "exited with code 1")
+	require.Contains(t, string(out), "Database upgrade has failed\n\tdbserver auto-upgrade exited with code 1")
+	require.Contains(t, string(out), "\n\t2026-10-26T10:51:46Z ERROR")
 	require.Contains(t, string(out), "failed to open '_system'")
+	require.NotContains(t, string(out), `\n`)
 }
