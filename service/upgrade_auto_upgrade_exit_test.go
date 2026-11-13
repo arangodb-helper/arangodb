@@ -220,6 +220,11 @@ type planAgency struct {
 	hang bool         // block every request until it is canceled
 	// failPlanReads fails reads of the upgrade plan; other reads succeed.
 	failPlanReads bool
+	// failWrites fails every write, as an agency that cannot be reached.
+	failWrites bool
+	// afterWrite, if set, runs after a write has been answered, e.g. to model
+	// another starter changing the plan right after it.
+	afterWrite func()
 }
 
 func (a *planAgency) setPlan(plan *UpgradePlan) {
@@ -244,7 +249,20 @@ func (a *planAgency) start(t *testing.T) *httptest.Server {
 			return
 		}
 		if r.URL.Path == "/_api/agency/write" {
+			a.mu.Lock()
+			failWrites := a.failWrites
+			a.mu.Unlock()
+			if failWrites {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			a.write(w, r)
+			a.mu.Lock()
+			afterWrite := a.afterWrite
+			a.mu.Unlock()
+			if afterWrite != nil {
+				afterWrite()
+			}
 			return
 		}
 		if r.URL.Path != "/_api/agency/read" {
@@ -302,13 +320,21 @@ func (a *planAgency) write(w http.ResponseWriter, r *http.Request) {
 	}
 	if op, ok := ops["/arangodb-helper/arangodb/upgrade-plan"]; ok {
 		var set struct {
+			Op  string       `json:"op"`
 			New *UpgradePlan `json:"new"`
 		}
-		if err := json.Unmarshal(op, &set); err != nil || set.New == nil {
+		if err := json.Unmarshal(op, &set); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		a.plan = set.New
+		if set.Op == "delete" {
+			a.plan = nil
+		} else if set.New == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		} else {
+			a.plan = set.New
+		}
 	}
 	_, _ = w.Write([]byte(`{"results":[1]}`))
 }
@@ -324,9 +350,10 @@ func (a *planAgency) current() UpgradePlan {
 }
 
 func shortenAgencyTimeout(t *testing.T) {
-	old := localFailureAgencyTimeout
+	old, oldValidation := localFailureAgencyTimeout, localFailureValidationTimeout
 	localFailureAgencyTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { localFailureAgencyTimeout = old })
+	localFailureValidationTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { localFailureAgencyTimeout, localFailureValidationTimeout = old, oldValidation })
 }
 
 func (c *unavailableAgencyContext) ClusterConfig() (ClusterConfig, *Peer, ServiceMode) {
@@ -917,7 +944,7 @@ func TestLocalFailedPlanIsIndependentCopy(t *testing.T) {
 	snapshot, ok := m.localFailedPlanSnapshot()
 	require.True(t, ok)
 	snapshot.ResetFailures()
-	status, ok := m.LocalUpgradeFailureStatus()
+	status, ok := m.LocalUpgradeFailureStatus(context.Background())
 	require.True(t, ok)
 	require.True(t, status.Failed)
 	require.Equal(t, "failed", status.Reason)
@@ -927,7 +954,7 @@ func TestLocalFailedPlanIsIndependentCopy(t *testing.T) {
 	m.storeLocalFailedPlan(UpgradePlan{Revision: 4, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1, Reason: "second"}}})
 	taken.ResetFailures()
 	taken.Entries[0].Reason = "mutated"
-	status, ok = m.LocalUpgradeFailureStatus()
+	status, ok = m.LocalUpgradeFailureStatus(context.Background())
 	require.True(t, ok)
 	require.Equal(t, "second", status.Reason)
 }
@@ -1134,7 +1161,7 @@ func (u *fakeHTTPUpgrade) RetryLocalUpgradeFailure(context.Context) error {
 	return u.localRetryErr
 }
 
-func (u *fakeHTTPUpgrade) LocalUpgradeFailureStatus() (client.UpgradeStatus, bool) {
+func (u *fakeHTTPUpgrade) LocalUpgradeFailureStatus(context.Context) (client.UpgradeStatus, bool) {
 	if !u.localFailure {
 		return client.UpgradeStatus{}, false
 	}
@@ -1450,7 +1477,7 @@ func TestWatcherDropsFailureOfRemovedPlan(t *testing.T) {
 
 	m.waitForPlanChanges(ctx)
 	require.Eventually(t, func() bool { return !m.HasLocalUpgradeFailure() }, 3*time.Second, 20*time.Millisecond)
-	_, found := m.LocalUpgradeFailureStatus()
+	_, found := m.LocalUpgradeFailureStatus(context.Background())
 	require.False(t, found)
 }
 
@@ -1704,26 +1731,14 @@ func TestLateStandaloneFailureUpdatesStatus(t *testing.T) {
 }
 
 func TestLateClusterFailureUpdatesCachedAndAgencyReason(t *testing.T) {
-	writes := make(chan string, 1)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/_api/agency/write" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		var body interface{}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		encoded, _ := json.Marshal(body)
-		writes <- string(encoded)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[1]}`))
-	}))
-	defer ts.Close()
-	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "localhost", Port: 8528}, agency: ts}
-	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	shortenAgencyTimeout(t)
 	plan := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1, Reason: autoUpgradeTimeoutReason}}}
+	agencyPlan := plan.clone()
+	// The agency holds the timeout but cannot be written when the exit arrives.
+	a := &planAgency{plan: &agencyPlan, failWrites: true}
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "localhost", Port: 8528}}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
 	m.beginServerUpgrade(definitions.ServerTypeAgent)
 	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeAgent)
 	m.endServerUpgradePlan(&plan)
@@ -1732,18 +1747,19 @@ func TestLateClusterFailureUpdatesCachedAndAgencyReason(t *testing.T) {
 	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL late agent failure" }, nil)
 	require.True(t, failed)
 	require.Eventually(t, func() bool {
-		status, ok := m.LocalUpgradeFailureStatus()
+		status, ok := m.LocalUpgradeFailureStatus(context.Background())
 		return ok && strings.Contains(status.Reason, "late agent failure") && strings.Contains(status.Reason, "exited with code 1")
-	}, time.Second, time.Millisecond)
-	// An agency plan that already records the timeout must be updated too.
+	}, 2*time.Second, time.Millisecond)
+
+	// Once the agency accepts writes, reconciliation records the details.
+	a.mu.Lock()
+	a.failWrites = false
+	a.mu.Unlock()
 	require.True(t, m.reconcileLocalFailedPlan(context.Background(), plan))
-	select {
-	case body := <-writes:
-		require.Contains(t, body, "late agent failure")
-		require.Contains(t, body, "exited with code 1")
-	case <-time.After(time.Second):
-		t.Fatal("late exit was not written to the agency")
-	}
+	stored := a.current()
+	require.Equal(t, plan.Revision+1, stored.Revision)
+	require.Contains(t, stored.Entries[0].Reason, "late agent failure")
+	require.Contains(t, stored.Entries[0].Reason, "exited with code 1")
 	require.False(t, m.HasLocalUpgradeFailure())
 }
 
@@ -1761,13 +1777,19 @@ func TestDiscardAbandonedPlanWaitsForReconciliation(t *testing.T) {
 	entered := make(chan struct{})
 	var releaseOnce sync.Once
 	releaseWrite := func() { releaseOnce.Do(func() { close(release) }) }
+	var enteredOnce sync.Once
+	var writesMu sync.Mutex
+	var writes []string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/_api/agency/write" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		_, _ = io.ReadAll(r.Body)
-		close(entered)
+		body, _ := io.ReadAll(r.Body)
+		writesMu.Lock()
+		writes = append(writes, string(body))
+		writesMu.Unlock()
+		enteredOnce.Do(func() { close(entered) })
 		<-release
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"results":[1]}`))
@@ -1832,9 +1854,11 @@ func TestDiscardAbandonedPlanWaitsForReconciliation(t *testing.T) {
 	}
 	require.Equal(t, generation, m.autoUpgradeGeneration)
 	m.publishLateUpgradeFailure(generation, &plan, fmt.Errorf("dbserver auto-upgrade exited with code 1\nFATAL late exit"))
-	status, ok := m.LocalUpgradeFailureStatus()
-	require.True(t, ok)
-	require.Contains(t, status.Reason, "FATAL late exit")
+	// The attempt stayed current, so its exit reached the agency.
+	writesMu.Lock()
+	last := writes[len(writes)-1]
+	writesMu.Unlock()
+	require.Contains(t, last, "FATAL late exit")
 }
 
 func TestLateFailureCannotRestoreRemovedPlan(t *testing.T) {
@@ -1862,10 +1886,12 @@ func TestAcceptedRetryInvalidatesQueuedLateFailure(t *testing.T) {
 }
 
 func TestLateFailureWakesPlanWatcher(t *testing.T) {
+	shortenAgencyTimeout(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	plan := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1", Failures: 1, Reason: autoUpgradeTimeoutReason}}}
-	a := &planAgency{plan: &plan}
+	// The exit cannot be written, so it is cached for the watcher.
+	a := &planAgency{plan: &plan, failWrites: true}
 	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528}}
 	c.agency = a.start(t)
 	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
@@ -2217,6 +2243,399 @@ func TestHolderRetryErrorIsNotReplacedByNormalRetry(t *testing.T) {
 			require.Equal(t, int32(1), puts.Load())
 			// Only an explicit "no longer held" falls back to the normal retry.
 			require.Equal(t, tc.leaderRetries, leader.retries.Load())
+		})
+	}
+}
+
+func TestAbortRestartsParkedAutoUpgrade(t *testing.T) {
+	ctx := context.Background()
+	p := &processWrapper{ctx: ctx, stopping: make(chan struct{}), serverType: definitions.ServerTypeDBServer}
+	c := &unavailableAgencyContext{
+		peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+		wrapper:  p,
+		restarts: make(chan definitions.ServerType, 1),
+	}
+	plan := UpgradePlan{
+		Revision:  4,
+		CreatedAt: time.Unix(1700000000, 0).UTC(),
+		Entries: []UpgradePlanEntry{{
+			Type:     UpgradeEntryTypeDBServer,
+			PeerID:   "peer1",
+			Failures: 1,
+			Reason:   "dbserver auto-upgrade exited with code 1 (reason unknown)",
+		}},
+	}
+	a := &planAgency{plan: &plan}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	// The auto-upgrade exits non-zero and its wrapper waits for a restart.
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	failed, seen := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "" }, nil)
+	require.True(t, failed)
+	parked := make(chan error, 1)
+	go func() { parked <- p.waitForRestartSince(seen) }()
+
+	require.NoError(t, m.AbortDatabaseUpgrade(ctx))
+	select {
+	case err := <-parked:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("parked dbserver was not restarted")
+	}
+	require.Equal(t, definitions.ServerType(definitions.ServerTypeDBServer), <-c.restarts)
+	require.True(t, a.current().IsEmpty())
+}
+
+func TestAbortLeavesARunningServerAlone(t *testing.T) {
+	ctx := context.Background()
+	c := &unavailableAgencyContext{
+		peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+		restarts: make(chan definitions.ServerType, 1),
+	}
+	plan := UpgradePlan{
+		Revision:  4,
+		CreatedAt: time.Unix(1700000000, 0).UTC(),
+		Entries: []UpgradePlanEntry{{
+			Type:     UpgradeEntryTypeDBServer,
+			PeerID:   "peer1",
+			Failures: 1,
+			Reason:   "Cluster is not healthy in time",
+		}},
+	}
+	a := &planAgency{plan: &plan}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+
+	require.NoError(t, m.AbortDatabaseUpgrade(ctx))
+	select {
+	case got := <-c.restarts:
+		t.Fatalf("restarted %s", got)
+	default:
+	}
+	require.True(t, a.current().IsEmpty())
+}
+
+func TestAbortKeepsPlanWhenParkedServerCannotBeRestarted(t *testing.T) {
+	var unavailable atomic.Bool
+	unavailable.Store(true)
+	owner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodDelete, r.Method)
+		require.Equal(t, "dbserver", r.URL.Query().Get(releaseUpgradeQuery))
+		if unavailable.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer owner.Close()
+	leader := Peer{ID: "leader", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}}
+	c := &abortPeersContext{
+		unavailableAgencyContext: unavailableAgencyContext{peer: leader},
+		me:                       leader,
+		config:                   ClusterConfig{AllPeers: []Peer{leader, peerFor(t, "owner", owner.URL)}, AgencySize: 1},
+	}
+	plan := UpgradePlan{
+		Revision:  4,
+		CreatedAt: time.Unix(1700000000, 0).UTC(),
+		Entries: []UpgradePlanEntry{{
+			Type:     UpgradeEntryTypeDBServer,
+			PeerID:   "owner",
+			Failures: 1,
+			Reason:   "dbserver auto-upgrade exited with code 1 (reason unknown)",
+		}},
+	}
+	a := &planAgency{plan: &plan}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+
+	err := m.AbortDatabaseUpgrade(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "owner")
+	require.Equal(t, 4, a.current().Revision)
+
+	// The same abort removes the plan once the owner restarts its server.
+	unavailable.Store(false)
+	require.NoError(t, m.AbortDatabaseUpgrade(context.Background()))
+	require.True(t, a.current().IsEmpty())
+}
+
+type abortPeersContext struct {
+	unavailableAgencyContext
+	config ClusterConfig
+	me     Peer
+}
+
+func (c *abortPeersContext) ClusterConfig() (ClusterConfig, *Peer, ServiceMode) {
+	return c.config, &c.me, ServiceModeCluster
+}
+
+func TestAcceptedRetryIgnoresObsoleteAutoUpgradeExit(t *testing.T) {
+	created := time.Unix(1700000000, 0).UTC()
+	failed := UpgradePlan{
+		Revision:  4,
+		CreatedAt: created,
+		Entries: []UpgradePlanEntry{{
+			Type:     UpgradeEntryTypeDBServer,
+			PeerID:   "peer1",
+			Failures: 1,
+			Reason:   autoUpgradeTimeoutReason,
+		}},
+	}
+	accepted := failed.clone()
+	accepted.Revision = 5
+	accepted.ResetFailures()
+	a := &planAgency{plan: &accepted}
+	c := &unavailableAgencyContext{
+		peer:   Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+		agency: a.start(t),
+	}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	m.endServerUpgradePlan(&failed)
+
+	m.publishLateUpgradeFailure(m.autoUpgradeGeneration, &failed, fmt.Errorf("dbserver auto-upgrade exited with code 1\nFATAL stale exit"))
+	require.False(t, m.HasLocalUpgradeFailure())
+	stored := a.current()
+	require.False(t, stored.IsFailed())
+	require.Equal(t, 5, stored.Revision)
+}
+
+func TestMaintenanceFailureKeepsChildExit(t *testing.T) {
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}}}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	require.True(t, m.ServerDatabaseAutoUpgradeFinished(definitions.ServerTypeDBServer, 1, "FATAL child exit"))
+	plan := UpgradePlan{
+		CreatedAt: time.Unix(1700000000, 0).UTC(),
+		Entries: []UpgradePlanEntry{{
+			Type:     UpgradeEntryTypeDBServer,
+			PeerID:   "peer1",
+			Failures: 1,
+			Reason:   "Failed to disable supervision: agency unavailable",
+		}},
+	}
+	m.endServerUpgradePlan(&plan)
+
+	require.Eventually(t, func() bool {
+		status, ok := m.LocalUpgradeFailureStatus(context.Background())
+		return ok && strings.Contains(status.Reason, "Failed to disable supervision") && strings.Contains(status.Reason, "FATAL child exit")
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestCleanupBeforeStartCallbackKeepsExit(t *testing.T) {
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}}}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	require.True(t, m.PrepareAutoUpgradeLaunch(definitions.ServerTypeDBServer))
+	plan := UpgradePlan{
+		CreatedAt: time.Unix(1700000000, 0).UTC(),
+		Entries: []UpgradePlanEntry{{
+			Type:     UpgradeEntryTypeDBServer,
+			PeerID:   "peer1",
+			Failures: 1,
+			Reason:   autoUpgradeTimeoutReason,
+		}},
+	}
+	m.endServerUpgradePlan(&plan)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	require.True(t, m.IsServerAutoUpgradeRunning(definitions.ServerTypeDBServer))
+	require.True(t, m.ServerDatabaseAutoUpgradeFinished(definitions.ServerTypeDBServer, 1, "FATAL launched late"))
+
+	require.Eventually(t, func() bool {
+		status, ok := m.LocalUpgradeFailureStatus(context.Background())
+		return ok && strings.Contains(status.Reason, "FATAL launched late")
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestServerLogKeepsErrorWhenFileWasAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/arangod.log"
+	require.NoError(t, os.WriteFile(path+".1", []byte("2026-10-26T09:00:00Z ERROR [old] historical\n"), 0600))
+	mark := logFileMarkAt(path)
+	require.True(t, mark.absent)
+	require.True(t, mark.known)
+
+	require.NoError(t, os.WriteFile(path, []byte("2026-10-26T10:51:46Z ERROR [abcde] failed to open '_system'\n"), 0600))
+	require.NoError(t, os.Rename(path+".1", path+".2"))
+	require.NoError(t, os.Rename(path, path+".1"))
+	require.NoError(t, os.WriteFile(path, []byte("2026-10-26T10:51:48Z FATAL [67bdc] assertion failed\n"), 0600))
+
+	text, err := readServerLogSinceMark(path, mark)
+	require.NoError(t, err)
+	require.NotContains(t, text, "historical")
+	require.Contains(t, text, "failed to open '_system'")
+	require.Contains(t, text, "FATAL [67bdc]")
+}
+
+func TestAbortDoesNotTerminateRunningAutoUpgrade(t *testing.T) {
+	c := &unavailableAgencyContext{
+		peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+		restarts: make(chan definitions.ServerType, 1),
+	}
+	plan := UpgradePlan{
+		Revision:  4,
+		CreatedAt: time.Unix(1700000000, 0).UTC(),
+		Entries: []UpgradePlanEntry{{
+			Type:     UpgradeEntryTypeDBServer,
+			PeerID:   "peer1",
+			Failures: 1,
+			Reason:   autoUpgradeTimeoutReason,
+		}},
+	}
+	a := &planAgency{plan: &plan}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	// The wait timed out while the database upgrade still runs.
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	m.endServerUpgradePlan(&plan)
+
+	require.NoError(t, m.AbortDatabaseUpgrade(context.Background()))
+	require.True(t, a.current().IsEmpty())
+	select {
+	case got := <-c.restarts:
+		t.Fatalf("abort terminated the running %s auto-upgrade", got)
+	default:
+	}
+
+	// When it exits, the server restarts normally instead of staying stopped,
+	// and the removed plan's failure does not come back.
+	p := &processWrapper{serverType: definitions.ServerTypeDBServer}
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL late failure" }, nil)
+	require.False(t, failed)
+	require.False(t, m.IsServerUpgradeInProgress(definitions.ServerTypeDBServer))
+	require.False(t, m.HasLocalUpgradeFailure())
+}
+
+func TestRepeatedReleaseKeepsHealthyServerRunning(t *testing.T) {
+	ctx := context.Background()
+	p := &processWrapper{ctx: ctx, stopping: make(chan struct{}), serverType: definitions.ServerTypeDBServer}
+	c := &unavailableAgencyContext{
+		peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528},
+		wrapper:  p,
+		restarts: make(chan definitions.ServerType, 2),
+	}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "" }, nil)
+	require.True(t, failed)
+
+	require.NoError(t, m.ReleaseParkedUpgradeServer(definitions.ServerTypeDBServer))
+	require.Equal(t, definitions.ServerType(definitions.ServerTypeDBServer), <-c.restarts)
+	// An abort that is repeated, e.g. because another starter could not be
+	// reached, must not restart the server that is running again.
+	require.NoError(t, m.ReleaseParkedUpgradeServer(definitions.ServerTypeDBServer))
+	require.Empty(t, c.restarts)
+}
+
+func TestReleaseRejectsUnknownServerType(t *testing.T) {
+	m := &upgradeManager{log: zerolog.Nop()}
+	err := m.ReleaseParkedUpgradeServer("syncmaster")
+	require.True(t, client.IsBadRequest(err), "%v", err)
+
+	// The HTTP handler rejects it before asking the upgrade manager.
+	s := serveUpgrade(&fakeHTTPContext{isMaster: true, mode: ServiceModeCluster, me: Peer{ID: "peer1"}, upgrade: &fakeHTTPUpgrade{}})
+	w := httptest.NewRecorder()
+	s.databaseAutoUpgradeHandler(w, httptest.NewRequest(http.MethodDelete, "/database-auto-upgrade?"+releaseUpgradeQuery+"=unknown", nil))
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+}
+
+func TestReleaseRequestReachesSecurePeer(t *testing.T) {
+	var releases atomic.Int32
+	owner := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && r.URL.Query().Get(releaseUpgradeQuery) == "dbserver" {
+			releases.Add(1)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer owner.Close()
+	peer := peerFor(t, "owner", owner.URL)
+	// Starters serve TLS with a self-signed certificate.
+	peer.IsSecure = true
+	m := &upgradeManager{log: zerolog.Nop()}
+	require.NoError(t, m.askPeerToRelease(context.Background(), peer, definitions.ServerTypeDBServer))
+	require.Equal(t, int32(1), releases.Load())
+}
+
+func TestRemoteResetAfterLateWriteIsNotReported(t *testing.T) {
+	created := time.Unix(1700000000, 0).UTC()
+	timedOut := UpgradePlan{Revision: 4, CreatedAt: created, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "peer1", Failures: 1, Reason: autoUpgradeTimeoutReason}}}
+	agencyPlan := timedOut.clone()
+	a := &planAgency{plan: &agencyPlan}
+	// Another starter accepts a retry right after the late exit is written,
+	// before this starter could cache it or see the reset.
+	a.afterWrite = func() {
+		reset := a.current()
+		reset.Revision++
+		reset.ResetFailures()
+		a.setPlan(&reset)
+	}
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528}}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	m.endServerUpgradePlan(&timedOut)
+
+	m.publishLateUpgradeFailure(m.autoUpgradeGeneration, &timedOut, fmt.Errorf("dbserver auto-upgrade exited with code 1\nFATAL stale exit"))
+	require.Equal(t, timedOut.Revision+2, a.current().Revision)
+	require.False(t, a.current().IsFailed())
+
+	// Neither the owner's fast path nor its agency status reports the old exit.
+	_, found := m.LocalUpgradeFailureStatus(context.Background())
+	require.False(t, found)
+	status, err := m.Status(context.Background())
+	require.NoError(t, err)
+	require.False(t, status.Failed, status.Reason)
+}
+
+func TestStatusRejectsOutdatedCachedFailure(t *testing.T) {
+	shortenAgencyTimeout(t)
+	created := time.Unix(1700000000, 0).UTC()
+	cached := UpgradePlan{Revision: 4, CreatedAt: created, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "peer1", Failures: 1, Reason: "dbserver auto-upgrade exited with code 1"}}}
+	retried := cached.clone()
+	retried.Revision = 5
+	retried.ResetFailures()
+	unrecorded := cached.clone()
+	unrecorded.ResetFailures()
+	for _, tc := range []struct {
+		name     string
+		agency   *UpgradePlan
+		readFail bool
+		reported bool
+	}{
+		// Another starter accepted a retry: the agency moved past the cache.
+		{name: "retried-elsewhere", agency: &retried},
+		{name: "plan-removed"},
+		// The agency never recorded this failure: the cache is the only record.
+		{name: "not-recorded", agency: &unrecorded, reported: true},
+		// The agency cannot be read: the cache must stay visible.
+		{name: "agency-unreadable", agency: &retried, readFail: true, reported: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &planAgency{plan: tc.agency, failPlanReads: tc.readFail}
+			c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528}}
+			c.agency = a.start(t)
+			m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+			m.storeLocalFailedPlan(cached)
+
+			// Status reads the agency and must not prefer an outdated cache.
+			if tc.agency != nil && !tc.readFail {
+				status, err := m.Status(context.Background())
+				require.NoError(t, err)
+				require.Equal(t, tc.reported, status.Failed, status.Reason)
+			}
+			// The fast path used by GET checks the cache against the agency.
+			status, found := m.LocalUpgradeFailureStatus(context.Background())
+			require.Equal(t, tc.reported, found)
+			if found {
+				require.True(t, status.Failed)
+			}
+			require.Equal(t, tc.reported, m.HasLocalUpgradeFailure(), "an outdated cache must be dropped")
 		})
 	}
 }

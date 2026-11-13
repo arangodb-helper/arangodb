@@ -679,6 +679,16 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		}
 		writeUpgradeResult(w, err)
 	case "DELETE":
+		if serverType := r.URL.Query().Get(releaseUpgradeQuery); serverType != "" {
+			// The starter that owns the stopped server restarts it. This must
+			// not be forwarded: the leader asks this peer directly.
+			if !isReleasableServerType(definitions.ServerType(serverType)) {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot release server type '%s'", serverType))
+				return
+			}
+			writeUpgradeResult(w, s.context.UpgradeManager().ReleaseParkedUpgradeServer(definitions.ServerType(serverType)))
+			return
+		}
 		// Abort the upgrade process
 		if !isRunningMaster && !mode.IsSingleMode() {
 			// We're not the starter leader.
@@ -710,7 +720,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 		var err error
 		if isLocalUpgradeRequest(r) {
 			var found bool
-			if status, found = um.LocalUpgradeFailureStatus(); !found {
+			if status, found = um.LocalUpgradeFailureStatus(ctx); !found {
 				err = client.NewNotFoundError("This starter holds no failed upgrade step")
 			} else {
 				markLocalUpgradeFailureHeld(w)
@@ -719,7 +729,7 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 			// Cached failures must remain visible while the agency is down.
 			// Check them before an agency read can consume the request timeout.
 			var found bool
-			status, found = um.LocalUpgradeFailureStatus()
+			status, found = um.LocalUpgradeFailureStatus(ctx)
 			if !found && mode.HasAgency() {
 				status, found = s.peerLocalUpgradeFailureStatus(ctx)
 			}

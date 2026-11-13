@@ -177,10 +177,22 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	// Create server command line arguments
 	clusterConfig, myPeer, _ := runtimeContext.ClusterConfig()
 	upgradeManager := runtimeContext.UpgradeManager()
-	databaseAutoUpgrade := upgradeManager.ServerDatabaseAutoUpgrade(serverType, lastExitCode)
+	databaseAutoUpgrade := false
+	launchClaimed := false
+	if upgradeManager != nil {
+		if upgradeManager.PrepareAutoUpgradeLaunch(serverType) {
+			databaseAutoUpgrade = true
+			launchClaimed = true
+		} else if lastExitCode == definitions.ArangoDExitUpgradeRequired {
+			databaseAutoUpgrade = true
+		}
+	}
 	args, err := createServerArgs(log, config, clusterConfig, myContainerDir, myContainerLogFile, myPeer.ID, myHostAddress, strconv.Itoa(myPort), serverType, arangodConfig,
 		containerSecretFileName, bsCfg.RecoveryAgentID, databaseAutoUpgrade, features)
 	if err != nil {
+		if launchClaimed {
+			upgradeManager.CancelAutoUpgradeLaunch(serverType)
+		}
 		return nil, false, maskAny(err)
 	}
 	log.Debug().Msgf("%s at %d args: %+v", serverType, myPort, args)
@@ -202,6 +214,9 @@ func startServer(ctx context.Context, log zerolog.Logger, runtimeContext runtime
 	}
 	p, err = runner.Start(ctx, processType, args[0], args[1:], createEnvs(config, serverType), vols, ports, containerName, myHostDir, output)
 	if err != nil {
+		if launchClaimed {
+			upgradeManager.CancelAutoUpgradeLaunch(serverType)
+		}
 		return nil, false, maskAny(err)
 	}
 	if databaseAutoUpgrade {
@@ -238,6 +253,11 @@ type logFileMark struct {
 	id   logFileID
 	// known is false when the platform cannot identify files.
 	known bool
+	// absent is true when the log file did not exist at the start of the attempt.
+	// prior are the rotated files that already existed then, so a rotation
+	// during the attempt is read and those older files are not.
+	absent bool
+	prior  []logFileID
 }
 
 // logFileID identifies a file independent of its name.
@@ -260,11 +280,41 @@ func serverHostLogMark(runtimeContext runtimeServerManagerContext, serverType de
 func logFileMarkAt(logPath string) logFileMark {
 	info, err := os.Stat(logPath)
 	if err != nil {
-		return logFileMark{}
+		if !os.IsNotExist(err) {
+			return logFileMark{}
+		}
+		mark := logFileMark{absent: true}
+		// Identity has to work for a file that does exist, or an older rotation
+		// cannot be told from one created during the attempt.
+		if _, supported := fileIdentity("."); supported {
+			if ids, ok := existingRotationIDs(logPath); ok {
+				mark.known = true
+				mark.prior = ids
+			}
+		}
+		return mark
 	}
 	mark := logFileMark{size: info.Size()}
 	mark.id, mark.known = fileIdentity(logPath)
 	return mark
+}
+
+// existingRotationIDs returns the identities of logPath.1, logPath.2, ...
+// ok is false when a rotation exists but cannot be identified.
+func existingRotationIDs(logPath string) ([]logFileID, bool) {
+	var ids []logFileID
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("%s.%d", logPath, i)
+		id, ok := fileIdentity(candidate)
+		if ok {
+			ids = append(ids, id)
+			continue
+		}
+		if _, err := os.Stat(candidate); err != nil {
+			return ids, true
+		}
+		return nil, false
+	}
 }
 
 func sameLogFile(path string, mark logFileMark) bool {
@@ -279,6 +329,11 @@ func sameLogFile(path string, mark logFileMark) bool {
 // one. If its identity cannot be read right now, the offset alone is used,
 // so a passing error does not pull older rotations into the result.
 func isCurrentLogFile(logPath string, mark logFileMark) bool {
+	if mark.absent {
+		// Without file identity, only the recreated file can be read safely.
+		// Rotations that already existed cannot be told from new ones.
+		return !mark.known
+	}
 	if !mark.known {
 		return true
 	}
@@ -329,6 +384,15 @@ func readServerLogSinceMark(logPath string, mark logFileMark) (string, error) {
 
 	if _, err := os.Stat(logPath); err != nil && !os.IsNotExist(err) {
 		return "", err
+	} else if mark.absent && mark.known {
+		for _, rotated := range rotationsSinceAbsent(logPath, mark) {
+			if err := addFrom(rotated.path, rotated.offset); err != nil {
+				return "", err
+			}
+		}
+		if err := addFrom(logPath, 0); err != nil {
+			return "", err
+		}
 	} else if err == nil && isCurrentLogFile(logPath, mark) {
 		if err := addFrom(logPath, mark.size); err != nil {
 			return "", err
@@ -352,6 +416,40 @@ func readServerLogSinceMark(logPath string, mark logFileMark) (string, error) {
 type rotatedLogFile struct {
 	path   string
 	offset int64
+}
+
+// rotationsSinceAbsent returns rotated files created during an attempt whose
+// log did not exist yet, oldest first. Rotations that already existed are skipped.
+func rotationsSinceAbsent(logPath string, mark logFileMark) []rotatedLogFile {
+	var newestFirst []string
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("%s.%d", logPath, i)
+		id, ok := fileIdentity(candidate)
+		if !ok {
+			if _, err := os.Stat(candidate); err != nil {
+				break
+			}
+			continue
+		}
+		if priorRotation(mark, id) {
+			continue
+		}
+		newestFirst = append(newestFirst, candidate)
+	}
+	result := make([]rotatedLogFile, 0, len(newestFirst))
+	for i := len(newestFirst) - 1; i >= 0; i-- {
+		result = append(result, rotatedLogFile{path: newestFirst[i], offset: 0})
+	}
+	return result
+}
+
+func priorRotation(mark logFileMark, id logFileID) bool {
+	for _, prior := range mark.prior {
+		if prior == id {
+			return true
+		}
+	}
+	return false
 }
 
 // rotatedLogFilesSince returns the rotated files written during the attempt,
