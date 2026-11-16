@@ -168,7 +168,7 @@ func runUpgrade(starterEndpoint string, forceMinorUpgrade, retry bool) {
 			log.Error().Err(err).Msg("Failed to fetch upgrade status")
 		} else {
 			if status.Failed {
-				log.Error().Str("reason", status.Reason).Msg("Database upgrade has failed")
+				log.Error().Msg(formatUpgradeFailureMessage(status.Reason))
 				return
 			}
 			if status.Ready {
@@ -217,6 +217,21 @@ func formatServerStatusList(list []client.UpgradeStatusServer) string {
 
 // mustCreateStarterClient creates a client for a starter at the given endpoint.
 // Any errors cause the process to exit.
+func formatUpgradeFailureMessage(reason string) string {
+	var b strings.Builder
+	b.WriteString("Database upgrade has failed")
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return b.String()
+	}
+	for _, line := range strings.Split(reason, "\n") {
+		b.WriteByte('\n')
+		b.WriteByte('\t')
+		b.WriteString(strings.TrimRight(line, "\r"))
+	}
+	return b.String()
+}
+
 func mustCreateStarterClient(endpoint string) client.API {
 	// Check options
 	if endpoint == "" {

@@ -23,8 +23,12 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -47,15 +51,26 @@ type UpgradeManager interface {
 	// StartDatabaseUpgrade is called to start the upgrade process
 	StartDatabaseUpgrade(ctx context.Context, forceMinorUpgrade bool) error
 
-	// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
-	// such that the starters will retry the upgrade once more.
+	// RetryDatabaseUpgrade retries a failed standalone upgrade, a failed
+	// sole-agent upgrade that could not be stored in the agency, or resets
+	// the failure mark in an agency upgrade plan so the failed step runs again.
 	RetryDatabaseUpgrade(ctx context.Context) error
 
 	// AbortDatabaseUpgrade removes the existing upgrade plan.
-	// Note that Starters working on an entry of the upgrade
-	// will finish that entry.
+	// A server that a failed auto-upgrade left stopped is restarted first.
+	// Starters working on an entry that has not failed finish that entry.
 	// If there is no plan, a NotFoundError will be returned.
 	AbortDatabaseUpgrade(ctx context.Context) error
+
+	// ReleaseParkedUpgradeServer restarts a server this starter left stopped
+	// after a failed auto-upgrade, so removing the plan does not strand it.
+	ReleaseParkedUpgradeServer(serverType definitions.ServerType) error
+
+	// PrepareAutoUpgradeLaunch reports whether this start is the attempt's
+	// auto-upgrade process and records that the launch is in progress.
+	// CancelAutoUpgradeLaunch drops that record when the launch fails.
+	PrepareAutoUpgradeLaunch(serverType definitions.ServerType) bool
+	CancelAutoUpgradeLaunch(serverType definitions.ServerType)
 
 	// Status returns the status of any upgrade plan
 	Status(context.Context) (client.UpgradeStatus, error)
@@ -63,14 +78,38 @@ type UpgradeManager interface {
 	// IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
 	IsServerUpgradeInProgress(serverType definitions.ServerType) bool
 
+	// IsServerAutoUpgradeRunning reports whether the process started with
+	// --database.auto-upgrade is the one currently running for this type.
+	// The expected SIGTERM of the previous server happens while this is false.
+	IsServerAutoUpgradeRunning(serverType definitions.ServerType) bool
+
 	// ServerDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
 	ServerDatabaseAutoUpgrade(serverType definitions.ServerType, lastExitCode int) bool
 
 	// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been started with --database.auto-upgrade
 	ServerDatabaseAutoUpgradeStarter(serverType definitions.ServerType)
 
+	// ServerDatabaseAutoUpgradeFinished is called when the process started with
+	// --database.auto-upgrade has exited. It returns true when that exit belongs
+	// to the auto-upgrade process. Exit code 0 continues the upgrade. Any other
+	// code fails it. serverLog is included in the failure reason.
+	ServerDatabaseAutoUpgradeFinished(serverType definitions.ServerType, exitCode int, serverLog string) bool
+
 	// RunWatchUpgradePlan keeps watching the upgrade plan until the given context is canceled.
 	RunWatchUpgradePlan(context.Context)
+
+	// HasLocalUpgradeFailure reports whether this starter holds a failed
+	// upgrade step that it could not record in the agency.
+	HasLocalUpgradeFailure() bool
+
+	// RetryLocalUpgradeFailure retries only such a locally held failure.
+	// It returns a NotFoundError when this starter holds none.
+	RetryLocalUpgradeFailure(ctx context.Context) error
+
+	// LocalUpgradeFailureStatus returns the status of such a locally held
+	// failure, if any. A failure the agency has moved past, e.g. through a
+	// retry accepted by another starter, is not returned.
+	LocalUpgradeFailureStatus(ctx context.Context) (client.UpgradeStatus, bool)
 }
 
 // UpgradeManagerContext holds methods used by the upgrade manager to control its context.
@@ -101,7 +140,18 @@ var (
 	upgradePlanRevisionKey    = append(upgradePlanKey, "revision")
 	superVisionMaintenanceKey = []string{"arango", "Supervision", "Maintenance"}
 	superVisionStateKey       = []string{"arango", "Supervision", "State"}
+	superVisionHealthKey      = []string{"arango", "Supervision", "Health"}
 )
+
+// localFailureAgencyTimeout bounds agency writes that record a failure.
+// When they cannot complete, the failure is kept locally instead.
+// It is a variable so tests can shorten it.
+var localFailureAgencyTimeout = 10 * time.Second
+
+// localFailureValidationTimeout bounds the agency read that checks a cached
+// failure before it is reported, so status stays responsive while the agency
+// is down. It is a variable so tests can shorten it.
+var localFailureValidationTimeout = 2 * time.Second
 
 const (
 	upgradeManagerLockTTL       = time.Minute * 5
@@ -144,10 +194,19 @@ func (p UpgradePlan) IsFailed() bool {
 
 // ResetFailures resets all Failures field to 0.
 func (p *UpgradePlan) ResetFailures() {
-	for _, e := range p.Entries {
-		e.Failures = 0
-		e.Reason = ""
+	for i := range p.Entries {
+		p.Entries[i].Failures = 0
+		p.Entries[i].Reason = ""
 	}
+}
+
+// clone returns a copy that shares no slices with p.
+func (p UpgradePlan) clone() UpgradePlan {
+	c := p
+	c.Entries = append([]UpgradePlanEntry(nil), p.Entries...)
+	c.FinishedEntries = append([]UpgradePlanEntry(nil), p.FinishedEntries...)
+	c.FromVersions = append([]driver.Version(nil), p.FromVersions...)
+	return c
 }
 
 // Equals returns true if other plan is the same
@@ -207,16 +266,82 @@ func (e UpgradePlanEntry) CreateStatusServer(upgradeManagerContext UpgradeManage
 // upgradeManager is a helper used to control the upgrade process from 1 database version to the next.
 type upgradeManager struct {
 	mutex                 sync.Mutex
+	stateMu               sync.Mutex
 	log                   zerolog.Logger
 	upgradeManagerContext UpgradeManagerContext
 	upgradeServerType     definitions.ServerType
 	updateNeeded          bool
+	// autoUpgradeRunning is true after the process with --database.auto-upgrade
+	// has been launched and until that process exits.
+	autoUpgradeRunning bool
+	// autoUpgradeFailed is set when that process exits with a non-zero code.
+	autoUpgradeFailed error
+	// autoUpgradeAbandoned is set when the upgrade gave up waiting while the
+	// auto-upgrade process still ran. Its type and running flag are kept,
+	// so its exit is still recognized as an auto-upgrade exit.
+	autoUpgradeAbandoned bool
+	// autoUpgradeLaunchPending is set after the attempt decides to start the
+	// auto-upgrade process and until that start's callback runs. Cleanup keeps
+	// the attempt's identity while this is set.
+	autoUpgradeLaunchPending bool
+	// autoUpgradeRelease is set when abort releases an auto-upgrade that is
+	// still running. Its exit must not park that server.
+	autoUpgradeRelease bool
+	// parkedServers are the server types whose auto-upgrade exited non-zero,
+	// so their process wrapper waits for an explicit restart, each with the
+	// attempt that stopped it. Protected by stateMu.
+	parkedServers map[definitions.ServerType]uint64
+	// autoUpgradeAttempt numbers the attempts; only beginServerUpgrade
+	// increases it, unlike the generation. Protected by stateMu.
+	autoUpgradeAttempt uint64
+	// Generation and plan associate a late exit with its original attempt.
+	// These fields, including lateAutoUpgradeFailure, are protected by stateMu.
+	autoUpgradeGeneration  uint64
+	abandonedUpgradePlan   *UpgradePlan
+	lateAutoUpgradeFailure error
+	// retryPlanValidation requests redelivery after a watcher validation read
+	// failed. Protected by stateMu.
+	retryPlanValidation bool
+	// planWake wakes the plan watcher before its next poll. Created on
+	// first use by planWakeChannel; protected by stateMu.
+	planWake chan struct{}
+	// Standalone upgrades have no agency plan. Keep their outcome in memory
+	// so an explicit retry can restart a stopped database. Protected by mutex.
+	// singleUpgradeDone is set when the last attempt succeeded, until the CLI
+	// acknowledges it through AbortDatabaseUpgrade. The versions are those
+	// found when the upgrade was started.
+	singleUpgradeInProgress bool
+	singleUpgradeFailure    error
+	singleUpgradeDone       bool
+	singleFromVersions      []driver.Version
+	singleToVersion         driver.Version
+	// When the only agent is parked after a failed auto-upgrade, the plan
+	// cannot be written. Keep that failed plan here for Status and retry.
+	// localRetryActive is set while a retry of that plan runs. The plan
+	// watcher does not act while either is set. Protected by stateMu.
+	localFailedPlan  UpgradePlan
+	localRetryActive bool
+	// processMu serializes processUpgradePlan runs, including their cleanup.
+	processMu sync.Mutex
 }
 
 // StartDatabaseUpgrade is called to start the upgrade process
 func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpgrade bool) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
+	config, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
+	if mode.IsSingleMode() {
+		if m.singleUpgradeInProgress {
+			return maskAny(client.NewBadRequestError("A single server upgrade is already in progress"))
+		}
+		if m.singleUpgradeFailure != nil {
+			return maskAny(client.NewBadRequestError("The single server upgrade failed; use 'arangodb retry upgrade' to retry it"))
+		}
+	}
+	if m.hasLocalFailedPlan() {
+		return maskAny(client.NewBadRequestError("The upgrade plan has failed; use 'arangodb retry upgrade' to retry it"))
+	}
 
 	// Check the versions of all starters
 	if err := m.checkStarterVersions(ctx); err != nil {
@@ -262,15 +387,10 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 		}
 	}
 
-	// Fetch mode
-	config, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
-
 	if mode.IsSingleMode() {
-		// Run upgrade without agency (i.e., SingleServer)
-
-		// Create a new context to be independent of ctx
-		timeoutContext, _ := context.WithTimeout(context.Background(), time.Minute*5)
-		go m.runSingleServerUpgradeProcess(timeoutContext, myPeer, mode)
+		m.singleFromVersions = append([]driver.Version(nil), runningDBVersions...)
+		m.singleToVersion = toVersion
+		m.startSingleServerUpgrade(myPeer, mode)
 		return nil
 	}
 
@@ -424,25 +544,31 @@ func (m *upgradeManager) StartDatabaseUpgrade(ctx context.Context, forceMinorUpg
 	return nil
 }
 
-// RetryDatabaseUpgrade resets a failure mark in the existing upgrade plan
-// such that the starters will retry the upgrade once more.
+// RetryDatabaseUpgrade retries a failed standalone upgrade, a failed
+// sole-agent upgrade that could not be stored in the agency, or resets
+// the failure mark in an agency upgrade plan so the failed step runs again.
 func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
 	// Fetch mode
-	_, _, mode := m.upgradeManagerContext.ClusterConfig()
+	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
 
 	if !mode.HasAgency() {
-		// Without an agency there is not upgrade plan to retry
-		return maskAny(client.NewBadRequestError("Retry needs an agency"))
+		if m.singleUpgradeInProgress {
+			return maskAny(client.NewBadRequestError("A single server upgrade is already in progress"))
+		}
+		if m.singleUpgradeFailure == nil {
+			return maskAny(client.NewBadRequestError("There is no failed single server upgrade to retry"))
+		}
+		// The failed attempt already passed the upgrade preflight checks.
+		// Querying the stopped database here would prevent recovery.
+		m.startSingleServerUpgrade(myPeer, mode)
+		return nil
 	}
 
-	// Check cluster health
-	if mode.IsClusterMode() {
-		if err := m.isClusterHealthy(ctx); err != nil {
-			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
-		}
+	if m.hasLocalFailedPlan() {
+		return m.retryLocalFailedPlan(ctx)
 	}
 
 	// Note that in contrast to StartDatabaseUpgrade we do not use an agency lock
@@ -451,18 +577,30 @@ func (m *upgradeManager) RetryDatabaseUpgrade(ctx context.Context) error {
 
 	// Retry upgrade with agency.
 	plan, err := m.readUpgradePlan(ctx)
-	if agency.IsKeyNotFound(err) {
-		// There is no upgrade plan
-		return maskAny(client.NewBadRequestError("There is no upgrade plan"))
-	}
 	if err != nil {
-		// Failed to read upgrade plan
+		if m.hasLocalFailedPlan() {
+			return m.retryLocalFailedPlan(ctx)
+		}
+		if agency.IsKeyNotFound(err) {
+			return maskAny(client.NewBadRequestError("There is no upgrade plan"))
+		}
 		return errors.Wrap(err, "Failed to read upgrade plan")
 	}
 
 	// Check failure status
 	if !plan.IsFailed() {
+		if m.hasLocalFailedPlan() {
+			return m.retryLocalFailedPlan(ctx)
+		}
 		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
+	}
+
+	// The server whose auto-upgrade failed is left stopped. That server is
+	// expected to be unhealthy until this retry starts it again.
+	if mode.IsClusterMode() {
+		if err := m.isClusterHealthyExcept(ctx, m.stoppedServers(plan)); err != nil {
+			return maskAny(errors.Wrap(err, "Found unhealthy cluster"))
+		}
 	}
 
 	// Reset failures and write plan
@@ -492,6 +630,12 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	_, _, mode := m.upgradeManagerContext.ClusterConfig()
 
 	if !mode.HasAgency() {
+		if m.singleUpgradeDone {
+			// The CLI removes the plan once it has seen it ready. A standalone
+			// upgrade has no plan; only its finished status is cleared.
+			m.singleUpgradeDone = false
+			return nil
+		}
 		// Without an agency there is not upgrade plan to abort
 		return maskAny(client.NewBadRequestError("Abort needs an agency"))
 	}
@@ -530,9 +674,19 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	}()
 
 	// Check plan
-	if _, err := m.readUpgradePlan(ctx); agency.IsKeyNotFound(err) {
+	plan, err := m.readUpgradePlan(ctx)
+	if agency.IsKeyNotFound(err) {
 		// There is no plan
 		return maskAny(client.NewNotFoundError("There is no upgrade plan"))
+	}
+	if err != nil {
+		return maskAny(err)
+	}
+	// A failed auto-upgrade leaves its server stopped until retry. Restart it
+	// before the plan is gone, or retry and a new upgrade both have nothing
+	// to resume.
+	if err := m.releaseFailedAutoUpgrades(ctx, plan); err != nil {
+		return maskAny(err)
 	}
 
 	// Remove plan
@@ -540,6 +694,7 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 	if err := m.removeUpgradePlan(ctx); err != nil {
 		return errors.Wrap(err, "Failed to remove upgrade plan")
 	}
+	m.clearLocalFailedPlan()
 
 	// Inform user
 	m.log.Info().Msgf("Removed upgrade plan")
@@ -552,16 +707,62 @@ func (m *upgradeManager) AbortDatabaseUpgrade(ctx context.Context) error {
 func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, error) {
 	_, _, mode := m.upgradeManagerContext.ClusterConfig()
 	if !mode.HasAgency() {
-		return client.UpgradeStatus{}, maskAny(client.NewPreconditionFailedError("Mode does not support agency based upgrades"))
+		return m.singleServerStatus()
 	}
 
 	plan, err := m.readUpgradePlan(ctx)
-	if agency.IsKeyNotFound(err) {
-		// No plan, return not found error
-		return client.UpgradeStatus{}, maskAny(client.NewNotFoundError("There is no upgrade plan"))
-	} else if err != nil {
+	if err != nil {
+		if status, ok := m.localFailedStatus(); ok {
+			return status, nil
+		}
+		if agency.IsKeyNotFound(err) {
+			return client.UpgradeStatus{}, maskAny(client.NewNotFoundError("There is no upgrade plan"))
+		}
 		return client.UpgradeStatus{}, maskAny(err)
 	}
+	// A cached failure applies only to the revision it was recorded for. A
+	// newer revision, e.g. a retry accepted by another starter, wins.
+	if local, ok := m.localFailedPlanSnapshot(); ok && samePlan(local, plan) && local.Revision == plan.Revision {
+		return m.statusFromPlan(local)
+	}
+	return m.statusFromPlan(plan)
+}
+
+// singleServerStatus reports a standalone upgrade so the CLI can poll it
+// until it ends, and show the exit and logs of a failed attempt. There is no
+// agency plan in this mode.
+func (m *upgradeManager) singleServerStatus() (client.UpgradeStatus, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	status := client.UpgradeStatus{
+		FromVersions: m.singleFromVersions,
+		ToVersion:    m.singleToVersion,
+	}
+	var servers []client.UpgradeStatusServer
+	_, myPeer, _ := m.upgradeManagerContext.ClusterConfig()
+	if myPeer != nil {
+		entry := UpgradePlanEntry{PeerID: myPeer.ID, Type: UpgradeEntryTypeSingle}
+		if server, err := entry.CreateStatusServer(m.upgradeManagerContext); err == nil && server != nil {
+			servers = append(servers, *server)
+		}
+	}
+	switch {
+	case m.singleUpgradeInProgress:
+		status.ServersRemaining = servers
+	case m.singleUpgradeFailure != nil:
+		status.Failed = true
+		status.Reason = m.singleUpgradeFailure.Error()
+		status.ServersRemaining = servers
+	case m.singleUpgradeDone:
+		status.Ready = true
+		status.ServersUpgraded = servers
+	default:
+		return client.UpgradeStatus{}, maskAny(client.NewPreconditionFailedError("Mode does not support agency based upgrades"))
+	}
+	return status, nil
+}
+
+func (m *upgradeManager) statusFromPlan(plan UpgradePlan) (client.UpgradeStatus, error) {
 	result := client.UpgradeStatus{
 		Ready:        plan.IsReady(),
 		Failed:       plan.IsFailed(),
@@ -590,6 +791,344 @@ func (m *upgradeManager) Status(ctx context.Context) (client.UpgradeStatus, erro
 		}
 	}
 	return result, nil
+}
+
+func (m *upgradeManager) hasLocalFailedPlan() bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	return m.localFailedPlan.IsFailed()
+}
+
+// storeLocalFailedPlan keeps its own copy, so later changes to plan by the
+// caller or the watcher cannot alter it.
+func (m *upgradeManager) storeLocalFailedPlan(plan UpgradePlan) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.localFailedPlan = plan.clone()
+}
+
+// localFailedPlanSnapshot returns a copy of the locally held failed plan.
+func (m *upgradeManager) localFailedPlanSnapshot() (UpgradePlan, bool) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if !m.localFailedPlan.IsFailed() {
+		return UpgradePlan{}, false
+	}
+	return m.localFailedPlan.clone(), true
+}
+
+// takeLocalFailedPlan removes the locally held failed plan and marks a
+// retry of it as active.
+func (m *upgradeManager) takeLocalFailedPlan() (UpgradePlan, bool) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if !m.localFailedPlan.IsFailed() {
+		return UpgradePlan{}, false
+	}
+	plan := m.localFailedPlan.clone()
+	m.localFailedPlan = UpgradePlan{}
+	m.localRetryActive = true
+	// Invalidate late publication as soon as retry is accepted, before its
+	// background process has had a chance to begin.
+	m.autoUpgradeGeneration++
+	m.abandonedUpgradePlan = nil
+	return plan, true
+}
+
+// dropLocalFailedPlan forgets the locally held failed plan if it is still
+// the given one. A retry may have taken it, or a newer failure may have
+// replaced it meanwhile; those are kept.
+func (m *upgradeManager) dropLocalFailedPlan(plan UpgradePlan) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.localFailedPlan.IsFailed() && m.localFailedPlan.Equals(plan) {
+		m.localFailedPlan = UpgradePlan{}
+	}
+}
+
+// samePlan reports whether both plans are revisions of the same plan.
+func samePlan(a, b UpgradePlan) bool {
+	return a.CreatedAt.Equal(b.CreatedAt)
+}
+
+// clearLocalFailedPlan forgets any locally held failed plan.
+func (m *upgradeManager) clearLocalFailedPlan() {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.localFailedPlan = UpgradePlan{}
+	m.autoUpgradeGeneration++
+	m.abandonedUpgradePlan = nil
+}
+
+// discardAbandonedPlan prevents late exits from restoring a removed or
+// superseded plan. The process identity remains until the child exits.
+// mutex is taken before stateMu, the same order as reconciliation and late
+// publication, so this cannot drop the plan between those steps.
+func (m *upgradeManager) discardAbandonedPlan(current *UpgradePlan) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	old := m.abandonedUpgradePlan
+	if old != nil && (current == nil || !samePlan(*old, *current) || current.Revision > old.Revision) {
+		m.autoUpgradeGeneration++
+		m.abandonedUpgradePlan = nil
+	}
+}
+
+// localUpgradePending reports whether a local failure or its retry must
+// keep the plan watcher from acting on the agency plan.
+func (m *upgradeManager) localUpgradePending() bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	return m.localFailedPlan.IsFailed() || m.localRetryActive
+}
+
+func (m *upgradeManager) localFailedStatus() (client.UpgradeStatus, bool) {
+	plan, ok := m.localFailedPlanSnapshot()
+	if !ok {
+		return client.UpgradeStatus{}, false
+	}
+	status, err := m.statusFromPlan(plan)
+	if err != nil {
+		status = client.UpgradeStatus{Failed: true, Reason: plan.Entries[0].Reason, FromVersions: plan.FromVersions, ToVersion: plan.ToVersion}
+	}
+	return status, true
+}
+
+// retryLocalFailedPlan restarts the failed step from the cached plan. The
+// agency is only asked to reset a failure it holds as well, and not at all
+// for a failed sole agent. The caller must hold mutex. The background run does not use ctx, because
+// parking the sole agent already made that agency unavailable; ctx only
+// bounds the health check. If that check fails, the failure stays cached.
+// processUpgradePlan waits for the previous run, including its cleanup.
+func (m *upgradeManager) retryLocalFailedPlan(ctx context.Context) error {
+	cached, ok := m.localFailedPlanSnapshot()
+	if !ok {
+		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
+	}
+	if err := m.checkLocalRetryAllowed(ctx, cached); err != nil {
+		return maskAny(err)
+	}
+	reset, err := m.resetAgencyFailure(ctx, cached)
+	if err != nil {
+		return maskAny(err)
+	}
+	plan, ok := m.takeLocalFailedPlan()
+	if !ok {
+		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
+	}
+	plan.ResetFailures()
+	if reset != nil {
+		// Later writes of this run are guarded by the agency revision.
+		plan.Revision = reset.Revision
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	go func() {
+		defer cancel()
+		defer func() {
+			m.stateMu.Lock()
+			m.localRetryActive = false
+			m.stateMu.Unlock()
+		}()
+		if err := m.processUpgradePlan(ctx, plan); err != nil {
+			m.log.Error().Err(err).Msg("Failed to process locally stored upgrade plan")
+		}
+	}()
+	return nil
+}
+
+// resetAgencyFailure resets the failure in the agency plan before a cached
+// failure of that plan is retried. Both can exist at once, e.g. when a late
+// exit added details to a timeout the agency already holds. Otherwise status
+// read from the agency, by any starter, still reports the old failure while
+// the retry runs, and the CLI stops waiting for it.
+// A failed sole agent took the agency down, so it is not asked. Any other
+// retry needs the agency: if it cannot be read, the retry is refused and the
+// failure stays cached, as the cached entry cannot be validated and other
+// starters may still report the failure from the agency.
+// A cached failure of a removed plan, or of a revision the agency has moved
+// past, is discarded and the retry is refused: it would restart an obsolete
+// entry, and resetting the agency would clear another entry's failure.
+// It returns the written plan, or nil when nothing was reset.
+func (m *upgradeManager) resetAgencyFailure(ctx context.Context, cached UpgradePlan) (*UpgradePlan, error) {
+	config, _, _ := m.upgradeManagerContext.ClusterConfig()
+	if cached.Entries[0].Type == UpgradeEntryTypeAgent && config.AgencySize <= 1 {
+		return nil, nil
+	}
+	agencyCtx, cancel := context.WithTimeout(ctx, localFailureAgencyTimeout)
+	defer cancel()
+	agencyPlan, err := m.readUpgradePlan(agencyCtx)
+	if agency.IsKeyNotFound(err) || (err == nil && agencyPlan.IsEmpty()) {
+		m.log.Info().Msg("Discarding local upgrade failure of a removed upgrade plan")
+		m.dropLocalFailedPlan(cached)
+		return nil, maskAny(client.NewBadRequestError("There is no upgrade plan"))
+	}
+	if err != nil {
+		m.log.Debug().Err(err).Msg("Failed to read upgrade plan before retrying local failure")
+		return nil, maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to read upgrade plan; retry once the agency is available: %v", err)))
+	}
+	if !samePlan(agencyPlan, cached) || agencyPlan.Revision != cached.Revision || !sameFirstEntry(agencyPlan, cached) {
+		m.log.Info().Int("cached-revision", cached.Revision).Int("agency-revision", agencyPlan.Revision).
+			Msg("Discarding local upgrade failure of an outdated upgrade plan revision")
+		m.dropLocalFailedPlan(cached)
+		return nil, maskAny(client.NewPreconditionFailedError("The upgrade plan has changed since this failure was recorded; check the upgrade status"))
+	}
+	if !agencyPlan.IsFailed() {
+		// The agency never recorded this failure; nothing to reset.
+		return nil, nil
+	}
+	agencyPlan.ResetFailures()
+	overwrite := false
+	written, err := m.writeUpgradePlan(agencyCtx, agencyPlan, overwrite)
+	if err != nil {
+		return nil, maskAny(errors.Wrap(err, "Failed to reset failures in upgrade plan"))
+	}
+	return &written, nil
+}
+
+// sameFirstEntry reports whether both plans are at the same first entry.
+func sameFirstEntry(a, b UpgradePlan) bool {
+	if len(a.Entries) == 0 || len(b.Entries) == 0 {
+		return len(a.Entries) == len(b.Entries)
+	}
+	return a.Entries[0].Type == b.Entries[0].Type && a.Entries[0].PeerID == b.Entries[0].PeerID
+}
+
+// checkLocalRetryAllowed applies the health check of an agency retry to a
+// cached plan. Only a failed sole agent is exempt: it took the agency down
+// with it, so there is no cluster health to read until it is restarted.
+func (m *upgradeManager) checkLocalRetryAllowed(ctx context.Context, plan UpgradePlan) error {
+	config, _, mode := m.upgradeManagerContext.ClusterConfig()
+	if !mode.IsClusterMode() {
+		return nil
+	}
+	if len(plan.Entries) == 0 {
+		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
+	}
+	if plan.Entries[0].Type == UpgradeEntryTypeAgent && config.AgencySize <= 1 {
+		return nil
+	}
+	if err := m.isClusterHealthyExcept(ctx, m.stoppedServers(plan)); err != nil {
+		return maskAny(client.NewPreconditionFailedError(fmt.Sprintf("Found unhealthy cluster: %v", err)))
+	}
+	return nil
+}
+
+// HasLocalUpgradeFailure reports whether this starter holds a failed
+// upgrade step that it could not record in the agency.
+func (m *upgradeManager) HasLocalUpgradeFailure() bool {
+	return m.hasLocalFailedPlan()
+}
+
+// RetryLocalUpgradeFailure retries only a locally held failure.
+func (m *upgradeManager) RetryLocalUpgradeFailure(ctx context.Context) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if !m.hasLocalFailedPlan() {
+		return maskAny(client.NewNotFoundError("This starter holds no failed upgrade step"))
+	}
+	return m.retryLocalFailedPlan(ctx)
+}
+
+// LocalUpgradeFailureStatus returns the status of a locally held failure,
+// unless the agency shows that it no longer applies. Such a failure is then
+// dropped, so an accepted retry is not reported as the old failure.
+func (m *upgradeManager) LocalUpgradeFailureStatus(ctx context.Context) (client.UpgradeStatus, bool) {
+	local, ok := m.localFailedPlanSnapshot()
+	if !ok {
+		return client.UpgradeStatus{}, false
+	}
+	if m.isOutdatedLocalFailure(ctx, local) {
+		m.log.Info().Int("revision", local.Revision).Msg("Discarding local upgrade failure the agency has moved past")
+		m.dropLocalFailedPlan(local)
+		return client.UpgradeStatus{}, false
+	}
+	return m.localFailedStatus()
+}
+
+// isOutdatedLocalFailure reports whether the agency no longer holds the plan
+// revision of a cached failure: the plan was removed or replaced, or another
+// revision is current, e.g. after a retry accepted by another starter.
+// A failed sole agent took the agency down, so it is not asked; neither is
+// an agency that cannot be read. The cache is kept in both cases.
+func (m *upgradeManager) isOutdatedLocalFailure(ctx context.Context, local UpgradePlan) bool {
+	if m.upgradeManagerContext == nil || len(local.Entries) == 0 {
+		return false
+	}
+	config, _, _ := m.upgradeManagerContext.ClusterConfig()
+	if local.Entries[0].Type == UpgradeEntryTypeAgent && config.AgencySize <= 1 {
+		return false
+	}
+	readCtx, cancel := context.WithTimeout(ctx, localFailureValidationTimeout)
+	defer cancel()
+	current, err := m.readUpgradePlan(readCtx)
+	if agency.IsKeyNotFound(err) || (err == nil && current.IsEmpty()) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	return !samePlan(current, local) || current.Revision != local.Revision
+}
+
+// reconcileLocalFailedPlan is called by the plan watcher with the plan read
+// from the agency. It returns true when the watcher must not act on that plan.
+// A failure that could not be recorded is written once the agency is back,
+// so the parked server is only restarted by an explicit retry.
+func (m *upgradeManager) reconcileLocalFailedPlan(ctx context.Context, agencyPlan UpgradePlan) bool {
+	if !m.localUpgradePending() {
+		return false
+	}
+	// Retries take the local plan while holding mutex. Hold it as well, so a
+	// retry cannot start between the snapshot and the agency write below.
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	m.stateMu.Lock()
+	retrying := m.localRetryActive
+	m.stateMu.Unlock()
+	if retrying {
+		return true
+	}
+	local, ok := m.localFailedPlanSnapshot()
+	if !ok {
+		return false
+	}
+	if !samePlan(agencyPlan, local) {
+		// The plan was replaced, e.g. aborted and created again.
+		m.log.Info().Msg("Discarding local upgrade failure for a replaced upgrade plan")
+		m.dropLocalFailedPlan(local)
+		return false
+	}
+	if agencyPlan.IsFailed() && (agencyPlan.Revision != local.Revision || agencyPlan.Entries[0].Reason == local.Entries[0].Reason) {
+		// The agency already holds this failure, or a newer revision.
+		m.dropLocalFailedPlan(local)
+		return true
+	}
+	if agencyPlan.Revision != local.Revision {
+		// The plan moved on without this failure; let the watcher act on it.
+		m.dropLocalFailedPlan(local)
+		return false
+	}
+	// mutex is held, so bound the write: a hanging agency must not keep
+	// retry requests from reaching the cached failure.
+	writeCtx, cancel := context.WithTimeout(ctx, localFailureAgencyTimeout)
+	defer cancel()
+	overwrite := false
+	written, err := m.writeUpgradePlan(writeCtx, local, overwrite)
+	if err != nil {
+		m.log.Debug().Err(err).Msg("Failed to record local upgrade failure in agency")
+		return true
+	}
+	m.stateMu.Lock()
+	if old := m.abandonedUpgradePlan; old != nil && samePlan(*old, local) && old.Revision == local.Revision {
+		snapshot := written.clone()
+		m.abandonedUpgradePlan = &snapshot
+	}
+	m.stateMu.Unlock()
+	m.log.Info().Msg("Recorded local upgrade failure in agency")
+	m.dropLocalFailedPlan(local)
+	return true
 }
 
 // checkStarterVersions ensures that all starters have the same version.
@@ -718,19 +1257,589 @@ func (m *upgradeManager) Errorf(msg string, args ...interface{}) {
 
 // IsServerUpgradeInProgress returns true when the upgrade manager is busy upgrading the server of given type.
 func (m *upgradeManager) IsServerUpgradeInProgress(serverType definitions.ServerType) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	return m.upgradeServerType == serverType
+}
+
+// IsServerAutoUpgradeRunning reports whether the process started with
+// --database.auto-upgrade is the one currently running for this type.
+func (m *upgradeManager) IsServerAutoUpgradeRunning(serverType definitions.ServerType) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	return m.autoUpgradeRunning && m.upgradeServerType == serverType
 }
 
 // ServerDatabaseAutoUpgrade returns true if the server of given type must be started with --database.auto-upgrade
 func (m *upgradeManager) ServerDatabaseAutoUpgrade(serverType definitions.ServerType, lastExitCode int) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	return m.updateNeeded && m.upgradeServerType == serverType || lastExitCode == definitions.ArangoDExitUpgradeRequired
 }
 
-// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been be started with --database.auto-upgrade
+// ServerDatabaseAutoUpgradeStarter is called when a server of given type has been started with --database.auto-upgrade.
+// The upgrade keeps waiting until that process exits.
 func (m *upgradeManager) ServerDatabaseAutoUpgradeStarter(serverType definitions.ServerType) {
-	if m.upgradeServerType == serverType {
-		m.updateNeeded = false
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	// autoUpgradeAbandoned covers a launch whose callback runs after cleanup.
+	if m.upgradeServerType == serverType && (m.updateNeeded || m.autoUpgradeAbandoned || m.autoUpgradeLaunchPending) {
+		m.autoUpgradeRunning = true
+		m.autoUpgradeLaunchPending = false
 	}
+}
+
+// PrepareAutoUpgradeLaunch records that the auto-upgrade process is about to
+// be started. Cleanup that runs before the start callback keeps this attempt.
+func (m *upgradeManager) PrepareAutoUpgradeLaunch(serverType definitions.ServerType) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.upgradeServerType == serverType && m.updateNeeded && !m.autoUpgradeAbandoned {
+		m.autoUpgradeLaunchPending = true
+		return true
+	}
+	return false
+}
+
+// CancelAutoUpgradeLaunch drops a launch that failed before the process existed.
+func (m *upgradeManager) CancelAutoUpgradeLaunch(serverType definitions.ServerType) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.upgradeServerType != serverType || !m.autoUpgradeLaunchPending {
+		return
+	}
+	m.autoUpgradeLaunchPending = false
+	if m.autoUpgradeRunning || !m.autoUpgradeAbandoned {
+		return
+	}
+	// Cleanup already gave up and no process will exit.
+	m.autoUpgradeAbandoned = false
+	m.upgradeServerType = ""
+	m.abandonedUpgradePlan = nil
+	m.updateNeeded = false
+}
+
+// ServerDatabaseAutoUpgradeFinished records the exit of the auto-upgrade process.
+func (m *upgradeManager) ServerDatabaseAutoUpgradeFinished(serverType definitions.ServerType, exitCode int, serverLog string) bool {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.upgradeServerType != serverType || !m.autoUpgradeRunning {
+		return false
+	}
+	m.autoUpgradeRunning = false
+	m.updateNeeded = false
+	m.autoUpgradeLaunchPending = false
+	if m.autoUpgradeRelease {
+		// Abort is bringing this server back. Do not park it or publish the exit.
+		m.autoUpgradeRelease = false
+		m.autoUpgradeAbandoned = false
+		m.upgradeServerType = ""
+		m.autoUpgradeFailed = nil
+		m.abandonedUpgradePlan = nil
+		return false
+	}
+	if exitCode != 0 {
+		m.autoUpgradeFailed = autoUpgradeExitError(serverType, exitCode, serverLog)
+		// The process wrapper now waits for a restart.
+		if m.parkedServers == nil {
+			m.parkedServers = map[definitions.ServerType]uint64{}
+		}
+		m.parkedServers[serverType] = m.autoUpgradeAttempt
+	}
+	if m.autoUpgradeAbandoned {
+		// Publish after the previous attempt has finished its cleanup. The
+		// generation prevents this result from replacing a newer retry.
+		if m.autoUpgradeFailed != nil {
+			m.lateAutoUpgradeFailure = m.autoUpgradeFailed
+			go m.publishLateUpgradeFailure(m.autoUpgradeGeneration, m.abandonedUpgradePlan, m.autoUpgradeFailed)
+		}
+		m.autoUpgradeAbandoned = false
+		m.upgradeServerType = ""
+		m.autoUpgradeFailed = nil
+	}
+	return true
+}
+
+// publishLateUpgradeFailure updates the result of a timed-out attempt once its
+// child exits. It must not race cleanup, an explicit retry, or reconciliation.
+func (m *upgradeManager) publishLateUpgradeFailure(generation uint64, plan *UpgradePlan, failure error) {
+	m.processMu.Lock()
+	defer m.processMu.Unlock()
+	m.mutex.Lock()
+	m.stateMu.Lock()
+	current := m.autoUpgradeGeneration == generation
+	// Reconciliation may have persisted the timeout while this callback
+	// waited for mutex. Use that revision when publishing the exit details.
+	if current && plan != nil && m.abandonedUpgradePlan != nil && samePlan(*plan, *m.abandonedUpgradePlan) {
+		snapshot := m.abandonedUpgradePlan.clone()
+		plan = &snapshot
+	}
+	var updated UpgradePlan
+	havePlan := false
+	if current && plan != nil && len(plan.Entries) > 0 {
+		updated = plan.clone()
+		updated.Entries[0].Reason = failure.Error()
+		havePlan = true
+	}
+	single := current && plan == nil
+	m.stateMu.Unlock()
+	m.mutex.Unlock()
+	if !current || failure == nil {
+		return
+	}
+	if single {
+		m.mutex.Lock()
+		if !m.singleUpgradeInProgress && m.singleUpgradeFailure != nil {
+			m.singleUpgradeFailure = failure
+		}
+		m.mutex.Unlock()
+		return
+	}
+	if !havePlan {
+		return
+	}
+	// An accepted retry, including one performed by another starter, moves
+	// the agency revision. The precondition then fails and the old exit is
+	// not cached, so status does not report it instead of the retry.
+	writeCtx, cancel := context.WithTimeout(context.Background(), localFailureAgencyTimeout)
+	defer cancel()
+	_, err := m.writeUpgradePlan(writeCtx, updated, false)
+	if agency.IsPreconditionFailed(err) || agency.IsKeyNotFound(err) {
+		// An accepted retry or an abort already moved this plan.
+		return
+	}
+	if err == nil {
+		// The agency holds the exit now, so it is not cached: a retry that
+		// another starter accepts later replaces it for every status reader.
+		// An earlier cache of this revision, e.g. the timeout, is outdated.
+		m.dropLocalFailureAt(updated)
+		return
+	}
+	// The agency could not be reached. Keep the exit locally until the
+	// watcher can record it.
+	m.storeLateFailure(generation, updated)
+	m.wakePlanWatcher()
+}
+
+// dropLocalFailureAt forgets a cached failure of plan's revision, whatever its
+// reason. A newer cached failure is kept.
+func (m *upgradeManager) dropLocalFailureAt(plan UpgradePlan) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.localFailedPlan.IsFailed() && samePlan(m.localFailedPlan, plan) && m.localFailedPlan.Revision == plan.Revision {
+		m.localFailedPlan = UpgradePlan{}
+	}
+}
+
+// storeLateFailure caches a late exit only while its attempt is still current.
+func (m *upgradeManager) storeLateFailure(generation uint64, plan UpgradePlan) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.autoUpgradeGeneration != generation {
+		return
+	}
+	m.localFailedPlan = plan.clone()
+}
+
+// planWakeChannel returns the channel that wakes the plan watcher.
+func (m *upgradeManager) planWakeChannel() chan struct{} {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.planWake == nil {
+		m.planWake = make(chan struct{}, 1)
+	}
+	return m.planWake
+}
+
+// wakePlanWatcher makes the plan watcher read the plan without waiting for
+// its next poll. A wake-up that is already pending is enough.
+func (m *upgradeManager) wakePlanWatcher() {
+	select {
+	case m.planWakeChannel() <- struct{}{}:
+	default:
+	}
+}
+
+// autoUpgradeTimeoutReason starts the failure reason of an auto-upgrade that
+// did not exit in time. Cleanup looks for it to recognize such a failure.
+const autoUpgradeTimeoutReason = "Auto-upgrade did not finish in time"
+
+const autoUpgradeReasonMaxLen = 4000
+
+// autoUpgradeExitReason is part of the failure reason of an auto-upgrade
+// process that exited non-zero. Abort looks for it to find stopped servers.
+const autoUpgradeExitReason = "auto-upgrade exited with code"
+
+func autoUpgradeExitError(serverType definitions.ServerType, exitCode int, serverLog string) error {
+	prefix := fmt.Sprintf("%s %s %d (%s)", serverType, autoUpgradeExitReason, exitCode, definitions.GetExitCodeReason(exitCode))
+	serverLog = strings.TrimSpace(serverLog)
+	if serverLog == "" {
+		return fmt.Errorf("%s", prefix)
+	}
+	budget := autoUpgradeReasonMaxLen - len(prefix) - 1
+	if budget < 1 {
+		return fmt.Errorf("%s", prefix)
+	}
+	return fmt.Errorf("%s\n%s", prefix, fitUpgradeDiagnostics(serverLog, budget))
+}
+
+// fitUpgradeDiagnostics selects log lines that fit in budget bytes. The end
+// of the log is chosen first, then the last and the first ERROR/FATAL line,
+// then the rest of the tail, newest first, and finally the remaining lines,
+// oldest first. Each line is bounded on its own, so one long line cannot push
+// the others out. The selected lines keep their original order.
+func fitUpgradeDiagnostics(serverLog string, budget int) string {
+	if budget <= 0 {
+		return ""
+	}
+	var lines []string
+	for _, line := range splitLogLines(serverLog) {
+		if line = strings.TrimRight(line, "\r"); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	lineCap := budget / 8
+	if lineCap < 64 {
+		lineCap = budget
+	}
+	const tailLines = 20
+
+	firstError, lastError := -1, -1
+	for i, line := range lines {
+		if isUpgradeErrorLine(line) {
+			if firstError < 0 {
+				firstError = i
+			}
+			lastError = i
+		}
+	}
+	last := len(lines) - 1
+	priority := []int{last, lastError, firstError}
+	for i := last - 1; i >= 0 && i > last-tailLines; i-- {
+		priority = append(priority, i)
+	}
+	for i := 0; i <= last; i++ {
+		priority = append(priority, i)
+	}
+
+	selected := make(map[int]string)
+	used := 0
+	for _, i := range priority {
+		if i < 0 {
+			continue
+		}
+		if _, ok := selected[i]; ok {
+			continue
+		}
+		line := capLogLine(lines[i], lineCap)
+		need := len(line)
+		if len(selected) > 0 {
+			need++
+		}
+		if used+need > budget {
+			continue
+		}
+		selected[i] = line
+		used += need
+	}
+	out := make([]string, 0, len(selected))
+	for i := range lines {
+		if line, ok := selected[i]; ok {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// capLogLine shortens line to at most max bytes without splitting a UTF-8
+// character.
+func capLogLine(line string, max int) string {
+	if len(line) <= max {
+		return line
+	}
+	const suffix = "..."
+	if max <= len(suffix) {
+		return strings.ToValidUTF8(line[:max], "")
+	}
+	return strings.ToValidUTF8(line[:max-len(suffix)], "") + suffix
+}
+
+func splitLogLines(body string) []string {
+	lines := strings.Split(body, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func (m *upgradeManager) beginServerUpgrade(serverType definitions.ServerType) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.upgradeServerType = serverType
+	m.updateNeeded = true
+	m.autoUpgradeRunning = false
+	m.autoUpgradeFailed = nil
+	m.autoUpgradeAbandoned = false
+	m.autoUpgradeLaunchPending = false
+	m.autoUpgradeRelease = false
+	m.autoUpgradeGeneration++
+	m.autoUpgradeAttempt++
+	m.abandonedUpgradePlan = nil
+	m.lateAutoUpgradeFailure = nil
+	// This attempt restarts the server, so it is no longer parked.
+	delete(m.parkedServers, serverType)
+}
+
+func (m *upgradeManager) endServerUpgrade() {
+	m.endServerUpgradePlan(nil)
+}
+
+func (m *upgradeManager) endServerUpgradePlan(plan *UpgradePlan) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.autoUpgradeRunning || m.autoUpgradeLaunchPending {
+		// The wait gave up, e.g. on its deadline, while the auto-upgrade
+		// process still runs or its start has not called back yet. Clearing
+		// its identity would turn its later exit into an ordinary crash: the
+		// server would be restarted instead of parked, and the exit details
+		// would be lost.
+		m.updateNeeded = false
+		m.autoUpgradeFailed = nil
+		m.autoUpgradeAbandoned = true
+		if plan != nil && plan.IsFailed() {
+			snapshot := plan.clone()
+			m.abandonedUpgradePlan = &snapshot
+		}
+		return
+	}
+	// The exit can race the timeout return and arrive before cleanup marks
+	// the attempt abandoned. A child that exits while supervision is being
+	// turned off is also still unconsumed. Preserve that result. A timeout
+	// is replaced by the exit; any other recorded failure is kept beside it.
+	if m.autoUpgradeFailed != nil && (plan == nil || plan.IsFailed()) {
+		failure := m.autoUpgradeFailed
+		if plan != nil && !strings.Contains(plan.Entries[0].Reason, autoUpgradeTimeoutReason) {
+			failure = fmt.Errorf("%s\n%s", plan.Entries[0].Reason, m.autoUpgradeFailed.Error())
+		}
+		m.lateAutoUpgradeFailure = failure
+		var snapshot *UpgradePlan
+		if plan != nil {
+			c := plan.clone()
+			snapshot = &c
+		}
+		go m.publishLateUpgradeFailure(m.autoUpgradeGeneration, snapshot, failure)
+	}
+	m.upgradeServerType = ""
+	m.updateNeeded = false
+	m.autoUpgradeRunning = false
+	m.autoUpgradeLaunchPending = false
+	m.autoUpgradeFailed = nil
+}
+
+// releaseFailedAutoUpgrades restarts every server that a failed auto-upgrade
+// left stopped. The plan is still in the agency, so a starter that cannot be
+// reached leaves the plan in place and abort can be repeated.
+func (m *upgradeManager) releaseFailedAutoUpgrades(ctx context.Context, plan UpgradePlan) error {
+	config, myPeer, _ := m.upgradeManagerContext.ClusterConfig()
+	entries := append([]UpgradePlanEntry{}, plan.Entries...)
+	if local, ok := m.localFailedPlanSnapshot(); ok && (plan.IsEmpty() || samePlan(local, plan)) {
+		entries = append(entries, local.Entries...)
+	}
+	released := map[string]bool{}
+	for i, entry := range entries {
+		// The first plan entry is the one being worked on. Its auto-upgrade
+		// may still be running without a recorded failure, and would stop
+		// its server on a later non-zero exit with no plan left to retry.
+		// Its owner is told as well; releasing it never terminates it.
+		active := i == 0 && entry.Failures == 0
+		if !active && !entryLeftServerParked(entry) {
+			continue
+		}
+		serverType, ok := upgradeEntryProcessType(entry.Type)
+		if !ok {
+			continue
+		}
+		key := entry.PeerID + "\x00" + string(serverType)
+		if released[key] {
+			continue
+		}
+		released[key] = true
+		if myPeer != nil && entry.PeerID == myPeer.ID {
+			if err := m.ReleaseParkedUpgradeServer(serverType); err != nil {
+				return errors.Wrapf(err, "Failed to restart stopped %s before removing the upgrade plan", serverType)
+			}
+			continue
+		}
+		peer, found := config.PeerByID(entry.PeerID)
+		var err error
+		if !found {
+			err = maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to restart stopped %s on starter %s before removing the upgrade plan: peer is unknown", serverType, entry.PeerID)))
+		} else {
+			err = m.askPeerToRelease(ctx, peer, serverType)
+		}
+		if err != nil && active {
+			// Nothing is known to be stopped there. The owner releases its
+			// server itself once it sees that the plan is gone.
+			m.log.Warn().Err(err).Str("peer", entry.PeerID).Msg("Could not notify the starter working on the upgrade before removing the plan")
+			continue
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// entryLeftServerParked reports whether this failed entry's server is the
+// auto-upgrade process, stopped until an explicit restart.
+func entryLeftServerParked(entry UpgradePlanEntry) bool {
+	if entry.Failures == 0 {
+		return false
+	}
+	return strings.Contains(entry.Reason, autoUpgradeExitReason) || strings.Contains(entry.Reason, autoUpgradeTimeoutReason)
+}
+
+func upgradeEntryProcessType(entryType UpgradeEntryType) (definitions.ServerType, bool) {
+	switch entryType {
+	case UpgradeEntryTypeAgent:
+		return definitions.ServerTypeAgent, true
+	case UpgradeEntryTypeDBServer:
+		return definitions.ServerTypeDBServer, true
+	case UpgradeEntryTypeCoordinator:
+		return definitions.ServerTypeCoordinator, true
+	case UpgradeEntryTypeSingle:
+		return definitions.ServerTypeSingle, true
+	default:
+		return "", false
+	}
+}
+
+// ReleaseParkedUpgradeServer restarts a server this starter left stopped.
+// An auto-upgrade that is still running, e.g. after its wait timed out, is
+// not terminated in the middle of the database upgrade: its exit restarts the
+// server normally instead of stopping it. Any other server keeps running, so
+// repeating an abort does not restart a healthy server again.
+func (m *upgradeManager) ReleaseParkedUpgradeServer(serverType definitions.ServerType) error {
+	if !isReleasableServerType(serverType) {
+		return maskAny(client.NewBadRequestError(fmt.Sprintf("Cannot release server type '%s'", serverType)))
+	}
+	return m.releaseServer(serverType, nil)
+}
+
+// releaseServer implements ReleaseParkedUpgradeServer. When onlyAttempt is
+// set, a server is restarted only while it is still stopped by that attempt;
+// one stopped by a newer attempt is left for its explicit retry.
+func (m *upgradeManager) releaseServer(serverType definitions.ServerType, onlyAttempt *uint64) error {
+	m.stateMu.Lock()
+	attempt, parked := m.parkedServers[serverType]
+	if onlyAttempt != nil && (!parked || attempt != *onlyAttempt) {
+		// A newer attempt began meanwhile, or stopped the server itself.
+		m.stateMu.Unlock()
+		return nil
+	}
+	// updateNeeded covers an attempt that has begun but not yet started its
+	// auto-upgrade process.
+	running := m.upgradeServerType == serverType && (m.autoUpgradeRunning || m.autoUpgradeLaunchPending || m.updateNeeded)
+	if parked || running {
+		// A late exit of this attempt must not bring its failure back.
+		m.autoUpgradeGeneration++
+		m.abandonedUpgradePlan = nil
+		m.localFailedPlan = UpgradePlan{}
+	}
+	if running {
+		m.autoUpgradeRelease = true
+	}
+	delete(m.parkedServers, serverType)
+	m.stateMu.Unlock()
+	if !parked || m.upgradeManagerContext == nil {
+		return nil
+	}
+	return m.upgradeManagerContext.RestartServer(serverType)
+}
+
+// currentAutoUpgradeAttempt returns the generation and the number of the
+// current attempt.
+func (m *upgradeManager) currentAutoUpgradeAttempt() (generation, attempt uint64) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	return m.autoUpgradeGeneration, m.autoUpgradeAttempt
+}
+
+// releaseServersWithoutPlan is called once the plan has been removed. It
+// restarts every server this starter stopped after a failed auto-upgrade. An
+// attempt that is pending or still running is not terminated; it is marked so
+// that its exit restarts the server instead of stopping it, as abort does when
+// it can reach this starter. Without this, a sole agent whose auto-upgrade
+// fails would stop the only agency, and nothing could release it again.
+// generation and attempt were taken before the plan was read. An attempt that
+// began afterwards belongs to a newer plan: it is not released, and neither
+// is a server it stopped, up to the moment of its restart.
+func (m *upgradeManager) releaseServersWithoutPlan(generation, attempt uint64) {
+	m.stateMu.Lock()
+	parked := map[definitions.ServerType]uint64{}
+	for serverType, stoppedBy := range m.parkedServers {
+		if stoppedBy <= attempt {
+			parked[serverType] = stoppedBy
+		}
+	}
+	if m.autoUpgradeGeneration == generation && m.upgradeServerType != "" && !m.autoUpgradeRelease &&
+		(m.autoUpgradeRunning || m.autoUpgradeLaunchPending || m.updateNeeded) {
+		m.log.Info().Str("type", string(m.upgradeServerType)).Msg("Releasing the auto-upgrade of a removed upgrade plan; its exit restarts the server")
+		m.autoUpgradeRelease = true
+		// A late exit of this attempt must not bring its failure back.
+		m.autoUpgradeGeneration++
+		m.abandonedUpgradePlan = nil
+		m.localFailedPlan = UpgradePlan{}
+	}
+	m.stateMu.Unlock()
+	for serverType, stoppedBy := range parked {
+		m.log.Info().Str("type", string(serverType)).Msg("Restarting server stopped by a failed auto-upgrade of a removed upgrade plan")
+		if err := m.releaseServer(serverType, &stoppedBy); err != nil {
+			m.log.Warn().Err(err).Str("type", string(serverType)).Msg("Failed to restart server stopped by a failed auto-upgrade")
+		}
+	}
+}
+
+// isReleasableServerType reports whether serverType is a server that an
+// auto-upgrade can leave stopped.
+func isReleasableServerType(serverType definitions.ServerType) bool {
+	switch serverType {
+	case definitions.ServerTypeAgent, definitions.ServerTypeDBServer, definitions.ServerTypeCoordinator, definitions.ServerTypeSingle:
+		return true
+	default:
+		return false
+	}
+}
+
+// releaseUpgradeQuery asks the starter that owns a stopped server to restart it.
+const releaseUpgradeQuery = "release"
+
+func (m *upgradeManager) askPeerToRelease(ctx context.Context, peer Peer, serverType definitions.ServerType) error {
+	target := peer.CreateStarterURL("/database-auto-upgrade?" + releaseUpgradeQuery + "=" + url.QueryEscape(string(serverType)))
+	reqCtx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodDelete, target, nil)
+	if err != nil {
+		return maskAny(err)
+	}
+	// Starters use self-signed certificates; this client accepts them.
+	resp, err := localUpgradeHTTPClient.Do(req)
+	if err != nil {
+		return maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to restart stopped %s on starter %s before removing the upgrade plan: %v", serverType, peer.ID, err)))
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to restart stopped %s on starter %s before removing the upgrade plan: %s", serverType, peer.ID, msg)))
+	}
+	return nil
 }
 
 // Create a client for the agency
@@ -796,20 +1905,58 @@ func (m *upgradeManager) removeUpgradePlan(ctx context.Context) error {
 func (m *upgradeManager) waitForPlanChanges(ctx context.Context) chan *UpgradePlan {
 	ch := make(chan *UpgradePlan)
 
+	wake := m.planWakeChannel()
 	go func() {
 		defer close(ch)
 		var oldPlan UpgradePlan
 		for {
 			delay := time.Second * 3
+			m.stateMu.Lock()
+			if m.retryPlanValidation {
+				oldPlan = UpgradePlan{}
+				m.retryPlanValidation = false
+			}
+			m.stateMu.Unlock()
+			// Taken before the read, so a failure published after it is kept.
+			cached, hasCached := m.localFailedPlanSnapshot()
+			// An attempt that begins after the read belongs to a newer plan.
+			generation, attempt := m.currentAutoUpgradeAttempt()
 			plan, err := m.readUpgradePlan(ctx)
-			if agency.IsKeyNotFound(err) || plan.IsEmpty() {
-				// Just try later
+			if err == nil && !plan.IsEmpty() {
+				m.discardAbandonedPlan(&plan)
+			}
+			if agency.IsKeyNotFound(err) || (err == nil && plan.IsEmpty()) {
+				// Nothing can retry a server stopped for a plan that is gone,
+				// e.g. when the attempt failed just after an abort. This runs
+				// before discarding the abandoned plan, which would make a
+				// still running timed-out attempt look newer than the read.
+				m.releaseServersWithoutPlan(generation, attempt)
+				m.discardAbandonedPlan(nil)
+				// There is no plan. A failure cached for a plan that has
+				// been aborted must not be reported or retried any more.
+				if hasCached {
+					m.log.Info().Msg("Discarding local upgrade failure of a removed upgrade plan")
+					m.dropLocalFailedPlan(cached)
+				}
 			} else if err != nil {
 				// Failed to read plan
 				m.log.Info().Err(err).Msg("Failed to read upgrade plan")
-			} else if !oldPlan.Equals(plan) {
-				ch <- &plan
-				oldPlan = plan
+			} else if pending := m.localUpgradePending(); !oldPlan.Equals(plan) || pending {
+				// Keep delivering while a local failure is pending, so it can
+				// be reconciled once the agency is back.
+				delivered := plan.clone()
+				select {
+				case ch <- &delivered:
+				case <-ctx.Done():
+					return
+				}
+				if pending {
+					// The watcher may skip this plan. Deliver it again after
+					// the retry ends, even if it has not changed by then.
+					oldPlan = UpgradePlan{}
+				} else {
+					oldPlan = plan
+				}
 				delay = time.Second
 			}
 
@@ -817,6 +1964,11 @@ func (m *upgradeManager) waitForPlanChanges(ctx context.Context) chan *UpgradePl
 			select {
 			case <-timer.C:
 				// Continue
+			case <-wake:
+				// A late failure was stored; reconcile it now.
+				if !timer.Stop() {
+					<-timer.C
+				}
 			case <-ctx.Done():
 				// Context canceled
 				if !timer.Stop() {
@@ -857,6 +2009,9 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 		}
 
 		plan := *newPlan
+		if m.reconcileLocalFailedPlan(ctx, plan) {
+			continue
+		}
 		if plan.IsReady() {
 			// Plan entries have been processed
 			if !plan.Finished {
@@ -866,10 +2021,10 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 				}
 			}
 		} else if plan.IsFailed() {
-			// Plan already failed;
+			// Plan already failed
 		} else if len(plan.Entries) > 0 {
 			// Let's inspect the first entry
-			if err := m.processUpgradePlan(ctx, plan); err != nil {
+			if err := m.processWatchedUpgradePlan(ctx, plan); err != nil {
 				m.log.Error().Err(err).Msg("Failed to process upgrade plan entry")
 			}
 		}
@@ -879,45 +2034,117 @@ func (m *upgradeManager) RunWatchUpgradePlan(ctx context.Context) {
 // processUpgradePlan inspects the first entry of the given plan and acts upon
 // it when needed.
 func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePlan) error {
+	return m.processUpgradePlanEntry(ctx, plan, false)
+}
+
+// processWatchedUpgradePlan is processUpgradePlan for a plan delivered by the
+// watcher. That plan may be outdated by the time it runs, e.g. when a local
+// retry advanced it meanwhile, so it is compared with the agency first.
+func (m *upgradeManager) processWatchedUpgradePlan(ctx context.Context, plan UpgradePlan) error {
+	return m.processUpgradePlanEntry(ctx, plan, true)
+}
+
+// isOutdatedPlan reports whether the agency holds a newer revision of plan,
+// a failed one, or another plan. A read failure leaves validity unknown.
+func (m *upgradeManager) isOutdatedPlan(ctx context.Context, plan UpgradePlan) (bool, error) {
+	readCtx, cancel := context.WithTimeout(ctx, localFailureAgencyTimeout)
+	defer cancel()
+	current, err := m.readUpgradePlan(readCtx)
+	if agency.IsKeyNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, maskAny(err)
+	}
+	return !samePlan(current, plan) || current.Revision != plan.Revision || current.IsFailed(), nil
+}
+
+func (m *upgradeManager) processUpgradePlanEntry(ctx context.Context, plan UpgradePlan, revalidate bool) error {
 	_, myPeer, mode := m.upgradeManagerContext.ClusterConfig()
 	_, isRunning, _ := m.upgradeManagerContext.IsRunningMaster()
 	if !isRunning {
 		return maskAny(fmt.Errorf("not in running phase"))
 	}
 
+	// Work on a copy: the caller's plan may share its entries with the
+	// watcher's last seen plan.
+	plan = plan.clone()
+
+	// A failure that cannot be written to the agency is published only after
+	// cleanup below, so a retry cannot start before this run has finished.
+	var localFailure *UpgradePlan
+
 	// recordFailure increments the failure count in the first entry and
 	// stored the modified plan.
 	// It then returns the original error.
+	recorded := false
 	recordFailure := func(err error) error {
 		m.log.Error().Err(err).
 			Str("type", string(plan.Entries[0].Type)).
 			Msg("Upgrade plan entry failed")
-		plan.Entries[0].Failures++
-		plan.Entries[0].Reason = err.Error()
+		recordEntryFailure(&plan.Entries[0], err, recorded)
+		recorded = true
+		// Bound the write: when the failed server is the only agent, the
+		// agency cannot answer, and the failure must still be published.
+		writeCtx, cancel := context.WithTimeout(ctx, localFailureAgencyTimeout)
+		defer cancel()
 		overwrite := false
-		if _, err := m.writeUpgradePlan(ctx, plan, overwrite); err != nil {
-			m.log.Error().Err(err).Msg("Failed to write updated plan (recording failure)")
+		if written, writeErr := m.writeUpgradePlan(writeCtx, plan, overwrite); writeErr != nil {
+			m.log.Error().Err(writeErr).Msg("Failed to write updated plan (recording failure)")
+			if !agency.IsPreconditionFailed(writeErr) {
+				// The agency could not be reached, e.g. because its only
+				// agent is the one that failed. A precondition failure means
+				// the plan was changed or aborted meanwhile; keep nothing then.
+				failed := plan.clone()
+				localFailure = &failed
+			}
+		} else {
+			plan.Revision = written.Revision
+			localFailure = nil
 		}
 		return maskAny(err)
 	}
 
+	if len(plan.Entries) == 0 {
+		return nil
+	}
 	firstEntry := plan.Entries[0]
 	// For server entries, we only respond when the peer is ours
 	if firstEntry.PeerID != myPeer.ID {
 		return nil
 	}
-	// Prepare cleanup
+	// Deferred calls run in reverse: cleanup, publish, unlock.
+	m.processMu.Lock()
+	defer m.processMu.Unlock()
+	// Only now is it certain that no earlier run is still changing the
+	// plan, so compare the delivered revision with the agency here.
+	if revalidate {
+		outdated, err := m.isOutdatedPlan(ctx, plan)
+		if err != nil {
+			// Release processMu without restarting anything. Request a fresh
+			// delivery even if the agency revision is unchanged on recovery.
+			m.stateMu.Lock()
+			m.retryPlanValidation = true
+			m.stateMu.Unlock()
+			return maskAny(errors.Wrap(err, "Failed to validate upgrade plan"))
+		}
+		if outdated {
+			m.log.Debug().Int("revision", plan.Revision).Msg("Skipping outdated upgrade plan revision")
+			return nil
+		}
+	}
 	defer func() {
-		m.upgradeServerType = ""
-		m.updateNeeded = false
+		if localFailure != nil {
+			m.storeLocalFailedPlan(*localFailure)
+		}
 	}()
+	defer func() { m.endServerUpgradePlan(&plan) }()
 
 	switch firstEntry.Type {
 	case UpgradeEntryTypeAgent:
 		// Restart the agency in auto-upgrade mode
 		m.log.Info().Msg("Upgrading agent")
-		m.upgradeServerType = definitions.ServerTypeAgent
-		m.updateNeeded = true
+		m.beginServerUpgrade(definitions.ServerTypeAgent)
 		if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeAgent); err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to restart agent"))
 		}
@@ -942,8 +2169,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	case UpgradeEntryTypeDBServer:
 		// Restart the dbserver in auto-upgrade mode
 		m.log.Info().Msg("Upgrading dbserver")
-		m.upgradeServerType = definitions.ServerTypeDBServer
-		m.updateNeeded = true
+		m.beginServerUpgrade(definitions.ServerTypeDBServer)
 		upgrade := func() error {
 			if firstEntry.WithoutResign {
 				fmt.Printf("Without resign")
@@ -982,8 +2208,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	case UpgradeEntryTypeCoordinator:
 		// Restart the coordinator in auto-upgrade mode
 		m.log.Info().Msg("Upgrading coordinator")
-		m.upgradeServerType = definitions.ServerTypeCoordinator
-		m.updateNeeded = true
+		m.beginServerUpgrade(definitions.ServerTypeCoordinator)
 		if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeCoordinator); err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to restart coordinator"))
 		}
@@ -1006,8 +2231,7 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	case UpgradeEntryTypeSingle:
 		// Restart the single server in auto-upgrade mode
 		m.log.Info().Msg("Upgrading single server")
-		m.upgradeServerType = definitions.ServerTypeSingle
-		m.updateNeeded = true
+		m.beginServerUpgrade(definitions.ServerTypeSingle)
 		upgrade := func() error {
 			if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeSingle); err != nil {
 				return recordFailure(errors.Wrap(err, "Failed to restart single server"))
@@ -1039,6 +2263,11 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 		return maskAny(fmt.Errorf("unsupported upgrade plan entry type '%s'", firstEntry.Type))
 	}
 
+	// A failure recorded in this run, e.g. by cleanup, keeps the entry.
+	if recorded {
+		return maskAny(fmt.Errorf("%s upgrade recorded a failure: %s", firstEntry.Type, plan.Entries[0].Reason))
+	}
+
 	// Move first entry to finished entries
 	plan.Entries = plan.Entries[1:]
 	plan.FinishedEntries = append(plan.FinishedEntries, firstEntry)
@@ -1051,9 +2280,24 @@ func (m *upgradeManager) processUpgradePlan(ctx context.Context, plan UpgradePla
 	return nil
 }
 
-// withMaintenance wraps upgrade action with maintenance steps
+// recordEntryFailure marks entry as failed with err. When this run already
+// recorded a failure, err is a later cleanup failure, e.g. re-enabling
+// supervision. The first reason is kept, as it holds the exit code and server
+// log, and err is appended to it.
+func recordEntryFailure(entry *UpgradePlanEntry, err error, alreadyRecorded bool) {
+	if !alreadyRecorded {
+		entry.Failures++
+		entry.Reason = err.Error()
+		return
+	}
+	entry.Reason += "\nAlso failed afterwards: " + err.Error()
+}
+
+// withMaintenance wraps upgrade action with maintenance steps.
+// A failure to enable supervision again is returned even when the action
+// succeeded, so the entry is not completed while supervision may be off.
 func (m *upgradeManager) withMaintenance(ctx context.Context, recordFailure func(err error) error) func(func() error) error {
-	return func(f func() error) error {
+	return func(f func() error) (err error) {
 		m.log.Info().Msg("Disabling supervision")
 		if err := m.disableSupervision(ctx); err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to disable supervision"))
@@ -1062,8 +2306,17 @@ func (m *upgradeManager) withMaintenance(ctx context.Context, recordFailure func
 		m.log.Info().Msg("Disabled supervision")
 		defer func() {
 			m.log.Info().Msg("Enabling supervision")
-			if err := m.enableSupervision(ctx); err != nil {
-				recordFailure(errors.Wrap(err, "Failed to enable supervision"))
+			// The attempt context may already be canceled, for example when a
+			// local retry reaches its deadline. Cleanup keeps its own ten
+			// seconds so a reachable agency can turn supervision back on. The
+			// maintenance key expires on its own if the agency cannot be reached.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), localFailureAgencyTimeout)
+			defer cancel()
+			if enableErr := m.enableSupervision(cleanupCtx); enableErr != nil {
+				cleanupErr := recordFailure(errors.Wrap(enableErr, "Failed to enable supervision"))
+				if err == nil {
+					err = cleanupErr
+				}
 			}
 		}()
 
@@ -1097,61 +2350,100 @@ func (m *upgradeManager) finishUpgradePlan(ctx context.Context, plan UpgradePlan
 	return nil
 }
 
-// runSingleServerUpgradeProcess runs the entire upgrade process of a single server until it is finished.
-func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode) {
-	// Cleanup when we're done
-	defer func() {
-		m.upgradeServerType = ""
-		m.updateNeeded = false
+// startSingleServerUpgrade starts a standalone attempt independent of the HTTP
+// request's context. The caller must hold mutex. Publish its outcome only after
+// runSingleServerUpgradeProcess has cleaned up the previous attempt's state.
+func (m *upgradeManager) startSingleServerUpgrade(myPeer *Peer, mode ServiceMode) {
+	m.singleUpgradeInProgress = true
+	m.singleUpgradeFailure = nil
+	m.singleUpgradeDone = false
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	go func() {
+		defer cancel()
+		err := m.runSingleServerUpgradeProcess(ctx, myPeer, mode)
+		m.mutex.Lock()
+		defer m.mutex.Unlock()
+		m.stateMu.Lock()
+		if m.lateAutoUpgradeFailure != nil {
+			err = m.lateAutoUpgradeFailure
+		}
+		m.stateMu.Unlock()
+		m.singleUpgradeInProgress = false
+		m.singleUpgradeFailure = err
+		m.singleUpgradeDone = err == nil
 	}()
+}
+
+// runSingleServerUpgradeProcess runs the entire upgrade process of a single server until it is finished.
+func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPeer *Peer, mode ServiceMode) error {
+	// Cleanup when we're done
+	defer m.endServerUpgrade()
 
 	if !mode.IsSingleMode() {
 		m.log.Info().Msg("Not in Single Server Mode, aborting.")
-		return
+		return fmt.Errorf("not in single server mode")
 	}
 	// Restart the single server in auto-upgrade mode
 	m.log.Info().Msg("Upgrading single server")
-	m.upgradeServerType = definitions.ServerTypeSingle
-	m.updateNeeded = true
+	m.beginServerUpgrade(definitions.ServerTypeSingle)
 	if err := m.upgradeManagerContext.RestartServer(definitions.ServerTypeSingle); err != nil {
 		m.log.Error().Err(err).Msg("Failed to restart single server")
-		return
+		return err
 	}
 
 	// Wait until single server restarted
 	if err := m.waitUntilUpgradeServerStarted(ctx); err != nil {
-		return
+		m.log.Error().Err(err).Msg("Single server upgrade failed")
+		return err
 	}
 
 	// Wait until all single servers respond
 	if err := m.waitUntil(ctx, m.areSingleServersResponding, "Single server is not yet responding: %v"); err != nil {
-		return
+		return err
 	}
 
 	// We're done
 	allSameVersion, err := m.ShowArangodServerVersions(ctx)
 	if err != nil {
 		m.log.Error().Err(err).Msg("Failed to show server versions")
+		return err
 	} else if allSameVersion {
 		m.log.Info().Msg("Upgrading done.")
 	} else {
 		m.log.Info().Msg("Upgrading of all servers controlled by this starter done, you can continue with the next starter now.")
 	}
+	return nil
 }
 
-// waitUntilUpgradeServerStarted waits until the updateNeeded is false.
+// waitUntilUpgradeServerStarted waits until the process started with
+// --database.auto-upgrade has exited. Exit code 0 returns nil. Any other
+// exit code returns an error that includes the code and the recent server log.
 func (m *upgradeManager) waitUntilUpgradeServerStarted(ctx context.Context) error {
 	for {
-		if !m.updateNeeded {
-			return nil
+		if done, err := m.upgradeExitResult(); done {
+			return err
 		}
 		select {
 		case <-ctx.Done():
-			return maskAny(ctx.Err())
+			if done, err := m.upgradeExitResult(); done {
+				return err
+			}
+			return maskAny(errors.Wrap(ctx.Err(), autoUpgradeTimeoutReason+"; if the process is still running, its failure details will be available in upgrade status when it exits"))
 		case <-time.After(time.Millisecond * 100):
 			// Try again
 		}
 	}
+}
+
+func (m *upgradeManager) upgradeExitResult() (bool, error) {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.updateNeeded || m.autoUpgradeRunning {
+		return false, nil
+	}
+	err := m.autoUpgradeFailed
+	m.autoUpgradeFailed = nil
+	return true, err
 }
 
 // waitUntil loops until the the given predicate returns nil or the given context is
@@ -1201,28 +2493,243 @@ func (m *upgradeManager) isAgencyHealth(ctx context.Context) error {
 	return nil
 }
 
+// stoppedServer is a server left down by a failed auto-upgrade.
+// Address and port together identify it. Port alone is not enough, because
+// different hosts often use the same dbserver port.
+type stoppedServer struct {
+	role    driver.ServerRole
+	address string
+	port    int
+}
+
+// stoppedServers returns the servers whose upgrade entry has failed.
+// Their ports are the ports the starter assigned, which the cluster health
+// endpoint ends with.
+func (m *upgradeManager) stoppedServers(plan UpgradePlan) []stoppedServer {
+	var stopped []stoppedServer
+	for _, entry := range plan.Entries {
+		// Only an auto-upgrade that stopped, or may still be running, leaves
+		// its server down. A failed health check or supervision step does
+		// not, so that server's health still counts.
+		if !entryLeftServerParked(entry) {
+			continue
+		}
+		status, err := entry.CreateStatusServer(m.upgradeManagerContext)
+		if err != nil || status == nil {
+			continue
+		}
+		role, ok := upgradeEntryRole(entry.Type)
+		if !ok {
+			continue
+		}
+		stopped = append(stopped, stoppedServer{
+			role:    role,
+			address: status.Address,
+			port:    status.Port,
+		})
+	}
+	return stopped
+}
+
+func upgradeEntryRole(entryType UpgradeEntryType) (driver.ServerRole, bool) {
+	switch entryType {
+	case UpgradeEntryTypeAgent:
+		return driver.ServerRoleAgent, true
+	case UpgradeEntryTypeDBServer:
+		return driver.ServerRoleDBServer, true
+	case UpgradeEntryTypeCoordinator:
+		return driver.ServerRoleCoordinator, true
+	case UpgradeEntryTypeSingle:
+		return driver.ServerRoleSingle, true
+	default:
+		return "", false
+	}
+}
+
+// failureIsExpected reports whether this unhealthy server is the one a failed
+// auto-upgrade left stopped. The health endpoint must be that server's host
+// and port, not only the same port on another host.
+func failureIsExpected(sh driver.ServerHealth, allowed []stoppedServer) bool {
+	host, port, ok := healthEndpointHostPort(sh.Endpoint)
+	if !ok {
+		return false
+	}
+	for _, server := range allowed {
+		if sh.Role == server.role && port == strconv.Itoa(server.port) && sameServerHost(host, server.address) {
+			return true
+		}
+	}
+	return false
+}
+
+func healthEndpointHostPort(endpoint string) (string, string, bool) {
+	if i := strings.Index(endpoint, "://"); i >= 0 {
+		endpoint = endpoint[i+3:]
+	}
+	host, port, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return "", "", false
+	}
+	return host, port, true
+}
+
+func sameServerHost(left, right string) bool {
+	return strings.EqualFold(strings.Trim(left, "[]"), strings.Trim(right, "[]"))
+}
+
 // isClusterHealthy performs a check on the cluster health status.
 // If any of the servers is reported as not GOOD, an error is returned.
 func (m *upgradeManager) isClusterHealthy(ctx context.Context) error {
-	// Get cluster config
+	return m.isClusterHealthyExcept(ctx, nil)
+}
+
+// isClusterHealthyExcept is isClusterHealthy, ignoring servers that a failed
+// auto-upgrade left stopped on purpose. Coordinator health is fetched from
+// coordinators that are still up. If the only coordinator is the parked
+// server, other servers are checked through the agency and their own APIs.
+func (m *upgradeManager) isClusterHealthyExcept(ctx context.Context, allowed []stoppedServer) error {
 	clusterConfig, _, _ := m.upgradeManagerContext.ClusterConfig()
-	// Use CreateClusterAPI to get cluster client
-	clusterClient, err := clusterConfig.CreateClusterAPI(ctx, m.upgradeManagerContext)
+	endpoints, err := clusterConfig.GetCoordinatorEndpoints()
 	if err != nil {
 		return maskAny(err)
 	}
-	// Check health using go-driver v2 API
-	health, err := clusterClient.Health(ctx)
-	if err != nil {
-		return maskAny(err)
+	live := excludeStoppedEndpoints(endpoints, allowed, driver.ServerRoleCoordinator)
+	if len(live) > 0 {
+		c, err := m.upgradeManagerContext.CreateClient(live, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
+		if err != nil {
+			return maskAny(err)
+		}
+		health, err := c.Health(ctx)
+		if err != nil {
+			return maskAny(err)
+		}
+		for id, sh := range health.Health {
+			if sh.Role == driver.ServerRoleAgent && sh.Status == "" {
+				continue
+			}
+			if sh.Status != driver.ServerStatusGood && failureIsExpected(sh, allowed) {
+				continue
+			}
+			if sh.Status != driver.ServerStatusGood {
+				return maskAny(fmt.Errorf("Server '%s' has a '%s' status", id, sh.Status))
+			}
+		}
+		return nil
 	}
-	for id, sh := range health.Health {
-		if sh.Role == driver.ServerRoleAgent && sh.Status == "" {
+	return m.checkRemainingServers(ctx, clusterConfig, allowed)
+}
+
+func excludeStoppedEndpoints(endpoints []string, allowed []stoppedServer, role driver.ServerRole) []string {
+	if len(allowed) == 0 {
+		return endpoints
+	}
+	var live []string
+	for _, ep := range endpoints {
+		if endpointIsStopped(ep, allowed, role) {
 			continue
 		}
-		if sh.Status != driver.ServerStatusGood {
-			return maskAny(fmt.Errorf("Server '%s' has a '%s' status", id, sh.Status))
+		live = append(live, ep)
+	}
+	return live
+}
+
+func endpointIsStopped(endpoint string, allowed []stoppedServer, role driver.ServerRole) bool {
+	host, port, ok := healthEndpointHostPort(endpoint)
+	if !ok {
+		return false
+	}
+	for _, server := range allowed {
+		if server.role == role && port == strconv.Itoa(server.port) && sameServerHost(host, server.address) {
+			return true
 		}
+	}
+	return false
+}
+
+// checkRemainingServers is used when no coordinator is left to report the
+// cluster health. It requires the supervision health in the agency to be
+// GOOD for every server that is not exempt, and every such server to answer.
+func (m *upgradeManager) checkRemainingServers(ctx context.Context, clusterConfig ClusterConfig, allowed []stoppedServer) error {
+	health, err := m.readSupervisionHealth(ctx)
+	if err != nil {
+		return maskAny(errors.Wrap(err, "Failed to read supervision health"))
+	}
+	if err := checkSupervisionHealth(health, allowed); err != nil {
+		return maskAny(err)
+	}
+	agents, err := clusterConfig.GetAgentEndpoints()
+	if err != nil {
+		return maskAny(err)
+	}
+	for _, ep := range excludeStoppedEndpoints(agents, allowed, driver.ServerRoleAgent) {
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeAgency, definitions.ServerTypeUnknown)
+		if err != nil {
+			return maskAny(err)
+		}
+		if _, err := c.Version(ctx); err != nil {
+			return maskAny(err)
+		}
+	}
+	dbservers, err := clusterConfig.GetDBServerEndpoints()
+	if err != nil {
+		return maskAny(err)
+	}
+	for _, ep := range excludeStoppedEndpoints(dbservers, allowed, driver.ServerRoleDBServer) {
+		c, err := m.upgradeManagerContext.CreateClient([]string{ep}, ConnectionTypeDatabase, definitions.ServerTypeUnknown)
+		if err != nil {
+			return maskAny(err)
+		}
+		if _, err := c.ServerID(ctx); err != nil {
+			return maskAny(err)
+		}
+	}
+	return nil
+}
+
+// readSupervisionHealth reads the server health that the agency
+// supervision maintains. Its entries carry no role, so the role is derived
+// from the server ID.
+func (m *upgradeManager) readSupervisionHealth(ctx context.Context) (map[string]driver.ServerHealth, error) {
+	api, err := m.createAgencyAPI()
+	if err != nil {
+		return nil, maskAny(err)
+	}
+	var health map[string]driver.ServerHealth
+	if err := api.ReadKey(ctx, superVisionHealthKey, &health); err != nil {
+		return nil, maskAny(err)
+	}
+	for id, sh := range health {
+		if sh.Role == "" {
+			sh.Role = serverRoleFromID(id)
+			health[id] = sh
+		}
+	}
+	return health, nil
+}
+
+func serverRoleFromID(id string) driver.ServerRole {
+	switch {
+	case strings.HasPrefix(id, "PRMR-"):
+		return driver.ServerRoleDBServer
+	case strings.HasPrefix(id, "CRDN-"):
+		return driver.ServerRoleCoordinator
+	case strings.HasPrefix(id, "SNGL-"):
+		return driver.ServerRoleSingle
+	}
+	return ""
+}
+
+// checkSupervisionHealth requires a GOOD status for every server, except the
+// ones a failed auto-upgrade left stopped on purpose.
+func checkSupervisionHealth(health map[string]driver.ServerHealth, allowed []stoppedServer) error {
+	if len(health) == 0 {
+		return maskAny(fmt.Errorf("Supervision reports no servers"))
+	}
+	for id, sh := range health {
+		if sh.Status == driver.ServerStatusGood || failureIsExpected(sh, allowed) {
+			continue
+		}
+		return maskAny(fmt.Errorf("Server '%s' has a '%s' status", id, sh.Status))
 	}
 	return nil
 }
