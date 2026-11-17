@@ -2548,3 +2548,70 @@ func TestLogFileMarkHasSizeAndIdentityOfOneFile(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "%v", err)
 	require.Equal(t, logFileID{}, missing)
 }
+
+func TestReconciliationCannotRejectLateExitDetails(t *testing.T) {
+	created := time.Unix(1700000000, 0).UTC()
+	// The timeout could not be written: the agency still has the entry unfailed.
+	agencyPlan := UpgradePlan{Revision: 4, CreatedAt: created, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "peer1"}}}
+	timedOut := agencyPlan.clone()
+	timedOut.Entries[0].Failures = 1
+	timedOut.Entries[0].Reason = autoUpgradeTimeoutReason
+	a := &planAgency{plan: &agencyPlan}
+	c := &unavailableAgencyContext{peer: Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528}}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeDBServer)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+	m.endServerUpgradePlan(&timedOut)
+	m.storeLocalFailedPlan(timedOut)
+	generation := m.autoUpgradeGeneration
+
+	// Reconciliation tries to write the cached timeout while the late exit
+	// is being published.
+	reconciled := make(chan struct{})
+	m.afterLateFailureSnapshot = func() {
+		snapshot := a.current()
+		go func() {
+			m.reconcileLocalFailedPlan(context.Background(), snapshot)
+			close(reconciled)
+		}()
+		time.Sleep(200 * time.Millisecond)
+	}
+	m.publishLateUpgradeFailure(generation, &timedOut, fmt.Errorf("dbserver %s 1 (exit with error)\nFATAL late details", autoUpgradeExitReason))
+	select {
+	case <-reconciled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reconciliation did not finish")
+	}
+
+	// The exit details reached the agency instead of being rejected.
+	stored := a.current()
+	require.True(t, stored.IsFailed())
+	require.Contains(t, stored.Entries[0].Reason, "FATAL late details")
+}
+
+func TestStandaloneRetryCannotBeOverwrittenByOldExit(t *testing.T) {
+	m := &upgradeManager{log: zerolog.Nop(), singleUpgradeFailure: fmt.Errorf(autoUpgradeTimeoutReason)}
+	m.beginServerUpgrade(definitions.ServerTypeSingle)
+	generation := m.autoUpgradeGeneration
+
+	// A retry starts and fails while the old attempt's exit is published.
+	retried := make(chan struct{})
+	m.afterLateFailureSnapshot = func() {
+		go func() {
+			m.mutex.Lock()
+			m.beginServerUpgrade(definitions.ServerTypeSingle)
+			m.singleUpgradeFailure = fmt.Errorf("newer retry failure")
+			m.mutex.Unlock()
+			close(retried)
+		}()
+		time.Sleep(200 * time.Millisecond)
+	}
+	m.publishLateUpgradeFailure(generation, nil, fmt.Errorf("single %s 1\nFATAL old exit", autoUpgradeExitReason))
+	select {
+	case <-retried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retry did not finish")
+	}
+	require.EqualError(t, m.singleUpgradeFailure, "newer retry failure")
+}

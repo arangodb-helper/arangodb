@@ -321,6 +321,10 @@ type upgradeManager struct {
 	// before its restart is decided again. Tests use it to finish a newer
 	// attempt in that gap.
 	beforeParkedRestart func()
+	// afterLateFailureSnapshot, if set, runs after publishLateUpgradeFailure
+	// has checked its attempt and before it publishes. Tests use it to try
+	// to interleave reconciliation or a retry.
+	afterLateFailureSnapshot func()
 	// autoUpgradeAttempt numbers the attempts; only beginServerUpgrade
 	// increases it, unlike the generation. Protected by stateMu.
 	autoUpgradeAttempt uint64
@@ -1479,7 +1483,12 @@ func (m *upgradeManager) ServerDatabaseAutoUpgradeExited(serverType definitions.
 func (m *upgradeManager) publishLateUpgradeFailure(generation uint64, plan *UpgradePlan, failure error) {
 	m.processMu.Lock()
 	defer m.processMu.Unlock()
+	// Held until the exit is published. Reconciliation must not move the
+	// plan to a newer revision in between, or this write is rejected and the
+	// exit details are lost, and a standalone retry must not start and fail
+	// in between, or this older exit overwrites its failure.
 	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	m.stateMu.Lock()
 	current := m.autoUpgradeGeneration == generation
 	// Reconciliation may have persisted the timeout while this callback
@@ -1497,16 +1506,16 @@ func (m *upgradeManager) publishLateUpgradeFailure(generation uint64, plan *Upgr
 	}
 	single := current && plan == nil
 	m.stateMu.Unlock()
-	m.mutex.Unlock()
+	if m.afterLateFailureSnapshot != nil {
+		m.afterLateFailureSnapshot()
+	}
 	if !current || failure == nil {
 		return
 	}
 	if single {
-		m.mutex.Lock()
 		if !m.singleUpgradeInProgress && m.singleUpgradeFailure != nil {
 			m.singleUpgradeFailure = failure
 		}
-		m.mutex.Unlock()
 		return
 	}
 	if !havePlan {
