@@ -280,7 +280,10 @@ func serverHostLogMark(runtimeContext runtimeServerManagerContext, serverType de
 }
 
 func logFileMarkAt(logPath string) logFileMark {
-	info, err := os.Stat(logPath)
+	// Size and identity come from one stat or handle. Separate calls could
+	// pair the old log's size with the file that replaced it on rotation,
+	// and reading that file from the old size would skip its first lines.
+	size, id, known, err := fileSizeAndIdentity(logPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return logFileMark{}
@@ -296,9 +299,7 @@ func logFileMarkAt(logPath string) logFileMark {
 		}
 		return mark
 	}
-	mark := logFileMark{size: info.Size()}
-	mark.id, mark.known = fileIdentity(logPath)
-	return mark
+	return logFileMark{size: size, id: id, known: known}
 }
 
 // existingRotationIDs returns the identities of logPath.1, logPath.2, ...

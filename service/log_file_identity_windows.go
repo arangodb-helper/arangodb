@@ -22,30 +22,43 @@
 
 package service
 
-import "syscall"
+import (
+	"os"
+	"syscall"
+)
 
 // fileIdentity returns the volume serial number and file index of the file
-// at path. os.FileInfo does not carry them on Windows, so the file is opened
-// for metadata only. All share modes are allowed, so this never blocks the
-// rename done by log rotation.
+// at path.
 func fileIdentity(path string) (logFileID, bool) {
+	_, id, known, err := fileSizeAndIdentity(path)
+	return id, known && err == nil
+}
+
+// fileSizeAndIdentity returns the size, volume serial number and file index
+// of the file at path, all read from one open handle, so they describe the
+// same file even when the log is rotated meanwhile. os.FileInfo does not
+// carry the identity on Windows, so the file is opened for metadata only.
+// All share modes are allowed, so this never blocks the rename done by log
+// rotation.
+func fileSizeAndIdentity(path string) (int64, logFileID, bool, error) {
 	p, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
-		return logFileID{}, false
+		return 0, logFileID{}, false, &os.PathError{Op: "open", Path: path, Err: err}
 	}
 	h, err := syscall.CreateFile(p, 0,
 		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE,
 		nil, syscall.OPEN_EXISTING, syscall.FILE_FLAG_BACKUP_SEMANTICS, 0)
 	if err != nil {
-		return logFileID{}, false
+		return 0, logFileID{}, false, &os.PathError{Op: "open", Path: path, Err: err}
 	}
 	defer syscall.CloseHandle(h)
 	var info syscall.ByHandleFileInformation
 	if err := syscall.GetFileInformationByHandle(h, &info); err != nil {
-		return logFileID{}, false
+		return 0, logFileID{}, false, &os.PathError{Op: "stat", Path: path, Err: err}
 	}
-	return logFileID{
+	size := int64(info.FileSizeHigh)<<32 | int64(info.FileSizeLow)
+	return size, logFileID{
 		volume: uint64(info.VolumeSerialNumber),
 		index:  uint64(info.FileIndexHigh)<<32 | uint64(info.FileIndexLow),
-	}, true
+	}, true, nil
 }

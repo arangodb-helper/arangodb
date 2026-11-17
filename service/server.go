@@ -732,8 +732,29 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 			writeUpgradeResult(w, s.context.UpgradeManager().ReleaseParkedUpgradeServer(definitions.ServerType(serverType)))
 			return
 		}
+		um := s.context.UpgradeManager()
+		if isLocalUpgradeRequest(r) {
+			// Another starter routes the abort here because this starter holds
+			// a failure it could not record in the agency, e.g. of its stopped
+			// sole agent. Abort restarts that agent before it needs the agency.
+			if !um.HasLocalUpgradeFailure() {
+				writeUpgradeResult(w, client.NewNotFoundError("This starter holds no failed upgrade step"))
+				return
+			}
+			markLocalUpgradeFailureHeld(w)
+			writeUpgradeResult(w, um.AbortDatabaseUpgrade(ctx))
+			return
+		}
+		// A stopped sole agent keeps the agency, and so the leader, from
+		// aborting. Route the abort to the starter holding its failure first.
+		if mode.HasAgency() && !um.HasLocalUpgradeFailure() {
+			if held, err := s.abortPeerLocalUpgradeFailure(ctx); held {
+				writeUpgradeResult(w, err)
+				return
+			}
+		}
 		// Abort the upgrade process
-		if !isRunningMaster && !mode.IsSingleMode() {
+		if !isRunningMaster && !mode.IsSingleMode() && !um.HasLocalUpgradeFailure() {
 			// We're not the starter leader.
 			// Forward the request to the leader.
 			c, err := createMasterClient(masterURL)
@@ -842,20 +863,47 @@ func (s *httpServer) retryPeerLocalUpgradeFailure(ctx context.Context) (held boo
 		return false, nil
 	}
 	answered, err := s.sendLocalUpgradeRequest(ctx, *holder, http.MethodPut, nil)
+	return s.holderAnswer(*holder, "retry", answered, err)
+}
+
+// abortPeerLocalUpgradeFailure routes an abort to the starter holding a
+// failure it could not record in the agency. When that is a sole agent its
+// failed auto-upgrade stopped, the agency is down, so neither this starter nor
+// the leader can abort; the holder restarts the agent before it needs the
+// agency. held and err are as for retryPeerLocalUpgradeFailure.
+func (s *httpServer) abortPeerLocalUpgradeFailure(ctx context.Context) (held bool, err error) {
+	probeCtx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
+	holder := s.localUpgradeFailureHolder(probeCtx)
+	cancel()
+	if holder == nil {
+		return false, nil
+	}
+	// The holder may wait for the agency after restarting its sole agent.
+	abortCtx, cancel := context.WithTimeout(ctx, soleAgentRecoveryTimeout+localUpgradePeerTimeout)
+	defer cancel()
+	answered, err := s.sendLocalUpgradeRequest(abortCtx, *holder, http.MethodDelete, nil)
+	return s.holderAnswer(*holder, "abort", answered, err)
+}
+
+// holderAnswer interprets the answer of the starter holding a failure to a
+// retry or abort routed to it. Only its explicit NotFound, i.e. it no longer
+// holds the failure, falls back to the ordinary request. Any other error is
+// reported: the holder may have acted on the request before it failed.
+func (s *httpServer) holderAnswer(holder Peer, action string, answered bool, err error) (held bool, _ error) {
 	switch {
 	case err == nil:
-		s.log.Info().Str("peer", holder.ID).Msg("Upgrade failure is held by peer")
+		s.log.Info().Str("peer", holder.ID).Str("action", action).Msg("Upgrade failure is held by peer")
 		return true, nil
 	case answered:
-		// The holder refused the retry, e.g. because the cluster is unhealthy.
-		s.log.Info().Err(err).Str("peer", holder.ID).Msg("Peer holding the upgrade failure refused the request")
+		// The holder refused, e.g. because the cluster is unhealthy.
+		s.log.Info().Err(err).Str("peer", holder.ID).Str("action", action).Msg("Peer holding the upgrade failure refused the request")
 		return true, err
 	case client.IsNotFound(err):
 		// The failure was retried or discarded since the GET.
 		return false, nil
 	default:
-		s.log.Warn().Err(err).Str("peer", holder.ID).Msg("Retry request to peer holding the upgrade failure failed")
-		return true, maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to retry the upgrade failure held by starter %s; check the upgrade status before retrying again: %v", holder.ID, err)))
+		s.log.Warn().Err(err).Str("peer", holder.ID).Str("action", action).Msg("Request to peer holding the upgrade failure failed")
+		return true, maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to %s the upgrade failure held by starter %s; check the upgrade status before trying again: %v", action, holder.ID, err)))
 	}
 }
 

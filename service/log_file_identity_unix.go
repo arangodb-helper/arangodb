@@ -29,13 +29,21 @@ import (
 
 // fileIdentity returns the device and inode of the file at path.
 func fileIdentity(path string) (logFileID, bool) {
+	_, id, known, err := fileSizeAndIdentity(path)
+	return id, known && err == nil
+}
+
+// fileSizeAndIdentity returns the size and the device and inode of the file
+// at path from a single stat, so both describe the same file even when the
+// log is rotated meanwhile.
+func fileSizeAndIdentity(path string) (int64, logFileID, bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return logFileID{}, false
+		return 0, logFileID{}, false, err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		return logFileID{}, false
+		return info.Size(), logFileID{}, false, nil
 	}
-	return logFileID{volume: uint64(stat.Dev), index: uint64(stat.Ino)}, true
+	return info.Size(), logFileID{volume: uint64(stat.Dev), index: uint64(stat.Ino)}, true, nil
 }

@@ -153,6 +153,7 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 		var logMark logFileMark
 		proc, portInUse, err := startServer(p.ctx, logProcess, p.runtimeContext, p.runner, p.config, p.bsCfg, myHostAddress, p.serverType, features, restart, output, exitCode, &logMark)
 		autoUpgradeFailed := false
+		autoUpgradeReleased := false
 		var failedRestartGen uint64
 		if err != nil {
 			logProcess.Error().Err(err).Msgf("Error while starting %s", p.serverType)
@@ -252,11 +253,9 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 			select {
 			case exitCode = <-procC:
 				logProcess.Info().Msgf("Terminated %s. Exit code: %d (%s)", p.serverType, exitCode, definitions.GetExitCodeReason(exitCode))
-				var failed bool
-				failed, failedRestartGen = p.recordAutoUpgradeExit(p.runtimeContext.UpgradeManager(), logProcess, exitCode, func() string {
+				autoUpgradeFailed, autoUpgradeReleased, failedRestartGen = p.recordAutoUpgradeExitResult(p.runtimeContext.UpgradeManager(), logProcess, exitCode, func() string {
 					return p.serverLogSince(logMark)
 				}, output)
-				autoUpgradeFailed = failed
 				break
 			case <-p.stopping:
 				var initialTimeout time.Duration
@@ -281,6 +280,14 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 				break
 			}
 			logProcess.Info().Msgf("restarting %s", p.serverType)
+			restart++
+			continue
+		}
+		if autoUpgradeReleased {
+			// Abort, or the removal of its plan, released this auto-upgrade.
+			// Its exit is expected: restart normally, without counting it as a
+			// crash or giving up on a non-recoverable exit code.
+			logProcess.Info().Msgf("restarting %s after its released auto-upgrade exited", p.serverType)
 			restart++
 			continue
 		}
@@ -340,15 +347,22 @@ func (p *processWrapper) run(startedCh chan<- struct{}) {
 // published, so a retry that arrives during either step is not treated as
 // the baseline of the pause.
 func (p *processWrapper) recordAutoUpgradeExit(upgrade UpgradeManager, logProcess zerolog.Logger, exitCode int, readLog func() string, output *utils.LimitedBuffer) (bool, uint64) {
-	seen := p.restartGen.Load()
+	failed, _, seen := p.recordAutoUpgradeExitResult(upgrade, logProcess, exitCode, readLog, output)
+	return failed, seen
+}
+
+// recordAutoUpgradeExitResult is recordAutoUpgradeExit that also reports
+// whether the exit belonged to a released auto-upgrade.
+func (p *processWrapper) recordAutoUpgradeExitResult(upgrade UpgradeManager, logProcess zerolog.Logger, exitCode int, readLog func() string, output *utils.LimitedBuffer) (failed, released bool, seen uint64) {
+	seen = p.restartGen.Load()
 	if upgrade == nil {
-		return false, seen
+		return false, false, seen
 	}
 	// A successful exit, or the SIGTERM of the previous server, does not
 	// need the server log. IsServerUpgradeInProgress is already true then.
 	if exitCode == 0 || !upgrade.IsServerAutoUpgradeRunning(p.serverType) {
-		upgrade.ServerDatabaseAutoUpgradeFinished(p.serverType, exitCode, "")
-		return false, seen
+		result := upgrade.ServerDatabaseAutoUpgradeExited(p.serverType, exitCode, "")
+		return false, result == AutoUpgradeExitReleased, seen
 	}
 	attemptLog := ""
 	if readLog != nil {
@@ -360,8 +374,11 @@ func (p *processWrapper) recordAutoUpgradeExit(upgrade UpgradeManager, logProces
 		// not be read. The startup error is then only in its captured output.
 		diagnostics = output.String()
 	}
-	if !upgrade.ServerDatabaseAutoUpgradeFinished(p.serverType, exitCode, diagnostics) {
-		return false, seen
+	switch upgrade.ServerDatabaseAutoUpgradeExited(p.serverType, exitCode, diagnostics) {
+	case AutoUpgradeExitReleased:
+		return false, true, seen
+	case AutoUpgradeExitUnrelated:
+		return false, false, seen
 	}
 	logProcess.Error().Msgf("%s auto-upgrade failed with exit code %d (%s)", p.serverType, exitCode, definitions.GetExitCodeReason(exitCode))
 	if output != nil {
@@ -372,7 +389,7 @@ func (p *processWrapper) recordAutoUpgradeExit(upgrade UpgradeManager, logProces
 	} else if p.s != nil {
 		p.s.showRecentLogs(logProcess, p.runtimeContext, p.serverType)
 	}
-	return true, seen
+	return true, false, seen
 }
 
 // waitForRestartSince blocks until a RequestRestart newer than seen arrives,

@@ -823,12 +823,12 @@ type retryOnPublishUpgrade struct {
 	onFinish func()
 }
 
-func (u retryOnPublishUpgrade) ServerDatabaseAutoUpgradeFinished(serverType definitions.ServerType, exitCode int, serverLog string) bool {
-	ok := u.UpgradeManager.ServerDatabaseAutoUpgradeFinished(serverType, exitCode, serverLog)
+func (u retryOnPublishUpgrade) ServerDatabaseAutoUpgradeExited(serverType definitions.ServerType, exitCode int, serverLog string) AutoUpgradeExit {
+	result := u.UpgradeManager.ServerDatabaseAutoUpgradeExited(serverType, exitCode, serverLog)
 	if u.onFinish != nil {
 		u.onFinish()
 	}
-	return ok
+	return result
 }
 
 func TestRetryDuringFailurePublicationIsNotLost(t *testing.T) {
@@ -1126,6 +1126,12 @@ type fakeHTTPUpgrade struct {
 	localRetryErr error
 	retries       atomic.Int32
 	localRetries  atomic.Int32
+	aborts        atomic.Int32
+}
+
+func (u *fakeHTTPUpgrade) AbortDatabaseUpgrade(context.Context) error {
+	u.aborts.Add(1)
+	return nil
 }
 
 func (u *fakeHTTPUpgrade) RetryDatabaseUpgrade(context.Context) error {
@@ -2119,7 +2125,8 @@ func TestStaleReleaseDoesNotRestartNewerAttempt(t *testing.T) {
 	}()
 	select {
 	case got := <-c.restarts:
-		require.Equal(t, definitions.ServerType(definitions.ServerTypeDBServer), got)
+		// A stopped DBServer has no process left to resign leadership.
+		require.Equal(t, definitions.ServerType(definitions.ServerTypeDBServerNoResign), got)
 	case <-time.After(2 * time.Second):
 		t.Fatal("release did not restart the parked server")
 	}
@@ -2204,7 +2211,7 @@ func TestReleaseRestartsWhenAnotherServerTypeStarted(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, got[definitions.ServerTypeAgent])
-	require.Equal(t, 1, got[definitions.ServerTypeDBServer])
+	require.Equal(t, 1, got[definitions.ServerTypeDBServerNoResign])
 }
 
 // activeFailoverContext runs the single-server upgrade entry as a resilient single.
@@ -2350,4 +2357,194 @@ func TestStaleReleaseDoesNotRestartProcessOfStartingAttempt(t *testing.T) {
 		t.Fatalf("stale release restarted %s while the newer attempt was starting", extra)
 	default:
 	}
+}
+
+// soleAgentContext models a sole agent: the agency answers only while the
+// agent runs, and restarting the agent brings it back.
+type soleAgentContext struct {
+	unavailableAgencyContext
+	agencyUp  atomic.Bool
+	comesBack bool
+}
+
+func (c *soleAgentContext) RestartServer(serverType definitions.ServerType) error {
+	if serverType == definitions.ServerTypeAgent && c.comesBack {
+		c.agencyUp.Store(true)
+	}
+	c.restarts <- serverType
+	return nil
+}
+
+func (c *soleAgentContext) CreateClient(endpoints []string, connectionType ConnectionType, serverType definitions.ServerType) (driver.Client, error) {
+	if connectionType == ConnectionTypeAgency && !c.agencyUp.Load() {
+		return nil, fmt.Errorf("agency is stopped")
+	}
+	return c.unavailableAgencyContext.CreateClient(endpoints, connectionType, serverType)
+}
+
+func TestAbortRestartsStoppedSoleAgentBeforeNeedingAgency(t *testing.T) {
+	old := soleAgentRecoveryTimeout
+	soleAgentRecoveryTimeout = 500 * time.Millisecond
+	t.Cleanup(func() { soleAgentRecoveryTimeout = old })
+	created := time.Unix(1700000000, 0).UTC()
+	// The failure could not be written: the agency still has the entry unfailed.
+	plan := UpgradePlan{Revision: 4, CreatedAt: created, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "peer1"}}}
+	cached := plan.clone()
+	cached.Entries[0].Failures = 1
+	cached.Entries[0].Reason = "agent " + autoUpgradeExitReason + " 1 (exit with error)"
+
+	for _, comesBack := range []bool{true, false} {
+		t.Run(fmt.Sprintf("agency-returns=%t", comesBack), func(t *testing.T) {
+			agencyPlan := plan.clone()
+			a := &planAgency{plan: &agencyPlan}
+			c := &soleAgentContext{
+				unavailableAgencyContext: unavailableAgencyContext{
+					peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528, peerServers: peerServers{HasAgentFlag: true}},
+					restarts: make(chan definitions.ServerType, 2),
+				},
+				comesBack: comesBack,
+			}
+			c.agency = a.start(t)
+			m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+			// The sole agent's auto-upgrade failed and stopped it, so the
+			// agency is down and the failure is only cached here.
+			m.beginServerUpgrade(definitions.ServerTypeAgent)
+			m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeAgent)
+			require.True(t, m.ServerDatabaseAutoUpgradeFinished(definitions.ServerTypeAgent, 1, "FATAL agent failed"))
+			m.endServerUpgradePlan(&cached)
+			m.storeLocalFailedPlan(cached)
+
+			// The CLI request has a deadline; abort must not wait past it.
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err := m.AbortDatabaseUpgrade(ctx)
+			// The agent is restarted before abort needs the agency.
+			select {
+			case got := <-c.restarts:
+				require.Equal(t, definitions.ServerType(definitions.ServerTypeAgent), got)
+			default:
+				t.Fatalf("abort did not restart the stopped sole agent: %v", err)
+			}
+			if comesBack {
+				require.NoError(t, err)
+				require.True(t, a.current().IsEmpty())
+				require.False(t, m.HasLocalUpgradeFailure())
+				return
+			}
+			// The agency is still down: abort says so and can be repeated.
+			require.True(t, client.IsServiceUnavailable(err), "%v", err)
+			require.Equal(t, plan.Revision, a.current().Revision)
+			require.True(t, m.HasLocalUpgradeFailure(), "the cached failure keeps the watcher off the plan")
+			c.agencyUp.Store(true)
+			require.NoError(t, m.AbortDatabaseUpgrade(context.Background()))
+			require.True(t, a.current().IsEmpty())
+			require.False(t, m.HasLocalUpgradeFailure())
+		})
+	}
+}
+
+func TestAbortIsRoutedToStarterHoldingFailure(t *testing.T) {
+	owner := &fakeHTTPUpgrade{localFailure: true}
+	ownerCtx := &fakeHTTPContext{mode: ServiceModeCluster, upgrade: owner}
+	ts := httptest.NewServer(http.HandlerFunc(serveUpgrade(ownerCtx).databaseAutoUpgradeHandler))
+	defer ts.Close()
+	ownerPeer := peerFor(t, "owner", ts.URL)
+	me := Peer{ID: "me"}
+	config := ClusterConfig{AllPeers: []Peer{me, ownerPeer}}
+	ownerCtx.config, ownerCtx.me = config, ownerPeer
+	// With the sole agent stopped there is no reachable leader.
+	local := &fakeHTTPUpgrade{}
+	s := serveUpgrade(&fakeHTTPContext{mode: ServiceModeCluster, config: config, me: me, masterURL: "http://127.0.0.1:1", upgrade: local})
+
+	w := doUpgradeRequest(s, http.MethodDelete)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, int32(1), owner.aborts.Load(), "the starter holding the failure did not abort")
+	require.Zero(t, local.aborts.Load())
+
+	// The holder aborts locally, not by forwarding to a leader.
+	direct := serveUpgrade(ownerCtx)
+	w = doUpgradeRequest(direct, http.MethodDelete)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, int32(2), owner.aborts.Load())
+}
+
+func TestStandaloneAbortRestartsStoppedServer(t *testing.T) {
+	p := &processWrapper{ctx: context.Background(), stopping: make(chan struct{}), serverType: definitions.ServerTypeSingle}
+	c := &standaloneUpgradeTestContext{peer: Peer{ID: "single"}, wrapper: p, restarts: make(chan definitions.ServerType, 1)}
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+	m.beginServerUpgrade(definitions.ServerTypeSingle)
+	m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeSingle)
+	failed, _ := p.recordAutoUpgradeExit(m, zerolog.Nop(), 1, func() string { return "FATAL single failed" }, nil)
+	require.True(t, failed)
+	m.singleUpgradeFailure = fmt.Errorf("single auto-upgrade exited with code 1")
+
+	// An upgrade in progress is not aborted.
+	m.singleUpgradeInProgress = true
+	require.True(t, client.IsBadRequest(m.AbortDatabaseUpgrade(context.Background())))
+	require.Empty(t, c.restarts)
+	m.singleUpgradeInProgress = false
+
+	require.NoError(t, m.AbortDatabaseUpgrade(context.Background()))
+	require.Equal(t, definitions.ServerType(definitions.ServerTypeSingle), <-c.restarts)
+	require.Nil(t, m.singleUpgradeFailure)
+	// No failed upgrade is reported any more; there is none to show.
+	_, err := m.Status(context.Background())
+	require.True(t, client.IsPreconditionFailed(err), "%v", err)
+
+	// Nothing left to abort.
+	require.True(t, client.IsBadRequest(m.AbortDatabaseUpgrade(context.Background())))
+}
+
+func TestReleasedAutoUpgradeExitIsNotACrash(t *testing.T) {
+	for _, exitCode := range []int{0, 3, 4} {
+		m := &upgradeManager{log: zerolog.Nop()}
+		m.beginServerUpgrade(definitions.ServerTypeDBServer)
+		m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
+		// Abort released the still running attempt.
+		require.NoError(t, m.ReleaseParkedUpgradeServer(definitions.ServerTypeDBServer))
+
+		p := &processWrapper{serverType: definitions.ServerTypeDBServer}
+		failed, released, _ := p.recordAutoUpgradeExitResult(m, zerolog.Nop(), exitCode, func() string { return "FATAL after release" }, nil)
+		require.False(t, failed, "exit %d: a released exit stopped the server", exitCode)
+		// The wrapper restarts it, bypassing crash counting and the
+		// non-recoverable exit code check that would stop the Starter.
+		require.True(t, released, "exit %d: a released exit was treated as a crash", exitCode)
+	}
+	// An unrelated exit is still an ordinary crash.
+	m := &upgradeManager{log: zerolog.Nop()}
+	p := &processWrapper{serverType: definitions.ServerTypeDBServer}
+	failed, released, _ := p.recordAutoUpgradeExitResult(m, zerolog.Nop(), 3, nil, nil)
+	require.False(t, failed)
+	require.False(t, released)
+}
+
+func TestParkedDBServerRestartsWithoutResign(t *testing.T) {
+	require.Equal(t, definitions.ServerType(definitions.ServerTypeDBServerNoResign), parkedRestartType(definitions.ServerTypeDBServer))
+	for _, serverType := range []definitions.ServerType{definitions.ServerTypeAgent, definitions.ServerTypeCoordinator, definitions.ServerTypeSingle, definitions.ServerTypeResilientSingle} {
+		require.Equal(t, serverType, parkedRestartType(serverType))
+	}
+}
+
+func TestLogFileMarkHasSizeAndIdentityOfOneFile(t *testing.T) {
+	path := t.TempDir() + "/arangod.log"
+	require.NoError(t, os.WriteFile(path, []byte("2026-11-16T10:00:00Z INFO first\n"), 0600))
+	size, id, known, err := fileSizeAndIdentity(path)
+	require.NoError(t, err)
+	require.Equal(t, int64(len("2026-11-16T10:00:00Z INFO first\n")), size)
+	mark := logFileMarkAt(path)
+	require.Equal(t, size, mark.size)
+	require.Equal(t, known, mark.known)
+	require.Equal(t, id, mark.id)
+
+	// The file that replaces it on rotation has another identity.
+	require.NoError(t, os.Rename(path, path+".1"))
+	require.NoError(t, os.WriteFile(path, []byte("x"), 0600))
+	_, replaced, _, err := fileSizeAndIdentity(path)
+	require.NoError(t, err)
+	if known {
+		require.NotEqual(t, id, replaced)
+	}
+	_, missing, _, err := fileSizeAndIdentity(path + ".missing")
+	require.True(t, os.IsNotExist(err), "%v", err)
+	require.Equal(t, logFileID{}, missing)
 }

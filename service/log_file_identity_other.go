@@ -22,8 +22,20 @@
 
 package service
 
+import "os"
+
 // fileIdentity is not available on this platform. Log reads then fall back
 // to the byte offset alone.
 func fileIdentity(string) (logFileID, bool) {
 	return logFileID{}, false
+}
+
+// fileSizeAndIdentity returns the size of the file at path. Its identity is
+// not available on this platform.
+func fileSizeAndIdentity(path string) (int64, logFileID, bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, logFileID{}, false, err
+	}
+	return info.Size(), logFileID{}, false, nil
 }
