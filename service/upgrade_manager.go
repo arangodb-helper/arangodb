@@ -117,6 +117,12 @@ type UpgradeManager interface {
 	// after a failed auto-upgrade, or marks a still-running attempt so its
 	// exit restarts the server instead of stopping it.
 	ReleaseParkedUpgradeServer(serverType definitions.ServerType) error
+
+	// ReleaseAbortedUpgradeServer is ReleaseParkedUpgradeServer for an abort
+	// of the plan created at planCreated, at planRevision. An attempt of that
+	// plan, up to that revision, that has not started its auto-upgrade
+	// process yet does not start it any more. A retry writes a newer revision.
+	ReleaseAbortedUpgradeServer(serverType definitions.ServerType, planCreated time.Time, planRevision int) error
 }
 
 // UpgradeManagerContext holds methods used by the upgrade manager to control its context.
@@ -321,6 +327,12 @@ type upgradeManager struct {
 	// before its restart is decided again. Tests use it to finish a newer
 	// attempt in that gap.
 	beforeParkedRestart func()
+	// abortedPlans records, per server type, the plan and revision that abort
+	// released. An attempt of that plan, up to that revision, that had passed
+	// its plan check but not yet begun must not start an unreleased
+	// auto-upgrade. Set and checked while holding serverStartMu. Protected by
+	// stateMu.
+	abortedPlans map[definitions.ServerType]abortedPlan
 	// afterLateFailureSnapshot, if set, runs after publishLateUpgradeFailure
 	// has checked its attempt and before it publishes. Tests use it to try
 	// to interleave reconciliation or a retry.
@@ -1017,6 +1029,11 @@ func (m *upgradeManager) retryLocalFailedPlan(ctx context.Context) error {
 	if !ok {
 		return maskAny(client.NewBadRequestError("The upgrade plan has not failed"))
 	}
+	// A local retry keeps the cached revision. An earlier abort of that
+	// revision that could not remove the plan must not block it.
+	m.stateMu.Lock()
+	m.abortedPlans = nil
+	m.stateMu.Unlock()
 	plan.ResetFailures()
 	if reset != nil {
 		// Later writes of this run are guarded by the agency revision.
@@ -1772,8 +1789,13 @@ func (m *upgradeManager) endServerUpgradePlan(plan *UpgradePlan) {
 func (m *upgradeManager) releaseFailedAutoUpgrades(ctx context.Context, plan UpgradePlan) error {
 	config, myPeer, _ := m.upgradeManagerContext.ClusterConfig()
 	entries := append([]UpgradePlanEntry{}, plan.Entries...)
+	created, revision := plan.CreatedAt, plan.Revision
 	if local, ok := m.localFailedPlanSnapshot(); ok && (plan.IsEmpty() || samePlan(local, plan)) {
 		entries = append(entries, local.Entries...)
+		created = local.CreatedAt
+		if local.Revision > revision {
+			revision = local.Revision
+		}
 	}
 	released := map[string]bool{}
 	for i, entry := range entries {
@@ -1795,7 +1817,7 @@ func (m *upgradeManager) releaseFailedAutoUpgrades(ctx context.Context, plan Upg
 		}
 		released[key] = true
 		if myPeer != nil && entry.PeerID == myPeer.ID {
-			if err := m.ReleaseParkedUpgradeServer(serverType); err != nil {
+			if err := m.ReleaseAbortedUpgradeServer(serverType, created, revision); err != nil {
 				return errors.Wrapf(err, "Failed to restart stopped %s before removing the upgrade plan", serverType)
 			}
 			continue
@@ -1805,9 +1827,13 @@ func (m *upgradeManager) releaseFailedAutoUpgrades(ctx context.Context, plan Upg
 		if !found {
 			err = maskAny(client.NewServiceUnavailableError(fmt.Sprintf("Failed to restart stopped %s on starter %s before removing the upgrade plan: peer is unknown", serverType, entry.PeerID)))
 		} else {
-			err = m.askPeerToRelease(ctx, peer, serverType)
+			err = m.askPeerToRelease(ctx, peer, serverType, created, revision)
 		}
-		if err != nil && active {
+		// A sole agent that fails after the plan is gone stops the agency, so
+		// its owner could never see that the plan is gone. Keep the plan, so
+		// abort can be repeated once the owner can be told.
+		soleAgent := entry.Type == UpgradeEntryTypeAgent && config.AgencySize <= 1
+		if err != nil && active && !soleAgent {
 			// Nothing is known to be stopped there. The owner releases its
 			// server itself once it sees that the plan is gone.
 			m.log.Warn().Err(err).Str("peer", entry.PeerID).Msg("Could not notify the starter working on the upgrade before removing the plan")
@@ -1928,6 +1954,41 @@ func parkedRestartType(serverType definitions.ServerType) definitions.ServerType
 	return serverType
 }
 
+// errUpgradePlanAborted is returned by startAutoUpgradeServer for an attempt
+// of a plan that abort has released.
+var errUpgradePlanAborted = errors.New("the upgrade plan was aborted")
+
+// abortedPlan identifies a plan revision that abort released.
+type abortedPlan struct {
+	created  time.Time
+	revision int
+}
+
+// markPlanAborted records that abort released serverType for the plan created
+// at planCreated, at planRevision. It holds serverStartMu, so an attempt of
+// that revision either began before, and is then released as running, or
+// does not start at all.
+func (m *upgradeManager) markPlanAborted(serverType definitions.ServerType, planCreated time.Time, planRevision int) {
+	m.serverStartMu.Lock()
+	defer m.serverStartMu.Unlock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	if m.abortedPlans == nil {
+		m.abortedPlans = map[definitions.ServerType]abortedPlan{}
+	}
+	m.abortedPlans[serverType] = abortedPlan{created: planCreated, revision: planRevision}
+}
+
+// ReleaseAbortedUpgradeServer marks the plan aborted for serverType, then
+// releases serverType like ReleaseParkedUpgradeServer.
+func (m *upgradeManager) ReleaseAbortedUpgradeServer(serverType definitions.ServerType, planCreated time.Time, planRevision int) error {
+	if !isReleasableServerType(serverType) {
+		return maskAny(client.NewBadRequestError(fmt.Sprintf("Cannot release server type '%s'", serverType)))
+	}
+	m.markPlanAborted(serverType, planCreated, planRevision)
+	return m.ReleaseParkedUpgradeServer(serverType)
+}
+
 // releaseSoleAgentForAbort restarts this starter's sole agent when its failed
 // auto-upgrade stopped it, and waits for the agency to answer again. The
 // cached failure is kept, so the plan watcher stays off the plan until abort
@@ -1961,9 +2022,19 @@ func (m *upgradeManager) releaseSoleAgentForAbort(ctx context.Context) error {
 // startAutoUpgradeServer marks the attempt and restarts its process while
 // holding serverStartMu. releaseServer uses that lock so its RestartServer
 // cannot run against the process this start creates.
-func (m *upgradeManager) startAutoUpgradeServer(serverType, restartAs definitions.ServerType) error {
+// plan is the plan the attempt belongs to, nil for a standalone upgrade. An
+// attempt of a plan that abort released for serverType is not started.
+func (m *upgradeManager) startAutoUpgradeServer(serverType, restartAs definitions.ServerType, plan *UpgradePlan) error {
 	m.serverStartMu.Lock()
 	defer m.serverStartMu.Unlock()
+	if plan != nil {
+		m.stateMu.Lock()
+		aborted, ok := m.abortedPlans[serverType]
+		m.stateMu.Unlock()
+		if ok && aborted.created.Equal(plan.CreatedAt) && plan.Revision <= aborted.revision {
+			return errUpgradePlanAborted
+		}
+	}
 	m.beginServerUpgrade(serverType)
 	if m.upgradeManagerContext == nil {
 		return nil
@@ -2028,8 +2099,20 @@ func isReleasableServerType(serverType definitions.ServerType) bool {
 // releaseUpgradeQuery asks the starter that owns a stopped server to restart it.
 const releaseUpgradeQuery = "release"
 
-func (m *upgradeManager) askPeerToRelease(ctx context.Context, peer Peer, serverType definitions.ServerType) error {
-	target := peer.CreateStarterURL("/database-auto-upgrade?" + releaseUpgradeQuery + "=" + url.QueryEscape(string(serverType)))
+// releasePlanQuery and releaseRevisionQuery identify the plan revision being
+// aborted, so the owner can keep a not yet started attempt of it from
+// starting.
+const (
+	releasePlanQuery     = "plan"
+	releaseRevisionQuery = "revision"
+)
+
+func (m *upgradeManager) askPeerToRelease(ctx context.Context, peer Peer, serverType definitions.ServerType, planCreated time.Time, planRevision int) error {
+	q := url.Values{}
+	q.Set(releaseUpgradeQuery, string(serverType))
+	q.Set(releasePlanQuery, planCreated.Format(time.RFC3339Nano))
+	q.Set(releaseRevisionQuery, strconv.Itoa(planRevision))
+	target := peer.CreateStarterURL("/database-auto-upgrade?" + q.Encode())
 	reqCtx, cancel := context.WithTimeout(ctx, localUpgradePeerTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodDelete, target, nil)
@@ -2355,7 +2438,10 @@ func (m *upgradeManager) processUpgradePlanEntry(ctx context.Context, plan Upgra
 	case UpgradeEntryTypeAgent:
 		// Restart the agency in auto-upgrade mode
 		m.log.Info().Msg("Upgrading agent")
-		if err := m.startAutoUpgradeServer(definitions.ServerTypeAgent, definitions.ServerTypeAgent); err != nil {
+		if err := m.startAutoUpgradeServer(definitions.ServerTypeAgent, definitions.ServerTypeAgent, &plan); err == errUpgradePlanAborted {
+			m.log.Info().Msg("The upgrade plan was aborted; not starting its auto-upgrade")
+			return nil
+		} else if err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to restart agent"))
 		}
 
@@ -2379,7 +2465,10 @@ func (m *upgradeManager) processUpgradePlanEntry(ctx context.Context, plan Upgra
 	case UpgradeEntryTypeDBServer:
 		// Restart the dbserver in auto-upgrade mode
 		m.log.Info().Msg("Upgrading dbserver")
-		if err := m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServerNoResign); err != nil {
+		if err := m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServerNoResign, &plan); err == errUpgradePlanAborted {
+			m.log.Info().Msg("The upgrade plan was aborted; not starting its auto-upgrade")
+			return nil
+		} else if err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to restart dbserver"))
 		}
 		upgrade := func() error {
@@ -2417,7 +2506,10 @@ func (m *upgradeManager) processUpgradePlanEntry(ctx context.Context, plan Upgra
 	case UpgradeEntryTypeCoordinator:
 		// Restart the coordinator in auto-upgrade mode
 		m.log.Info().Msg("Upgrading coordinator")
-		if err := m.startAutoUpgradeServer(definitions.ServerTypeCoordinator, definitions.ServerTypeCoordinator); err != nil {
+		if err := m.startAutoUpgradeServer(definitions.ServerTypeCoordinator, definitions.ServerTypeCoordinator, &plan); err == errUpgradePlanAborted {
+			m.log.Info().Msg("The upgrade plan was aborted; not starting its auto-upgrade")
+			return nil
+		} else if err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to restart coordinator"))
 		}
 
@@ -2439,7 +2531,10 @@ func (m *upgradeManager) processUpgradePlanEntry(ctx context.Context, plan Upgra
 	case UpgradeEntryTypeSingle:
 		// Restart the activefailover single server in auto-upgrade mode
 		m.log.Info().Msg("Upgrading single server")
-		if err := m.startAutoUpgradeServer(definitions.ServerTypeResilientSingle, definitions.ServerTypeResilientSingle); err != nil {
+		if err := m.startAutoUpgradeServer(definitions.ServerTypeResilientSingle, definitions.ServerTypeResilientSingle, &plan); err == errUpgradePlanAborted {
+			m.log.Info().Msg("The upgrade plan was aborted; not starting its auto-upgrade")
+			return nil
+		} else if err != nil {
 			return recordFailure(errors.Wrap(err, "Failed to restart single server"))
 		}
 		upgrade := func() error {
@@ -2633,7 +2728,7 @@ func (m *upgradeManager) runSingleServerUpgradeProcess(ctx context.Context, myPe
 	}
 	// Restart the single server in auto-upgrade mode
 	m.log.Info().Msg("Upgrading single server")
-	if err := m.startAutoUpgradeServer(definitions.ServerTypeSingle, definitions.ServerTypeSingle); err != nil {
+	if err := m.startAutoUpgradeServer(definitions.ServerTypeSingle, definitions.ServerTypeSingle, nil); err != nil {
 		m.log.Error().Err(err).Msg("Failed to restart single server")
 		return err
 	}

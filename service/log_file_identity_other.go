@@ -39,3 +39,8 @@ func fileSizeAndIdentity(path string) (int64, logFileID, bool, error) {
 	}
 	return info.Size(), logFileID{}, false, nil
 }
+
+// openedFileIdentity is not available on this platform.
+func openedFileIdentity(*os.File) (logFileID, bool) {
+	return logFileID{}, false
+}

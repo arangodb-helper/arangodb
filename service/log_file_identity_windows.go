@@ -62,3 +62,16 @@ func fileSizeAndIdentity(path string) (int64, logFileID, bool, error) {
 		index:  uint64(info.FileIndexHigh)<<32 | uint64(info.FileIndexLow),
 	}, true, nil
 }
+
+// openedFileIdentity returns the volume serial number and file index of an
+// open file, so a reader can check which file it actually opened.
+func openedFileIdentity(f *os.File) (logFileID, bool) {
+	var info syscall.ByHandleFileInformation
+	if err := syscall.GetFileInformationByHandle(syscall.Handle(f.Fd()), &info); err != nil {
+		return logFileID{}, false
+	}
+	return logFileID{
+		volume: uint64(info.VolumeSerialNumber),
+		index:  uint64(info.FileIndexHigh)<<32 | uint64(info.FileIndexLow),
+	}, true
+}

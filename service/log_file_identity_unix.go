@@ -47,3 +47,17 @@ func fileSizeAndIdentity(path string) (int64, logFileID, bool, error) {
 	}
 	return info.Size(), logFileID{volume: uint64(stat.Dev), index: uint64(stat.Ino)}, true, nil
 }
+
+// openedFileIdentity returns the device and inode of an open file, so a
+// reader can check which file it actually opened.
+func openedFileIdentity(f *os.File) (logFileID, bool) {
+	info, err := f.Stat()
+	if err != nil {
+		return logFileID{}, false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return logFileID{}, false
+	}
+	return logFileID{volume: uint64(stat.Dev), index: uint64(stat.Ino)}, true
+}

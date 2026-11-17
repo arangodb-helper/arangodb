@@ -320,30 +320,6 @@ func existingRotationIDs(logPath string) ([]logFileID, bool) {
 	}
 }
 
-func sameLogFile(path string, mark logFileMark) bool {
-	if !mark.known {
-		return true
-	}
-	id, ok := fileIdentity(path)
-	return ok && id == mark.id
-}
-
-// isCurrentLogFile reports whether the file at logPath is still the marked
-// one. If its identity cannot be read right now, the offset alone is used,
-// so a passing error does not pull older rotations into the result.
-func isCurrentLogFile(logPath string, mark logFileMark) bool {
-	if mark.absent {
-		// Without file identity, only the recreated file can be read safely.
-		// Rotations that already existed cannot be told from new ones.
-		return !mark.known
-	}
-	if !mark.known {
-		return true
-	}
-	id, ok := fileIdentity(logPath)
-	return !ok || id == mark.id
-}
-
 // readServerLogSince reads the log written at and after offset. It streams
 // the whole attempt, keeping a bounded set of ERROR and FATAL lines and the
 // actual tail, so a long log does not hide either.
@@ -355,76 +331,145 @@ func readServerLogSince(logPath string, offset int64) (string, error) {
 // have renamed while the attempt was running. It then reads the marked file
 // from its offset, every newer rotation, and the current file, oldest first.
 func readServerLogSinceMark(logPath string, mark logFileMark) (string, error) {
-	var parts []io.Reader
-	var files []*os.File
-	defer func() {
-		for _, f := range files {
-			_ = f.Close()
-		}
-	}()
-	addFrom := func(path string, offset int64) error {
-		logFile, err := os.Open(path)
+	// Files are selected by identity and opened afterwards. A rotation in
+	// between makes the opened files differ from the selection; it is then
+	// selected again, so ERROR and FATAL lines are not skipped.
+	const attempts = 3
+	for attempt := 1; ; attempt++ {
+		parts, files, consistent, err := openServerLogSinceMark(logPath, mark)
 		if err != nil {
-			if os.IsNotExist(err) {
-				return nil
-			}
-			return err
+			return "", err
 		}
-		files = append(files, logFile)
-		info, err := logFile.Stat()
+		if !consistent && attempt < attempts {
+			closeLogFiles(files)
+			continue
+		}
+		defer closeLogFiles(files)
+		if len(parts) == 0 {
+			return "", nil
+		}
+		return streamImportantAndTail(io.MultiReader(parts...))
+	}
+}
+
+// logSelectionHook, if set, runs before the log files are opened. Tests use it
+// to rotate the log at that moment.
+var logSelectionHook func()
+
+func closeLogFiles(files []*os.File) {
+	for _, f := range files {
+		_ = f.Close()
+	}
+}
+
+// openServerLogSinceMark opens the log written since mark, positioned at the
+// attempt's first byte. consistent is false when a rotation changed the files
+// between selecting and opening them.
+func openServerLogSinceMark(logPath string, mark logFileMark) (parts []io.Reader, files []*os.File, consistent bool, err error) {
+	consistent = true
+	use := func(f *os.File, offset int64) error {
+		files = append(files, f)
+		info, err := f.Stat()
 		if err != nil {
 			return err
 		}
 		if offset < 0 || offset > info.Size() {
 			offset = 0
 		}
-		if _, err := logFile.Seek(offset, io.SeekStart); err != nil {
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
 			return err
 		}
-		parts = append(parts, logFile)
+		parts = append(parts, f)
 		return nil
+	}
+	// addFrom reads path from offset. When the identity it was selected by is
+	// known, the opened file must still be that file.
+	addFrom := func(path string, offset int64, want logFileID, wantKnown bool) error {
+		f, err := os.Open(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if wantKnown {
+					consistent = false
+				}
+				return nil
+			}
+			return err
+		}
+		if wantKnown {
+			if id, ok := openedFileIdentity(f); ok && id != want {
+				_ = f.Close()
+				consistent = false
+				return nil
+			}
+		}
+		return use(f, offset)
+	}
+	fail := func(err error) ([]io.Reader, []*os.File, bool, error) {
+		closeLogFiles(files)
+		return nil, nil, false, err
 	}
 
 	if _, err := os.Stat(logPath); err != nil && !os.IsNotExist(err) {
-		return "", err
-	} else if mark.absent && mark.known {
-		for _, rotated := range rotationsSinceAbsent(logPath, mark) {
-			if err := addFrom(rotated.path, rotated.offset); err != nil {
-				return "", err
+		return fail(err)
+	}
+	if logSelectionHook != nil {
+		logSelectionHook()
+	}
+	if mark.absent && mark.known {
+		rotated := rotationsSinceAbsent(logPath, mark)
+		currentID, currentKnown := fileIdentity(logPath)
+		for _, r := range rotated {
+			if err := addFrom(r.path, r.offset, r.id, r.known); err != nil {
+				return fail(err)
 			}
 		}
-		if err := addFrom(logPath, 0); err != nil {
-			return "", err
+		if err := addFrom(logPath, 0, currentID, currentKnown); err != nil {
+			return fail(err)
 		}
-	} else if err == nil && isCurrentLogFile(logPath, mark) {
-		if err := addFrom(logPath, mark.size); err != nil {
-			return "", err
-		}
-	} else {
-		for _, rotated := range rotatedLogFilesSince(logPath, mark) {
-			if err := addFrom(rotated.path, rotated.offset); err != nil {
-				return "", err
+		return parts, files, consistent, nil
+	}
+	// The marked file is still the current log: read it from the mark.
+	// Its identity is checked on the opened file, not on the path, so a
+	// rotation right before the open is not read from the old offset.
+	if f, err := os.Open(logPath); err == nil {
+		id, ok := openedFileIdentity(f)
+		if mark.absent || !mark.known || !ok || id == mark.id {
+			if err := use(f, mark.size); err != nil {
+				return fail(err)
 			}
+			return parts, files, consistent, nil
 		}
-		if err := addFrom(logPath, 0); err != nil {
-			return "", err
+		_ = f.Close()
+	} else if !os.IsNotExist(err) {
+		return fail(err)
+	}
+	// The log was rotated since the mark: read the rotations written since,
+	// then the current file from its start.
+	rotated := rotatedLogFilesSince(logPath, mark)
+	currentID, currentKnown := fileIdentity(logPath)
+	for _, r := range rotated {
+		if err := addFrom(r.path, r.offset, r.id, r.known); err != nil {
+			return fail(err)
 		}
 	}
-	if len(parts) == 0 {
-		return "", nil
+	if err := addFrom(logPath, 0, currentID, currentKnown); err != nil {
+		return fail(err)
 	}
-	return streamImportantAndTail(io.MultiReader(parts...))
+	return parts, files, consistent, nil
 }
 
 type rotatedLogFile struct {
 	path   string
 	offset int64
+	// id is the identity the file was selected by, when known.
+	id    logFileID
+	known bool
 }
 
 // rotationsSinceAbsent returns rotated files created during an attempt whose
 // log did not exist yet, oldest first. Rotations that already existed are skipped.
 func rotationsSinceAbsent(logPath string, mark logFileMark) []rotatedLogFile {
-	var newestFirst []string
+	var newestFirst []rotatedLogFile
 	for i := 1; ; i++ {
 		candidate := fmt.Sprintf("%s.%d", logPath, i)
 		id, ok := fileIdentity(candidate)
@@ -437,11 +482,11 @@ func rotationsSinceAbsent(logPath string, mark logFileMark) []rotatedLogFile {
 		if priorRotation(mark, id) {
 			continue
 		}
-		newestFirst = append(newestFirst, candidate)
+		newestFirst = append(newestFirst, rotatedLogFile{path: candidate, id: id, known: true})
 	}
 	result := make([]rotatedLogFile, 0, len(newestFirst))
 	for i := len(newestFirst) - 1; i >= 0; i-- {
-		result = append(result, rotatedLogFile{path: newestFirst[i], offset: 0})
+		result = append(result, newestFirst[i])
 	}
 	return result
 }
@@ -463,26 +508,27 @@ func rotatedLogFilesSince(logPath string, mark logFileMark) []rotatedLogFile {
 	if !mark.known {
 		return []rotatedLogFile{{path: logPath + ".1", offset: mark.size}}
 	}
-	var newestFirst []string
+	var newestFirst []rotatedLogFile
 	marked := -1
 	for i := 1; ; i++ {
 		candidate := logPath + fmt.Sprintf(".%d", i)
 		if _, err := os.Stat(candidate); err != nil {
 			break
 		}
-		newestFirst = append(newestFirst, candidate)
-		if sameLogFile(candidate, mark) {
+		id, known := fileIdentity(candidate)
+		newestFirst = append(newestFirst, rotatedLogFile{path: candidate, id: id, known: known})
+		if known && id == mark.id {
 			marked = len(newestFirst) - 1
 			break
 		}
 	}
 	var result []rotatedLogFile
 	for i := len(newestFirst) - 1; i >= 0; i-- {
-		offset := int64(0)
+		file := newestFirst[i]
 		if i == marked {
-			offset = mark.size
+			file.offset = mark.size
 		}
-		result = append(result, rotatedLogFile{path: newestFirst[i], offset: offset})
+		result = append(result, file)
 	}
 	return result
 }

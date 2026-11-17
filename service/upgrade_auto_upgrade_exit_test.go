@@ -1127,6 +1127,13 @@ type fakeHTTPUpgrade struct {
 	retries       atomic.Int32
 	localRetries  atomic.Int32
 	aborts        atomic.Int32
+	// abortedRelease records the last ReleaseAbortedUpgradeServer call.
+	abortedRelease string
+}
+
+func (u *fakeHTTPUpgrade) ReleaseAbortedUpgradeServer(serverType definitions.ServerType, planCreated time.Time, planRevision int) error {
+	u.abortedRelease = fmt.Sprintf("%s@%s#%d", serverType, planCreated.Format(time.RFC3339Nano), planRevision)
+	return nil
 }
 
 func (u *fakeHTTPUpgrade) AbortDatabaseUpgrade(context.Context) error {
@@ -2134,7 +2141,7 @@ func TestStaleReleaseDoesNotRestartNewerAttempt(t *testing.T) {
 	_, staleAttempt := m.currentAutoUpgradeAttempt()
 	started := make(chan struct{})
 	go func() {
-		_ = m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServer)
+		_ = m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServer, nil)
 		close(started)
 	}()
 	select {
@@ -2168,7 +2175,7 @@ func TestStaleReleaseLeavesCompletedNewerAttemptRunning(t *testing.T) {
 	require.True(t, m.ServerDatabaseAutoUpgradeFinished(definitions.ServerTypeDBServer, 1, "FATAL parked"))
 
 	m.beforeParkedRestart = func() {
-		require.NoError(t, m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServer))
+		require.NoError(t, m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServer, nil))
 		m.ServerDatabaseAutoUpgradeStarter(definitions.ServerTypeDBServer)
 		require.True(t, m.ServerDatabaseAutoUpgradeFinished(definitions.ServerTypeDBServer, 0, ""))
 		m.endServerUpgrade()
@@ -2197,7 +2204,7 @@ func TestReleaseRestartsWhenAnotherServerTypeStarted(t *testing.T) {
 	require.True(t, m.ServerDatabaseAutoUpgradeFinished(definitions.ServerTypeDBServer, 1, "FATAL parked"))
 
 	m.beforeParkedRestart = func() {
-		require.NoError(t, m.startAutoUpgradeServer(definitions.ServerTypeAgent, definitions.ServerTypeAgent))
+		require.NoError(t, m.startAutoUpgradeServer(definitions.ServerTypeAgent, definitions.ServerTypeAgent, nil))
 	}
 	require.NoError(t, m.releaseServer(definitions.ServerTypeDBServer, nil))
 
@@ -2335,7 +2342,7 @@ func TestStaleReleaseDoesNotRestartProcessOfStartingAttempt(t *testing.T) {
 	m.beforeParkedRestart = func() {
 		done := make(chan struct{})
 		go func() {
-			_ = m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServer)
+			_ = m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServer, nil)
 			close(done)
 		}()
 		select {
@@ -2614,4 +2621,121 @@ func TestStandaloneRetryCannotBeOverwrittenByOldExit(t *testing.T) {
 		t.Fatal("retry did not finish")
 	}
 	require.EqualError(t, m.singleUpgradeFailure, "newer retry failure")
+}
+
+func TestAbortKeepsPlanWhenSoleAgentOwnerIsUnreachable(t *testing.T) {
+	gone := httptest.NewServer(http.NotFoundHandler())
+	ownerPeer := peerFor(t, "owner", gone.URL)
+	gone.Close()
+	leader := Peer{ID: "leader", Address: "10.0.0.2", Port: 8528}
+	c := &blockingRestartContext{
+		unavailableAgencyContext: unavailableAgencyContext{peer: leader, restarts: make(chan definitions.ServerType, 1)},
+		config:                   ClusterConfig{AllPeers: []Peer{leader, ownerPeer}, AgencySize: 1},
+		release:                  make(chan struct{}),
+	}
+	defer close(c.release)
+	// The sole agent's auto-upgrade is being worked on and has not failed.
+	plan := UpgradePlan{Revision: 4, CreatedAt: time.Unix(1700000000, 0).UTC(), Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeAgent, PeerID: "owner"}}}
+	a := &planAgency{plan: &plan}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+
+	// If it failed after the plan is gone, the stopped agency would keep its
+	// owner from ever seeing that. So the plan is kept for another abort.
+	err := m.AbortDatabaseUpgrade(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "owner")
+	require.Equal(t, plan.Revision, a.current().Revision)
+}
+
+func TestAbortedPlanAttemptDoesNotStart(t *testing.T) {
+	created := time.Unix(1700000000, 0).UTC()
+	plan := UpgradePlan{Revision: 4, CreatedAt: created, Entries: []UpgradePlanEntry{{Type: UpgradeEntryTypeDBServer, PeerID: "peer1"}}}
+	a := &planAgency{plan: &plan}
+	c := &unavailableAgencyContext{
+		peer:     Peer{ID: "peer1", Address: "10.0.0.2", Port: 8528},
+		restarts: make(chan definitions.ServerType, 4),
+		wrapper:  &processWrapper{},
+	}
+	c.agency = a.start(t)
+	m := &upgradeManager{log: zerolog.Nop(), upgradeManagerContext: c}
+
+	// Abort released this server type before the attempt, which had already
+	// validated the plan, began.
+	require.NoError(t, m.ReleaseAbortedUpgradeServer(definitions.ServerTypeDBServer, created, plan.Revision))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, m.processUpgradePlanEntry(ctx, plan, false))
+	require.Empty(t, c.restarts, "an attempt of the aborted plan started an unreleased auto-upgrade")
+	require.False(t, m.IsServerUpgradeInProgress(definitions.ServerTypeDBServer))
+	require.False(t, a.current().IsFailed(), "the skipped attempt must not record a failure")
+
+	// A retry writes a newer revision, and another plan is unaffected.
+	for _, other := range []UpgradePlan{
+		{Revision: plan.Revision + 1, CreatedAt: created},
+		{Revision: 1, CreatedAt: created.Add(time.Hour)},
+	} {
+		require.NoError(t, m.startAutoUpgradeServer(definitions.ServerTypeDBServer, definitions.ServerTypeDBServerNoResign, &other))
+		require.Equal(t, definitions.ServerType(definitions.ServerTypeDBServerNoResign), <-c.restarts)
+		m.endServerUpgrade()
+	}
+}
+
+func TestAbortReleaseRequestCarriesPlanRevision(t *testing.T) {
+	created := time.Unix(1700000000, 123).UTC()
+	var query url.Values
+	owner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer owner.Close()
+	m := &upgradeManager{log: zerolog.Nop()}
+	require.NoError(t, m.askPeerToRelease(context.Background(), peerFor(t, "owner", owner.URL), definitions.ServerTypeDBServer, created, 7))
+	require.Equal(t, "dbserver", query.Get(releaseUpgradeQuery))
+
+	// The owner's handler passes the plan revision on.
+	um := &fakeHTTPUpgrade{}
+	s := serveUpgrade(&fakeHTTPContext{mode: ServiceModeCluster, me: Peer{ID: "owner"}, upgrade: um})
+	w := httptest.NewRecorder()
+	s.databaseAutoUpgradeHandler(w, httptest.NewRequest(http.MethodDelete, "/database-auto-upgrade?"+query.Encode(), nil))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, "dbserver@"+created.Format(time.RFC3339Nano)+"#7", um.abortedRelease)
+
+	query.Set(releaseRevisionQuery, "x")
+	w = httptest.NewRecorder()
+	s.databaseAutoUpgradeHandler(w, httptest.NewRequest(http.MethodDelete, "/database-auto-upgrade?"+query.Encode(), nil))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestServerLogReadAcrossRotationDuringSelection(t *testing.T) {
+	path := t.TempDir() + "/arangod.log"
+	before := "2026-11-17T10:00:00Z INFO [aaaaa] a line written before the auto-upgrade attempt started\n"
+	require.NoError(t, os.WriteFile(path, []byte(before), 0600))
+	mark := logFileMarkAt(path)
+	if !mark.known {
+		t.Skip("file identity is not available on this platform")
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	require.NoError(t, err)
+	_, err = f.WriteString("2026-11-17T10:00:01Z ERROR [bbbbb] attempt failed before rotation\n")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	// The log rotates after the reader checked the current file, but before
+	// it opened it. The new file is longer than the old offset.
+	logSelectionHook = func() {
+		logSelectionHook = nil
+		require.NoError(t, os.Rename(path, path+".1"))
+		require.NoError(t, os.WriteFile(path, []byte(
+			"2026-11-17T10:00:02Z ERROR [ccccc] first line of the new file is not skipped\n"+
+				"2026-11-17T10:00:03Z FATAL [ddddd] crash\n"), 0600))
+	}
+	t.Cleanup(func() { logSelectionHook = nil })
+
+	text, err := readServerLogSinceMark(path, mark)
+	require.NoError(t, err)
+	require.Contains(t, text, "attempt failed before rotation")
+	require.Contains(t, text, "first line of the new file is not skipped")
+	require.Contains(t, text, "FATAL [ddddd] crash")
+	require.NotContains(t, text, "before the auto-upgrade attempt started")
 }

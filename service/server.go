@@ -729,6 +729,21 @@ func (s *httpServer) databaseAutoUpgradeHandler(w http.ResponseWriter, r *http.R
 				writeError(w, http.StatusBadRequest, fmt.Sprintf("Cannot release server type '%s'", serverType))
 				return
 			}
+			if created := r.URL.Query().Get(releasePlanQuery); created != "" {
+				// Abort of that plan: an attempt of it must not start any more.
+				planCreated, err := time.Parse(time.RFC3339Nano, created)
+				if err != nil {
+					writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid plan creation time '%s'", created))
+					return
+				}
+				planRevision, err := strconv.Atoi(r.URL.Query().Get(releaseRevisionQuery))
+				if err != nil {
+					writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid plan revision '%s'", r.URL.Query().Get(releaseRevisionQuery)))
+					return
+				}
+				writeUpgradeResult(w, s.context.UpgradeManager().ReleaseAbortedUpgradeServer(definitions.ServerType(serverType), planCreated, planRevision))
+				return
+			}
 			writeUpgradeResult(w, s.context.UpgradeManager().ReleaseParkedUpgradeServer(definitions.ServerType(serverType)))
 			return
 		}
