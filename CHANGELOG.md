@@ -1,6 +1,9 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+- Bump `github.com/arangodb-helper/go-certificates` so Java keystore creation uses `github.com/pavlo-v-chernykh/keystore-go/v4` v4.5.0 for CVE-2026-76101
+
+## [v0.18.35](https://github.com/arangodb-helper/arangodb/tree/0.18.35) (2026-11-20)
 - Bump Go version from 1.26.10 to 1.26.11 for the stdlib net/http CVE fix (GO-2026-6859)
 - Report a non-zero arangod exit during database auto-upgrade as a failed plan with the exit code and ERROR/FATAL lines from that attempt, keep the failed server stopped until an explicit retry, and retry standalone or sole-agent failures locally when the plan cannot be stored. Aborting the plan restarts a server that auto-upgrade left stopped, and a still-running attempt is released so its later exit does not stop the server after the plan is gone. That restart is ordered with a newer attempt of the same server, so an earlier abort cannot restart the newer process. `arangodb upgrade` prints the failure as one error line with the details indented under it.
 
