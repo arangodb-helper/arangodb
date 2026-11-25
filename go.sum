@@ -4,8 +4,8 @@ github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c h1:udKWzYgxTojEK
 github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
-github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680 h1:5YCGq0gkf/sCEkDFIsMBPj59GOm5cMibGqDBH2OWWfQ=
-github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680/go.mod h1:xDyzBwyYzcEhsaDXtmxCNM4p5BrtuoVYYsRTuJqmCeg=
+github.com/arangodb-helper/go-certificates v0.0.0-20261125033704-e6332d938d79 h1:bu72xwaFfYoILNx779I3hbO/xV1dlSRfgB6fAXXxOu8=
+github.com/arangodb-helper/go-certificates v0.0.0-20261125033704-e6332d938d79/go.mod h1:KY0uzK9xVGBJRCQ1CmDAi6Tq2jTicqeRFDL5HhLuQgU=
 github.com/arangodb/go-driver/v2 v2.4.1 h1:ZX5JOHWLUZakkcXU98k0LVOFFn0k/w9fO7eSnXcM0xI=
 github.com/arangodb/go-driver/v2 v2.4.1/go.mod h1:fzPx3qL0Eci3tgb6lP2lkUSQXzQDNB1azMrblHRPX9o=
 github.com/arangodb/go-upgrade-rules v0.0.0-20260330065022-e2aeb2c0d38a h1:dvNqw8AfQnvY9ISBNyRAsFkqDog/5ael7BsLWqBY9yc=
@@ -102,8 +102,8 @@ github.com/opencontainers/go-digest v1.0.0 h1:apOUWs51W5PlhuyGyz9FCeeBIOUDA/6nW8
 github.com/opencontainers/go-digest v1.0.0/go.mod h1:0JzlMkj0TRzQZfJkVvzbP0HBR3IKzErnv2BNG4W4MAM=
 github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJwooC2xJA040=
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
-github.com/pavel-v-chernykh/keystore-go v2.1.0+incompatible h1:Jd6xfriVlJ6hWPvYOE0Ni0QWcNTLRehfGPFxr3eSL80=
-github.com/pavel-v-chernykh/keystore-go v2.1.0+incompatible/go.mod h1:xlUlxe/2ItGlQyMTstqeDv9r3U4obH7xYd26TbDQutY=
+github.com/pavlo-v-chernykh/keystore-go/v4 v4.5.0 h1:2nosf3P75OZv2/ZO/9Px5ZgZ5gbKrzA3joN1QMfOGMQ=
+github.com/pavlo-v-chernykh/keystore-go/v4 v4.5.0/go.mod h1:lAVhWwbNaveeJmxrxuSTxMgKpF6DjnuVpn6T8WiBwYQ=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=

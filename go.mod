@@ -3,7 +3,7 @@ module github.com/arangodb-helper/arangodb
 go 1.26.11
 
 require (
-	github.com/arangodb-helper/go-certificates v0.0.0-20180821055445-9fca24fc2680
+	github.com/arangodb-helper/go-certificates v0.0.0-20261125033704-e6332d938d79
 	github.com/arangodb/go-driver/v2 v2.4.1
 	github.com/arangodb/go-upgrade-rules v0.0.0-20260330065022-e2aeb2c0d38a
 	github.com/cenkalti/backoff v2.2.1+incompatible
@@ -55,7 +55,7 @@ require (
 	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
-	github.com/pavel-v-chernykh/keystore-go v2.1.0+incompatible // indirect
+	github.com/pavlo-v-chernykh/keystore-go/v4 v4.5.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	golang.org/x/net v0.62.0 // indirect
