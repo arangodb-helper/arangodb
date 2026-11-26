@@ -1,6 +1,8 @@
 # ArangoDB Starter Changelog
 
 ## [master](https://github.com/arangodb-helper/arangodb/tree/master) (N/A)
+
+## [v0.18.36](https://github.com/arangodb-helper/arangodb/tree/0.18.36) (2026-11-25)
 - Bump `github.com/arangodb-helper/go-certificates` so Java keystore creation uses `github.com/pavlo-v-chernykh/keystore-go/v4` v4.5.0 for CVE-2026-76101
 
 ## [v0.18.35](https://github.com/arangodb-helper/arangodb/tree/0.18.35) (2026-11-20)
